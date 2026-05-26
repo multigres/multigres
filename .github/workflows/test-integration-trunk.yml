@@ -1,0 +1,111 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Parallel integration test workflow that uploads results to Trunk Flaky Tests
+# and uses Trunk's quarantine feature to suppress known-flaky failures. The
+# canonical, required check still lives in test-integration.yml — this workflow
+# is intentionally kept separate so it can be rolled out gradually without
+# touching the merge gate. Once Trunk has accumulated enough flake history and
+# we are happy with quarantine behaviour, we can collapse the two.
+
+name: Multigres Integration Tests (Trunk)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test-integration-trunk:
+    name: Run full integration test suite (Trunk-instrumented)
+    runs-on: ubuntu-24.04
+    environment: ci
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+
+      - name: Build
+        run: make build
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
+      # gotestsum has no automatic test retry (no --rerun-fails flag set), as
+      # required by Trunk Flaky Tests for accurate flake detection.
+      #
+      # continue-on-error keeps the workflow going on test failures so the
+      # Trunk uploader (below) can decide pass/fail based on whether failures
+      # are quarantined. The uploader is the actual gate.
+      - name: Run integration tests
+        id: tests
+        continue-on-error: true
+        env:
+          TEST_PRINT_LOGS: "1"
+          AWS_ACCESS_KEY_ID: test-access-key
+          AWS_SECRET_ACCESS_KEY: test-secret-key
+        run: gotestsum --format pkgname --junitfile junit-integration.xml --jsonfile integration-test-results.jsonl -- -skip TestPostgreSQLRegression ./go/test/endtoend/...
+
+      - name: Stop port pool server
+        run: kill "$PORT_POOL_PID" || true
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-test-logs-trunk
+          path: |
+            integration-test-results.jsonl
+            junit-integration.xml
+          retention-days: 7
+
+      - name: Test Report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Integration Tests (Trunk)
+          path: integration-test-results.jsonl
+          reporter: golang-json
+
+      # Quarantine gate: this step's exit code determines workflow success.
+      # If only quarantined tests failed, the uploader exits 0 and the workflow
+      # passes; non-quarantined failures still fail the workflow. Pair with
+      # continue-on-error on the test step above so we always reach this step.
+      - name: Upload test results to Trunk
+        if: ${{ !cancelled() }}
+        uses: trunk-io/analytics-uploader@95a0fb8b29e45b6068304261fb518644b426a803 # v2.0.8
+        with:
+          junit-paths: junit-integration.xml
+          org-slug: multigres
+          token: ${{ secrets.TRUNK_API_TOKEN }}
+          quarantine: true
+          previous-step-outcome: ${{ steps.tests.outcome }}
