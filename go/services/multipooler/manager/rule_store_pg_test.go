@@ -110,6 +110,65 @@ func (s *connQueryService) QueryMultiStatement(ctx context.Context, query string
 	return err
 }
 
+func (s *connQueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
+	if _, err := s.conn.Query(ctx, "BEGIN"); err != nil {
+		return nil, err
+	}
+	return &connTx{conn: s.conn}, nil
+}
+
+// connTx implements executor.InternalTx over a single *client.Conn for tests.
+type connTx struct {
+	conn     *client.Conn
+	finished bool
+}
+
+func (tx *connTx) Query(ctx context.Context, query string) (*sqltypes.Result, error) {
+	if tx.finished {
+		return nil, errors.New("transaction already finished")
+	}
+	results, err := tx.conn.QueryArgs(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return &sqltypes.Result{}, nil
+	}
+	return results[0], nil
+}
+
+func (tx *connTx) QueryArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
+	if tx.finished {
+		return nil, errors.New("transaction already finished")
+	}
+	results, err := tx.conn.QueryArgs(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return &sqltypes.Result{}, nil
+	}
+	return results[0], nil
+}
+
+func (tx *connTx) Commit(ctx context.Context) error {
+	if tx.finished {
+		return errors.New("transaction already finished")
+	}
+	tx.finished = true
+	_, err := tx.conn.Query(ctx, "COMMIT")
+	return err
+}
+
+func (tx *connTx) Rollback(ctx context.Context) error {
+	if tx.finished {
+		return nil
+	}
+	tx.finished = true
+	_, err := tx.conn.Query(ctx, "ROLLBACK")
+	return err
+}
+
 // TestMain sets up the PATH for PG binaries and the orphan-detection watchdog,
 // runs the tests, and tears down the postgres instance if it was started.
 // Postgres is started lazily by the first PG test (via skipIfNoPG) so that
