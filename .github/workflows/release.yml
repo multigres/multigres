@@ -110,9 +110,11 @@ jobs:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          echo "RELEASE_TAG=$TAG_NAME" >> "$GITHUB_ENV"
-          echo "PUSH_IMAGE=true" >> "$GITHUB_ENV"
-          echo "IMAGE_REF=ghcr.io/${REPOSITORY_OWNER}/${IMAGE}" >> "$GITHUB_ENV"
+          {
+            echo "RELEASE_TAG=$TAG_NAME"
+            echo "PUSH_IMAGE=true"
+            echo "IMAGE_REF=ghcr.io/${REPOSITORY_OWNER}/${IMAGE}"
+          } >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
