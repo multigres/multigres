@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/tools/prototest"
 )
 
 // coordA and coordB are distinct coordinator IDs used across revocation tests.
@@ -266,9 +267,19 @@ func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
 	t.Run("empty statuses returns error", func(t *testing.T) {
-		rev, err := NewTermRevocation(nil, coord)
+		rev, err := NewTermRevocation(nil, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "statuses must be non-empty")
+		require.Nil(t, rev)
+	})
+
+	t.Run("nil initiatedAt returns error", func(t *testing.T) {
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{CurrentPosition: positionAtCoordTerm(4)},
+		}
+		rev, err := NewTermRevocation(statuses, coord, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "initiatedAt must be non-nil")
 		require.Nil(t, rev)
 	})
 
@@ -277,7 +288,7 @@ func TestNewTermRevocation(t *testing.T) {
 		// rule. NewTermRevocation refuses; the agent should construct the
 		// revocation directly with an explicit outgoing_rule.
 		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -291,7 +302,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -312,12 +323,14 @@ func TestNewTermRevocation(t *testing.T) {
 				CurrentPosition: positionAtCoordTerm(4),
 			},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
-		require.Equal(t, int64(8), rev.GetRevokedBelowTerm())
-		require.Equal(t, "coord-1", rev.GetAcceptedCoordinatorId().GetName())
-		require.NotNil(t, rev.GetCoordinatorInitiatedAt())
-		require.Equal(t, int64(4), rev.GetOutgoingRule().GetCoordinatorTerm())
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       8,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+		}, rev)
 	})
 
 	t.Run("uses max of recorded rule terms", func(t *testing.T) {
@@ -325,9 +338,14 @@ func TestNewTermRevocation(t *testing.T) {
 			{CurrentPosition: positionAtCoordTerm(4)},
 			{CurrentPosition: positionAtCoordTerm(9)},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
-		require.Equal(t, int64(10), rev.GetRevokedBelowTerm())
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       10,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 9},
+		}, rev)
 	})
 
 	t.Run("takes max across both revocation and rule terms", func(t *testing.T) {
@@ -335,9 +353,14 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6}},
 			{CurrentPosition: positionAtCoordTerm(11)},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
-		require.Equal(t, int64(12), rev.GetRevokedBelowTerm())
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       12,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 11},
+		}, rev)
 	})
 
 	t.Run("outgoing_rule picks the highest RuleNumber across statuses", func(t *testing.T) {
@@ -361,12 +384,14 @@ func TestNewTermRevocation(t *testing.T) {
 				Lsn: "16/B374D700",
 			}},
 		}
-		rev, err := NewTermRevocation(statuses, coord)
+		rev, err := NewTermRevocation(statuses, coord, ts1)
 		require.NoError(t, err)
-		got := rev.GetOutgoingRule()
-		require.NotNil(t, got)
-		require.Equal(t, int64(4), got.GetCoordinatorTerm())
-		require.Equal(t, int64(5), got.GetLeaderSubterm())
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       5,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 5},
+		}, rev)
 	})
 }
 

@@ -114,3 +114,69 @@ func disallowDirectPgctldStopInTests(m dsl.Matcher) {
 				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
 		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
 }
+
+// requireSortedMapIteration flags direct map range loops in the consensus
+// package. Non-deterministic map iteration order can cause consensus tests
+// to pass or fail differently across Go runs, making failures hard to
+// reproduce. Use sortedmaps.All/Keys/Values instead.
+func requireSortedMapIteration(m dsl.Matcher) {
+	m.Match(
+		`for $k, $v := range $x { $*_ }`,
+		`for $k := range $x { $*_ }`,
+	).Where(
+		m["x"].Type.Is("map[$_]$_") &&
+			m.File().PkgPath.Matches(`common/consensus`)).
+		Report("map iteration is non-deterministic across Go runs; use sortedmaps.All/Keys/Values for deterministic iteration")
+}
+
+// requireSortedMapsOverStdlibMaps flags calls to stdlib maps.Keys/Values/All in
+// the consensus package. These functions return elements in non-deterministic
+// order; use sortedmaps.Keys/Values/All instead.
+func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
+	m.Import("maps")
+
+	m.Match(
+		`maps.Keys($x)`,
+		`maps.Values($x)`,
+		`maps.All($x)`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`)).
+		Report("maps.Keys/Values/All iterate in non-deterministic order; use sortedmaps.Keys/Values/All instead")
+}
+
+// disallowGoroutinesInConsensus flags `go` statements in production code under
+// common/consensus. Goroutine scheduling is non-deterministic; consensus logic
+// must remain step-driven and synchronous so simulation and tests are
+// reproducible.
+func disallowGoroutinesInConsensus(m dsl.Matcher) {
+	m.Match(`go $_($*_)`).
+		Where(
+			m.File().PkgPath.Matches(`common/consensus`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("goroutines introduce scheduling non-determinism; keep consensus logic step-driven and synchronous")
+}
+
+// disallowWallClockInConsensus flags reads of the wall clock in production
+// code under common/consensus. Consensus logic must be deterministic: time
+// should be supplied as a parameter from the caller (or injected via a clock
+// interface), never read from the host clock. Pure constructors like
+// time.Date, time.Unix, time.UTC, and timestamppb.New(t) are not flagged.
+func disallowWallClockInConsensus(m dsl.Matcher) {
+	m.Import("time")
+	m.Import("google.golang.org/protobuf/types/known/timestamppb")
+
+	m.Match(
+		`time.Now()`,
+		`time.Since($_)`,
+		`time.Until($_)`,
+		`time.After($_)`,
+		`time.Tick($_)`,
+		`time.Sleep($_)`,
+		`time.NewTimer($_)`,
+		`time.NewTicker($_)`,
+		`timestamppb.Now()`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("reading wall-clock time breaks determinism; pass the timestamp from the caller or use an injected clock")
+}
