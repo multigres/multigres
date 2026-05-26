@@ -43,13 +43,22 @@ jobs:
             exit 1
           fi
 
-      - name: Verify tag is on main
+      - name: Verify tag is on release branch
         env:
           GITHUB_SHA: ${{ github.sha }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $TAG_NAME does not point to a commit on main."
+          if [[ ! "$TAG_NAME" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag '$TAG_NAME' must look like vX.Y.Z or vX.Y.Z-rc.1"
+            exit 1
+          fi
+
+          release_branch="release/v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          git fetch --no-tags origin \
+            "refs/heads/${release_branch}:refs/remotes/origin/${release_branch}"
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${release_branch}"; then
+            echo "::error::Tag $TAG_NAME must point to a commit on ${release_branch}."
             exit 1
           fi
 
