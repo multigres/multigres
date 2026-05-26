@@ -47,23 +47,23 @@
   },
   {
     "comment": "partition_aggregate - Statement 11",
-    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT c, SUM(a), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY c HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT c, SUM(a), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY c HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 12",
-    "query": "SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "SELECT c, SUM(a), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY c HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "SELECT c, SUM(a), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY c HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 13",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY a HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY a HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 14",
-    "query": "SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY a HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), AVG(b), COUNT(*), MIN(a), MAX(b) FROM pagg_tab GROUP BY a HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 15",
@@ -107,23 +107,23 @@
   },
   {
     "comment": "partition_aggregate - Statement 23",
-    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT c, SUM(a), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT c, SUM(a), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 24",
-    "query": "SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "SELECT c, SUM(a), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "SELECT c, SUM(a), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 25",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 26",
-    "query": "SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), AVG(b), COUNT(*) FROM pagg_tab GROUP BY 1 HAVING AVG(d) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 27",
@@ -136,12 +136,12 @@
   },
   {
     "comment": "partition_aggregate - Statement 29",
-    "query": "EXPLAIN (COSTS OFF) SELECT a FROM pagg_tab WHERE a \u003c 3 GROUP BY a ORDER BY 1",
-    "expected": "EXPLAIN (COSTS false) SELECT a FROM pagg_tab WHERE a \u003c 3 GROUP BY a ORDER BY 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT a FROM pagg_tab WHERE a < 3 GROUP BY a ORDER BY 1",
+    "expected": "EXPLAIN (COSTS false) SELECT a FROM pagg_tab WHERE a < 3 GROUP BY a ORDER BY 1"
   },
   {
     "comment": "partition_aggregate - Statement 30",
-    "query": "SELECT a FROM pagg_tab WHERE a \u003c 3 GROUP BY a ORDER BY 1"
+    "query": "SELECT a FROM pagg_tab WHERE a < 3 GROUP BY a ORDER BY 1"
   },
   {
     "comment": "partition_aggregate - Statement 31",
@@ -241,13 +241,13 @@
   },
   {
     "comment": "partition_aggregate - Statement 52",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) \u003e 10 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.y, SUM(t1.x), COUNT(*) FROM pagg_tab1 AS t1, pagg_tab2 AS t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING AVG(t1.x) \u003e 10 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) > 10 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.y, SUM(t1.x), COUNT(*) FROM pagg_tab1 AS t1, pagg_tab2 AS t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING AVG(t1.x) > 10 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 53",
-    "query": "SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) \u003e 10 ORDER BY 1, 2, 3",
-    "expected": "SELECT t1.y, SUM(t1.x), COUNT(*) FROM pagg_tab1 AS t1, pagg_tab2 AS t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING AVG(t1.x) \u003e 10 ORDER BY 1, 2, 3"
+    "query": "SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) > 10 ORDER BY 1, 2, 3",
+    "expected": "SELECT t1.y, SUM(t1.x), COUNT(*) FROM pagg_tab1 AS t1, pagg_tab2 AS t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING AVG(t1.x) > 10 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 54",
@@ -281,23 +281,23 @@
   },
   {
     "comment": "partition_aggregate - Statement 60",
-    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) b ON a.x = b.y WHERE a.x \u003e 5 or b.y \u003c 20  GROUP BY a.x, b.y ORDER BY 1, 2",
-    "expected": "EXPLAIN (COSTS false) SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) AS a LEFT OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) AS b ON a.x = b.y WHERE a.x \u003e 5 OR b.y \u003c 20 GROUP BY a.x, b.y ORDER BY 1, 2"
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2",
+    "expected": "EXPLAIN (COSTS false) SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) AS a LEFT OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) AS b ON a.x = b.y WHERE a.x > 5 OR b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2"
   },
   {
     "comment": "partition_aggregate - Statement 61",
-    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) b ON a.x = b.y WHERE a.x \u003e 5 or b.y \u003c 20  GROUP BY a.x, b.y ORDER BY 1, 2",
-    "expected": "SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) AS a LEFT OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) AS b ON a.x = b.y WHERE a.x \u003e 5 OR b.y \u003c 20 GROUP BY a.x, b.y ORDER BY 1, 2"
+    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2",
+    "expected": "SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) AS a LEFT OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) AS b ON a.x = b.y WHERE a.x > 5 OR b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2"
   },
   {
     "comment": "partition_aggregate - Statement 62",
-    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) b ON a.x = b.y WHERE a.x \u003e 5 or b.y \u003c 20  GROUP BY a.x, b.y ORDER BY 1, 2",
-    "expected": "EXPLAIN (COSTS false) SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) AS a FULL OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) AS b ON a.x = b.y WHERE a.x \u003e 5 OR b.y \u003c 20 GROUP BY a.x, b.y ORDER BY 1, 2"
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2",
+    "expected": "EXPLAIN (COSTS false) SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) AS a FULL OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) AS b ON a.x = b.y WHERE a.x > 5 OR b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2"
   },
   {
     "comment": "partition_aggregate - Statement 63",
-    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) b ON a.x = b.y WHERE a.x \u003e 5 or b.y \u003c 20 GROUP BY a.x, b.y ORDER BY 1, 2",
-    "expected": "SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x \u003c 20) AS a FULL OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y \u003e 10) AS b ON a.x = b.y WHERE a.x \u003e 5 OR b.y \u003c 20 GROUP BY a.x, b.y ORDER BY 1, 2"
+    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2",
+    "expected": "SELECT a.x, b.y, COUNT(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) AS a FULL OUTER JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) AS b ON a.x = b.y WHERE a.x > 5 OR b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2"
   },
   {
     "comment": "partition_aggregate - Statement 64",
@@ -337,33 +337,33 @@
   },
   {
     "comment": "partition_aggregate - Statement 72",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) \u003c 22 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a HAVING AVG(c) \u003c 22 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) < 22 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a HAVING AVG(c) < 22 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 73",
-    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) \u003c 22 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a HAVING AVG(c) \u003c 22 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) < 22 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a HAVING AVG(c) < 22 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 74",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) \u003c 50 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a, (a + b) / 2 HAVING SUM(b) \u003c 50 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) < 50 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a, (a + b) / 2 HAVING SUM(b) < 50 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 75",
-    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) \u003c 50 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a, (a + b) / 2 HAVING SUM(b) \u003c 50 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) < 50 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY a, (a + b) / 2 HAVING SUM(b) < 50 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 76",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) \u003e 25 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, c, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY (a + b) / 2, 2, 1 HAVING SUM(b) = 50 AND AVG(c) \u003e 25 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) > 25 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, c, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY (a + b) / 2, 2, 1 HAVING SUM(b) = 50 AND AVG(c) > 25 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 77",
-    "query": "SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) \u003e 25 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, c, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY (a + b) / 2, 2, 1 HAVING SUM(b) = 50 AND AVG(c) \u003e 25 ORDER BY 1, 2, 3"
+    "query": "SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) > 25 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, c, SUM(b), AVG(c), COUNT(*) FROM pagg_tab_m GROUP BY (a + b) / 2, 2, 1 HAVING SUM(b) = 50 AND AVG(c) > 25 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 78",
@@ -429,18 +429,18 @@
   },
   {
     "comment": "partition_aggregate - Statement 92",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) \u003c 3 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) \u003c 3 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) < 3 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 93",
-    "query": "SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) \u003c 3 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) \u003c 3 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) < 3 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 94",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) \u003c 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) \u003c 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), array_agg(DISTINCT c), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) < 3"
   },
   {
     "comment": "partition_aggregate - Statement 95",
@@ -448,13 +448,13 @@
   },
   {
     "comment": "partition_aggregate - Statement 96",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) \u003c 3 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) \u003c 3 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) < 3 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 97",
-    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) \u003c 3 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) \u003c 3 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a HAVING AVG(b) < 3 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 98",
@@ -463,18 +463,18 @@
   },
   {
     "comment": "partition_aggregate - Statement 99",
-    "query": "SELECT b, sum(a), count(*) FROM pagg_tab_ml GROUP BY b HAVING avg(a) \u003c 15 ORDER BY 1, 2, 3",
-    "expected": "SELECT b, SUM(a), COUNT(*) FROM pagg_tab_ml GROUP BY b HAVING AVG(a) \u003c 15 ORDER BY 1, 2, 3"
+    "query": "SELECT b, sum(a), count(*) FROM pagg_tab_ml GROUP BY b HAVING avg(a) < 15 ORDER BY 1, 2, 3",
+    "expected": "SELECT b, SUM(a), COUNT(*) FROM pagg_tab_ml GROUP BY b HAVING AVG(a) < 15 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 100",
-    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) \u003e 7 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING AVG(b) \u003e 7 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) > 7 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING AVG(b) > 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 101",
-    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) \u003e 7 ORDER BY 1, 2, 3",
-    "expected": "SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING AVG(b) \u003e 7 ORDER BY 1, 2, 3"
+    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) > 7 ORDER BY 1, 2, 3",
+    "expected": "SELECT a, SUM(b), COUNT(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING AVG(b) > 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 102",
@@ -519,23 +519,23 @@
   },
   {
     "comment": "partition_aggregate - Statement 111",
-    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) \u003c 7 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT x, SUM(y), AVG(y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) \u003c 7 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT x, SUM(y), AVG(y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) < 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 112",
-    "query": "SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) \u003c 7 ORDER BY 1, 2, 3",
-    "expected": "SELECT x, SUM(y), AVG(y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) \u003c 7 ORDER BY 1, 2, 3"
+    "query": "SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3",
+    "expected": "SELECT x, SUM(y), AVG(y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) < 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 113",
-    "query": "EXPLAIN (COSTS OFF) SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) \u003c 12 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT y, SUM(x), AVG(x), COUNT(*) FROM pagg_tab_para GROUP BY y HAVING AVG(x) \u003c 12 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) < 12 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT y, SUM(x), AVG(x), COUNT(*) FROM pagg_tab_para GROUP BY y HAVING AVG(x) < 12 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 114",
-    "query": "SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) \u003c 12 ORDER BY 1, 2, 3",
-    "expected": "SELECT y, SUM(x), AVG(x), COUNT(*) FROM pagg_tab_para GROUP BY y HAVING AVG(x) \u003c 12 ORDER BY 1, 2, 3"
+    "query": "SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) < 12 ORDER BY 1, 2, 3",
+    "expected": "SELECT y, SUM(x), AVG(x), COUNT(*) FROM pagg_tab_para GROUP BY y HAVING AVG(x) < 12 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 115",
@@ -547,13 +547,13 @@
   },
   {
     "comment": "partition_aggregate - Statement 117",
-    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) \u003c 7 ORDER BY 1, 2, 3",
-    "expected": "EXPLAIN (COSTS false) SELECT x, SUM(y), AVG(y), SUM(x + y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) \u003c 7 ORDER BY 1, 2, 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3",
+    "expected": "EXPLAIN (COSTS false) SELECT x, SUM(y), AVG(y), SUM(x + y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) < 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 118",
-    "query": "SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) \u003c 7 ORDER BY 1, 2, 3",
-    "expected": "SELECT x, SUM(y), AVG(y), SUM(x + y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) \u003c 7 ORDER BY 1, 2, 3"
+    "query": "SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3",
+    "expected": "SELECT x, SUM(y), AVG(y), SUM(x + y), COUNT(*) FROM pagg_tab_para GROUP BY x HAVING AVG(y) < 7 ORDER BY 1, 2, 3"
   },
   {
     "comment": "partition_aggregate - Statement 119",

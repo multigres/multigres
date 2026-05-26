@@ -509,8 +509,22 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "PROCEDURE")
 		case OBJECT_TYPE:
 			parts = append(parts, "TYPE")
+		case OBJECT_DOMAIN:
+			parts = append(parts, "DOMAIN")
 		case OBJECT_LARGEOBJECT:
 			parts = append(parts, "LARGE", "OBJECT")
+		case OBJECT_LANGUAGE:
+			parts = append(parts, "LANGUAGE")
+		case OBJECT_ROUTINE:
+			parts = append(parts, "ROUTINE")
+		case OBJECT_TABLESPACE:
+			parts = append(parts, "TABLESPACE")
+		case OBJECT_FDW:
+			parts = append(parts, "FOREIGN", "DATA", "WRAPPER")
+		case OBJECT_FOREIGN_SERVER:
+			parts = append(parts, "FOREIGN", "SERVER")
+		case OBJECT_PARAMETER_ACL:
+			parts = append(parts, "PARAMETER")
 		case OBJECT_TABLE:
 			// TABLE is optional, but we can add it for clarity in certain contexts
 			// parts = append(parts, "TABLE")
@@ -634,12 +648,15 @@ func (grs *GrantRoleStmt) SqlString() string {
 				optStr := strings.ToUpper(defElem.Defname)
 				if defElem.Arg != nil {
 					if boolVal, ok := defElem.Arg.(*Boolean); ok {
-						// For admin, set, and inherit options, use "OPTION" suffix for both GRANT and REVOKE
-						if defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit" {
+						isMembershipOpt := defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit"
+						switch {
+						case isMembershipOpt && !grs.IsGrant:
+							// REVOKE [ADMIN|INHERIT|SET] OPTION FOR <role> ...
 							optStr += " OPTION"
-						} else if boolVal.BoolVal {
+						case boolVal.BoolVal:
+							// GRANT ... WITH { ADMIN | INHERIT | SET } TRUE
 							optStr += " TRUE"
-						} else {
+						default:
 							optStr += " FALSE"
 						}
 					} else {
@@ -2294,6 +2311,11 @@ func (cs *CopyStmt) SqlString() string {
 		}
 	}
 
+	// Add WHERE clause (COPY FROM ... WHERE condition)
+	if cs.WhereClause != nil {
+		parts = append(parts, "WHERE", cs.WhereClause.SqlString())
+	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -2648,12 +2670,33 @@ func (rs *ReindexStmt) SqlString() string {
 	if rs.Params != nil && rs.Params.Len() > 0 {
 		var options []string
 		for _, param := range rs.Params.Items {
-			if defElem, ok := param.(*DefElem); ok {
-				if defElem.Defname == "concurrently" {
-					hasConcurrently = true
-				} else {
-					options = append(options, defElem.Defname)
+			defElem, ok := param.(*DefElem)
+			if !ok {
+				continue
+			}
+			if defElem.Defname == "concurrently" {
+				hasConcurrently = true
+				continue
+			}
+			name := strings.ToUpper(defElem.Defname)
+			if defElem.Arg == nil {
+				options = append(options, name)
+				continue
+			}
+			var argStr string
+			switch arg := defElem.Arg.(type) {
+			case *String:
+				// REINDEX's only string-valued option is TABLESPACE; the arg is an identifier.
+				argStr = QuoteIdentifier(arg.SVal)
+			default:
+				if stringer, ok := arg.(interface{ SqlString() string }); ok {
+					argStr = stringer.SqlString()
 				}
+			}
+			if argStr == "" {
+				options = append(options, name)
+			} else {
+				options = append(options, name+" "+argStr)
 			}
 		}
 		if len(options) > 0 {

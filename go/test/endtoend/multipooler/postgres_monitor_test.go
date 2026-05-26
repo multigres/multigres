@@ -15,6 +15,7 @@
 package multipooler
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -124,6 +126,53 @@ func TestPostgresMonitorControl(t *testing.T) {
 	})
 }
 
+// TestGUCSelfHealing verifies that the pooler's postgres monitor detects and repairs
+// externally-corrupted synchronous_standby_names without any orchestrator intervention.
+// This test exercises the remedialActionReconcileGUC path in the monitor loop.
+func TestGUCSelfHealing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	setupPoolerTest(t, setup)
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+
+	pgClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	defer pgClient.Close()
+
+	ctx := utils.WithTimeout(t, 10*time.Second)
+
+	correctValue, err := shardsetup.QueryStringValue(ctx, pgClient, "SHOW synchronous_standby_names")
+	require.NoError(t, err)
+	if correctValue == "" {
+		t.Skip("synchronous_standby_names not configured")
+	}
+	t.Logf("Correct synchronous_standby_names: %q", correctValue)
+
+	// Corrupt the GUC. We use 'ANY 1 (*)' rather than a completely unknown name
+	// so that sync commits can still complete (the wildcard matches the real standby),
+	// allowing reconcileGUC's SELECT FOR UPDATE to commit without blocking.
+	_, err = pgClient.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_standby_names = 'ANY 1 (*)'", 1)
+	require.NoError(t, err)
+	shardsetup.ReloadConfig(ctx, t, pgClient, setup.PrimaryName)
+
+	require.Eventually(t, func() bool {
+		val, qerr := shardsetup.QueryStringValue(utils.WithShortDeadline(t), pgClient, "SHOW synchronous_standby_names")
+		return qerr == nil && val != correctValue
+	}, 5*time.Second, 50*time.Millisecond, "corrupted GUC should be visible after reload")
+
+	// The monitor runs every 5s, so allow up to one full tick plus
+	// action-lock acquisition and remediation latency for drift to be healed.
+	require.Eventually(t, func() bool {
+		val, qerr := shardsetup.QueryStringValue(utils.WithShortDeadline(t), pgClient, "SHOW synchronous_standby_names")
+		return qerr == nil && val == correctValue
+	}, 10*time.Second, 100*time.Millisecond, "postgres monitor should heal synchronous_standby_names drift")
+
+	t.Logf("GUC self-healing confirmed: synchronous_standby_names restored to %q", correctValue)
+}
+
 // TestPostgresMonitor_FixesPrimaryConnInfoDrift exercises the MonitorPostgres
 // self-heal of primary_conninfo end-to-end. With orch out of the picture
 // (the shared multipooler setup runs no multiorch), this proves the
@@ -159,26 +208,28 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyClient.Close() })
 
-	// Configure replication AND record the (rule, primary) tuple. With the
-	// new flow this happens via SetTermPrimary; this test uses the legacy
-	// SetPrimaryConnInfo since the shared setup doesn't yet run multiorch.
-	// Both paths populate ReplicationPrimary, which is what the monitor reads.
-	primaryPooler := &clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      setup.CellName,
-			Name:      setup.PrimaryMultipooler.Name,
-		},
-		Hostname: "localhost",
-		PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+	// Configure replication AND record the (rule, primary) tuple. SetTermPrimary
+	// populates ReplicationPrimary, which is what the monitor reads.
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      setup.CellName,
+		Name:      setup.PrimaryMultipooler.Name,
 	}
-	_, err = standbyClient.Consensus.SetPrimaryConnInfo(t.Context(), &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               primaryPooler,
-		StopReplicationBefore: false,
-		StartReplicationAfter: true,
-		Force:                 true,
+	// Use a high coordinator term so the supplied rule is strictly higher than
+	// whatever the standby has observed, forcing SetTermPrimary's standby
+	// branch to apply.
+	_, err = standbyClient.Consensus.SetTermPrimary(t.Context(), &consensusdatapb.SetTermPrimaryRequest{
+		Leader: &clustermetadatapb.PoolerAddress{
+			Id:           primaryID,
+			Host:         "localhost",
+			PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+		},
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+			LeaderId:   primaryID,
+		},
 	})
-	require.NoError(t, err, "SetPrimaryConnInfo should succeed on standby")
+	require.NoError(t, err, "SetTermPrimary should succeed on standby")
 
 	// Snapshot the well-formed conninfo for the post-heal comparison. Read it
 	// directly from postgres rather than from the pooler's record so the

@@ -182,7 +182,7 @@ func (mo *MultiOrch) Init() error {
 	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections, transportCreds)
 
 	// Create coordinator for consensus operations
-	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger, mo.cfg.GetUseNewConsensusFlow())
+	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)
 
 	// Create and start recovery engine
 	mo.recoveryEngine = recovery.NewEngine(
@@ -200,7 +200,7 @@ func (mo *MultiOrch) Init() error {
 
 	// Register gRPC service after recovery engine is ready
 	mo.senv.OnRun(func() {
-		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, logger)
+		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, coord, logger)
 		mo.multiorchServer.RegisterWithGRPCServer(mo.grpcServer.Server)
 	})
 

@@ -262,23 +262,21 @@ func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClie
 		repStatus.PrimaryConnInfo.Host, repStatus.LastReceiveLsn)
 }
 
-// breakReplication stops replication and clears primary_conninfo using the RPC API.
-// It waits until the replication is confirmed broken before returning.
+// breakReplication clears primary_conninfo on the standby and waits until
+// replication is confirmed broken before returning.
 func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient, inst *shardsetup.MultipoolerInstance) {
 	t.Helper()
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Clear primary_conninfo by setting it to nil
-	// Use StopReplicationBefore=true to stop WAL receiver first
-	_, err := client.Consensus.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               nil, // nil primary clears the connection
-		StopReplicationBefore: true,
-		StartReplicationAfter: false,
-		Force:                 true, // Force to bypass term check
-	})
-	require.NoError(t, err, "SetPrimaryConnInfo (clear) should succeed")
-	t.Log("Cleared primary_conninfo via RPC")
+	// Clear primary_conninfo directly. The pooler-side RPCs (SetTermPrimary,
+	// SetPrimaryConnInfo) all set the value rather than clearing it, so the
+	// only way to break replication from a test is to reset the GUC.
+	_, err := client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
+	require.NoError(t, err, "ALTER SYSTEM RESET primary_conninfo should succeed")
+	_, err = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
+	require.NoError(t, err, "pg_reload_conf should succeed")
+	t.Log("Cleared primary_conninfo via SQL")
 
 	waitForReplicationBroken(t, inst, 10*time.Second)
 }

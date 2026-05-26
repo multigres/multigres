@@ -249,20 +249,9 @@ func sqlFilesInDir(dir string) ([]string, error) {
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	password, passwordSource, passwordFile, err := i.pgCtlCmd.GetPostgresPassword()
+	cfg, err := i.pgCtlCmd.buildServiceConfig()
 	if err != nil {
 		return err
-	}
-	cfg := PgCtldServiceConfig{
-		Port:                 i.pgCtlCmd.pgPort.Get(),
-		User:                 i.pgCtlCmd.pgUser.Get(),
-		Database:             i.pgCtlCmd.pgDatabase.Get(),
-		Password:             password,
-		PasswordSource:       passwordSource,
-		PasswordFile:         passwordFile,
-		InitdbSQLFiles:       i.pgCtlCmd.pgInitdbSQLFiles.Get(),
-		InitdbSQLDirs:        i.pgCtlCmd.pgInitdbSQLDirs.Get(),
-		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
 	if err != nil {

@@ -963,8 +963,21 @@ func (e *Executor) CopyReady(
 		e.stampVpidOnReserved(ctx, reservedConn, options)
 		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
 		if err != nil {
-			reservedConn.Release(reserved.ReleaseError)
-			return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+			// InitiateCopyFromStdin distinguishes two failure modes:
+			//   - Connection-level error (broken socket): conn is dead, release it.
+			//   - PG ErrorResponse + drained ReadyForQuery (e.g., "column does
+			//     not exist", "conflicting options"): conn is back in a clean
+			//     'I'/'T'/'E' state and is safe to reuse. The reserved conn may
+			//     still be holding other reasons (transaction, temp table), so
+			//     destroying it here would orphan that state and force every
+			//     subsequent statement to fail with "reserved connection not
+			//     found". Return the current state alongside the error so the
+			//     gateway can keep tracking the conn.
+			if mterrors.IsConnectionError(err) {
+				reservedConn.Release(reserved.ReleaseError)
+				return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+			}
+			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 		}
 	} else {
 		// New reserved conn — wire BEGIN-if-needed and InitiateCopyFromStdin
@@ -1116,7 +1129,20 @@ func (e *Executor) CopyFinalize(
 	commandTag, rowsAffected, err := conn.ReadCopyDoneResponse(ctx)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
-		// Connection might be in bad state - close it instead of recycling
+		// For a PG ErrorResponse (e.g., constraint violation, type mismatch,
+		// missing column), ReadCopyDoneResponse drains the trailing
+		// ReadyForQuery so the socket is back in a clean state. The reserved
+		// conn may still be holding other reasons (transaction, temp table),
+		// so we mirror CopyAbort here: remove the COPY reason and release
+		// only if no other reasons remain. A connection-level failure (broken
+		// socket) still falls through to Release(ReleaseError).
+		if !mterrors.IsConnectionError(err) {
+			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+				reservedConn.Release(reserved.ReleasePortalComplete)
+				return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
+			}
+			return nil, e.buildReservedState(reservedConn), fmt.Errorf("COPY operation failed: %w", err)
+		}
 		reservedConn.Release(reserved.ReleaseError)
 		return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
 	}
@@ -1163,6 +1189,17 @@ func (e *Executor) CopyAbort(
 		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
 			"conn_id", options.ReservedConnectionId)
 		return nil, nil
+	}
+
+	// If the conn is no longer in COPY mode (CopyReady never added the reason,
+	// or CopyFinalize already removed it), the backend is back at RFQ and a
+	// CopyFail here would be a protocol violation. This happens on the
+	// gateway-side deferred abort that fires after CopyFinalize already
+	// completed its own cleanup. Just return the current state.
+	if !protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
+		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort",
+			"conn_id", options.ReservedConnectionId)
+		return e.buildReservedState(reservedConn), nil
 	}
 
 	e.logger.DebugContext(ctx, "aborting COPY",

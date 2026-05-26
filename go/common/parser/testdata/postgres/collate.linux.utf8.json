@@ -1,8 +1,8 @@
 [
   {
     "comment": "collate.linux.utf8 - Statement 1",
-    "query": "/* * This test is for Linux/glibc systems and assumes that a full set of * locales is installed.  It must be run in a database with UTF-8 encoding, * because other encodings don't support all the characters used. */ SELECT getdatabaseencoding() \u003c\u003e 'UTF8' OR (SELECT count(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE', 'tr_TR') AND collencoding = pg_char_to_encoding('UTF8')) \u003c\u003e 4 OR version() !~ 'linux-gnu' AS skip_test",
-    "expected": "SELECT getdatabaseencoding() \u003c\u003e 'UTF8' OR (SELECT COUNT(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE', 'tr_TR') AND collencoding = pg_char_to_encoding('UTF8')) \u003c\u003e 4 OR version() !~ 'linux-gnu' AS skip_test"
+    "query": "/* * This test is for Linux/glibc systems and assumes that a full set of * locales is installed.  It must be run in a database with UTF-8 encoding, * because other encodings don't support all the characters used. */ SELECT getdatabaseencoding() <> 'UTF8' OR (SELECT count(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE', 'tr_TR') AND collencoding = pg_char_to_encoding('UTF8')) <> 4 OR version() !~ 'linux-gnu' AS skip_test",
+    "expected": "SELECT getdatabaseencoding() <> 'UTF8' OR (SELECT COUNT(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE', 'tr_TR') AND collencoding = pg_char_to_encoding('UTF8')) <> 4 OR version() !~ 'linux-gnu' AS skip_test"
   },
   {
     "comment": "collate.linux.utf8 - Statement 2",
@@ -52,31 +52,31 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 12",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.linux.utf8 - Statement 13",
-    "query": "SELECT * FROM collate_test2 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test2 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.linux.utf8 - Statement 14",
-    "query": "SELECT * FROM collate_test3 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test3 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.linux.utf8 - Statement 15",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.linux.utf8 - Statement 16",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 17",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 18",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"en_US\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"en_US\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 19",
@@ -144,11 +144,11 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 34",
-    "query": "SELECT 'bbc' COLLATE \"en_US\" \u003e 'äbc' COLLATE \"en_US\" AS \"true\""
+    "query": "SELECT 'bbc' COLLATE \"en_US\" > 'äbc' COLLATE \"en_US\" AS \"true\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 35",
-    "query": "SELECT 'bbc' COLLATE \"sv_SE\" \u003e 'äbc' COLLATE \"sv_SE\" AS \"false\""
+    "query": "SELECT 'bbc' COLLATE \"sv_SE\" > 'äbc' COLLATE \"sv_SE\" AS \"false\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 36",
@@ -307,7 +307,7 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 73",
-    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.linux.utf8 - Statement 74",
@@ -456,13 +456,13 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 106",
-    "query": "SELECT a, b FROM collate_test3 WHERE a \u003c 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a \u003e 1 ORDER BY 2",
-    "expected": "(SELECT a, b FROM collate_test3 WHERE a \u003c 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a \u003e 1) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a > 1 ORDER BY 2",
+    "expected": "(SELECT a, b FROM collate_test3 WHERE a < 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a > 1) ORDER BY 2"
   },
   {
     "comment": "collate.linux.utf8 - Statement 107",
-    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a \u003c 2 ORDER BY 2",
-    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a \u003c 2) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a < 2 ORDER BY 2",
+    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a < 2) ORDER BY 2"
   },
   {
     "comment": "collate.linux.utf8 - Statement 108",
@@ -494,8 +494,8 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 115",
-    "query": "select x \u003c y from collate_test10",
-    "expected": "SELECT x \u003c y FROM collate_test10"
+    "query": "select x < y from collate_test10",
+    "expected": "SELECT x < y FROM collate_test10"
   },
   {
     "comment": "collate.linux.utf8 - Statement 116",
@@ -509,8 +509,8 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 118",
-    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en_US\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) \u003c 10) SELECT * FROM foo",
-    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en_US\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) \u003c 10)) SELECT * FROM foo"
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en_US\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) < 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en_US\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) < 10)) SELECT * FROM foo"
   },
   {
     "comment": "collate.linux.utf8 - Statement 119",
@@ -534,28 +534,28 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 123",
-    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 $$",
-    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 $$"
+    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 $$",
+    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 $$"
   },
   {
     "comment": "collate.linux.utf8 - Statement 124",
-    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$",
-    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$"
+    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 limit 1 $$",
+    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 limit 1 $$"
   },
   {
     "comment": "collate.linux.utf8 - Statement 125",
-    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$",
-    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$"
+    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$",
+    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$"
   },
   {
     "comment": "collate.linux.utf8 - Statement 126",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.linux.utf8 - Statement 127",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.linux.utf8 - Statement 132",
@@ -807,13 +807,13 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 191",
-    "query": "select textrange_c('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_c('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_c('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_c('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.linux.utf8 - Statement 192",
-    "query": "select textrange_en_us('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_en_us('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_en_us('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_en_us('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.linux.utf8 - Statement 193",

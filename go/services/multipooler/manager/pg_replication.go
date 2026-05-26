@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
@@ -66,8 +65,8 @@ type poolerID struct {
 // newPoolerID generates the poolerID for a multipooler from its ID.
 // Format: {cell}_{name}
 // This is used consistently for:
-// - SetPrimaryConnInfo: standby's application_name when connecting to primary
-// - ConfigureSynchronousReplication: standby names in synchronous_standby_names
+// - primary_conninfo: standby's application_name when connecting to primary
+// - synchronous_standby_names: standby identities on the primary
 //
 // On validation failure an approximate poolerID is returned alongside the error.
 // The approximate appName is "{cell}_{name}" with missing fields replaced by
@@ -226,21 +225,6 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 		return "", mterrors.Wrap(err, "failed to scan replay LSN result")
 	}
 	return lsn, nil
-}
-
-// getTimelineID gets the current timeline ID from pg_control_checkpoint()
-func (pm *MultiPoolerManager) getTimelineID(ctx context.Context) (int64, error) {
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT timeline_id FROM pg_control_checkpoint()")
-	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to get timeline ID")
-	}
-	var timelineID int64
-	if err := executor.ScanSingleRow(result, &timelineID); err != nil {
-		return 0, mterrors.Wrap(err, "failed to scan timeline ID result")
-	}
-	return timelineID, nil
 }
 
 // querySchemaExists checks if the multigres schema exists in the database
@@ -550,33 +534,82 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Track the latest poll snapshot so a timeout has diagnostic detail without
+	// needing another query after the ctx has already expired.
+	var (
+		lastCount    int64 = -1 // -1 = not yet polled
+		lastStatus   string
+		lastConnInfo string
+	)
+
+	timedOut := func(cause error) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+		pm.logger.ErrorContext(ctx, "WAL receiver did not disconnect",
+			"cause", cause,
+			"last_receiver_count", lastCount,
+			"last_walreceiver_status", lastStatus,
+			"last_primary_conninfo", lastConnInfo)
+		if errors.Is(cause, context.DeadlineExceeded) {
+			return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
+		}
+		return nil, mterrors.Wrap(cause, "context cancelled while waiting for WAL receiver to disconnect")
+	}
+
 	for {
 		select {
 		case <-waitCtx.Done():
-			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL receiver to disconnect")
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
-			}
-			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL receiver to disconnect")
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL receiver to disconnect")
+			return timedOut(waitCtx.Err())
 
 		case <-ticker.C:
-			// Check if WAL receiver has disconnected by counting rows in pg_stat_wal_receiver
-			result, err := pm.query(waitCtx, "SELECT COUNT(*) FROM pg_stat_wal_receiver")
+			// Re-check waitCtx before issuing a query: when waitCtx expires at the
+			// same tick boundary, select may pick this branch and the subsequent
+			// pm.query would surface an opaque "pool ctx expired" instead of the
+			// real timeout cause.
+			if err := waitCtx.Err(); err != nil {
+				return timedOut(err)
+			}
+
+			// Pull the count, the walreceiver status, and the live primary_conninfo
+			// in a single query so each poll is also a diagnostic snapshot.
+			result, err := pm.query(waitCtx, `SELECT
+				(SELECT COUNT(*) FROM pg_stat_wal_receiver),
+				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
+				current_setting('primary_conninfo')`)
 			if err != nil {
+				// If waitCtx expired between the pre-check and the Pool.Get
+				// ctx.Err() check, surface the cleaner timeout cause instead of
+				// an opaque "pool ctx expired" wrapper.
+				if waitErr := waitCtx.Err(); waitErr != nil {
+					return timedOut(waitErr)
+				}
 				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
 				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
 			}
-
-			var receiverCount int64
-			if err := executor.ScanSingleRow(result, &receiverCount); err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to scan receiver count", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver count")
+			if err := executor.ScanSingleRow(result, &lastCount, &lastStatus, &lastConnInfo); err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to scan pg_stat_wal_receiver row", "error", err)
+				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
 			}
 
-			// Once receiver is disconnected, query final replication status
-			if receiverCount == 0 {
-				pm.logger.InfoContext(ctx, "WAL receiver has disconnected")
+			// Done when either the walreceiver slot is gone, OR it's sitting
+			// in WALRCV_WAITING with primary_conninfo empty. The latter is
+			// safe because:
+			//
+			//   - We hold the action lock, so no other in-process path can
+			//     write primary_conninfo during this wait.
+			//   - WAITING → STREAMING requires the startup process to call
+			//     RequestXLogStreaming, which only fires when primary_conninfo
+			//     is non-empty.
+			//   - We can't actively terminate a walreceiver from SQL —
+			//     pg_terminate_backend only works on regular backends, not
+			//     auxiliary processes like the walreceiver. The walreceiver
+			//     only exits when its in-flight libpq call returns, which is
+			//     bounded by connect_timeout (potentially tens of seconds).
+			//     Treating WAITING+empty as done lets us proceed without
+			//     waiting out that timeout.
+			done := lastCount == 0 || (lastStatus == "waiting" && lastConnInfo == "")
+			if done {
+				pm.logger.InfoContext(ctx, "WAL receiver has disconnected",
+					"last_receiver_count", lastCount,
+					"last_walreceiver_status", lastStatus)
 
 				// Get the final replication status
 				status, err := pm.queryReplicationStatus(waitCtx)
@@ -830,39 +863,6 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 // Synchronous Replication Configuration
 // ----------------------------------------------------------------------------
 
-// setSynchronousCommit sets the PostgreSQL synchronous_commit level
-func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel) error {
-	// Convert enum to PostgreSQL string value
-	var syncCommitValue string
-	switch synchronousCommit {
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF:
-		syncCommitValue = "off"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL:
-		syncCommitValue = "local"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE:
-		syncCommitValue = "remote_write"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON:
-		syncCommitValue = "on"
-	case multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY:
-		syncCommitValue = "remote_apply"
-	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"invalid synchronous_commit level: "+synchronousCommit.String())
-	}
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	pm.logger.InfoContext(ctx, "Setting synchronous_commit", "value", syncCommitValue)
-	sql := fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", syncCommitValue)
-	if err := pm.exec(execCtx, sql); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
-		return mterrors.Wrap(err, "failed to set synchronous_commit")
-	}
-
-	return nil
-}
-
 // buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
 // This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
 func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []poolerID) (string, error) {
@@ -1061,51 +1061,6 @@ func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) e
 	return nil
 }
 
-// syncReplicationConfigMatches checks if the current sync replication config matches the requested config
-func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolermanagerdatapb.SynchronousReplicationConfiguration, requested *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) bool {
-	// Check synchronous commit level
-	if current.SynchronousCommit != requested.SynchronousCommit {
-		return false
-	}
-
-	// Check synchronous method
-	if current.SynchronousMethod != requested.SynchronousMethod {
-		return false
-	}
-
-	// Check num_sync
-	if current.NumSync != requested.NumSync {
-		return false
-	}
-
-	// Check standby IDs (must match exactly 1:1, so sort and compare)
-	if len(current.StandbyIds) != len(requested.StandbyIds) {
-		return false
-	}
-
-	// Sort both lists by cell_name for comparison
-	currentSorted := make([]string, len(current.StandbyIds))
-	for i, id := range current.StandbyIds {
-		currentSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	}
-	sort.Strings(currentSorted)
-
-	requestedSorted := make([]string, len(requested.StandbyIds))
-	for i, id := range requested.StandbyIds {
-		requestedSorted[i] = fmt.Sprintf("%s_%s", id.Cell, id.Name)
-	}
-	sort.Strings(requestedSorted)
-
-	// Compare sorted lists element by element
-	for i := range currentSorted {
-		if currentSorted[i] != requestedSorted[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
 // ----------------------------------------------------------------------------
 // Validation Helpers
 // ----------------------------------------------------------------------------
@@ -1121,7 +1076,7 @@ func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) 
 	return pids, nil
 }
 
-// validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
+// validateSyncReplicationParams validates the parameters for setting synchronous_standby_names.
 func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) {
 	// Validate numSync is non-negative
 	if numSync < 0 {
@@ -1193,6 +1148,24 @@ func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []pooler
 		}
 	}
 	return updatedStandbys
+}
+
+// poolerIDSetEqual returns true if a and b contain the same set of pooler IDs
+// (order-independent comparison using appName as the key).
+func poolerIDSetEqual(a, b []poolerID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]struct{}, len(a))
+	for _, p := range a {
+		m[p.appName] = struct{}{}
+	}
+	for _, p := range b {
+		if _, ok := m[p.appName]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ----------------------------------------------------------------------------

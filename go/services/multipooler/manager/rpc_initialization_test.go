@@ -386,6 +386,8 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	assert.False(t, state.backupsAvailable)
 }
 
+// TODO: move TestDetermineRemedialAction and TestTakeRemedialAction_* to a dedicated postgres_monitor_test.go
+
 // TestDetermineRemedialAction tests the decision logic that maps discovered state to remedial actions.
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
@@ -395,6 +397,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 		poolerType         clustermetadatapb.PoolerType
 		primaryTerm        int64
 		resignedLeaderTerm int64
+		inconsistentGUC    bool
 		expectedAction     remedialAction
 	}{
 		{
@@ -444,7 +447,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionNone,
 		},
 		{
-			// After EmergencyDemote + process restart, resignedLeaderAtTerm is lost.
+			// After emergency demotion + process restart, resignedLeaderAtTerm is lost.
 			// The monitor should re-publish it by triggering the replica adjustment action.
 			name: "postgres_ready_replica_missing_resignation_signal",
 			state: postgresState{
@@ -516,6 +519,17 @@ func TestDetermineRemedialAction(t *testing.T) {
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			expectedAction: remedialActionCreateFirstBackup,
 		},
+		{
+			name: "postgres_primary_with_stale_guc",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       true,
+			},
+			poolerType:      clustermetadatapb.PoolerType_PRIMARY,
+			inconsistentGUC: true,
+			expectedAction:  remedialActionReconcileGUC,
+		},
 	}
 
 	for _, tt := range tests {
@@ -527,9 +541,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			}
 			pm.consensusState = NewConsensusState("", nil)
 			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
+			pm.rules = &fakeRuleStore{inconsistentGUC: tt.inconsistentGUC}
 			tt.state.primaryTerm = tt.primaryTerm
 
-			got := pm.determineRemedialAction(tt.state)
+			got := pm.determineRemedialAction(t.Context(), tt.state)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}
@@ -787,6 +802,30 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
 	}
+}
+
+func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
+	ctx := t.Context()
+
+	frs := &fakeRuleStore{}
+	pm := &MultiPoolerManager{
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		rules:      frs,
+		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		}),
+	}
+	pm.consensusState = NewConsensusState("", nil)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{isPrimary: true})
+
+	assert.True(t, frs.reconcileGUCCalled, "reconcileGUC should have been called")
+	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 }
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {

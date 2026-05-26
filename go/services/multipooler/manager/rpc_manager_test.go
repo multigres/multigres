@@ -27,36 +27,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/prototest"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// fakeConnPoolMgr is a minimal PoolManager stub for tests that only need to
-// control the superuser name visible to MultiPoolerManager (e.g. asserting the
-// rendered primary_conninfo). All other methods inherit the embedded nil
-// interface and will panic if called — keep usage scoped to tests that don't
-// exercise the real pool.
-type fakeConnPoolMgr struct {
-	connpoolmanager.PoolManager
-	user string
-}
-
-func (f *fakeConnPoolMgr) PgUser() string             { return f.user }
-func (f *fakeConnPoolMgr) PgPassword() (string, bool) { return "", false }
-func (f *fakeConnPoolMgr) Close()                     {} // called from MultiPoolerManager.Shutdown
 
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
@@ -149,7 +132,7 @@ func TestPrimaryPosition(t *testing.T) {
 			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
-			manager.rules = newRuleStore(logger, mockQueryService)
+			manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 			// Mark as initialized to skip auto-restore (not testing backup functionality)
 			err = manager.setInitialized()
@@ -227,7 +210,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService)
+	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	// Start and wait for ready
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -261,22 +244,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		callMethod func(context.Context) error
 	}{
 		{
-			name:       "SetPrimaryConnInfo times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				primary := &clustermetadatapb.MultiPooler{
-					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER,
-						Cell:      "zone1",
-						Name:      "test-primary",
-					},
-					Hostname: "localhost",
-					PortMap:  map[string]int32{"postgres": 5432},
-				}
-				return manager.SetPrimaryConnInfo(ctx, primary, false, false, 1, true)
-			},
-		},
-		{
 			name:       "StartReplication times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
@@ -298,48 +265,10 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "ConfigureSynchronousReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.ConfigureSynchronousReplication(
-					ctx,
-					multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-					multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-					1,
-					[]*clustermetadatapb.ID{serviceID},
-					true,  // reloadConfig
-					false, // force
-				)
-			},
-		},
-		{
-			name:       "ChangeType times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.ChangeType(ctx, "REPLICA")
-			},
-		},
-		{
-			name:       "EmergencyDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				_, err := manager.EmergencyDemote(ctx, 1, 5*time.Second, false)
-				return err
-			},
-		},
-		{
 			name:       "UndoDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
 				return manager.UndoDemote(ctx)
-			},
-		},
-		{
-			name:       "Promote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				_, err := manager.Promote(ctx, 1, "", nil, false /* force */, "", nil, nil, nil)
-				return err
 			},
 		},
 		{
@@ -388,885 +317,6 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-}
-
-// setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
-func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
-
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-	t.Cleanup(cleanupPgctld)
-
-	// Create the database in topology with backup location
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-replica",
-	}
-
-	// Create as REPLICA (ready for promotion)
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	tmpDir := t.TempDir()
-
-	// Create pg_data directory with PG_VERSION
-	// We'll call setInitialized() later to mark as initialized
-	pgDataDir := filepath.Join(tmpDir, "pg_data")
-	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
-	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-
-	multipooler.PoolerDir = tmpDir
-
-	config := &Config{
-		TopoClient: ts,
-		PgctldAddr: pgctldAddr,
-	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
-
-	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	err = pm.setInitialized()
-	require.NoError(t, err)
-
-	// Assign mock pooler controller and rule store BEFORE starting the manager
-	// to avoid race conditions.
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = newRuleStore(logger, mockQueryService)
-	pm.rules = rules
-
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Set consensus term to expected value (10) for testing via direct file write
-	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
-	setTermForTest(t, tmpDir, term)
-
-	// Initialize consensus state so the manager can read the term
-	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
-	pm.mu.Unlock()
-
-	// Load the term from file
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err, "Failed to load consensus state")
-
-	return pm, tmpDir
-}
-
-// These tests verify that the Promote method is truly idempotent and can handle partial failures.
-// TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated tests the critical idempotency scenario:
-// PostgreSQL was promoted but topology update failed. The retry should succeed and only update topology.
-func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T) {
-	ctx := context.Background()
-
-	// Simulate partial completion:
-	// 1. PostgreSQL is already primary (pg_promote() was called successfully)
-	// 2. Topology still shows REPLICA (update failed previously)
-	// 3. No sync replication config requested
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// checkPromotionState should return "f" (PG is already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Since already promoted, get current LSN (called twice - during processing and for final response)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
-
-	fakeRules := &fakeRuleStore{}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	// Topology is still REPLICA (this is what the guard rail checks)
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Call Promote - should detect PG is already promoted and only update topology
-	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err, "Should succeed - idempotent retry after partial failure")
-	require.NotNil(t, resp)
-
-	assert.False(t, resp.WasAlreadyPrimary, "Should not report as fully complete since topology wasn't updated")
-	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
-
-	// Verify topology was updated
-	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type(), "Topology should be updated to PRIMARY")
-	pm.mu.Unlock()
-	fakeRules.assertPromoteRecorded(t)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_FullyCompleteTopologyPrimary tests that Promote succeeds when everything is complete
-// This is the true idempotency case - calling Promote when topology is PRIMARY and everything is consistent
-func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
-	ctx := context.Background()
-
-	// Simulate fully completed promotion:
-	// 1. PostgreSQL is primary (not in recovery)
-	// 2. Topology is PRIMARY
-	// 3. No sync replication config requested (so it matches by default)
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// checkPromotionState should return "f" (PG is already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Get current LSN (since already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
-
-	// Topology is already PRIMARY
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
-	pm.mu.Unlock()
-
-	// Call Promote - should succeed with WasAlreadyPrimary=true (idempotent)
-	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err, "Should succeed - everything is already complete")
-	require.NotNil(t, resp)
-
-	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
-	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary tests error when topology is PRIMARY but PG is not
-func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *testing.T) {
-	ctx := context.Background()
-
-	// Simulate inconsistent state (should never happen):
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology shows PRIMARY
-	// This indicates a serious problem that requires manual intervention
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// Mock: checkPromotionState queries pg_is_in_recovery() - returns true (still standby!)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
-
-	// Topology shows PRIMARY (inconsistent!)
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
-	pm.mu.Unlock()
-
-	// Call Promote without force - should fail with inconsistent state error
-	_, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false, "", nil, nil, nil)
-	require.Error(t, err, "Should fail due to inconsistent state without force flag")
-	assert.Contains(t, err.Error(), "inconsistent state")
-	assert.Contains(t, err.Error(), "Manual intervention required")
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_InconsistentStateFixedWithForce tests that force flag fixes inconsistent state
-func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
-	ctx := context.Background()
-
-	// Simulate inconsistent state:
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology shows PRIMARY
-	// With force=true, it should complete the missing promotion steps
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// The sequence of pg_is_in_recovery calls is:
-	// 1. Promote checkPromotionState - returns "t" (consumed) - still in recovery
-	// 2. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Validate expected LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/FEDCBA0", "t"}}))
-
-	// Mock: pg_promote() call to fix the inconsistency
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// Mock: Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
-
-	// Topology shows PRIMARY (inconsistent!)
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_PRIMARY)
-	pm.mu.Unlock()
-
-	// Call Promote with force=true - should fix the inconsistency
-	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, true, "", nil, nil, nil)
-	require.NoError(t, err, "Should succeed with force flag - fixing inconsistent state")
-	require.NotNil(t, resp)
-
-	// PostgreSQL was promoted, so this is not "already primary" case
-	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_NothingCompleteYet tests promotion from scratch
-func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
-	ctx := context.Background()
-
-	// Simulate fresh promotion - nothing done yet:
-	// 1. PostgreSQL is still in recovery (standby)
-	// 2. Topology is REPLICA
-	// 3. No sync replication configured
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// The sequence of pg_is_in_recovery calls is:
-	// 1. Promote checkPromotionState - returns "t" (consumed) - still in recovery
-	// 2. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/5678ABC", "t"}}))
-
-	// Mock: pg_promote() call
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// Mock: Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/5678ABC"}}))
-
-	fakeRules := &fakeRuleStore{}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	// Topology is REPLICA
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Call Promote - should execute all steps
-	resp, err := pm.Promote(ctx, 10, "0/5678ABC", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	assert.False(t, resp.WasAlreadyPrimary)
-
-	// Verify topology was updated
-	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
-	pm.mu.Unlock()
-	fakeRules.assertPromoteRecorded(t)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_LSNMismatchBeforePromotion tests that promotion fails if LSN doesn't match
-func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// PostgreSQL is still in recovery
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-
-	// Mock: Check LSN - return different value than expected
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/9999999", "t"}}))
-
-	pm, _ := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
-
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Call Promote with different expected LSN - should fail
-	_, err := pm.Promote(ctx, 10, "0/1111111", nil, false /* force */, "", nil, nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "LSN")
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_TermMismatch tests that promotion fails with wrong term
-func TestPromoteIdempotency_TermMismatch(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock - only startup expectations needed because term validation happens before test DB queries
-	mockQueryService := mock.NewQueryService()
-
-	pm, tmpDir := setupPromoteTestManager(t, mockQueryService, &fakeRuleStore{})
-
-	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
-	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
-	setTermForTest(t, tmpDir, term)
-
-	// Call Promote with wrong term (current term is 10, passing 5)
-	_, err := pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", nil, nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "term")
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_SecondCallSucceedsAfterCompletion tests that calling Promote after completion succeeds (idempotent)
-func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// The sequence of pg_is_in_recovery calls is:
-	// 1. Promote checkPromotionState - returns "t" (consumed)
-	// 2. waitForPromotionComplete polling - returns "f" (consumed on first call)
-	// 3. Second Promote call checkPromotionState - returns "f" (consumed on second call)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// waitForPromotionComplete returns false (promotion complete)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-	// Second Promote call returns false (already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Validate expected LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/AAA1111", "t"}}))
-
-	// Mock: pg_promote() call
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// Mock: Get current LSN (called twice - once after first promote, once in second call)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
-
-	fakeRules := &fakeRuleStore{}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// First call
-	resp1, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err)
-	assert.False(t, resp1.WasAlreadyPrimary)
-
-	// Verify topology was updated to PRIMARY
-	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
-	pm.mu.Unlock()
-	fakeRules.assertPromoteRecorded(t)
-
-	// Second call should SUCCEED - topology is PRIMARY and everything is consistent (idempotent)
-	// The pg_is_in_recovery pattern already returns "f" (false) since the first call consumed the "t" patterns
-	resp2, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err, "Second call should succeed - idempotent operation")
-	assert.True(t, resp2.WasAlreadyPrimary, "Second call should report as already primary")
-	assert.Equal(t, "0/AAA1111", resp2.LsnPosition)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation tests that empty expectedLSN skips validation
-func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// The sequence of pg_is_in_recovery calls is:
-	// 1. Promote checkPromotionState - returns "t" (consumed)
-	// 2. waitForPromotionComplete polling - returns "f" (consumed)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: pg_promote() call (LSN validation skipped because expectedLSN is empty)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// Mock: Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
-
-	fakeRules := &fakeRuleStore{}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Call Promote with empty expectedLSN - should skip LSN validation
-	resp, err := pm.Promote(ctx, 10, "", nil, false /* force */, "", nil, nil, nil)
-	require.NoError(t, err, "Should succeed with empty expectedLSN")
-	require.NotNil(t, resp)
-
-	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, "0/BBBBBBB", resp.LsnPosition)
-	fakeRules.assertPromoteRecorded(t)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromote_WithElectionMetadata tests that Promote accepts and uses election metadata fields
-func TestPromote_WithElectionMetadata(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// checkPromotionState returns "t" (still in recovery)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/1234567", "t"}}))
-
-	// Mock: pg_promote() call
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1234567"}}))
-
-	// Mock: Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	fakeRules := &fakeRuleStore{}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	// Topology is REPLICA
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Call Promote with election metadata
-	reason := "dead_primary"
-	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
-	cohortMembers := []*clustermetadatapb.ID{
-		{Cell: "zone1", Name: "pooler-1"},
-		{Cell: "zone1", Name: "pooler-2"},
-		{Cell: "zone1", Name: "pooler-3"},
-	}
-	acceptedMembers := []*clustermetadatapb.ID{
-		{Cell: "zone1", Name: "pooler-1"},
-		{Cell: "zone1", Name: "pooler-3"},
-	}
-
-	resp, err := pm.Promote(ctx, 10, "0/1234567", nil, false /* force */, reason, coordinatorID, cohortMembers, acceptedMembers)
-	require.NoError(t, err, "Promote should succeed with election metadata")
-	require.NotNil(t, resp)
-
-	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, "0/1234567", resp.LsnPosition)
-
-	// Verify topology was updated
-	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
-	pm.mu.Unlock()
-
-	update := fakeRules.assertPromoteRecorded(t)
-	assert.Equal(t, "dead_primary", update.reason)
-	prototest.AssertEqual(t, coordinatorID, update.coordinatorID)
-	prototest.RequireElementsMatch(t, cohortMembers, update.cohortMembers)
-	prototest.RequireElementsMatch(t, acceptedMembers, update.acceptedMembers)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromote_RuleHistoryErrorFailsPromotion tests that an error in updateRule
-// fails the entire Promote operation. This ensures sync replication is functioning before
-// accepting the promotion - better to have no primary than one that violates durability policy.
-func TestPromote_RuleHistoryErrorFailsPromotion(t *testing.T) {
-	ctx := context.Background()
-
-	// Create mock and set ALL expectations BEFORE starting the manager
-	mockQueryService := mock.NewQueryService()
-
-	// checkPromotionState returns "t" (still in recovery)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/9876543", "t"}}))
-
-	// Mock: pg_promote() call
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/9876543"}}))
-
-	// Mock: Clear primary_conninfo after promotion (executed before updateRule)
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// updateRule fails (e.g., sync replication timeout)
-	fakeRules := &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for synchronous replication")}
-	pm, _ := setupPromoteTestManager(t, mockQueryService, fakeRules)
-
-	// Topology is REPLICA
-	pm.mu.Lock()
-	setPoolerTypeForTest(t, pm, clustermetadatapb.PoolerType_REPLICA)
-	pm.mu.Unlock()
-
-	// Verify primary_term is 0 before promotion
-	cs, err := pm.getInconsistentConsensusStatus(ctx)
-	require.NoError(t, err)
-	require.Equal(t, int64(0),
-		commonconsensus.LeaderTerm(cs),
-		"primary_term should be 0 before promotion")
-
-	// Call Promote - should FAIL because rule history write fails
-	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", nil, nil, nil)
-	require.Error(t, err, "Promote should fail when rule history write fails")
-	require.Nil(t, resp)
-
-	// Error message should indicate the rule history failure
-	assert.Contains(t, err.Error(), "rule history")
-
-	// Primary term is derived from the highest known rule; since the rule history
-	// write failed, the rule was not updated and primary_term remains 0.
-	cs, err = pm.getInconsistentConsensusStatus(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0),
-		commonconsensus.LeaderTerm(cs),
-		"primary_term should be 0 because the rule history write failed")
-
-	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
-	// The coordinator should handle this partial promotion state (e.g., retry or repair).
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-// TestPromote_TopologyUpdateFailureDoesNotFailPromotion tests that a topo failure
-// during updateTopologyAfterPromotion does not fail the overall Promote operation.
-func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
-	ctx := context.Background()
-
-	mockQueryService := mock.NewQueryService()
-
-	// checkPromotionState
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// waitForPromotionComplete
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-
-	// Validate expected LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/ABCDEF0", "t"}}))
-
-	// pg_promote()
-	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
-		mock.MakeQueryResult(nil, nil))
-
-	// Clear primary_conninfo after promotion
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// Get final LSN
-	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
-		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
-
-	// Inline setup (like setupPromoteTestManager but capturing factory)
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { ts.Close() })
-
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-	t.Cleanup(cleanupPgctld)
-
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-replica",
-	}
-
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	tmpDir := t.TempDir()
-	pgDataDir := filepath.Join(tmpDir, "pg_data")
-	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
-	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-	multipooler.PoolerDir = tmpDir
-
-	config := &Config{
-		TopoClient: ts,
-		PgctldAddr: pgctldAddr,
-	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
-
-	err = pm.setInitialized()
-	require.NoError(t, err)
-
-	fakeRules := &fakeRuleStore{}
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = newRuleStore(logger, mockQueryService)
-	pm.rules = fakeRules
-
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10}
-	setTermForTest(t, tmpDir, term)
-
-	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
-	pm.mu.Unlock()
-
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err)
-
-	// Inject topo failure before calling Promote
-	factory.SetError(errors.New("topo unavailable"))
-
-	// Promote should succeed despite topo failure
-	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false, "test_reason", nil, nil, nil)
-	require.NoError(t, err, "Promote should succeed even when topology update fails")
-	require.NotNil(t, resp)
-
-	assert.False(t, resp.WasAlreadyPrimary)
-	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
-
-	// Local state should still be updated to PRIMARY
-	pm.mu.Lock()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
-	pm.mu.Unlock()
-
-	// Verify health streamer has primary observation with self as primary
-	healthState := pm.healthStreamer.getState()
-	require.NotNil(t, healthState.LeaderObservation, "health streamer should have primary observation after Promote")
-	assert.Equal(t, serviceID, healthState.LeaderObservation.LeaderID, "primary observation should point to self")
-	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm, "primary observation term should match consensus term")
-
-	fakeRules.assertPromoteRecorded(t)
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-}
-
-func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-replica",
-	}
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
-	t.Cleanup(cleanupPgctld)
-
-	// Create the database in topology with backup location
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	// Create REPLICA multipooler
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	tmpDir := t.TempDir()
-	createPgDataDir(t, tmpDir)
-
-	multipooler.PoolerDir = tmpDir
-
-	config := &Config{
-		TopoClient: ts,
-		PgctldAddr: pgctldAddr,
-	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	defer pm.ShutdownForTest(t.Context())
-
-	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	err = pm.setInitialized()
-	require.NoError(t, err)
-
-	// Initialize consensus state
-	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
-	pm.mu.Unlock()
-
-	// Set up mock query service
-	mockQueryService := mock.NewQueryService()
-	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
-	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo — capture the full
-	// SQL so we can assert on the rendered libpq conninfo.
-	var capturedConnInfoSQL string
-	mockQueryService.AddQueryPatternWithCallback(
-		"ALTER SYSTEM SET primary_conninfo",
-		mock.MakeQueryResult(nil, nil),
-		func(sql string) { capturedConnInfoSQL = sql },
-	)
-	// SetPrimaryConnInfo executes pg_reload_conf()
-	expectReloadConfig(mockQueryService)
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = newRuleStore(logger, mockQueryService)
-
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go pm.Start(senv)
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Inject a fake pool manager so we can verify primary_conninfo uses the
-	// configured superuser name.
-	const testSuperuser = "admin"
-	pm.mu.Lock()
-	pm.connPoolMgr = &fakeConnPoolMgr{user: testSuperuser}
-	pm.mu.Unlock()
-
-	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
-	term := &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
-	setTermForTest(t, tmpDir, term)
-	// Reload consensus state to pick up the term from file
-	_, err = pm.consensusState.Load()
-	require.NoError(t, err, "Failed to load consensus state")
-
-	// Call SetPrimaryConnInfo with a specific primary MultiPooler
-	testPrimaryID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "primary-pooler-123",
-	}
-	primary := &clustermetadatapb.MultiPooler{
-		Id:       testPrimaryID,
-		Hostname: "primary-host",
-		PortMap:  map[string]int32{"postgres": 5432},
-	}
-	err = pm.SetPrimaryConnInfo(ctx, primary, false, false, 1, false)
-	require.NoError(t, err)
-
-	// Verify all mock expectations were met
-	assert.NoError(t, mockQueryService.ExpectationsWereMet())
-
-	// Verify the rendered primary_conninfo wires the configured superuser into
-	// the user= slot. Regression guard for the bug where the database name was
-	// being passed here.
-	assert.Contains(t, capturedConnInfoSQL, "user="+testSuperuser,
-		"primary_conninfo must contain user=%s, got: %s", testSuperuser, capturedConnInfoSQL)
-
-	// Verify the primary's id is recorded in the canonical ReplicationPrimary.
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
-	require.NotNil(t, recorded, "primary should be recorded")
-	storedPrimaryPoolerID := recorded.GetId()
-	require.NotNil(t, storedPrimaryPoolerID, "primary id should be recorded")
-	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primary id component should match")
-	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primary id cell should match")
-	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primary id name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {
@@ -1336,7 +386,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = newRuleStore(logger, mockQueryService)
+		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1427,7 +477,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = newRuleStore(logger, mockQueryService)
+		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1513,7 +563,7 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = newRuleStore(logger, mockQueryService)
+		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1582,7 +632,7 @@ func TestReplicationStatus(t *testing.T) {
 		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = newRuleStore(logger, mockQueryService)
+		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{
 			pos: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
@@ -1669,7 +719,7 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = newRuleStore(logger, mockQueryService)
+		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{}
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -1689,117 +739,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.NotNil(t, status.Status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
 		assert.Nil(t, status.Status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
 	})
-}
-
-func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *testing.T) {
-	// This test verifies that if updateRule fails,
-	// the synchronous_commit and synchronous_standby_names GUCs are NOT updated.
-	// This ensures that we only update GUCs if the rule update succeeds.
-
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-primary",
-	}
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	poolerDir := t.TempDir()
-	createPgDataDir(t, poolerDir)
-
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
-		Type:          clustermetadatapb.PoolerType_PRIMARY,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	multipooler.PoolerDir = poolerDir
-
-	// Set consensus term
-	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
-		RevokedBelowTerm: 1,
-	})
-
-	config := &Config{
-		TopoClient: ts,
-	}
-	manager, err := NewMultiPoolerManager(logger, multipooler, config)
-	require.NoError(t, err)
-	defer manager.ShutdownForTest(t.Context())
-
-	// Initialize consensus state so the manager can read the term
-	manager.mu.Lock()
-	manager.consensusState = NewConsensusState(poolerDir, serviceID)
-	manager.mu.Unlock()
-
-	// Load the term from file
-	_, err = manager.consensusState.Load()
-	require.NoError(t, err, "Failed to load consensus state")
-
-	// Set up mock query service
-	mockQueryService := mock.NewQueryService()
-
-	// Mock for startup: pg_is_in_recovery returns false (PRIMARY)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
-
-	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService)
-	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
-
-	// Mark as initialized
-	err = manager.setInitialized()
-	require.NoError(t, err)
-
-	// Start and wait for ready
-	senv := servenv.NewServEnv(viperutil.NewRegistry())
-	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond)
-
-	// We do NOT add expectations for ALTER SYSTEM SET queries
-	// If they get called, ExpectationsWereMet() will fail
-
-	// Call ConfigureSynchronousReplication
-	standbyIDs := []*clustermetadatapb.ID{
-		{Cell: "zone1", Name: "replica-1"},
-		{Cell: "zone1", Name: "replica-2"},
-	}
-
-	err = manager.ConfigureSynchronousReplication(
-		ctx,
-		multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
-		multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-		1,
-		standbyIDs,
-		true,  // reloadConfig
-		false, // force
-	)
-
-	// Verify it failed with the expected error
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to record replication config history")
-
-	// CRITICAL: Verify that NO additional queries were executed beyond the INSERT
-	// This proves that setSynchronousCommit and setSynchronousStandbyNames were NOT called
-	assert.NoError(t, mockQueryService.ExpectationsWereMet(),
-		"If this fails, it means GUC update queries were called despite history insert failure")
 }
 
 func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
@@ -1869,8 +808,21 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService)
-	manager.rules = &fakeRuleStore{updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication")}
+	// observePosition must succeed so UpdateCohortMembers reaches updateRule.
+	// updateErr simulates the history write timing out (the failure we're testing).
+	manager.rules = &fakeRuleStore{
+		pos: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				CohortMembers: []*clustermetadatapb.ID{
+					{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-1"},
+					{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-2"},
+				},
+				DurabilityPolicy: testBootstrapPolicy(),
+			},
+		},
+		updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"),
+	}
 
 	err = manager.setInitialized()
 	require.NoError(t, err)
@@ -1908,7 +860,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 
 	// CRITICAL: Verify that NO ALTER SYSTEM queries were executed
 	assert.NoError(t, mockQueryService.ExpectationsWereMet(),
-		"If this fails, it means applySynchronousStandbyNames was called despite history insert failure")
+		"If this fails, it means SetPolicy was called despite history insert failure")
 }
 
 // TestRewindToSource_ManagerReopenedOnError is a regression test for a bug where
@@ -1972,7 +924,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 
 	// Assign mock pooler controller BEFORE opening to avoid race conditions
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = newRuleStore(logger, mockQueryService)
+	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	// Simulate the manager being open and ready (set internal state without starting goroutines)
 	manager.mu.Lock()

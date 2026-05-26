@@ -201,8 +201,8 @@
   },
   {
     "comment": "create_type - Statement 46",
-    "query": "SELECT format_type(atttypid,atttypmod) FROM pg_attribute WHERE attrelid = 'mytab'::regclass AND attnum \u003e 0",
-    "expected": "SELECT format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = CAST('mytab' AS regclass) AND attnum \u003e 0"
+    "query": "SELECT format_type(atttypid,atttypmod) FROM pg_attribute WHERE attrelid = 'mytab'::regclass AND attnum > 0",
+    "expected": "SELECT format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = CAST('mytab' AS regclass) AND attnum > 0"
   },
   {
     "comment": "create_type - Statement 47",
@@ -259,13 +259,13 @@
   },
   {
     "comment": "create_type - Statement 59",
-    "query": "CREATE OPERATOR \u003c% ( leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = \u003e% , negator = \u003e=% )",
-    "expected": "CREATE OPERATOR \u003c% (leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = '\u003e%', negator = '\u003e=%')"
+    "query": "CREATE OPERATOR <% ( leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = >% , negator = >=% )",
+    "expected": "CREATE OPERATOR <% (leftarg = point, rightarg = widget, procedure = pt_in_widget, commutator = >%, negator = >=%)"
   },
   {
     "comment": "create_type - Statement 60",
-    "query": "SELECT point '(1,2)' \u003c% widget '(0,0,3)' AS t, point '(1,2)' \u003c% widget '(0,0,1)' AS f",
-    "expected": "SELECT CAST('(1,2)' AS point) \u003c% CAST('(0,0,3)' AS widget) AS t, CAST('(1,2)' AS point) \u003c% CAST('(0,0,1)' AS widget) AS f"
+    "query": "SELECT point '(1,2)' <% widget '(0,0,3)' AS t, point '(1,2)' <% widget '(0,0,1)' AS f",
+    "expected": "SELECT CAST('(1,2)' AS point) <% CAST('(0,0,3)' AS widget) AS t, CAST('(1,2)' AS point) <% CAST('(0,0,1)' AS widget) AS f"
   },
   {
     "comment": "create_type - Statement 61",

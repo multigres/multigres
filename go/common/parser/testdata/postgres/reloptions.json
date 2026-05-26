@@ -37,7 +37,7 @@
   {
     "comment": "reloptions - Statement 8",
     "query": "CREATE TABLE reloptions_test2(i INT) WITH (not_existing_namespace.fillfactor=2)",
-    "expected": "CREATE TABLE reloptions_test2 (i INT) WITH (fillfactor = 2)"
+    "expected": "CREATE TABLE reloptions_test2 (i INT) WITH (not_existing_namespace.fillfactor = 2)"
   },
   {
     "comment": "reloptions - Statement 9",
@@ -133,7 +133,7 @@
   {
     "comment": "reloptions - Statement 28",
     "query": "CREATE TEMP TABLE reloptions_test(i INT NOT NULL, j text) WITH (vacuum_truncate=false, toast.vacuum_truncate=false, autovacuum_enabled=false)",
-    "expected": "CREATE TEMPORARY TABLE reloptions_test (i INT NOT NULL, j TEXT) WITH (vacuum_truncate = 'false', vacuum_truncate = 'false', autovacuum_enabled = 'false')"
+    "expected": "CREATE TEMPORARY TABLE reloptions_test (i INT NOT NULL, j TEXT) WITH (vacuum_truncate = 'false', toast.vacuum_truncate = 'false', autovacuum_enabled = 'false')"
   },
   {
     "comment": "reloptions - Statement 29",
@@ -145,7 +145,7 @@
   },
   {
     "comment": "reloptions - Statement 31",
-    "query": "SELECT pg_relation_size('reloptions_test') \u003e 0"
+    "query": "SELECT pg_relation_size('reloptions_test') > 0"
   },
   {
     "comment": "reloptions - Statement 32",
@@ -162,8 +162,7 @@
   },
   {
     "comment": "reloptions - Statement 35",
-    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23)",
-    "expected": "CREATE TABLE reloptions_test (s VARCHAR) WITH (autovacuum_vacuum_cost_delay = 23)"
+    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23)"
   },
   {
     "comment": "reloptions - Statement 36",
@@ -176,23 +175,20 @@
   },
   {
     "comment": "reloptions - Statement 38",
-    "query": "ALTER TABLE reloptions_test SET (toast.autovacuum_vacuum_cost_delay = 24)",
-    "expected": "ALTER TABLE reloptions_test SET (autovacuum_vacuum_cost_delay = 24)"
+    "query": "ALTER TABLE reloptions_test SET (toast.autovacuum_vacuum_cost_delay = 24)"
   },
   {
     "comment": "reloptions - Statement 39",
-    "query": "ALTER TABLE reloptions_test RESET (toast.autovacuum_vacuum_cost_delay)",
-    "expected": "ALTER TABLE reloptions_test RESET (autovacuum_vacuum_cost_delay)"
+    "query": "ALTER TABLE reloptions_test RESET (toast.autovacuum_vacuum_cost_delay)"
   },
   {
     "comment": "reloptions - Statement 40",
     "query": "CREATE TABLE reloptions_test2 (i int) WITH (toast.not_existing_option = 42)",
-    "expected": "CREATE TABLE reloptions_test2 (i INT) WITH (not_existing_option = 42)"
+    "expected": "CREATE TABLE reloptions_test2 (i INT) WITH (toast.not_existing_option = 42)"
   },
   {
     "comment": "reloptions - Statement 41",
-    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23, autovacuum_vacuum_cost_delay = 24, fillfactor = 40)",
-    "expected": "CREATE TABLE reloptions_test (s VARCHAR) WITH (autovacuum_vacuum_cost_delay = 23, autovacuum_vacuum_cost_delay = 24, fillfactor = 40)"
+    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23, autovacuum_vacuum_cost_delay = 24, fillfactor = 40)"
   },
   {
     "comment": "reloptions - Statement 42",
@@ -217,7 +213,7 @@
   {
     "comment": "reloptions - Statement 46",
     "query": "CREATE INDEX reloptions_test_idx ON reloptions_test (s) WITH (not_existing_ns.fillfactor=2)",
-    "expected": "CREATE INDEX reloptions_test_idx ON reloptions_test USING btree ( s ) WITH (fillfactor = 2)"
+    "expected": "CREATE INDEX reloptions_test_idx ON reloptions_test USING btree ( s ) WITH (not_existing_ns.fillfactor = 2)"
   },
   {
     "comment": "reloptions - Statement 47",

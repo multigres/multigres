@@ -61,7 +61,7 @@ var pgctldStopModes = []struct {
 // the protectedPgctldClient action-lock check, and announcing the resignation
 // involves reading consensus state and writing resignedLeaderAtTerm under the
 // same lock — holding it across both serialises against any concurrent
-// consensus operation (Promote, Demote, Recruit, BeginTerm REVOKE).
+// consensus operation (Recruit, Propose, etc.).
 func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
 
@@ -90,7 +90,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// running it post-stop would fail and the coordinator would have to wait
 	// for stream EOF + LeaderIsDead grace period instead. No-op for
 	// non-leaders and partially-initialized managers (consensus not wired).
-	// Mirrors the EmergencyDemote pattern in rpc_manager.go.
+	// Mirrors the primary-demote pattern in Recruit (rpc_consensus.go).
 	if pm.consensusState != nil && pm.rules != nil {
 		primaryTerm, err := pm.primaryTermLocked(lockCtx)
 		switch {

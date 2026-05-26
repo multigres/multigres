@@ -81,7 +81,7 @@
   },
   {
     "comment": "subscription - Statement 19",
-    "query": "SELECT 'prev_stats_reset' \u003c stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
+    "query": "SELECT 'prev_stats_reset' < stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
   },
   {
     "comment": "subscription - Statement 20",
@@ -324,7 +324,7 @@
   {
     "comment": "subscription - Statement 70",
     "query": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH (refresh = true)",
-    "expected": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub"
+    "expected": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH ( refresh = 'true' )"
   },
   {
     "comment": "subscription - Statement 71",
@@ -346,8 +346,7 @@
   },
   {
     "comment": "subscription - Statement 75",
-    "query": "ALTER SUBSCRIPTION regress_testsub DISABLE",
-    "expected": "ALTER SUBSCRIPTION regress_testsub ENABLE"
+    "query": "ALTER SUBSCRIPTION regress_testsub DISABLE"
   },
   {
     "comment": "subscription - Statement 76",

@@ -55,7 +55,7 @@
   },
   {
     "comment": "create_view - Statement 13",
-    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) \u003e 0"
+    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) > 0"
   },
   {
     "comment": "create_view - Statement 14",
@@ -73,7 +73,7 @@
   },
   {
     "comment": "create_view - Statement 17",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl WHERE a \u003e 10"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl WHERE a > 10"
   },
   {
     "comment": "create_view - Statement 18",
@@ -81,11 +81,11 @@
   },
   {
     "comment": "create_view - Statement 19",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c, d FROM viewtest_tbl WHERE a \u003e 5 ORDER BY b DESC"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c, d FROM viewtest_tbl WHERE a > 5 ORDER BY b DESC"
   },
   {
     "comment": "create_view - Statement 20",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a FROM viewtest_tbl WHERE a \u003c\u003e 20"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a FROM viewtest_tbl WHERE a <> 20"
   },
   {
     "comment": "create_view - Statement 21",
@@ -371,28 +371,28 @@
   },
   {
     "comment": "create_view - Statement 83",
-    "query": "CREATE VIEW mysecview2 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003e 0",
-    "expected": "CREATE VIEW mysecview2 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003e 0"
+    "query": "CREATE VIEW mysecview2 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a > 0",
+    "expected": "CREATE VIEW mysecview2 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a > 0"
   },
   {
     "comment": "create_view - Statement 84",
-    "query": "CREATE VIEW mysecview3 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a \u003c 0",
-    "expected": "CREATE VIEW mysecview3 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a \u003c 0"
+    "query": "CREATE VIEW mysecview3 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a < 0",
+    "expected": "CREATE VIEW mysecview3 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a < 0"
   },
   {
     "comment": "create_view - Statement 85",
-    "query": "CREATE VIEW mysecview4 WITH (security_barrier) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 0",
-    "expected": "CREATE VIEW mysecview4 WITH ( security_barrier) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 0"
+    "query": "CREATE VIEW mysecview4 WITH (security_barrier) AS SELECT * FROM tbl1 WHERE a <> 0",
+    "expected": "CREATE VIEW mysecview4 WITH ( security_barrier) AS SELECT * FROM tbl1 WHERE a <> 0"
   },
   {
     "comment": "create_view - Statement 86",
-    "query": "CREATE VIEW mysecview5 WITH (security_barrier=100) AS SELECT * FROM tbl1 WHERE a \u003e 100",
-    "expected": "CREATE VIEW mysecview5 WITH ( security_barrier = 100) AS SELECT * FROM tbl1 WHERE a \u003e 100"
+    "query": "CREATE VIEW mysecview5 WITH (security_barrier=100) AS SELECT * FROM tbl1 WHERE a > 100",
+    "expected": "CREATE VIEW mysecview5 WITH ( security_barrier = 100) AS SELECT * FROM tbl1 WHERE a > 100"
   },
   {
     "comment": "create_view - Statement 87",
-    "query": "CREATE VIEW mysecview6 WITH (invalid_option) AS SELECT * FROM tbl1 WHERE a \u003c 100",
-    "expected": "CREATE VIEW mysecview6 WITH ( invalid_option) AS SELECT * FROM tbl1 WHERE a \u003c 100"
+    "query": "CREATE VIEW mysecview6 WITH (invalid_option) AS SELECT * FROM tbl1 WHERE a < 100",
+    "expected": "CREATE VIEW mysecview6 WITH ( invalid_option) AS SELECT * FROM tbl1 WHERE a < 100"
   },
   {
     "comment": "create_view - Statement 88",
@@ -401,18 +401,18 @@
   },
   {
     "comment": "create_view - Statement 89",
-    "query": "CREATE VIEW mysecview8 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003e 100",
-    "expected": "CREATE VIEW mysecview8 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003e 100"
+    "query": "CREATE VIEW mysecview8 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a > 100",
+    "expected": "CREATE VIEW mysecview8 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a > 100"
   },
   {
     "comment": "create_view - Statement 90",
-    "query": "CREATE VIEW mysecview9 WITH (security_invoker) AS SELECT * FROM tbl1 WHERE a \u003c 100",
-    "expected": "CREATE VIEW mysecview9 WITH ( security_invoker) AS SELECT * FROM tbl1 WHERE a \u003c 100"
+    "query": "CREATE VIEW mysecview9 WITH (security_invoker) AS SELECT * FROM tbl1 WHERE a < 100",
+    "expected": "CREATE VIEW mysecview9 WITH ( security_invoker) AS SELECT * FROM tbl1 WHERE a < 100"
   },
   {
     "comment": "create_view - Statement 91",
-    "query": "CREATE VIEW mysecview10 WITH (security_invoker=100) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 100",
-    "expected": "CREATE VIEW mysecview10 WITH ( security_invoker = 100) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 100"
+    "query": "CREATE VIEW mysecview10 WITH (security_invoker=100) AS SELECT * FROM tbl1 WHERE a <> 100",
+    "expected": "CREATE VIEW mysecview10 WITH ( security_invoker = 100) AS SELECT * FROM tbl1 WHERE a <> 100"
   },
   {
     "comment": "create_view - Statement 92",
@@ -425,31 +425,31 @@
   },
   {
     "comment": "create_view - Statement 94",
-    "query": "CREATE OR REPLACE VIEW mysecview2 AS SELECT * FROM tbl1 WHERE a \u003e 256"
+    "query": "CREATE OR REPLACE VIEW mysecview2 AS SELECT * FROM tbl1 WHERE a > 256"
   },
   {
     "comment": "create_view - Statement 95",
-    "query": "CREATE OR REPLACE VIEW mysecview3 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003c 256",
-    "expected": "CREATE OR REPLACE VIEW mysecview3 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003c 256"
+    "query": "CREATE OR REPLACE VIEW mysecview3 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a < 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview3 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a < 256"
   },
   {
     "comment": "create_view - Statement 96",
-    "query": "CREATE OR REPLACE VIEW mysecview4 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256",
-    "expected": "CREATE OR REPLACE VIEW mysecview4 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256"
+    "query": "CREATE OR REPLACE VIEW mysecview4 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a <> 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview4 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a <> 256"
   },
   {
     "comment": "create_view - Statement 97",
-    "query": "CREATE OR REPLACE VIEW mysecview7 AS SELECT * FROM tbl1 WHERE a \u003e 256"
+    "query": "CREATE OR REPLACE VIEW mysecview7 AS SELECT * FROM tbl1 WHERE a > 256"
   },
   {
     "comment": "create_view - Statement 98",
-    "query": "CREATE OR REPLACE VIEW mysecview8 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a \u003c 256",
-    "expected": "CREATE OR REPLACE VIEW mysecview8 WITH ( security_invoker = 'true') AS SELECT * FROM tbl1 WHERE a \u003c 256"
+    "query": "CREATE OR REPLACE VIEW mysecview8 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a < 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview8 WITH ( security_invoker = 'true') AS SELECT * FROM tbl1 WHERE a < 256"
   },
   {
     "comment": "create_view - Statement 99",
-    "query": "CREATE OR REPLACE VIEW mysecview9 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256",
-    "expected": "CREATE OR REPLACE VIEW mysecview9 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256"
+    "query": "CREATE OR REPLACE VIEW mysecview9 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a <> 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview9 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a <> 256"
   },
   {
     "comment": "create_view - Statement 100",
@@ -525,17 +525,17 @@
   {
     "comment": "create_view - Statement 115",
     "query": "create view view_of_joins_2b as select * from tbl1 join tbl1a using (a) as x",
-    "expected": "CREATE VIEW view_of_joins_2b AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2b AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a) AS x"
   },
   {
     "comment": "create_view - Statement 116",
     "query": "create view view_of_joins_2c as select * from (tbl1 join tbl1a using (a)) as y",
-    "expected": "CREATE VIEW view_of_joins_2c AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2c AS SELECT * FROM (tbl1 INNER JOIN tbl1a USING (a)) AS y"
   },
   {
     "comment": "create_view - Statement 117",
     "query": "create view view_of_joins_2d as select * from (tbl1 join tbl1a using (a) as x) as y",
-    "expected": "CREATE VIEW view_of_joins_2d AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
+    "expected": "CREATE VIEW view_of_joins_2d AS SELECT * FROM (tbl1 INNER JOIN tbl1a USING (a) AS x) AS y"
   },
   {
     "comment": "create_view - Statement 118",
@@ -580,7 +580,7 @@
   {
     "comment": "create_view - Statement 126",
     "query": "create view v1a as select * from (tt2 natural join tt3) j",
-    "expected": "CREATE VIEW v1a AS SELECT * FROM tt2 NATURAL JOIN tt3"
+    "expected": "CREATE VIEW v1a AS SELECT * FROM (tt2 NATURAL JOIN tt3) AS j"
   },
   {
     "comment": "create_view - Statement 127",
@@ -590,7 +590,7 @@
   {
     "comment": "create_view - Statement 128",
     "query": "create view v2a as select * from (tt2 join tt3 using (b,c) join tt4 using (b)) j",
-    "expected": "CREATE VIEW v2a AS SELECT * FROM tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)"
+    "expected": "CREATE VIEW v2a AS SELECT * FROM (tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)) AS j"
   },
   {
     "comment": "create_view - Statement 129",
@@ -665,7 +665,7 @@
   {
     "comment": "create_view - Statement 143",
     "query": "create view vv1 as select * from (tt5 cross join tt6) j(aa,bb,cc,dd)",
-    "expected": "CREATE VIEW vv1 AS SELECT * FROM tt5 INNER JOIN tt6 ON TRUE"
+    "expected": "CREATE VIEW vv1 AS SELECT * FROM (tt5 INNER JOIN tt6 ON TRUE) AS j(aa, bb, cc, dd)"
   },
   {
     "comment": "create_view - Statement 144",
@@ -1009,8 +1009,8 @@
   },
   {
     "comment": "create_view - Statement 216",
-    "query": "create rule updlog as on update to tt15v do also insert into tt15v_log values(old, new, row(old,old) \u003c row(new,new))",
-    "expected": "CREATE RULE updlog AS ON UPDATE TO tt15v DO INSERT INTO tt15v_log VALUES (old, new, ROW(old, old) \u003c ROW(new, new))"
+    "query": "create rule updlog as on update to tt15v do also insert into tt15v_log values(old, new, row(old,old) < row(new,new))",
+    "expected": "CREATE RULE updlog AS ON UPDATE TO tt15v DO INSERT INTO tt15v_log VALUES (old, new, ROW(old, old) < ROW(new, new))"
   },
   {
     "comment": "create_view - Statement 217",
@@ -1060,7 +1060,7 @@
   {
     "comment": "create_view - Statement 226",
     "query": "create view tt201v as select ('2022-12-01'::date + '1 day'::interval) at time zone 'UTC' as atz, extract(day from now()) as extr, (now(), '1 day'::interval) overlaps (current_timestamp(2), '1 day'::interval) as o, 'foo' is normalized isn, 'foo' is nfkc normalized isnn, normalize('foo') as n, normalize('foo', nfkd) as nfkd, overlay('foo' placing 'bar' from 2) as ovl, overlay('foo' placing 'bar' from 2 for 3) as ovl2, position('foo' in 'foobar') as p, substring('foo' from 2 for 3) as s, substring('foo' similar 'f' escape '#') as ss, substring('foo' from 'oo') as ssf, trim(' ' from ' foo ') as bt, trim(leading ' ' from ' foo ') as lt, trim(trailing ' foo ') as rt, trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as btb, trim(leading E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as ltb, trim(trailing E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as rtb, CURRENT_DATE as cd, (select * from CURRENT_DATE) as cd2, CURRENT_TIME as ct, (select * from CURRENT_TIME) as ct2, CURRENT_TIME (1) as ct3, (select * from CURRENT_TIME (1)) as ct4, CURRENT_TIMESTAMP as ct5, (select * from CURRENT_TIMESTAMP) as ct6, CURRENT_TIMESTAMP (1) as ct7, (select * from CURRENT_TIMESTAMP (1)) as ct8, LOCALTIME as lt1, (select * from LOCALTIME) as lt2, LOCALTIME (1) as lt3, (select * from LOCALTIME (1)) as lt4, LOCALTIMESTAMP as lt5, (select * from LOCALTIMESTAMP) as lt6, LOCALTIMESTAMP (1) as lt7, (select * from LOCALTIMESTAMP (1)) as lt8, CURRENT_CATALOG as ca, (select * from CURRENT_CATALOG) as ca2, CURRENT_ROLE as cr, (select * from CURRENT_ROLE) as cr2, CURRENT_SCHEMA as cs, (select * from CURRENT_SCHEMA) as cs2, CURRENT_USER as cu, (select * from CURRENT_USER) as cu2, USER as us, (select * from USER) as us2, SESSION_USER seu, (select * from SESSION_USER) as seu2, SYSTEM_USER as su, (select * from SYSTEM_USER) as su2",
-    "expected": "CREATE VIEW tt201v AS SELECT timezone('UTC', (CAST('2022-12-01' AS DATE) + CAST('1 day' AS INTERVAL))) AS atz, extract(day FROM NOW()) AS extr, overlaps(NOW(), CAST('1 day' AS INTERVAL), CURRENT_TIMESTAMP(2), CAST('1 day' AS INTERVAL)) AS o, 'foo' is normalized AS isn, 'foo' is NFKC normalized AS isnn, normalize('foo') AS n, normalize('foo', NFKD) AS nfkd, overlay('foo' placing 'bar' from 2) AS ovl, overlay('foo' placing 'bar' from 2 for 3) AS ovl2, POSITION('foo' IN 'foobar') AS p, SUBSTRING('foo' FROM 2 FOR 3) AS s, SUBSTRING('foo' FROM 'f' FOR '#') AS ss, SUBSTRING('foo' FROM 'oo') AS ssf, trim(' foo ', ' ') AS bt, ltrim(' foo ', ' ') AS lt, rtrim(' foo ') AS rt, trim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS btb, ltrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS ltb, rtrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS rtb, CURRENT_DATE AS cd, (SELECT * FROM CURRENT_DATE) AS cd2, CURRENT_TIME AS ct, (SELECT * FROM CURRENT_TIME) AS ct2, CURRENT_TIME(1) AS ct3, (SELECT * FROM CURRENT_TIME(1)) AS ct4, CURRENT_TIMESTAMP AS ct5, (SELECT * FROM CURRENT_TIMESTAMP) AS ct6, CURRENT_TIMESTAMP(1) AS ct7, (SELECT * FROM CURRENT_TIMESTAMP(1)) AS ct8, LOCALTIME AS lt1, (SELECT * FROM LOCALTIME) AS lt2, LOCALTIME(1) AS lt3, (SELECT * FROM LOCALTIME(1)) AS lt4, LOCALTIMESTAMP AS lt5, (SELECT * FROM LOCALTIMESTAMP) AS lt6, LOCALTIMESTAMP(1) AS lt7, (SELECT * FROM LOCALTIMESTAMP(1)) AS lt8, CURRENT_CATALOG AS ca, (SELECT * FROM CURRENT_CATALOG) AS ca2, CURRENT_ROLE AS cr, (SELECT * FROM CURRENT_ROLE) AS cr2, CURRENT_SCHEMA AS cs, (SELECT * FROM CURRENT_SCHEMA) AS cs2, CURRENT_USER AS cu, (SELECT * FROM CURRENT_USER) AS cu2, USER AS us, (SELECT * FROM USER) AS us2, SESSION_USER AS seu, (SELECT * FROM SESSION_USER) AS seu2, SYSTEM_USER AS su, (SELECT * FROM SYSTEM_USER) AS su2"
+    "expected": "CREATE VIEW tt201v AS SELECT timezone('UTC', (CAST('2022-12-01' AS DATE) + CAST('1 day' AS INTERVAL))) AS atz, extract(day FROM NOW()) AS extr, overlaps(NOW(), CAST('1 day' AS INTERVAL), CURRENT_TIMESTAMP(2), CAST('1 day' AS INTERVAL)) AS o, 'foo' is normalized AS isn, 'foo' is NFKC normalized AS isnn, normalize('foo') AS n, normalize('foo', NFKD) AS nfkd, overlay('foo' placing 'bar' from 2) AS ovl, overlay('foo' placing 'bar' from 2 for 3) AS ovl2, POSITION('foo' IN 'foobar') AS p, SUBSTRING('foo' FROM 2 FOR 3) AS s, SUBSTRING('foo' FROM 'f' FOR '#') AS ss, SUBSTRING('foo' FROM 'oo') AS ssf, btrim(' foo ', ' ') AS bt, ltrim(' foo ', ' ') AS lt, rtrim(' foo ') AS rt, btrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS btb, ltrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS ltb, rtrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS rtb, CURRENT_DATE AS cd, (SELECT * FROM CURRENT_DATE) AS cd2, CURRENT_TIME AS ct, (SELECT * FROM CURRENT_TIME) AS ct2, CURRENT_TIME(1) AS ct3, (SELECT * FROM CURRENT_TIME(1)) AS ct4, CURRENT_TIMESTAMP AS ct5, (SELECT * FROM CURRENT_TIMESTAMP) AS ct6, CURRENT_TIMESTAMP(1) AS ct7, (SELECT * FROM CURRENT_TIMESTAMP(1)) AS ct8, LOCALTIME AS lt1, (SELECT * FROM LOCALTIME) AS lt2, LOCALTIME(1) AS lt3, (SELECT * FROM LOCALTIME(1)) AS lt4, LOCALTIMESTAMP AS lt5, (SELECT * FROM LOCALTIMESTAMP) AS lt6, LOCALTIMESTAMP(1) AS lt7, (SELECT * FROM LOCALTIMESTAMP(1)) AS lt8, CURRENT_CATALOG AS ca, (SELECT * FROM CURRENT_CATALOG) AS ca2, CURRENT_ROLE AS cr, (SELECT * FROM CURRENT_ROLE) AS cr2, CURRENT_SCHEMA AS cs, (SELECT * FROM CURRENT_SCHEMA) AS cs2, CURRENT_USER AS cu, (SELECT * FROM CURRENT_USER) AS cu2, USER AS us, (SELECT * FROM USER) AS us2, SESSION_USER AS seu, (SELECT * FROM SESSION_USER) AS seu2, SYSTEM_USER AS su, (SELECT * FROM SYSTEM_USER) AS su2"
   },
   {
     "comment": "create_view - Statement 227",
@@ -1134,8 +1134,8 @@
   },
   {
     "comment": "create_view - Statement 241",
-    "query": "create view tt26v as select x + y + z as c1, (x * y) + z as c2, x + (y * z) as c3, (x + y) * z as c4, x * (y + z) as c5, x + (y + z) as c6, x + (y # z) as c7, (x \u003e y) AND (y \u003e z OR x \u003e z) as c8, (x \u003e y) OR (y \u003e z AND NOT (x \u003e z)) as c9, (x,y) \u003c\u003e ALL (values(1,2),(3,4)) as c10, (x,y) \u003c= ANY (values(1,2),(3,4)) as c11 from (values(1,2,3)) v(x,y,z)",
-    "expected": "CREATE VIEW tt26v AS SELECT x + y + z AS c1, (x * y) + z AS c2, x + (y * z) AS c3, (x + y) * z AS c4, x * (y + z) AS c5, x + (y + z) AS c6, x + (y # z) AS c7, (x \u003e y) AND (y \u003e z OR x \u003e z) AS c8, (x \u003e y) OR (y \u003e z AND NOT (x \u003e z)) AS c9, (x, y) \u003c\u003e ALL (VALUES (1, 2), (3, 4)) AS c10, (x, y) \u003c= ANY (VALUES (1, 2), (3, 4)) AS c11 FROM (VALUES (1, 2, 3)) AS v(x, y, z)"
+    "query": "create view tt26v as select x + y + z as c1, (x * y) + z as c2, x + (y * z) as c3, (x + y) * z as c4, x * (y + z) as c5, x + (y + z) as c6, x + (y # z) as c7, (x > y) AND (y > z OR x > z) as c8, (x > y) OR (y > z AND NOT (x > z)) as c9, (x,y) <> ALL (values(1,2),(3,4)) as c10, (x,y) <= ANY (values(1,2),(3,4)) as c11 from (values(1,2,3)) v(x,y,z)",
+    "expected": "CREATE VIEW tt26v AS SELECT x + y + z AS c1, (x * y) + z AS c2, x + (y * z) AS c3, (x + y) * z AS c4, x * (y + z) AS c5, x + (y + z) AS c6, x + (y # z) AS c7, (x > y) AND (y > z OR x > z) AS c8, (x > y) OR (y > z AND NOT (x > z)) AS c9, (x, y) <> ALL (VALUES (1, 2), (3, 4)) AS c10, (x, y) <= ANY (VALUES (1, 2), (3, 4)) AS c11 FROM (VALUES (1, 2, 3)) AS v(x, y, z)"
   },
   {
     "comment": "create_view - Statement 242",
@@ -1159,8 +1159,8 @@
   },
   {
     "comment": "create_view - Statement 246",
-    "query": "select a from tt27v where a \u003e 0",
-    "expected": "SELECT a FROM tt27v WHERE a \u003e 0"
+    "query": "select a from tt27v where a > 0",
+    "expected": "SELECT a FROM tt27v WHERE a > 0"
   },
   {
     "comment": "create_view - Statement 247",

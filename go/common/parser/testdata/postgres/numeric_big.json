@@ -2431,7 +2431,7 @@
   {
     "comment": "numeric_big - Statement 491",
     "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_add t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_add AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_add AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 492",
@@ -2441,7 +2441,7 @@
   {
     "comment": "numeric_big - Statement 493",
     "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 10) as expected FROM num_result t1, num_exp_add t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 10)",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 10) AS expected FROM num_result AS t1, num_exp_add AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e round(t2.expected, 10)"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 10) AS expected FROM num_result AS t1, num_exp_add AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> round(t2.expected, 10)"
   },
   {
     "comment": "numeric_big - Statement 494",
@@ -2451,7 +2451,7 @@
   {
     "comment": "numeric_big - Statement 495",
     "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_sub t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_sub AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_sub AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 496",
@@ -2461,7 +2461,7 @@
   {
     "comment": "numeric_big - Statement 497",
     "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 40) FROM num_result t1, num_exp_sub t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 40)",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 40) FROM num_result AS t1, num_exp_sub AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e round(t2.expected, 40)"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 40) FROM num_result AS t1, num_exp_sub AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> round(t2.expected, 40)"
   },
   {
     "comment": "numeric_big - Statement 498",
@@ -2471,7 +2471,7 @@
   {
     "comment": "numeric_big - Statement 499",
     "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_mul t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_mul AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_mul AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 500",
@@ -2481,27 +2481,27 @@
   {
     "comment": "numeric_big - Statement 501",
     "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 30) as expected FROM num_result t1, num_exp_mul t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 30)",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 30) AS expected FROM num_result AS t1, num_exp_mul AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e round(t2.expected, 30)"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 30) AS expected FROM num_result AS t1, num_exp_mul AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> round(t2.expected, 30)"
   },
   {
     "comment": "numeric_big - Statement 502",
     "query": "INSERT INTO num_result SELECT t1.id, t2.id, t1.val / t2.val FROM num_data t1, num_data t2 WHERE t2.val != '0.0'",
-    "expected": "INSERT INTO num_result (SELECT t1.id, t2.id, t1.val / t2.val FROM num_data AS t1, num_data AS t2 WHERE t2.val \u003c\u003e '0.0')"
+    "expected": "INSERT INTO num_result (SELECT t1.id, t2.id, t1.val / t2.val FROM num_data AS t1, num_data AS t2 WHERE t2.val <> '0.0')"
   },
   {
     "comment": "numeric_big - Statement 503",
     "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_div t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_div AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result AS t1, num_exp_div AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 504",
     "query": "INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val / t2.val, 80) FROM num_data t1, num_data t2 WHERE t2.val != '0.0'",
-    "expected": "INSERT INTO num_result (SELECT t1.id, t2.id, round(t1.val / t2.val, 80) FROM num_data AS t1, num_data AS t2 WHERE t2.val \u003c\u003e '0.0')"
+    "expected": "INSERT INTO num_result (SELECT t1.id, t2.id, round(t1.val / t2.val, 80) FROM num_data AS t1, num_data AS t2 WHERE t2.val <> '0.0')"
   },
   {
     "comment": "numeric_big - Statement 505",
     "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 80) as expected FROM num_result t1, num_exp_div t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 80)",
-    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 80) AS expected FROM num_result AS t1, num_exp_div AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result \u003c\u003e round(t2.expected, 80)"
+    "expected": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 80) AS expected FROM num_result AS t1, num_exp_div AS t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result <> round(t2.expected, 80)"
   },
   {
     "comment": "numeric_big - Statement 506",
@@ -2511,37 +2511,37 @@
   {
     "comment": "numeric_big - Statement 507",
     "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_sqrt t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_sqrt AS t2 WHERE t1.id1 = t2.id AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_sqrt AS t2 WHERE t1.id1 = t2.id AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 508",
     "query": "INSERT INTO num_result SELECT id, 0, LN(ABS(val)) FROM num_data WHERE val != '0.0'",
-    "expected": "INSERT INTO num_result (SELECT id, 0, ln(abs(val)) FROM num_data WHERE val \u003c\u003e '0.0')"
+    "expected": "INSERT INTO num_result (SELECT id, 0, ln(abs(val)) FROM num_data WHERE val <> '0.0')"
   },
   {
     "comment": "numeric_big - Statement 509",
     "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_ln t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_ln AS t2 WHERE t1.id1 = t2.id AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_ln AS t2 WHERE t1.id1 = t2.id AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 510",
     "query": "INSERT INTO num_result SELECT id, 0, LOG('10'::numeric, ABS(val)) FROM num_data WHERE val != '0.0'",
-    "expected": "INSERT INTO num_result (SELECT id, 0, log(CAST('10' AS NUMERIC), abs(val)) FROM num_data WHERE val \u003c\u003e '0.0')"
+    "expected": "INSERT INTO num_result (SELECT id, 0, log(CAST('10' AS NUMERIC), abs(val)) FROM num_data WHERE val <> '0.0')"
   },
   {
     "comment": "numeric_big - Statement 511",
     "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_log10 t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_log10 AS t2 WHERE t1.id1 = t2.id AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_log10 AS t2 WHERE t1.id1 = t2.id AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 512",
     "query": "INSERT INTO num_result SELECT id, 0, POW(numeric '10', LN(ABS(round(val,1000)))) FROM num_data WHERE val != '0.0'",
-    "expected": "INSERT INTO num_result (SELECT id, 0, pow(CAST('10' AS NUMERIC), ln(abs(round(val, 1000)))) FROM num_data WHERE val \u003c\u003e '0.0')"
+    "expected": "INSERT INTO num_result (SELECT id, 0, pow(CAST('10' AS NUMERIC), ln(abs(round(val, 1000)))) FROM num_data WHERE val <> '0.0')"
   },
   {
     "comment": "numeric_big - Statement 513",
     "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_power_10_ln t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected",
-    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_power_10_ln AS t2 WHERE t1.id1 = t2.id AND t1.result \u003c\u003e t2.expected"
+    "expected": "SELECT t1.id1, t1.result, t2.expected FROM num_result AS t1, num_exp_power_10_ln AS t2 WHERE t1.id1 = t2.id AND t1.result <> t2.expected"
   },
   {
     "comment": "numeric_big - Statement 514",

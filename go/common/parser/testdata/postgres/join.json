@@ -167,12 +167,12 @@
   {
     "comment": "join - Statement 34",
     "query": "SELECT ii, tt, kk FROM (J1_TBL CROSS JOIN J2_TBL) AS tx (ii, jj, tt, ii2, kk)",
-    "expected": "SELECT ii, tt, kk FROM j1_tbl INNER JOIN j2_tbl ON TRUE"
+    "expected": "SELECT ii, tt, kk FROM (j1_tbl INNER JOIN j2_tbl ON TRUE) AS tx(ii, jj, tt, ii2, kk)"
   },
   {
     "comment": "join - Statement 35",
     "query": "SELECT tx.ii, tx.jj, tx.kk FROM (J1_TBL t1 (a, b, c) CROSS JOIN J2_TBL t2 (d, e)) AS tx (ii, jj, tt, ii2, kk)",
-    "expected": "SELECT tx.ii, tx.jj, tx.kk FROM j1_tbl AS t1(a, b, c) INNER JOIN j2_tbl AS t2(d, e) ON TRUE"
+    "expected": "SELECT tx.ii, tx.jj, tx.kk FROM (j1_tbl AS t1(a, b, c) INNER JOIN j2_tbl AS t2(d, e) ON TRUE) AS tx(ii, jj, tt, ii2, kk)"
   },
   {
     "comment": "join - Statement 36",
@@ -207,47 +207,47 @@
   {
     "comment": "join - Statement 42",
     "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE j1_tbl.t = 'one'"
+    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE j1_tbl.t = 'one'"
   },
   {
     "comment": "join - Statement 43",
     "query": "SELECT * FROM (J1_TBL JOIN J2_TBL USING (i)) AS x WHERE J1_TBL.t = 'one'",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE j1_tbl.t = 'one'"
+    "expected": "SELECT * FROM (j1_tbl INNER JOIN j2_tbl USING (i)) AS x WHERE j1_tbl.t = 'one'"
   },
   {
     "comment": "join - Statement 44",
     "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.i = 1",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE x.i = 1"
+    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE x.i = 1"
   },
   {
     "comment": "join - Statement 45",
     "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.t = 'one'",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE x.t = 'one'"
+    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE x.t = 'one'"
   },
   {
     "comment": "join - Statement 46",
     "query": "SELECT * FROM (J1_TBL JOIN J2_TBL USING (i) AS x) AS xx WHERE x.i = 1",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE x.i = 1"
+    "expected": "SELECT * FROM (j1_tbl INNER JOIN j2_tbl USING (i) AS x) AS xx WHERE x.i = 1"
   },
   {
     "comment": "join - Statement 47",
     "query": "SELECT * FROM J1_TBL a1 JOIN J2_TBL a2 USING (i) AS a1",
-    "expected": "SELECT * FROM j1_tbl AS a1 INNER JOIN j2_tbl AS a2 USING (i)"
+    "expected": "SELECT * FROM j1_tbl AS a1 INNER JOIN j2_tbl AS a2 USING (i) AS a1"
   },
   {
     "comment": "join - Statement 48",
     "query": "SELECT x.* FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'",
-    "expected": "SELECT x.* FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE j1_tbl.t = 'one'"
+    "expected": "SELECT x.* FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE j1_tbl.t = 'one'"
   },
   {
     "comment": "join - Statement 49",
     "query": "SELECT ROW(x.*) FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'",
-    "expected": "SELECT ROW(x.*) FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE j1_tbl.t = 'one'"
+    "expected": "SELECT ROW(x.*) FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE j1_tbl.t = 'one'"
   },
   {
     "comment": "join - Statement 50",
     "query": "SELECT row_to_json(x.*) FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'",
-    "expected": "SELECT row_to_json(x.*) FROM j1_tbl INNER JOIN j2_tbl USING (i) WHERE j1_tbl.t = 'one'"
+    "expected": "SELECT row_to_json(x.*) FROM j1_tbl INNER JOIN j2_tbl USING (i) AS x WHERE j1_tbl.t = 'one'"
   },
   {
     "comment": "join - Statement 51",
@@ -281,8 +281,8 @@
   },
   {
     "comment": "join - Statement 57",
-    "query": "SELECT * FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i \u003c= J2_TBL.k)",
-    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl ON (j1_tbl.i \u003c= j2_tbl.k)"
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i <= J2_TBL.k)",
+    "expected": "SELECT * FROM j1_tbl INNER JOIN j2_tbl ON (j1_tbl.i <= j2_tbl.k)"
   },
   {
     "comment": "join - Statement 58",
@@ -326,8 +326,8 @@
   },
   {
     "comment": "join - Statement 66",
-    "query": "explain (costs off) select * from int4_tbl i4, tenk1 a where exists(select * from tenk1 b where a.twothousand = b.twothousand and a.fivethous \u003c\u003e b.fivethous) and i4.f1 = a.tenthous",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS i4, tenk1 AS a WHERE EXISTS (SELECT * FROM tenk1 AS b WHERE a.twothousand = b.twothousand AND a.fivethous \u003c\u003e b.fivethous) AND i4.f1 = a.tenthous"
+    "query": "explain (costs off) select * from int4_tbl i4, tenk1 a where exists(select * from tenk1 b where a.twothousand = b.twothousand and a.fivethous <> b.fivethous) and i4.f1 = a.tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS i4, tenk1 AS a WHERE EXISTS (SELECT * FROM tenk1 AS b WHERE a.twothousand = b.twothousand AND a.fivethous <> b.fivethous) AND i4.f1 = a.tenthous"
   },
   {
     "comment": "join - Statement 67",
@@ -581,13 +581,13 @@
   },
   {
     "comment": "join - Statement 117",
-    "query": "explain (costs off) select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb \u003c bb and bb is null",
-    "expected": "EXPLAIN (COSTS false) SELECT aa, bb, unique1, unique1 FROM tenk1 RIGHT OUTER JOIN b_star ON aa = unique1 WHERE bb \u003c bb AND bb IS NULL"
+    "query": "explain (costs off) select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb < bb and bb is null",
+    "expected": "EXPLAIN (COSTS false) SELECT aa, bb, unique1, unique1 FROM tenk1 RIGHT OUTER JOIN b_star ON aa = unique1 WHERE bb < bb AND bb IS NULL"
   },
   {
     "comment": "join - Statement 118",
-    "query": "select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb \u003c bb and bb is null",
-    "expected": "SELECT aa, bb, unique1, unique1 FROM tenk1 RIGHT OUTER JOIN b_star ON aa = unique1 WHERE bb \u003c bb AND bb IS NULL"
+    "query": "select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb < bb and bb is null",
+    "expected": "SELECT aa, bb, unique1, unique1 FROM tenk1 RIGHT OUTER JOIN b_star ON aa = unique1 WHERE bb < bb AND bb IS NULL"
   },
   {
     "comment": "join - Statement 119",
@@ -616,23 +616,23 @@
   },
   {
     "comment": "join - Statement 124",
-    "query": "explain (costs off) select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 \u003e 0 left join int4_tbl t4 on t3.f1 \u003e 1 where t4.f1 is null",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.f1 FROM int4_tbl AS t1, int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t3.f1 \u003e 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 \u003e 1 WHERE t4.f1 IS NULL"
+    "query": "explain (costs off) select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 > 0 left join int4_tbl t4 on t3.f1 > 1 where t4.f1 is null",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.f1 FROM int4_tbl AS t1, int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t3.f1 > 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 > 1 WHERE t4.f1 IS NULL"
   },
   {
     "comment": "join - Statement 125",
-    "query": "select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 \u003e 0 left join int4_tbl t4 on t3.f1 \u003e 1 where t4.f1 is null",
-    "expected": "SELECT t1.f1 FROM int4_tbl AS t1, int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t3.f1 \u003e 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 \u003e 1 WHERE t4.f1 IS NULL"
+    "query": "select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 > 0 left join int4_tbl t4 on t3.f1 > 1 where t4.f1 is null",
+    "expected": "SELECT t1.f1 FROM int4_tbl AS t1, int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t3.f1 > 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 > 1 WHERE t4.f1 IS NULL"
   },
   {
     "comment": "join - Statement 126",
-    "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on t2.f1 \u003e 0 left join int4_tbl t4 on t3.f1 \u003e 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN int4_tbl AS t2 ON TRUE LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 \u003e 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 \u003e 0"
+    "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on t2.f1 > 0 left join int4_tbl t4 on t3.f1 > 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN int4_tbl AS t2 ON TRUE LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 > 0 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 > 0"
   },
   {
     "comment": "join - Statement 127",
     "query": "explain (costs off) select * from onek t1 left join onek t2 on t1.unique1 = t2.unique1 left join onek t3 on t2.unique1 != t3.unique1 left join onek t4 on t3.unique1 = t4.unique1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM onek AS t1 LEFT OUTER JOIN onek AS t2 ON t1.unique1 = t2.unique1 LEFT OUTER JOIN onek AS t3 ON t2.unique1 \u003c\u003e t3.unique1 LEFT OUTER JOIN onek AS t4 ON t3.unique1 = t4.unique1"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM onek AS t1 LEFT OUTER JOIN onek AS t2 ON t1.unique1 = t2.unique1 LEFT OUTER JOIN onek AS t3 ON t2.unique1 <> t3.unique1 LEFT OUTER JOIN onek AS t4 ON t3.unique1 = t4.unique1"
   },
   {
     "comment": "join - Statement 128",
@@ -647,22 +647,22 @@
   {
     "comment": "join - Statement 130",
     "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on t2.f1 = t3.f1 left join int4_tbl t4 on t3.f1 != t4.f1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN int4_tbl AS t2 ON TRUE LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 = t3.f1 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 \u003c\u003e t4.f1"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN int4_tbl AS t2 ON TRUE LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 = t3.f1 LEFT OUTER JOIN int4_tbl AS t4 ON t3.f1 <> t4.f1"
   },
   {
     "comment": "join - Statement 131",
-    "query": "explain (costs off) select * from int4_tbl t1 left join (int4_tbl t2 left join int4_tbl t3 on t2.f1 \u003e 0) on t2.f1 \u003e 1 left join int4_tbl t4 on t2.f1 \u003e 2 and t3.f1 \u003e 3 where t1.f1 = coalesce(t2.f1, 1)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN (int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 \u003e 0) ON t2.f1 \u003e 1 LEFT OUTER JOIN int4_tbl AS t4 ON t2.f1 \u003e 2 AND t3.f1 \u003e 3 WHERE t1.f1 = COALESCE(t2.f1, 1)"
+    "query": "explain (costs off) select * from int4_tbl t1 left join (int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0) on t2.f1 > 1 left join int4_tbl t4 on t2.f1 > 2 and t3.f1 > 3 where t1.f1 = coalesce(t2.f1, 1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN (int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 > 0) ON t2.f1 > 1 LEFT OUTER JOIN int4_tbl AS t4 ON t2.f1 > 2 AND t3.f1 > 3 WHERE t1.f1 = COALESCE(t2.f1, 1)"
   },
   {
     "comment": "join - Statement 132",
-    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 \u003e 0 where t3.f1 is null) s left join tenk1 t4 on s.f1 \u003e 1) on s.f1 = t1.f1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN ((SELECT t2.f1 FROM int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 \u003e 0 WHERE t3.f1 IS NULL) AS s LEFT OUTER JOIN tenk1 AS t4 ON s.f1 \u003e 1) ON s.f1 = t1.f1"
+    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0 where t3.f1 is null) s left join tenk1 t4 on s.f1 > 1) on s.f1 = t1.f1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN ((SELECT t2.f1 FROM int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 > 0 WHERE t3.f1 IS NULL) AS s LEFT OUTER JOIN tenk1 AS t4 ON s.f1 > 1) ON s.f1 = t1.f1"
   },
   {
     "comment": "join - Statement 133",
-    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 \u003e 0 where t2.f1 \u003c\u003e coalesce(t3.f1, -1)) s left join tenk1 t4 on s.f1 \u003e 1) on s.f1 = t1.f1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN ((SELECT t2.f1 FROM int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 \u003e 0 WHERE t2.f1 \u003c\u003e COALESCE(t3.f1, -1)) AS s LEFT OUTER JOIN tenk1 AS t4 ON s.f1 \u003e 1) ON s.f1 = t1.f1"
+    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0 where t2.f1 <> coalesce(t3.f1, -1)) s left join tenk1 t4 on s.f1 > 1) on s.f1 = t1.f1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS t1 LEFT OUTER JOIN ((SELECT t2.f1 FROM int4_tbl AS t2 LEFT OUTER JOIN int4_tbl AS t3 ON t2.f1 > 0 WHERE t2.f1 <> COALESCE(t3.f1, -1)) AS s LEFT OUTER JOIN tenk1 AS t4 ON s.f1 > 1) ON s.f1 = t1.f1"
   },
   {
     "comment": "join - Statement 134",
@@ -833,8 +833,8 @@
   },
   {
     "comment": "join - Statement 170",
-    "query": "DELETE FROM t3 USING t1 JOIN t2 USING (a) WHERE t3.x \u003e t1.a",
-    "expected": "DELETE FROM t3 USING t1 INNER JOIN t2 USING (a) WHERE t3.x \u003e t1.a"
+    "query": "DELETE FROM t3 USING t1 JOIN t2 USING (a) WHERE t3.x > t1.a",
+    "expected": "DELETE FROM t3 USING t1 INNER JOIN t2 USING (a) WHERE t3.x > t1.a"
   },
   {
     "comment": "join - Statement 171",
@@ -869,22 +869,22 @@
   {
     "comment": "join - Statement 177",
     "query": "select foo.*, unnamed_join.* from t1 join t2 using (a) as foo, t3 as unnamed_join for update of unnamed_join",
-    "expected": "SELECT foo.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a), t3 AS unnamed_join FOR UPDATE OF unnamed_join"
+    "expected": "SELECT foo.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a) AS foo, t3 AS unnamed_join FOR UPDATE OF unnamed_join"
   },
   {
     "comment": "join - Statement 178",
     "query": "select foo.*, unnamed_join.* from t1 join t2 using (a) as foo, t3 as unnamed_join for update of foo",
-    "expected": "SELECT foo.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a), t3 AS unnamed_join FOR UPDATE OF foo"
+    "expected": "SELECT foo.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a) AS foo, t3 AS unnamed_join FOR UPDATE OF foo"
   },
   {
     "comment": "join - Statement 179",
     "query": "select bar.*, unnamed_join.* from (t1 join t2 using (a) as foo) as bar, t3 as unnamed_join for update of foo",
-    "expected": "SELECT bar.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a), t3 AS unnamed_join FOR UPDATE OF foo"
+    "expected": "SELECT bar.*, unnamed_join.* FROM (t1 INNER JOIN t2 USING (a) AS foo) AS bar, t3 AS unnamed_join FOR UPDATE OF foo"
   },
   {
     "comment": "join - Statement 180",
     "query": "select bar.*, unnamed_join.* from (t1 join t2 using (a) as foo) as bar, t3 as unnamed_join for update of bar",
-    "expected": "SELECT bar.*, unnamed_join.* FROM t1 INNER JOIN t2 USING (a), t3 AS unnamed_join FOR UPDATE OF bar"
+    "expected": "SELECT bar.*, unnamed_join.* FROM (t1 INNER JOIN t2 USING (a) AS foo) AS bar, t3 AS unnamed_join FOR UPDATE OF bar"
   },
   {
     "comment": "join - Statement 181",
@@ -954,13 +954,13 @@
   },
   {
     "comment": "join - Statement 195",
-    "query": "explain (costs off) select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b \u003c 2",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl_ra AS t1 WHERE NOT EXISTS (SELECT 1 FROM tbl_ra AS t2 WHERE t2.b = t1.a) AND t1.b \u003c 2"
+    "query": "explain (costs off) select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b < 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tbl_ra AS t1 WHERE NOT EXISTS (SELECT 1 FROM tbl_ra AS t2 WHERE t2.b = t1.a) AND t1.b < 2"
   },
   {
     "comment": "join - Statement 196",
-    "query": "select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b \u003c 2",
-    "expected": "SELECT * FROM tbl_ra AS t1 WHERE NOT EXISTS (SELECT 1 FROM tbl_ra AS t2 WHERE t2.b = t1.a) AND t1.b \u003c 2"
+    "query": "select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b < 2",
+    "expected": "SELECT * FROM tbl_ra AS t1 WHERE NOT EXISTS (SELECT 1 FROM tbl_ra AS t2 WHERE t2.b = t1.a) AND t1.b < 2"
   },
   {
     "comment": "join - Statement 197",
@@ -979,13 +979,13 @@
   },
   {
     "comment": "join - Statement 200",
-    "query": "explain (costs off) select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) \u003c 10",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 AS a, tenk1 AS b WHERE a.hundred = b.thousand AND (b.fivethous % 10) \u003c 10"
+    "query": "explain (costs off) select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) < 10",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM tenk1 AS a, tenk1 AS b WHERE a.hundred = b.thousand AND (b.fivethous % 10) < 10"
   },
   {
     "comment": "join - Statement 201",
-    "query": "select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) \u003c 10",
-    "expected": "SELECT COUNT(*) FROM tenk1 AS a, tenk1 AS b WHERE a.hundred = b.thousand AND (b.fivethous % 10) \u003c 10"
+    "query": "select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) < 10",
+    "expected": "SELECT COUNT(*) FROM tenk1 AS a, tenk1 AS b WHERE a.hundred = b.thousand AND (b.fivethous % 10) < 10"
   },
   {
     "comment": "join - Statement 202",
@@ -1444,13 +1444,13 @@
   },
   {
     "comment": "join - Statement 293",
-    "query": "explain (costs off) select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 \u003e 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 \u003e 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS i41, LATERAL (SELECT 1 AS x FROM (SELECT i41.f1 AS lat, i42.f1 AS loc FROM int8_tbl AS i81, int4_tbl AS i42) AS ss1 RIGHT OUTER JOIN int4_tbl AS i43 ON (i43.f1 \u003e 1) WHERE ss1.loc = ss1.lat) AS ss2 WHERE i41.f1 \u003e 0"
+    "query": "explain (costs off) select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 > 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 > 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int4_tbl AS i41, LATERAL (SELECT 1 AS x FROM (SELECT i41.f1 AS lat, i42.f1 AS loc FROM int8_tbl AS i81, int4_tbl AS i42) AS ss1 RIGHT OUTER JOIN int4_tbl AS i43 ON (i43.f1 > 1) WHERE ss1.loc = ss1.lat) AS ss2 WHERE i41.f1 > 0"
   },
   {
     "comment": "join - Statement 294",
-    "query": "select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 \u003e 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 \u003e 0",
-    "expected": "SELECT * FROM int4_tbl AS i41, LATERAL (SELECT 1 AS x FROM (SELECT i41.f1 AS lat, i42.f1 AS loc FROM int8_tbl AS i81, int4_tbl AS i42) AS ss1 RIGHT OUTER JOIN int4_tbl AS i43 ON (i43.f1 \u003e 1) WHERE ss1.loc = ss1.lat) AS ss2 WHERE i41.f1 \u003e 0"
+    "query": "select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 > 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 > 0",
+    "expected": "SELECT * FROM int4_tbl AS i41, LATERAL (SELECT 1 AS x FROM (SELECT i41.f1 AS lat, i42.f1 AS loc FROM int8_tbl AS i81, int4_tbl AS i42) AS ss1 RIGHT OUTER JOIN int4_tbl AS i43 ON (i43.f1 > 1) WHERE ss1.loc = ss1.lat) AS ss2 WHERE i41.f1 > 0"
   },
   {
     "comment": "join - Statement 295",
@@ -1499,28 +1499,28 @@
   },
   {
     "comment": "join - Statement 304",
-    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 \u003c 42 and t1.stringu1 \u003e t2.stringu2",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (SELECT 1, 0 FROM onerow) AS v1(x1, x2) LEFT OUTER JOIN (SELECT 3, 1 FROM onerow) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 \u003c 42 AND t1.stringu1 \u003e t2.stringu2"
+    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (SELECT 1, 0 FROM onerow) AS v1(x1, x2) LEFT OUTER JOIN (SELECT 3, 1 FROM onerow) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 < 42 AND t1.stringu1 > t2.stringu2"
   },
   {
     "comment": "join - Statement 305",
-    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 \u003c 42 and t1.stringu1 \u003e t2.stringu2",
-    "expected": "SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (SELECT 1, 0 FROM onerow) AS v1(x1, x2) LEFT OUTER JOIN (SELECT 3, 1 FROM onerow) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 \u003c 42 AND t1.stringu1 \u003e t2.stringu2"
+    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2",
+    "expected": "SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (SELECT 1, 0 FROM onerow) AS v1(x1, x2) LEFT OUTER JOIN (SELECT 3, 1 FROM onerow) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 < 42 AND t1.stringu1 > t2.stringu2"
   },
   {
     "comment": "join - Statement 306",
-    "query": "select ss1.d1 from tenk1 as t1 inner join tenk1 as t2 on t1.tenthous = t2.ten inner join int8_tbl as i8 left join int4_tbl as i4 inner join (select 64::information_schema.cardinal_number as d1 from tenk1 t3, lateral (select abs(t3.unique1) + random()) ss0(x) where t3.fivethous \u003c 0) as ss1 on i4.f1 = ss1.d1 on i8.q1 = i4.f1 on t1.tenthous = ss1.d1 where t1.unique1 \u003c i4.f1",
-    "expected": "SELECT ss1.d1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.tenthous = t2.ten INNER JOIN int8_tbl AS i8 LEFT OUTER JOIN int4_tbl AS i4 INNER JOIN (SELECT CAST(64 AS information_schema.cardinal_number) AS d1 FROM tenk1 AS t3, LATERAL (SELECT abs(t3.unique1) + random()) AS ss0(x) WHERE t3.fivethous \u003c 0) AS ss1 ON i4.f1 = ss1.d1 ON i8.q1 = i4.f1 ON t1.tenthous = ss1.d1 WHERE t1.unique1 \u003c i4.f1"
+    "query": "select ss1.d1 from tenk1 as t1 inner join tenk1 as t2 on t1.tenthous = t2.ten inner join int8_tbl as i8 left join int4_tbl as i4 inner join (select 64::information_schema.cardinal_number as d1 from tenk1 t3, lateral (select abs(t3.unique1) + random()) ss0(x) where t3.fivethous < 0) as ss1 on i4.f1 = ss1.d1 on i8.q1 = i4.f1 on t1.tenthous = ss1.d1 where t1.unique1 < i4.f1",
+    "expected": "SELECT ss1.d1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.tenthous = t2.ten INNER JOIN int8_tbl AS i8 LEFT OUTER JOIN int4_tbl AS i4 INNER JOIN (SELECT CAST(64 AS information_schema.cardinal_number) AS d1 FROM tenk1 AS t3, LATERAL (SELECT abs(t3.unique1) + random()) AS ss0(x) WHERE t3.fivethous < 0) AS ss1 ON i4.f1 = ss1.d1 ON i8.q1 = i4.f1 ON t1.tenthous = ss1.d1 WHERE t1.unique1 < i4.f1"
   },
   {
     "comment": "join - Statement 307",
-    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 \u003c 42 and t1.stringu1 \u003e t2.stringu2",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (VALUES (1, 0)) AS v1(x1, x2) LEFT OUTER JOIN (VALUES (3, 1)) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 \u003c 42 AND t1.stringu1 \u003e t2.stringu2"
+    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (VALUES (1, 0)) AS v1(x1, x2) LEFT OUTER JOIN (VALUES (3, 1)) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 < 42 AND t1.stringu1 > t2.stringu2"
   },
   {
     "comment": "join - Statement 308",
-    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 \u003c 42 and t1.stringu1 \u003e t2.stringu2",
-    "expected": "SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (VALUES (1, 0)) AS v1(x1, x2) LEFT OUTER JOIN (VALUES (3, 1)) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 \u003c 42 AND t1.stringu1 \u003e t2.stringu2"
+    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2",
+    "expected": "SELECT t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 FROM tenk1 AS t1 INNER JOIN int4_tbl AS i1 LEFT OUTER JOIN (SELECT v1.x2, v2.y1, 11 AS d1 FROM (VALUES (1, 0)) AS v1(x1, x2) LEFT OUTER JOIN (VALUES (3, 1)) AS v2(y1, y2) ON v1.x1 = v2.y2) AS subq1 ON (i1.f1 = subq1.x2) ON (t1.unique2 = subq1.d1) LEFT OUTER JOIN tenk1 AS t2 ON (subq1.y1 = t2.unique1) WHERE t1.unique2 < 42 AND t1.stringu1 > t2.stringu2"
   },
   {
     "comment": "join - Statement 309",
@@ -1769,13 +1769,13 @@
   },
   {
     "comment": "join - Statement 358",
-    "query": "explain (costs off) select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 \u003c 10 and coalesce(b.twothousand, a.twothousand) = 44",
-    "expected": "EXPLAIN (COSTS false) SELECT a.unique1, b.unique1, c.unique1, COALESCE(b.twothousand, a.twothousand) FROM tenk1 AS a LEFT OUTER JOIN tenk1 AS b ON b.thousand = a.unique1 LEFT OUTER JOIN tenk1 AS c ON c.unique2 = COALESCE(b.twothousand, a.twothousand) WHERE a.unique2 \u003c 10 AND COALESCE(b.twothousand, a.twothousand) = 44"
+    "query": "explain (costs off) select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 < 10 and coalesce(b.twothousand, a.twothousand) = 44",
+    "expected": "EXPLAIN (COSTS false) SELECT a.unique1, b.unique1, c.unique1, COALESCE(b.twothousand, a.twothousand) FROM tenk1 AS a LEFT OUTER JOIN tenk1 AS b ON b.thousand = a.unique1 LEFT OUTER JOIN tenk1 AS c ON c.unique2 = COALESCE(b.twothousand, a.twothousand) WHERE a.unique2 < 10 AND COALESCE(b.twothousand, a.twothousand) = 44"
   },
   {
     "comment": "join - Statement 359",
-    "query": "select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 \u003c 10 and coalesce(b.twothousand, a.twothousand) = 44",
-    "expected": "SELECT a.unique1, b.unique1, c.unique1, COALESCE(b.twothousand, a.twothousand) FROM tenk1 AS a LEFT OUTER JOIN tenk1 AS b ON b.thousand = a.unique1 LEFT OUTER JOIN tenk1 AS c ON c.unique2 = COALESCE(b.twothousand, a.twothousand) WHERE a.unique2 \u003c 10 AND COALESCE(b.twothousand, a.twothousand) = 44"
+    "query": "select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 < 10 and coalesce(b.twothousand, a.twothousand) = 44",
+    "expected": "SELECT a.unique1, b.unique1, c.unique1, COALESCE(b.twothousand, a.twothousand) FROM tenk1 AS a LEFT OUTER JOIN tenk1 AS b ON b.thousand = a.unique1 LEFT OUTER JOIN tenk1 AS c ON c.unique2 = COALESCE(b.twothousand, a.twothousand) WHERE a.unique2 < 10 AND COALESCE(b.twothousand, a.twothousand) = 44"
   },
   {
     "comment": "join - Statement 360",
@@ -1800,12 +1800,12 @@
   {
     "comment": "join - Statement 364",
     "query": "explain (verbose, costs off) select * from int4_tbl i0 left join ( (select *, 123 as x from int4_tbl i1) ss1 left join (select *, q2 as x from int8_tbl i2) ss2 using (x) ) ss0 on (i0.f1 = ss0.f1) order by i0.f1, x",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM int4_tbl AS i0 LEFT OUTER JOIN (SELECT *, 123 AS x FROM int4_tbl AS i1) AS ss1 LEFT OUTER JOIN (SELECT *, q2 AS x FROM int8_tbl AS i2) AS ss2 USING (x) ON (i0.f1 = ss0.f1) ORDER BY i0.f1, x"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM int4_tbl AS i0 LEFT OUTER JOIN ((SELECT *, 123 AS x FROM int4_tbl AS i1) AS ss1 LEFT OUTER JOIN (SELECT *, q2 AS x FROM int8_tbl AS i2) AS ss2 USING (x)) AS ss0 ON (i0.f1 = ss0.f1) ORDER BY i0.f1, x"
   },
   {
     "comment": "join - Statement 365",
     "query": "select * from int4_tbl i0 left join ( (select *, 123 as x from int4_tbl i1) ss1 left join (select *, q2 as x from int8_tbl i2) ss2 using (x) ) ss0 on (i0.f1 = ss0.f1) order by i0.f1, x",
-    "expected": "SELECT * FROM int4_tbl AS i0 LEFT OUTER JOIN (SELECT *, 123 AS x FROM int4_tbl AS i1) AS ss1 LEFT OUTER JOIN (SELECT *, q2 AS x FROM int8_tbl AS i2) AS ss2 USING (x) ON (i0.f1 = ss0.f1) ORDER BY i0.f1, x"
+    "expected": "SELECT * FROM int4_tbl AS i0 LEFT OUTER JOIN ((SELECT *, 123 AS x FROM int4_tbl AS i1) AS ss1 LEFT OUTER JOIN (SELECT *, q2 AS x FROM int8_tbl AS i2) AS ss2 USING (x)) AS ss0 ON (i0.f1 = ss0.f1) ORDER BY i0.f1, x"
   },
   {
     "comment": "join - Statement 366",
@@ -1854,8 +1854,8 @@
   },
   {
     "comment": "join - Statement 375",
-    "query": "explain (costs off) select 1 from int4_tbl i4 left join int8_tbl i8 on i4.f1 is not null left join (select 1 as a) ss1 on null join int4_tbl i42 on ss1.a is null or i8.q1 \u003c\u003e i8.q2 right join (select 2 as b) ss2 on ss2.b \u003c i4.f1",
-    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM int4_tbl AS i4 LEFT OUTER JOIN int8_tbl AS i8 ON i4.f1 IS NOT NULL LEFT OUTER JOIN (SELECT 1 AS a) AS ss1 ON NULL INNER JOIN int4_tbl AS i42 ON ss1.a IS NULL OR i8.q1 \u003c\u003e i8.q2 RIGHT OUTER JOIN (SELECT 2 AS b) AS ss2 ON ss2.b \u003c i4.f1"
+    "query": "explain (costs off) select 1 from int4_tbl i4 left join int8_tbl i8 on i4.f1 is not null left join (select 1 as a) ss1 on null join int4_tbl i42 on ss1.a is null or i8.q1 <> i8.q2 right join (select 2 as b) ss2 on ss2.b < i4.f1",
+    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM int4_tbl AS i4 LEFT OUTER JOIN int8_tbl AS i8 ON i4.f1 IS NOT NULL LEFT OUTER JOIN (SELECT 1 AS a) AS ss1 ON NULL INNER JOIN int4_tbl AS i42 ON ss1.a IS NULL OR i8.q1 <> i8.q2 RIGHT OUTER JOIN (SELECT 2 AS b) AS ss2 ON ss2.b < i4.f1"
   },
   {
     "comment": "join - Statement 376",
@@ -1939,23 +1939,23 @@
   },
   {
     "comment": "join - Statement 392",
-    "query": "explain (verbose, costs off) select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) \u003e 0",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT a.q2, b.q1 FROM int8_tbl AS a LEFT OUTER JOIN int8_tbl AS b ON a.q2 = COALESCE(b.q1, 1) WHERE COALESCE(b.q1, 1) \u003e 0"
+    "query": "explain (verbose, costs off) select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) > 0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT a.q2, b.q1 FROM int8_tbl AS a LEFT OUTER JOIN int8_tbl AS b ON a.q2 = COALESCE(b.q1, 1) WHERE COALESCE(b.q1, 1) > 0"
   },
   {
     "comment": "join - Statement 393",
-    "query": "select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) \u003e 0",
-    "expected": "SELECT a.q2, b.q1 FROM int8_tbl AS a LEFT OUTER JOIN int8_tbl AS b ON a.q2 = COALESCE(b.q1, 1) WHERE COALESCE(b.q1, 1) \u003e 0"
+    "query": "select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) > 0",
+    "expected": "SELECT a.q2, b.q1 FROM int8_tbl AS a LEFT OUTER JOIN int8_tbl AS b ON a.q2 = COALESCE(b.q1, 1) WHERE COALESCE(b.q1, 1) > 0"
   },
   {
     "comment": "join - Statement 394",
-    "query": "explain (costs off) select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() \u003e 0) = any (select q1, random() \u003e 0 from int8_tbl c where c.q1 \u003c b.unique1)",
-    "expected": "EXPLAIN (COSTS false) SELECT a.unique1, b.unique2 FROM onek AS a LEFT OUTER JOIN onek AS b ON a.unique1 = b.unique2 WHERE (b.unique2, random() \u003e 0) = ANY (SELECT q1, random() \u003e 0 FROM int8_tbl AS c WHERE c.q1 \u003c b.unique1)"
+    "query": "explain (costs off) select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() > 0) = any (select q1, random() > 0 from int8_tbl c where c.q1 < b.unique1)",
+    "expected": "EXPLAIN (COSTS false) SELECT a.unique1, b.unique2 FROM onek AS a LEFT OUTER JOIN onek AS b ON a.unique1 = b.unique2 WHERE (b.unique2, random() > 0) = ANY (SELECT q1, random() > 0 FROM int8_tbl AS c WHERE c.q1 < b.unique1)"
   },
   {
     "comment": "join - Statement 395",
-    "query": "select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() \u003e 0) = any (select q1, random() \u003e 0 from int8_tbl c where c.q1 \u003c b.unique1)",
-    "expected": "SELECT a.unique1, b.unique2 FROM onek AS a LEFT OUTER JOIN onek AS b ON a.unique1 = b.unique2 WHERE (b.unique2, random() \u003e 0) = ANY (SELECT q1, random() \u003e 0 FROM int8_tbl AS c WHERE c.q1 \u003c b.unique1)"
+    "query": "select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() > 0) = any (select q1, random() > 0 from int8_tbl c where c.q1 < b.unique1)",
+    "expected": "SELECT a.unique1, b.unique2 FROM onek AS a LEFT OUTER JOIN onek AS b ON a.unique1 = b.unique2 WHERE (b.unique2, random() > 0) = ANY (SELECT q1, random() > 0 FROM int8_tbl AS c WHERE c.q1 < b.unique1)"
   },
   {
     "comment": "join - Statement 396",
@@ -2086,8 +2086,8 @@
   },
   {
     "comment": "join - Statement 422",
-    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 left join onek t3 on t2.q1 \u003e t3.unique1) on t1.q2 = t2.q2 left join onek t4 on t2.q2 \u003c t3.unique2",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM int8_tbl AS t1 LEFT OUTER JOIN (int8_tbl AS t2 LEFT OUTER JOIN onek AS t3 ON t2.q1 \u003e t3.unique1) ON t1.q2 = t2.q2 LEFT OUTER JOIN onek AS t4 ON t2.q2 \u003c t3.unique2"
+    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 left join onek t3 on t2.q1 > t3.unique1) on t1.q2 = t2.q2 left join onek t4 on t2.q2 < t3.unique2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM int8_tbl AS t1 LEFT OUTER JOIN (int8_tbl AS t2 LEFT OUTER JOIN onek AS t3 ON t2.q1 > t3.unique1) ON t1.q2 = t2.q2 LEFT OUTER JOIN onek AS t4 ON t2.q2 < t3.unique2"
   },
   {
     "comment": "join - Statement 423",
@@ -2240,13 +2240,13 @@
   },
   {
     "comment": "join - Statement 453",
-    "query": "SELECT * FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id \u003e 0)",
-    "expected": "SELECT * FROM b LEFT OUTER JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id \u003e 0)"
+    "query": "SELECT * FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)",
+    "expected": "SELECT * FROM b LEFT OUTER JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)"
   },
   {
     "comment": "join - Statement 454",
-    "query": "SELECT b.* FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id \u003e 0)",
-    "expected": "SELECT b.* FROM b LEFT OUTER JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id \u003e 0)"
+    "query": "SELECT b.* FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)",
+    "expected": "SELECT b.* FROM b LEFT OUTER JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)"
   },
   {
     "comment": "join - Statement 455",
@@ -2270,8 +2270,8 @@
   },
   {
     "comment": "join - Statement 459",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT q2 FROM (SELECT q2, 'constant'::text AS x FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss RIGHT JOIN int4_tbl ON NULL WHERE x \u003e= x",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT q2 FROM (SELECT q2, CAST('constant' AS TEXT) AS x FROM int8_tbl LEFT OUTER JOIN innertab ON q2 = id) AS ss RIGHT OUTER JOIN int4_tbl ON NULL WHERE x \u003e= x"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT q2 FROM (SELECT q2, 'constant'::text AS x FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss RIGHT JOIN int4_tbl ON NULL WHERE x >= x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT q2 FROM (SELECT q2, CAST('constant' AS TEXT) AS x FROM int8_tbl LEFT OUTER JOIN innertab ON q2 = id) AS ss RIGHT OUTER JOIN int4_tbl ON NULL WHERE x >= x"
   },
   {
     "comment": "join - Statement 460",
@@ -2325,18 +2325,18 @@
   },
   {
     "comment": "join - Statement 470",
-    "query": "explain (costs off) select 1 from t t1 left join (select t2.a, 1 as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a \u003c s.c",
-    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM t AS t1 LEFT OUTER JOIN (SELECT t2.a, 1 AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a \u003c s.c"
+    "query": "explain (costs off) select 1 from t t1 left join (select t2.a, 1 as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c",
+    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM t AS t1 LEFT OUTER JOIN (SELECT t2.a, 1 AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a < s.c"
   },
   {
     "comment": "join - Statement 471",
-    "query": "explain (costs off) select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a \u003c s.c",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, s.* FROM t AS t1 LEFT OUTER JOIN LATERAL (SELECT t2.a, COALESCE(t1.a, 1) AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a \u003c s.c"
+    "query": "explain (costs off) select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, s.* FROM t AS t1 LEFT OUTER JOIN LATERAL (SELECT t2.a, COALESCE(t1.a, 1) AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a < s.c"
   },
   {
     "comment": "join - Statement 472",
-    "query": "select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a \u003c s.c",
-    "expected": "SELECT t1.a, s.* FROM t AS t1 LEFT OUTER JOIN LATERAL (SELECT t2.a, COALESCE(t1.a, 1) AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a \u003c s.c"
+    "query": "select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c",
+    "expected": "SELECT t1.a, s.* FROM t AS t1 LEFT OUTER JOIN LATERAL (SELECT t2.a, COALESCE(t1.a, 1) AS c FROM t AS t2 LEFT OUTER JOIN t AS t3 ON t2.a = t3.a) AS s ON TRUE LEFT OUTER JOIN t AS t4 ON TRUE WHERE s.a < s.c"
   },
   {
     "comment": "join - Statement 473",
@@ -2376,17 +2376,17 @@
   {
     "comment": "join - Statement 480",
     "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1",
-    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN int4_tbl AS x INNER JOIN int4_tbl AS y ON TRUE ON q1 = f1"
+    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN (int4_tbl AS x INNER JOIN int4_tbl AS y ON TRUE) AS j ON q1 = f1"
   },
   {
     "comment": "join - Statement 481",
     "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1",
-    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN int4_tbl AS x INNER JOIN int4_tbl AS y ON TRUE ON q1 = y.f1"
+    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN (int4_tbl AS x INNER JOIN int4_tbl AS y ON TRUE) AS j ON q1 = y.f1"
   },
   {
     "comment": "join - Statement 482",
     "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y(ff)) j on q1 = f1",
-    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN int4_tbl AS x INNER JOIN int4_tbl AS y(ff) ON TRUE ON q1 = f1"
+    "expected": "SELECT * FROM int8_tbl AS x INNER JOIN (int4_tbl AS x INNER JOIN int4_tbl AS y(ff) ON TRUE) AS j ON q1 = f1"
   },
   {
     "comment": "join - Statement 483",
@@ -2411,12 +2411,12 @@
   {
     "comment": "join - Statement 487",
     "query": "select atts.relid::regclass, s.* from pg_stats s join pg_attribute a on s.attname = a.attname and s.tablename = a.attrelid::regclass::text join (select unnest(indkey) attnum, indexrelid from pg_index i) atts on atts.attnum = a.attnum where schemaname != 'pg_catalog'",
-    "expected": "SELECT CAST(atts.relid AS regclass), s.* FROM pg_stats AS s INNER JOIN pg_attribute AS a ON s.attname = a.attname AND s.tablename = CAST(CAST(a.attrelid AS regclass) AS TEXT) INNER JOIN (SELECT unnest(indkey) AS attnum, indexrelid FROM pg_index AS i) AS atts ON atts.attnum = a.attnum WHERE schemaname \u003c\u003e 'pg_catalog'"
+    "expected": "SELECT CAST(atts.relid AS regclass), s.* FROM pg_stats AS s INNER JOIN pg_attribute AS a ON s.attname = a.attname AND s.tablename = CAST(CAST(a.attrelid AS regclass) AS TEXT) INNER JOIN (SELECT unnest(indkey) AS attnum, indexrelid FROM pg_index AS i) AS atts ON atts.attnum = a.attnum WHERE schemaname <> 'pg_catalog'"
   },
   {
     "comment": "join - Statement 488",
-    "query": "explain (verbose, costs off) select 1 from (select * from int8_tbl where q1 \u003c\u003e (select 42) offset 0) ss where false",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT 1 FROM (SELECT * FROM int8_tbl WHERE q1 \u003c\u003e (SELECT 42) OFFSET 0) AS ss WHERE FALSE"
+    "query": "explain (verbose, costs off) select 1 from (select * from int8_tbl where q1 <> (select 42) offset 0) ss where false",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT 1 FROM (SELECT * FROM int8_tbl WHERE q1 <> (SELECT 42) OFFSET 0) AS ss WHERE FALSE"
   },
   {
     "comment": "join - Statement 489",
@@ -2536,7 +2536,7 @@
   {
     "comment": "join - Statement 512",
     "query": "select * from ((select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1) j, lateral (select x) ss2(y)",
-    "expected": "SELECT * FROM (SELECT f1 / 2 AS x FROM int4_tbl) AS ss1 INNER JOIN int4_tbl AS i4 ON x = f1, LATERAL (SELECT x) AS ss2(y)"
+    "expected": "SELECT * FROM ((SELECT f1 / 2 AS x FROM int4_tbl) AS ss1 INNER JOIN int4_tbl AS i4 ON x = f1) AS j, LATERAL (SELECT x) AS ss2(y)"
   },
   {
     "comment": "join - Statement 513",
@@ -2665,8 +2665,8 @@
   },
   {
     "comment": "join - Statement 538",
-    "query": "explain (verbose, costs off) select c.*,a.*,ss1.q1,ss2.q1,ss3.* from int8_tbl c left join ( int8_tbl a left join (select q1, coalesce(q2,f1) as x from int8_tbl b, int4_tbl b2 where q1 \u003c f1) ss1 on a.q2 = ss1.q1 cross join lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2 ) on c.q2 = ss2.q1, lateral (select * from int4_tbl i where ss2.y \u003e f1) ss3",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT c.*, a.*, ss1.q1, ss2.q1, ss3.* FROM int8_tbl AS c LEFT OUTER JOIN (int8_tbl AS a LEFT OUTER JOIN (SELECT q1, COALESCE(q2, f1) AS x FROM int8_tbl AS b, int4_tbl AS b2 WHERE q1 \u003c f1) AS ss1 ON a.q2 = ss1.q1 INNER JOIN LATERAL (SELECT q1, COALESCE(ss1.x, q2) AS y FROM int8_tbl AS d) AS ss2 ON TRUE) ON c.q2 = ss2.q1, LATERAL (SELECT * FROM int4_tbl AS i WHERE ss2.y \u003e f1) AS ss3"
+    "query": "explain (verbose, costs off) select c.*,a.*,ss1.q1,ss2.q1,ss3.* from int8_tbl c left join ( int8_tbl a left join (select q1, coalesce(q2,f1) as x from int8_tbl b, int4_tbl b2 where q1 < f1) ss1 on a.q2 = ss1.q1 cross join lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2 ) on c.q2 = ss2.q1, lateral (select * from int4_tbl i where ss2.y > f1) ss3",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT c.*, a.*, ss1.q1, ss2.q1, ss3.* FROM int8_tbl AS c LEFT OUTER JOIN (int8_tbl AS a LEFT OUTER JOIN (SELECT q1, COALESCE(q2, f1) AS x FROM int8_tbl AS b, int4_tbl AS b2 WHERE q1 < f1) AS ss1 ON a.q2 = ss1.q1 INNER JOIN LATERAL (SELECT q1, COALESCE(ss1.x, q2) AS y FROM int8_tbl AS d) AS ss2 ON TRUE) ON c.q2 = ss2.q1, LATERAL (SELECT * FROM int4_tbl AS i WHERE ss2.y > f1) AS ss3"
   },
   {
     "comment": "join - Statement 539",
@@ -2696,7 +2696,7 @@
   {
     "comment": "join - Statement 544",
     "query": "SELECT * FROM (int8_tbl i cross join int4_tbl j) ss(a,b,c,d)",
-    "expected": "SELECT * FROM int8_tbl AS i INNER JOIN int4_tbl AS j ON TRUE"
+    "expected": "SELECT * FROM (int8_tbl AS i INNER JOIN int4_tbl AS j ON TRUE) AS ss(a, b, c, d)"
   },
   {
     "comment": "join - Statement 545",
@@ -2710,13 +2710,13 @@
   },
   {
     "comment": "join - Statement 547",
-    "query": "explain (verbose, costs off) select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() \u003e 0) = any (select q2, random() \u003e 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (VALUES (0), (1)) AS v(id), LATERAL (SELECT * FROM int8_tbl AS t1, LATERAL (SELECT * FROM (SELECT * FROM int8_tbl AS t2 WHERE (q1, random() \u003e 0) = ANY (SELECT q2, random() \u003e 0 FROM int8_tbl AS t3 WHERE q2 = (SELECT GREATEST(t1.q1, t2.q2)) AND (SELECT v.id = 0)) OFFSET 0) AS ss2) AS ss WHERE t1.q1 = ss.q2) AS ss0"
+    "query": "explain (verbose, costs off) select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() > 0) = any (select q2, random() > 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (VALUES (0), (1)) AS v(id), LATERAL (SELECT * FROM int8_tbl AS t1, LATERAL (SELECT * FROM (SELECT * FROM int8_tbl AS t2 WHERE (q1, random() > 0) = ANY (SELECT q2, random() > 0 FROM int8_tbl AS t3 WHERE q2 = (SELECT GREATEST(t1.q1, t2.q2)) AND (SELECT v.id = 0)) OFFSET 0) AS ss2) AS ss WHERE t1.q1 = ss.q2) AS ss0"
   },
   {
     "comment": "join - Statement 548",
-    "query": "select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() \u003e 0) = any (select q2, random() \u003e 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0",
-    "expected": "SELECT * FROM (VALUES (0), (1)) AS v(id), LATERAL (SELECT * FROM int8_tbl AS t1, LATERAL (SELECT * FROM (SELECT * FROM int8_tbl AS t2 WHERE (q1, random() \u003e 0) = ANY (SELECT q2, random() \u003e 0 FROM int8_tbl AS t3 WHERE q2 = (SELECT GREATEST(t1.q1, t2.q2)) AND (SELECT v.id = 0)) OFFSET 0) AS ss2) AS ss WHERE t1.q1 = ss.q2) AS ss0"
+    "query": "select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() > 0) = any (select q2, random() > 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0",
+    "expected": "SELECT * FROM (VALUES (0), (1)) AS v(id), LATERAL (SELECT * FROM int8_tbl AS t1, LATERAL (SELECT * FROM (SELECT * FROM int8_tbl AS t2 WHERE (q1, random() > 0) = ANY (SELECT q2, random() > 0 FROM int8_tbl AS t3 WHERE q2 = (SELECT GREATEST(t1.q1, t2.q2)) AND (SELECT v.id = 0)) OFFSET 0) AS ss2) AS ss WHERE t1.q1 = ss.q2) AS ss0"
   },
   {
     "comment": "join - Statement 549",
@@ -2970,8 +2970,8 @@
   },
   {
     "comment": "join - Statement 599",
-    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id \u003e j2.id",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM j1 INNER JOIN j2 ON j1.id \u003e j2.id"
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id > j2.id",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM j1 INNER JOIN j2 ON j1.id > j2.id"
   },
   {
     "comment": "join - Statement 600",
@@ -3145,13 +3145,13 @@
   },
   {
     "comment": "join - Statement 634",
-    "query": "explain (costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 \u003e= any (array[1,5])",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM j1 INNER JOIN j2 ON j1.id1 = j2.id1 AND j1.id2 = j2.id2 WHERE j1.id1 % 1000 = 1 AND j2.id1 % 1000 = 1 AND j2.id1 \u003e= ANY (ARRAY[1,5])"
+    "query": "explain (costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5])",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM j1 INNER JOIN j2 ON j1.id1 = j2.id1 AND j1.id2 = j2.id2 WHERE j1.id1 % 1000 = 1 AND j2.id1 % 1000 = 1 AND j2.id1 >= ANY (ARRAY[1,5])"
   },
   {
     "comment": "join - Statement 635",
-    "query": "select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 \u003e= any (array[1,5])",
-    "expected": "SELECT * FROM j1 INNER JOIN j2 ON j1.id1 = j2.id1 AND j1.id2 = j2.id2 WHERE j1.id1 % 1000 = 1 AND j2.id1 % 1000 = 1 AND j2.id1 \u003e= ANY (ARRAY[1,5])"
+    "query": "select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5])",
+    "expected": "SELECT * FROM j1 INNER JOIN j2 ON j1.id1 = j2.id1 AND j1.id2 = j2.id2 WHERE j1.id1 % 1000 = 1 AND j2.id1 % 1000 = 1 AND j2.id1 >= ANY (ARRAY[1,5])"
   },
   {
     "comment": "join - Statement 636",
@@ -3160,8 +3160,8 @@
   },
   {
     "comment": "join - Statement 637",
-    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from tenk1 t3 where t3.thousand = t1.unique1 and t3.tenthous = t2.hundred) and t1.unique1 \u003c 1",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.unique1, t2.hundred FROM onek AS t1, tenk1 AS t2 WHERE EXISTS (SELECT 1 FROM tenk1 AS t3 WHERE t3.thousand = t1.unique1 AND t3.tenthous = t2.hundred) AND t1.unique1 \u003c 1"
+    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from tenk1 t3 where t3.thousand = t1.unique1 and t3.tenthous = t2.hundred) and t1.unique1 < 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.unique1, t2.hundred FROM onek AS t1, tenk1 AS t2 WHERE EXISTS (SELECT 1 FROM tenk1 AS t3 WHERE t3.thousand = t1.unique1 AND t3.tenthous = t2.hundred) AND t1.unique1 < 1"
   },
   {
     "comment": "join - Statement 638",
@@ -3180,8 +3180,8 @@
   },
   {
     "comment": "join - Statement 641",
-    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from j3 where j3.unique1 = t1.unique1 and j3.tenthous = t2.hundred) and t1.unique1 \u003c 1",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.unique1, t2.hundred FROM onek AS t1, tenk1 AS t2 WHERE EXISTS (SELECT 1 FROM j3 WHERE j3.unique1 = t1.unique1 AND j3.tenthous = t2.hundred) AND t1.unique1 \u003c 1"
+    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from j3 where j3.unique1 = t1.unique1 and j3.tenthous = t2.hundred) and t1.unique1 < 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT t1.unique1, t2.hundred FROM onek AS t1, tenk1 AS t2 WHERE EXISTS (SELECT 1 FROM j3 WHERE j3.unique1 = t1.unique1 AND j3.tenthous = t2.hundred) AND t1.unique1 < 1"
   },
   {
     "comment": "join - Statement 642",

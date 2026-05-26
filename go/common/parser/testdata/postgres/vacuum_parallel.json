@@ -36,13 +36,13 @@
   },
   {
     "comment": "vacuum_parallel - Statement 8",
-    "query": "SELECT EXISTS ( SELECT 1 FROM pg_class WHERE oid = 'vacuum_in_leader_small_index'::regclass AND pg_relation_size(oid) \u003c pg_size_bytes(current_setting('min_parallel_index_scan_size')) ) as leader_will_handle_small_index",
-    "expected": "SELECT EXISTS (SELECT 1 FROM pg_class WHERE oid = CAST('vacuum_in_leader_small_index' AS regclass) AND pg_relation_size(oid) \u003c pg_size_bytes(current_setting('min_parallel_index_scan_size'))) AS leader_will_handle_small_index"
+    "query": "SELECT EXISTS ( SELECT 1 FROM pg_class WHERE oid = 'vacuum_in_leader_small_index'::regclass AND pg_relation_size(oid) < pg_size_bytes(current_setting('min_parallel_index_scan_size')) ) as leader_will_handle_small_index",
+    "expected": "SELECT EXISTS (SELECT 1 FROM pg_class WHERE oid = CAST('vacuum_in_leader_small_index' AS regclass) AND pg_relation_size(oid) < pg_size_bytes(current_setting('min_parallel_index_scan_size'))) AS leader_will_handle_small_index"
   },
   {
     "comment": "vacuum_parallel - Statement 9",
-    "query": "SELECT count(*) as trigger_parallel_vacuum_nindexes FROM pg_class WHERE oid in ('regular_sized_index'::regclass, 'typically_sized_index'::regclass) AND pg_relation_size(oid) \u003e= pg_size_bytes(current_setting('min_parallel_index_scan_size'))",
-    "expected": "SELECT COUNT(*) AS trigger_parallel_vacuum_nindexes FROM pg_class WHERE oid IN (CAST('regular_sized_index' AS regclass), CAST('typically_sized_index' AS regclass)) AND pg_relation_size(oid) \u003e= pg_size_bytes(current_setting('min_parallel_index_scan_size'))"
+    "query": "SELECT count(*) as trigger_parallel_vacuum_nindexes FROM pg_class WHERE oid in ('regular_sized_index'::regclass, 'typically_sized_index'::regclass) AND pg_relation_size(oid) >= pg_size_bytes(current_setting('min_parallel_index_scan_size'))",
+    "expected": "SELECT COUNT(*) AS trigger_parallel_vacuum_nindexes FROM pg_class WHERE oid IN (CAST('regular_sized_index' AS regclass), CAST('typically_sized_index' AS regclass)) AND pg_relation_size(oid) >= pg_size_bytes(current_setting('min_parallel_index_scan_size'))"
   },
   {
     "comment": "vacuum_parallel - Statement 10",

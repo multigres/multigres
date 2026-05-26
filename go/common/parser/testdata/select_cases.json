@@ -1407,7 +1407,8 @@
   },
   {
     "comment": "Nested functions",
-    "query": "SELECT upper(trim(name)) FROM users"
+    "query": "SELECT upper(trim(name)) FROM users",
+    "expected": "SELECT upper(btrim(name)) FROM users"
   },
   {
     "comment": "Function in WHERE",
@@ -2227,7 +2228,7 @@
   {
     "comment": "Chained IS NULL is a syntax error: the %nonassoc conflict on IS is resolved by shift, which would silently produce a doubly-nested NullTest; caught by semantic action in postgres.y",
     "query": "SELECT a IS NULL IS NULL",
-    "error": "syntax error"
+    "error": "parse error at position 24: syntax error: IS NULL / IS NOT NULL cannot be chained"
   },
   {
     "comment": "Boolean test IS TRUE",
@@ -2371,17 +2372,14 @@
   },
   {
     "comment": "Named function argument quotes parameter name",
-    "query": "select f(\"weird arg\" => 1)",
-    "expected": "SELECT f(\"weird arg\" => 1)"
+    "query": "SELECT f(\"weird arg\" => 1)"
   },
   {
     "comment": "WINDOW clause quotes window name",
-    "query": "select x from t window \"weird w\" as ()",
-    "expected": "SELECT x FROM t WINDOW \"weird w\" AS ()"
+    "query": "SELECT x FROM t WINDOW \"weird w\" AS ()"
   },
   {
     "comment": "OVER references quoted window name",
-    "query": "select row_number() over \"weird w\" from t window \"weird w\" as ()",
-    "expected": "SELECT ROW_NUMBER() OVER \"weird w\" FROM t WINDOW \"weird w\" AS ()"
+    "query": "SELECT ROW_NUMBER() OVER \"weird w\" FROM t WINDOW \"weird w\" AS ()"
   }
 ]

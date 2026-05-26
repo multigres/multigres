@@ -168,88 +168,88 @@
   },
   {
     "comment": "tstypes - Statement 35",
-    "query": "SELECT '1\u00262'::tsquery",
-    "expected": "SELECT CAST('1\u00262' AS tsquery)"
+    "query": "SELECT '1&2'::tsquery",
+    "expected": "SELECT CAST('1&2' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 36",
-    "query": "SELECT '!1\u00262'::tsquery",
-    "expected": "SELECT CAST('!1\u00262' AS tsquery)"
+    "query": "SELECT '!1&2'::tsquery",
+    "expected": "SELECT CAST('!1&2' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 37",
-    "query": "SELECT '1\u0026!2'::tsquery",
-    "expected": "SELECT CAST('1\u0026!2' AS tsquery)"
+    "query": "SELECT '1&!2'::tsquery",
+    "expected": "SELECT CAST('1&!2' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 38",
-    "query": "SELECT '!1\u0026!2'::tsquery",
-    "expected": "SELECT CAST('!1\u0026!2' AS tsquery)"
+    "query": "SELECT '!1&!2'::tsquery",
+    "expected": "SELECT CAST('!1&!2' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 39",
-    "query": "SELECT '(1\u00262)'::tsquery",
-    "expected": "SELECT CAST('(1\u00262)' AS tsquery)"
+    "query": "SELECT '(1&2)'::tsquery",
+    "expected": "SELECT CAST('(1&2)' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 40",
-    "query": "SELECT '1\u0026(2)'::tsquery",
-    "expected": "SELECT CAST('1\u0026(2)' AS tsquery)"
+    "query": "SELECT '1&(2)'::tsquery",
+    "expected": "SELECT CAST('1&(2)' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 41",
-    "query": "SELECT '!(1)\u00262'::tsquery",
-    "expected": "SELECT CAST('!(1)\u00262' AS tsquery)"
+    "query": "SELECT '!(1)&2'::tsquery",
+    "expected": "SELECT CAST('!(1)&2' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 42",
-    "query": "SELECT '!(1\u00262)'::tsquery",
-    "expected": "SELECT CAST('!(1\u00262)' AS tsquery)"
+    "query": "SELECT '!(1&2)'::tsquery",
+    "expected": "SELECT CAST('!(1&2)' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 43",
-    "query": "SELECT '1|2\u00263'::tsquery",
-    "expected": "SELECT CAST('1|2\u00263' AS tsquery)"
+    "query": "SELECT '1|2&3'::tsquery",
+    "expected": "SELECT CAST('1|2&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 44",
-    "query": "SELECT '1|(2\u00263)'::tsquery",
-    "expected": "SELECT CAST('1|(2\u00263)' AS tsquery)"
+    "query": "SELECT '1|(2&3)'::tsquery",
+    "expected": "SELECT CAST('1|(2&3)' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 45",
-    "query": "SELECT '(1|2)\u00263'::tsquery",
-    "expected": "SELECT CAST('(1|2)\u00263' AS tsquery)"
+    "query": "SELECT '(1|2)&3'::tsquery",
+    "expected": "SELECT CAST('(1|2)&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 46",
-    "query": "SELECT '1|2\u0026!3'::tsquery",
-    "expected": "SELECT CAST('1|2\u0026!3' AS tsquery)"
+    "query": "SELECT '1|2&!3'::tsquery",
+    "expected": "SELECT CAST('1|2&!3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 47",
-    "query": "SELECT '1|!2\u00263'::tsquery",
-    "expected": "SELECT CAST('1|!2\u00263' AS tsquery)"
+    "query": "SELECT '1|!2&3'::tsquery",
+    "expected": "SELECT CAST('1|!2&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 48",
-    "query": "SELECT '!1|2\u00263'::tsquery",
-    "expected": "SELECT CAST('!1|2\u00263' AS tsquery)"
+    "query": "SELECT '!1|2&3'::tsquery",
+    "expected": "SELECT CAST('!1|2&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 49",
-    "query": "SELECT '!1|(2\u00263)'::tsquery",
-    "expected": "SELECT CAST('!1|(2\u00263)' AS tsquery)"
+    "query": "SELECT '!1|(2&3)'::tsquery",
+    "expected": "SELECT CAST('!1|(2&3)' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 50",
-    "query": "SELECT '!(1|2)\u00263'::tsquery",
-    "expected": "SELECT CAST('!(1|2)\u00263' AS tsquery)"
+    "query": "SELECT '!(1|2)&3'::tsquery",
+    "expected": "SELECT CAST('!(1|2)&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 51",
-    "query": "SELECT '(!1|2)\u00263'::tsquery",
-    "expected": "SELECT CAST('(!1|2)\u00263' AS tsquery)"
+    "query": "SELECT '(!1|2)&3'::tsquery",
+    "expected": "SELECT CAST('(!1|2)&3' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 52",
@@ -263,28 +263,28 @@
   },
   {
     "comment": "tstypes - Statement 54",
-    "query": "SELECT '1\u0026(2\u0026(4\u0026(5\u00266)))'::tsquery",
-    "expected": "SELECT CAST('1\u0026(2\u0026(4\u0026(5\u00266)))' AS tsquery)"
+    "query": "SELECT '1&(2&(4&(5&6)))'::tsquery",
+    "expected": "SELECT CAST('1&(2&(4&(5&6)))' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 55",
-    "query": "SELECT '1\u00262\u00264\u00265\u00266'::tsquery",
-    "expected": "SELECT CAST('1\u00262\u00264\u00265\u00266' AS tsquery)"
+    "query": "SELECT '1&2&4&5&6'::tsquery",
+    "expected": "SELECT CAST('1&2&4&5&6' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 56",
-    "query": "SELECT '1\u0026(2\u0026(4\u0026(5|6)))'::tsquery",
-    "expected": "SELECT CAST('1\u0026(2\u0026(4\u0026(5|6)))' AS tsquery)"
+    "query": "SELECT '1&(2&(4&(5|6)))'::tsquery",
+    "expected": "SELECT CAST('1&(2&(4&(5|6)))' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 57",
-    "query": "SELECT '1\u0026(2\u0026(4\u0026(5|!6)))'::tsquery",
-    "expected": "SELECT CAST('1\u0026(2\u0026(4\u0026(5|!6)))' AS tsquery)"
+    "query": "SELECT '1&(2&(4&(5|!6)))'::tsquery",
+    "expected": "SELECT CAST('1&(2&(4&(5|!6)))' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 58",
-    "query": "SELECT E'1\u0026(''2''\u0026('' 4''\u0026(\\\\|5 | ''6 \\\\'' !|\u0026'')))'::tsquery",
-    "expected": "SELECT CAST('1\u0026(''2''\u0026('' 4''\u0026(\\|5 | ''6 \\'' !|\u0026'')))' AS tsquery)"
+    "query": "SELECT E'1&(''2''&('' 4''&(\\\\|5 | ''6 \\\\'' !|&'')))'::tsquery",
+    "expected": "SELECT CAST('1&(''2''&('' 4''&(\\|5 | ''6 \\'' !|&'')))' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 59",
@@ -293,8 +293,8 @@
   },
   {
     "comment": "tstypes - Statement 60",
-    "query": "SELECT 'a:* \u0026 nbb:*ac | doo:a* | goo'::tsquery",
-    "expected": "SELECT CAST('a:* \u0026 nbb:*ac | doo:a* | goo' AS tsquery)"
+    "query": "SELECT 'a:* & nbb:*ac | doo:a* | goo'::tsquery",
+    "expected": "SELECT CAST('a:* & nbb:*ac | doo:a* | goo' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 61",
@@ -313,18 +313,18 @@
   },
   {
     "comment": "tstypes - Statement 64",
-    "query": "SELECT 'a \u0026 !!b'::tsquery",
-    "expected": "SELECT CAST('a \u0026 !!b' AS tsquery)"
+    "query": "SELECT 'a & !!b'::tsquery",
+    "expected": "SELECT CAST('a & !!b' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 65",
-    "query": "SELECT '!!a \u0026 b'::tsquery",
-    "expected": "SELECT CAST('!!a \u0026 b' AS tsquery)"
+    "query": "SELECT '!!a & b'::tsquery",
+    "expected": "SELECT CAST('!!a & b' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 66",
-    "query": "SELECT '!!a \u0026 !!b'::tsquery",
-    "expected": "SELECT CAST('!!a \u0026 !!b' AS tsquery)"
+    "query": "SELECT '!!a & !!b'::tsquery",
+    "expected": "SELECT CAST('!!a & !!b' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 67",
@@ -340,32 +340,32 @@
   },
   {
     "comment": "tstypes - Statement 70",
-    "query": "SELECT * FROM pg_input_error_info('a \u003c100000\u003e b', 'tsquery')"
+    "query": "SELECT * FROM pg_input_error_info('a <100000> b', 'tsquery')"
   },
   {
     "comment": "tstypes - Statement 71",
-    "query": "SELECT 'a' \u003c 'b \u0026 c'::tsquery as \"true\"",
-    "expected": "SELECT 'a' \u003c CAST('b \u0026 c' AS tsquery) AS \"true\""
+    "query": "SELECT 'a' < 'b & c'::tsquery as \"true\"",
+    "expected": "SELECT 'a' < CAST('b & c' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 72",
-    "query": "SELECT 'a' \u003e 'b \u0026 c'::tsquery as \"false\"",
-    "expected": "SELECT 'a' \u003e CAST('b \u0026 c' AS tsquery) AS \"false\""
+    "query": "SELECT 'a' > 'b & c'::tsquery as \"false\"",
+    "expected": "SELECT 'a' > CAST('b & c' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 73",
-    "query": "SELECT 'a | f' \u003c 'b \u0026 c'::tsquery as \"false\"",
-    "expected": "SELECT 'a | f' \u003c CAST('b \u0026 c' AS tsquery) AS \"false\""
+    "query": "SELECT 'a | f' < 'b & c'::tsquery as \"false\"",
+    "expected": "SELECT 'a | f' < CAST('b & c' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 74",
-    "query": "SELECT 'a | ff' \u003c 'b \u0026 c'::tsquery as \"false\"",
-    "expected": "SELECT 'a | ff' \u003c CAST('b \u0026 c' AS tsquery) AS \"false\""
+    "query": "SELECT 'a | ff' < 'b & c'::tsquery as \"false\"",
+    "expected": "SELECT 'a | ff' < CAST('b & c' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 75",
-    "query": "SELECT 'a | f | g' \u003c 'b \u0026 c'::tsquery as \"false\"",
-    "expected": "SELECT 'a | f | g' \u003c CAST('b \u0026 c' AS tsquery) AS \"false\""
+    "query": "SELECT 'a | f | g' < 'b & c'::tsquery as \"false\"",
+    "expected": "SELECT 'a | f | g' < CAST('b & c' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 76",
@@ -374,122 +374,122 @@
   },
   {
     "comment": "tstypes - Statement 77",
-    "query": "SELECT numnode( 'new \u0026 york'::tsquery )",
-    "expected": "SELECT numnode(CAST('new \u0026 york' AS tsquery))"
+    "query": "SELECT numnode( 'new & york'::tsquery )",
+    "expected": "SELECT numnode(CAST('new & york' AS tsquery))"
   },
   {
     "comment": "tstypes - Statement 78",
-    "query": "SELECT numnode( 'new \u0026 york | qwery'::tsquery )",
-    "expected": "SELECT numnode(CAST('new \u0026 york | qwery' AS tsquery))"
+    "query": "SELECT numnode( 'new & york | qwery'::tsquery )",
+    "expected": "SELECT numnode(CAST('new & york | qwery' AS tsquery))"
   },
   {
     "comment": "tstypes - Statement 79",
-    "query": "SELECT 'foo \u0026 bar'::tsquery \u0026\u0026 'asd'",
-    "expected": "SELECT CAST('foo \u0026 bar' AS tsquery) \u0026\u0026 'asd'"
+    "query": "SELECT 'foo & bar'::tsquery && 'asd'",
+    "expected": "SELECT CAST('foo & bar' AS tsquery) && 'asd'"
   },
   {
     "comment": "tstypes - Statement 80",
-    "query": "SELECT 'foo \u0026 bar'::tsquery || 'asd \u0026 fg'",
-    "expected": "SELECT CAST('foo \u0026 bar' AS tsquery) || 'asd \u0026 fg'"
+    "query": "SELECT 'foo & bar'::tsquery || 'asd & fg'",
+    "expected": "SELECT CAST('foo & bar' AS tsquery) || 'asd & fg'"
   },
   {
     "comment": "tstypes - Statement 81",
-    "query": "SELECT 'foo \u0026 bar'::tsquery || !!'asd \u0026 fg'::tsquery",
-    "expected": "SELECT CAST('foo \u0026 bar' AS tsquery) || !!CAST('asd \u0026 fg' AS tsquery)"
+    "query": "SELECT 'foo & bar'::tsquery || !!'asd & fg'::tsquery",
+    "expected": "SELECT CAST('foo & bar' AS tsquery) || !!CAST('asd & fg' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 82",
-    "query": "SELECT 'foo \u0026 bar'::tsquery \u0026\u0026 'asd | fg'",
-    "expected": "SELECT CAST('foo \u0026 bar' AS tsquery) \u0026\u0026 'asd | fg'"
+    "query": "SELECT 'foo & bar'::tsquery && 'asd | fg'",
+    "expected": "SELECT CAST('foo & bar' AS tsquery) && 'asd | fg'"
   },
   {
     "comment": "tstypes - Statement 83",
-    "query": "SELECT 'a' \u003c-\u003e 'b \u0026 d'::tsquery",
-    "expected": "SELECT 'a' \u003c-\u003e CAST('b \u0026 d' AS tsquery)"
+    "query": "SELECT 'a' <-> 'b & d'::tsquery",
+    "expected": "SELECT 'a' <-> CAST('b & d' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 84",
-    "query": "SELECT 'a \u0026 g' \u003c-\u003e 'b \u0026 d'::tsquery",
-    "expected": "SELECT 'a \u0026 g' \u003c-\u003e CAST('b \u0026 d' AS tsquery)"
+    "query": "SELECT 'a & g' <-> 'b & d'::tsquery",
+    "expected": "SELECT 'a & g' <-> CAST('b & d' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 85",
-    "query": "SELECT 'a \u0026 g' \u003c-\u003e 'b | d'::tsquery",
-    "expected": "SELECT 'a \u0026 g' \u003c-\u003e CAST('b | d' AS tsquery)"
+    "query": "SELECT 'a & g' <-> 'b | d'::tsquery",
+    "expected": "SELECT 'a & g' <-> CAST('b | d' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 86",
-    "query": "SELECT 'a \u0026 g' \u003c-\u003e 'b \u003c-\u003e d'::tsquery",
-    "expected": "SELECT 'a \u0026 g' \u003c-\u003e CAST('b \u003c-\u003e d' AS tsquery)"
+    "query": "SELECT 'a & g' <-> 'b <-> d'::tsquery",
+    "expected": "SELECT 'a & g' <-> CAST('b <-> d' AS tsquery)"
   },
   {
     "comment": "tstypes - Statement 87",
-    "query": "SELECT tsquery_phrase('a \u003c3\u003e g', 'b \u0026 d', 10)"
+    "query": "SELECT tsquery_phrase('a <3> g', 'b & d', 10)"
   },
   {
     "comment": "tstypes - Statement 88",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 ca' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 ca' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & ca' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 89",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 ca:B' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 ca:B' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:B' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & ca:B' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 90",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 ca:A' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 ca:A' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:A' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & ca:A' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 91",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 ca:C' as \"false\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 ca:C' AS \"false\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:C' as \"false\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & ca:C' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 92",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 ca:CB' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 ca:CB' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:CB' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & ca:CB' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 93",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 c:*C' as \"false\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 c:*C' AS \"false\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & c:*C' as \"false\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & c:*C' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 94",
-    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC \u0026 c:*CB' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC \u0026 c:*CB' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & c:*CB' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b d:34c' AS tsvector) @@ 'd:AC & c:*CB' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 95",
-    "query": "SELECT 'a b:89  ca:23A,64b cb:80c d:34c'::tsvector @@ 'd:AC \u0026 c:*C' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64b cb:80c d:34c' AS tsvector) @@ 'd:AC \u0026 c:*C' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64b cb:80c d:34c'::tsvector @@ 'd:AC & c:*C' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64b cb:80c d:34c' AS tsvector) @@ 'd:AC & c:*C' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 96",
-    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC \u0026 c:*C' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64c cb:80b d:34c' AS tsvector) @@ 'd:AC \u0026 c:*C' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC & c:*C' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64c cb:80b d:34c' AS tsvector) @@ 'd:AC & c:*C' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 97",
-    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC \u0026 c:*B' as \"true\"",
-    "expected": "SELECT CAST('a b:89  ca:23A,64c cb:80b d:34c' AS tsvector) @@ 'd:AC \u0026 c:*B' AS \"true\""
+    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC & c:*B' as \"true\"",
+    "expected": "SELECT CAST('a b:89  ca:23A,64c cb:80b d:34c' AS tsvector) @@ 'd:AC & c:*B' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 98",
-    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D \u0026 w:*A'::tsquery as \"true\"",
-    "expected": "SELECT CAST('wa:1D wb:2A' AS tsvector) @@ CAST('w:*D \u0026 w:*A' AS tsquery) AS \"true\""
+    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D & w:*A'::tsquery as \"true\"",
+    "expected": "SELECT CAST('wa:1D wb:2A' AS tsvector) @@ CAST('w:*D & w:*A' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 99",
-    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D \u003c-\u003e w:*A'::tsquery as \"true\"",
-    "expected": "SELECT CAST('wa:1D wb:2A' AS tsvector) @@ CAST('w:*D \u003c-\u003e w:*A' AS tsquery) AS \"true\""
+    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D <-> w:*A'::tsquery as \"true\"",
+    "expected": "SELECT CAST('wa:1D wb:2A' AS tsvector) @@ CAST('w:*D <-> w:*A' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 100",
-    "query": "SELECT 'wa:1A wb:2D'::tsvector @@ 'w:*D \u003c-\u003e w:*A'::tsquery as \"false\"",
-    "expected": "SELECT CAST('wa:1A wb:2D' AS tsvector) @@ CAST('w:*D \u003c-\u003e w:*A' AS tsquery) AS \"false\""
+    "query": "SELECT 'wa:1A wb:2D'::tsvector @@ 'w:*D <-> w:*A'::tsquery as \"false\"",
+    "expected": "SELECT CAST('wa:1A wb:2D' AS tsvector) @@ CAST('w:*D <-> w:*A' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 101",
@@ -563,224 +563,224 @@
   },
   {
     "comment": "tstypes - Statement 115",
-    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 \u003c-\u003e 2' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <-> 2' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 116",
-    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 \u003c2\u003e 2' AS \"false\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <2> 2' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 117",
-    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 \u003c-\u003e 3' AS \"false\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <-> 3' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 118",
-    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 \u003c2\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <2> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 119",
-    "query": "SELECT to_tsvector('simple', '1 2 1 2') @@ '1 \u003c3\u003e 2' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 1 2') @@ '1 <3> 2' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 120",
-    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1 \u003c-\u003e 3' AS \"false\""
+    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1 <-> 3' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 121",
-    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1:* \u003c-\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1:* <-> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 122",
-    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 \u003c-\u003e 2 \u003c-\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <-> 2 <-> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 123",
-    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '(1 \u003c-\u003e 2) \u003c-\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '(1 <-> 2) <-> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 124",
-    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 \u003c-\u003e (2 \u003c-\u003e 3)' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <-> (2 <-> 3)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 125",
-    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 \u003c2\u003e (2 \u003c-\u003e 3)' AS \"false\""
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <2> (2 <-> 3)' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 126",
-    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '(1 \u003c-\u003e 2) \u003c-\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '(1 <-> 2) <-> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 127",
-    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '1 \u003c-\u003e 2 \u003c-\u003e 3' AS \"true\""
+    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '1 <-> 2 <-> 3' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 128",
-    "query": "SELECT strip(to_tsvector('simple', '1 2 3 4')) @@ '1 \u003c-\u003e 2 \u003c-\u003e 3' AS \"false\""
+    "query": "SELECT strip(to_tsvector('simple', '1 2 3 4')) @@ '1 <-> 2 <-> 3' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 129",
-    "query": "select to_tsvector('simple', 'q x q y') @@ 'q \u003c-\u003e (x \u0026 y)' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'q x q y') @@ 'q \u003c-\u003e (x \u0026 y)' AS \"false\""
+    "query": "select to_tsvector('simple', 'q x q y') @@ 'q <-> (x & y)' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'q x q y') @@ 'q <-> (x & y)' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 130",
-    "query": "select to_tsvector('simple', 'q x') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'q x') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\""
+    "query": "select to_tsvector('simple', 'q x') @@ 'q <-> (x | y <-> z)' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'q x') @@ 'q <-> (x | y <-> z)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 131",
-    "query": "select to_tsvector('simple', 'q y') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'q y') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"false\""
+    "query": "select to_tsvector('simple', 'q y') @@ 'q <-> (x | y <-> z)' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'q y') @@ 'q <-> (x | y <-> z)' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 132",
-    "query": "select to_tsvector('simple', 'q y z') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'q y z') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\""
+    "query": "select to_tsvector('simple', 'q y z') @@ 'q <-> (x | y <-> z)' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'q y z') @@ 'q <-> (x | y <-> z)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 133",
-    "query": "select to_tsvector('simple', 'q y x') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'q y x') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"false\""
+    "query": "select to_tsvector('simple', 'q y x') @@ 'q <-> (x | y <-> z)' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'q y x') @@ 'q <-> (x | y <-> z)' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 134",
-    "query": "select to_tsvector('simple', 'q x y') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'q x y') @@ 'q \u003c-\u003e (x | y \u003c-\u003e z)' AS \"true\""
+    "query": "select to_tsvector('simple', 'q x y') @@ 'q <-> (x | y <-> z)' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'q x y') @@ 'q <-> (x | y <-> z)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 135",
-    "query": "select to_tsvector('simple', 'q x') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'q x') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'q x') @@ '(x | y <-> z) <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'q x') @@ '(x | y <-> z) <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 136",
-    "query": "select to_tsvector('simple', 'x q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x q') @@ '(x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 137",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | y <-> z) <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | y <-> z) <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 138",
-    "query": "select to_tsvector('simple', 'x y z') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'x y z') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'x y z') @@ '(x | y <-> z) <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'x y z') @@ '(x | y <-> z) <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 139",
-    "query": "select to_tsvector('simple', 'x y z q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y z q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y z q') @@ '(x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y z q') @@ '(x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 140",
-    "query": "select to_tsvector('simple', 'y z q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'y z q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'y z q') @@ '(x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'y z q') @@ '(x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 141",
-    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y <-> z) <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(x | y <-> z) <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 142",
-    "query": "select to_tsvector('simple', 'y y q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'y y q') @@ '(!x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(!x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 143",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 144",
-    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y \u003c-\u003e !z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(x | y \u003c-\u003e !z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y <-> !z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'y y q') @@ '(x | y <-> !z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 145",
-    "query": "select to_tsvector('simple', 'x q') @@ '(x | y \u003c-\u003e !z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(x | y \u003c-\u003e !z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x q') @@ '(x | y <-> !z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(x | y <-> !z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 146",
-    "query": "select to_tsvector('simple', 'x q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'x q') @@ '(!x | y <-> z) <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'x q') @@ '(!x | y <-> z) <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 147",
-    "query": "select to_tsvector('simple', 'z q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'z q') @@ '(!x | y \u003c-\u003e z) \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'z q') @@ '(!x | y <-> z) <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'z q') @@ '(!x | y <-> z) <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 148",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y) \u003c-\u003e y \u003c-\u003e q' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | y) \u003c-\u003e y \u003c-\u003e q' AS \"false\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y) <-> y <-> q' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | y) <-> y <-> q' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 149",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | !y) \u003c-\u003e y \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | !y) \u003c-\u003e y \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | !y) <-> y <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(!x | !y) <-> y <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 150",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !y) \u003c-\u003e y \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | !y) \u003c-\u003e y \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !y) <-> y <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | !y) <-> y <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 151",
-    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !!z) \u003c-\u003e y \u003c-\u003e q' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | !!z) \u003c-\u003e y \u003c-\u003e q' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !!z) <-> y <-> q' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q') @@ '(x | !!z) <-> y <-> q' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 152",
-    "query": "select to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e y' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e y' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> y' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x <-> y' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 153",
-    "query": "select to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e !y' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e !y' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> !y' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x <-> !y' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 154",
-    "query": "select to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e !!y' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x \u003c-\u003e !!y' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> !!y' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!x <-> !!y' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 155",
-    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x \u003c-\u003e y)' AS \"false\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!(x \u003c-\u003e y)' AS \"false\""
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x <-> y)' AS \"false\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!(x <-> y)' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 156",
-    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x \u003c2\u003e y)' AS \"true\"",
-    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!(x \u003c2\u003e y)' AS \"true\""
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x <2> y)' AS \"true\"",
+    "expected": "SELECT to_tsvector('simple', 'x y q y') @@ '!(x <2> y)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 157",
-    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e y' AS \"false\"",
-    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e y' AS \"false\""
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> y' AS \"false\"",
+    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> y' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 158",
-    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e !y' AS \"false\"",
-    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e !y' AS \"false\""
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !y' AS \"false\"",
+    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !y' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 159",
-    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e !!y' AS \"false\"",
-    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x \u003c-\u003e !!y' AS \"false\""
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !!y' AS \"false\"",
+    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !!y' AS \"false\""
   },
   {
     "comment": "tstypes - Statement 160",
-    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x \u003c-\u003e y)' AS \"true\"",
-    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!(x \u003c-\u003e y)' AS \"true\""
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x <-> y)' AS \"true\"",
+    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!(x <-> y)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 161",
-    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x \u003c2\u003e y)' AS \"true\"",
-    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!(x \u003c2\u003e y)' AS \"true\""
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x <2> y)' AS \"true\"",
+    "expected": "SELECT strip(to_tsvector('simple', 'x y q y')) @@ '!(x <2> y)' AS \"true\""
   },
   {
     "comment": "tstypes - Statement 162",
@@ -824,18 +824,18 @@
   },
   {
     "comment": "tstypes - Statement 170",
-    "query": "SELECT ts_rank(' a:1 s:2C d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank(CAST(' a:1 s:2C d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank(' a:1 s:2C d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank(CAST(' a:1 s:2C d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 171",
-    "query": "SELECT ts_rank(' a:1 s:2B d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank(CAST(' a:1 s:2B d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank(' a:1 s:2B d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank(CAST(' a:1 s:2B d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 172",
-    "query": "SELECT ts_rank(' a:1 s:2 d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank(CAST(' a:1 s:2 d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank(' a:1 s:2 d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank(CAST(' a:1 s:2 d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 173",
@@ -874,118 +874,118 @@
   },
   {
     "comment": "tstypes - Statement 180",
-    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2C d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2C d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 181",
-    "query": "SELECT ts_rank_cd(' a:1 s:2B d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2B d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2B d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2B d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 182",
-    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a \u0026 s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d g' AS tsvector), 'a \u0026 s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a & s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d g' AS tsvector), 'a & s')"
   },
   {
     "comment": "tstypes - Statement 183",
-    "query": "SELECT ts_rank_cd(' a:1 s:2A d g'::tsvector, 'a \u003c-\u003e s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2A d g' AS tsvector), 'a \u003c-\u003e s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2A d g'::tsvector, 'a <-> s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2A d g' AS tsvector), 'a <-> s')"
   },
   {
     "comment": "tstypes - Statement 184",
-    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a \u003c-\u003e s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2C d g' AS tsvector), 'a \u003c-\u003e s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a <-> s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2C d g' AS tsvector), 'a <-> s')"
   },
   {
     "comment": "tstypes - Statement 185",
-    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a \u003c-\u003e s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d g' AS tsvector), 'a \u003c-\u003e s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a <-> s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d g' AS tsvector), 'a <-> s')"
   },
   {
     "comment": "tstypes - Statement 186",
-    "query": "SELECT ts_rank_cd(' a:1 s:2 d:2A g'::tsvector, 'a \u003c-\u003e s')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d:2A g' AS tsvector), 'a \u003c-\u003e s')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d:2A g'::tsvector, 'a <-> s')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2 d:2A g' AS tsvector), 'a <-> s')"
   },
   {
     "comment": "tstypes - Statement 187",
-    "query": "SELECT ts_rank_cd(' a:1 s:2,3A d:2A g'::tsvector, 'a \u003c2\u003e s:A')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2,3A d:2A g' AS tsvector), 'a \u003c2\u003e s:A')"
+    "query": "SELECT ts_rank_cd(' a:1 s:2,3A d:2A g'::tsvector, 'a <2> s:A')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 s:2,3A d:2A g' AS tsvector), 'a <2> s:A')"
   },
   {
     "comment": "tstypes - Statement 188",
-    "query": "SELECT ts_rank_cd(' a:1 b:2 s:3A d:2A g'::tsvector, 'a \u003c2\u003e s:A')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 b:2 s:3A d:2A g' AS tsvector), 'a \u003c2\u003e s:A')"
+    "query": "SELECT ts_rank_cd(' a:1 b:2 s:3A d:2A g'::tsvector, 'a <2> s:A')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 b:2 s:3A d:2A g' AS tsvector), 'a <2> s:A')"
   },
   {
     "comment": "tstypes - Statement 189",
-    "query": "SELECT ts_rank_cd(' a:1 sa:2D sb:2A g'::tsvector, 'a \u003c-\u003e s:*')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2D sb:2A g' AS tsvector), 'a \u003c-\u003e s:*')"
+    "query": "SELECT ts_rank_cd(' a:1 sa:2D sb:2A g'::tsvector, 'a <-> s:*')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2D sb:2A g' AS tsvector), 'a <-> s:*')"
   },
   {
     "comment": "tstypes - Statement 190",
-    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a \u003c-\u003e s:*')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a \u003c-\u003e s:*')"
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:*')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a <-> s:*')"
   },
   {
     "comment": "tstypes - Statement 191",
-    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a \u003c-\u003e s:* \u003c-\u003e sa:A')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a \u003c-\u003e s:* \u003c-\u003e sa:A')"
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:* <-> sa:A')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a <-> s:* <-> sa:A')"
   },
   {
     "comment": "tstypes - Statement 192",
-    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a \u003c-\u003e s:* \u003c-\u003e sa:B')",
-    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a \u003c-\u003e s:* \u003c-\u003e sa:B')"
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:* <-> sa:B')",
+    "expected": "SELECT ts_rank_cd(CAST(' a:1 sa:2A sb:2D g' AS tsvector), 'a <-> s:* <-> sa:B')"
   },
   {
     "comment": "tstypes - Statement 193",
-    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a \u003c-\u003e b'::tsquery AS \"true\"",
-    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a \u003c-\u003e b' AS tsquery) AS \"true\""
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <-> b'::tsquery AS \"true\"",
+    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a <-> b' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 194",
-    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a \u003c0\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a \u003c0\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <0> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a <0> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 195",
-    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a \u003c1\u003e b'::tsquery AS \"true\"",
-    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a \u003c1\u003e b' AS tsquery) AS \"true\""
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <1> b'::tsquery AS \"true\"",
+    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a <1> b' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 196",
-    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a \u003c2\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a \u003c2\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <2> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:2' AS tsvector) @@ CAST('a <2> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 197",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c-\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c-\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <-> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <-> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 198",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c0\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c0\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <0> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <0> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 199",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c1\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c1\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <1> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <1> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 200",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c2\u003e b'::tsquery AS \"true\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c2\u003e b' AS tsquery) AS \"true\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <2> b'::tsquery AS \"true\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <2> b' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 201",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c3\u003e b'::tsquery AS \"false\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c3\u003e b' AS tsquery) AS \"false\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <3> b'::tsquery AS \"false\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <3> b' AS tsquery) AS \"false\""
   },
   {
     "comment": "tstypes - Statement 202",
-    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a \u003c0\u003e a:*'::tsquery AS \"true\"",
-    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a \u003c0\u003e a:*' AS tsquery) AS \"true\""
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <0> a:*'::tsquery AS \"true\"",
+    "expected": "SELECT CAST('a:1 b:3' AS tsvector) @@ CAST('a <0> a:*' AS tsquery) AS \"true\""
   },
   {
     "comment": "tstypes - Statement 203",

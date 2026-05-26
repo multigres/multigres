@@ -191,43 +191,43 @@
   },
   {
     "comment": "rowtypes - Statement 40",
-    "query": "select ROW(1,2) \u003c ROW(1,3) as true",
-    "expected": "SELECT ROW(1, 2) \u003c ROW(1, 3) AS \"true\""
+    "query": "select ROW(1,2) < ROW(1,3) as true",
+    "expected": "SELECT ROW(1, 2) < ROW(1, 3) AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 41",
-    "query": "select ROW(1,2) \u003c ROW(1,1) as false",
-    "expected": "SELECT ROW(1, 2) \u003c ROW(1, 1) AS \"false\""
+    "query": "select ROW(1,2) < ROW(1,1) as false",
+    "expected": "SELECT ROW(1, 2) < ROW(1, 1) AS \"false\""
   },
   {
     "comment": "rowtypes - Statement 42",
-    "query": "select ROW(1,2) \u003c ROW(1,NULL) as null",
-    "expected": "SELECT ROW(1, 2) \u003c ROW(1, NULL) AS \"null\""
+    "query": "select ROW(1,2) < ROW(1,NULL) as null",
+    "expected": "SELECT ROW(1, 2) < ROW(1, NULL) AS \"null\""
   },
   {
     "comment": "rowtypes - Statement 43",
-    "query": "select ROW(1,2,3) \u003c ROW(1,3,NULL) as true",
-    "expected": "SELECT ROW(1, 2, 3) \u003c ROW(1, 3, NULL) AS \"true\""
+    "query": "select ROW(1,2,3) < ROW(1,3,NULL) as true",
+    "expected": "SELECT ROW(1, 2, 3) < ROW(1, 3, NULL) AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 44",
-    "query": "select ROW(11,'ABC') \u003c ROW(11,'DEF') as true",
-    "expected": "SELECT ROW(11, 'ABC') \u003c ROW(11, 'DEF') AS \"true\""
+    "query": "select ROW(11,'ABC') < ROW(11,'DEF') as true",
+    "expected": "SELECT ROW(11, 'ABC') < ROW(11, 'DEF') AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 45",
-    "query": "select ROW(11,'ABC') \u003e ROW(11,'DEF') as false",
-    "expected": "SELECT ROW(11, 'ABC') \u003e ROW(11, 'DEF') AS \"false\""
+    "query": "select ROW(11,'ABC') > ROW(11,'DEF') as false",
+    "expected": "SELECT ROW(11, 'ABC') > ROW(11, 'DEF') AS \"false\""
   },
   {
     "comment": "rowtypes - Statement 46",
-    "query": "select ROW(12,'ABC') \u003e ROW(11,'DEF') as true",
-    "expected": "SELECT ROW(12, 'ABC') \u003e ROW(11, 'DEF') AS \"true\""
+    "query": "select ROW(12,'ABC') > ROW(11,'DEF') as true",
+    "expected": "SELECT ROW(12, 'ABC') > ROW(11, 'DEF') AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 47",
-    "query": "select ROW(1,2,3) \u003c ROW(1,NULL,4) as null",
-    "expected": "SELECT ROW(1, 2, 3) \u003c ROW(1, NULL, 4) AS \"null\""
+    "query": "select ROW(1,2,3) < ROW(1,NULL,4) as null",
+    "expected": "SELECT ROW(1, 2, 3) < ROW(1, NULL, 4) AS \"null\""
   },
   {
     "comment": "rowtypes - Statement 48",
@@ -236,18 +236,18 @@
   },
   {
     "comment": "rowtypes - Statement 49",
-    "query": "select ROW(1,2,3) \u003c\u003e ROW(1,NULL,4) as true",
-    "expected": "SELECT ROW(1, 2, 3) \u003c\u003e ROW(1, NULL, 4) AS \"true\""
+    "query": "select ROW(1,2,3) <> ROW(1,NULL,4) as true",
+    "expected": "SELECT ROW(1, 2, 3) <> ROW(1, NULL, 4) AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 50",
-    "query": "select ROW('ABC','DEF') ~\u003c=~ ROW('DEF','ABC') as true",
-    "expected": "SELECT ROW('ABC', 'DEF') ~\u003c=~ ROW('DEF', 'ABC') AS \"true\""
+    "query": "select ROW('ABC','DEF') ~<=~ ROW('DEF','ABC') as true",
+    "expected": "SELECT ROW('ABC', 'DEF') ~<=~ ROW('DEF', 'ABC') AS \"true\""
   },
   {
     "comment": "rowtypes - Statement 51",
-    "query": "select ROW('ABC','DEF') ~\u003e=~ ROW('DEF','ABC') as false",
-    "expected": "SELECT ROW('ABC', 'DEF') ~\u003e=~ ROW('DEF', 'ABC') AS \"false\""
+    "query": "select ROW('ABC','DEF') ~>=~ ROW('DEF','ABC') as false",
+    "expected": "SELECT ROW('ABC', 'DEF') ~>=~ ROW('DEF', 'ABC') AS \"false\""
   },
   {
     "comment": "rowtypes - Statement 52",
@@ -271,48 +271,48 @@
   },
   {
     "comment": "rowtypes - Statement 56",
-    "query": "select unique1, unique2 from tenk1 where (unique1, unique2) \u003c any (select ten, ten from tenk1 where hundred \u003c 3) and unique1 \u003c= 20 order by 1",
-    "expected": "SELECT unique1, unique2 FROM tenk1 WHERE (unique1, unique2) \u003c ANY (SELECT ten, ten FROM tenk1 WHERE hundred \u003c 3) AND unique1 \u003c= 20 ORDER BY 1"
+    "query": "select unique1, unique2 from tenk1 where (unique1, unique2) < any (select ten, ten from tenk1 where hundred < 3) and unique1 <= 20 order by 1",
+    "expected": "SELECT unique1, unique2 FROM tenk1 WHERE (unique1, unique2) < ANY (SELECT ten, ten FROM tenk1 WHERE hundred < 3) AND unique1 <= 20 ORDER BY 1"
   },
   {
     "comment": "rowtypes - Statement 57",
-    "query": "explain (costs off) select thousand, tenthous from tenk1 where (thousand, tenthous) \u003e= (997, 5000) order by thousand, tenthous",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) \u003e= (997, 5000) ORDER BY thousand, tenthous"
+    "query": "explain (costs off) select thousand, tenthous from tenk1 where (thousand, tenthous) >= (997, 5000) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) >= (997, 5000) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 58",
-    "query": "select thousand, tenthous from tenk1 where (thousand, tenthous) \u003e= (997, 5000) order by thousand, tenthous",
-    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) \u003e= (997, 5000) ORDER BY thousand, tenthous"
+    "query": "select thousand, tenthous from tenk1 where (thousand, tenthous) >= (997, 5000) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (thousand, tenthous) >= (997, 5000) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 59",
-    "query": "explain (costs off) select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) \u003e (998, 5000, 3) order by thousand, tenthous",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) \u003e (998, 5000, 3) ORDER BY thousand, tenthous"
+    "query": "explain (costs off) select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) > (998, 5000, 3) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) > (998, 5000, 3) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 60",
-    "query": "select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) \u003e (998, 5000, 3) order by thousand, tenthous",
-    "expected": "SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) \u003e (998, 5000, 3) ORDER BY thousand, tenthous"
+    "query": "select thousand, tenthous, four from tenk1 where (thousand, tenthous, four) > (998, 5000, 3) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous, four FROM tenk1 WHERE (thousand, tenthous, four) > (998, 5000, 3) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 61",
-    "query": "explain (costs off) select thousand, tenthous from tenk1 where (998, 5000) \u003c (thousand, tenthous) order by thousand, tenthous",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) \u003c (thousand, tenthous) ORDER BY thousand, tenthous"
+    "query": "explain (costs off) select thousand, tenthous from tenk1 where (998, 5000) < (thousand, tenthous) order by thousand, tenthous",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) < (thousand, tenthous) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 62",
-    "query": "select thousand, tenthous from tenk1 where (998, 5000) \u003c (thousand, tenthous) order by thousand, tenthous",
-    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) \u003c (thousand, tenthous) ORDER BY thousand, tenthous"
+    "query": "select thousand, tenthous from tenk1 where (998, 5000) < (thousand, tenthous) order by thousand, tenthous",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE (998, 5000) < (thousand, tenthous) ORDER BY thousand, tenthous"
   },
   {
     "comment": "rowtypes - Statement 63",
-    "query": "explain (costs off) select thousand, hundred from tenk1 where (998, 5000) \u003c (thousand, hundred) order by thousand, hundred",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) \u003c (thousand, hundred) ORDER BY thousand, hundred"
+    "query": "explain (costs off) select thousand, hundred from tenk1 where (998, 5000) < (thousand, hundred) order by thousand, hundred",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) < (thousand, hundred) ORDER BY thousand, hundred"
   },
   {
     "comment": "rowtypes - Statement 64",
-    "query": "select thousand, hundred from tenk1 where (998, 5000) \u003c (thousand, hundred) order by thousand, hundred",
-    "expected": "SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) \u003c (thousand, hundred) ORDER BY thousand, hundred"
+    "query": "select thousand, hundred from tenk1 where (998, 5000) < (thousand, hundred) order by thousand, hundred",
+    "expected": "SELECT thousand, hundred FROM tenk1 WHERE (998, 5000) < (thousand, hundred) ORDER BY thousand, hundred"
   },
   {
     "comment": "rowtypes - Statement 65",
@@ -346,13 +346,13 @@
   },
   {
     "comment": "rowtypes - Statement 71",
-    "query": "explain (costs off) select a,b from test_table where (a,b) \u003e ('a','a') order by a,b",
-    "expected": "EXPLAIN (COSTS false) SELECT a, b FROM test_table WHERE (a, b) \u003e ('a', 'a') ORDER BY a, b"
+    "query": "explain (costs off) select a,b from test_table where (a,b) > ('a','a') order by a,b",
+    "expected": "EXPLAIN (COSTS false) SELECT a, b FROM test_table WHERE (a, b) > ('a', 'a') ORDER BY a, b"
   },
   {
     "comment": "rowtypes - Statement 72",
-    "query": "select a,b from test_table where (a,b) \u003e ('a','a') order by a,b",
-    "expected": "SELECT a, b FROM test_table WHERE (a, b) \u003e ('a', 'a') ORDER BY a, b"
+    "query": "select a,b from test_table where (a,b) > ('a','a') order by a,b",
+    "expected": "SELECT a, b FROM test_table WHERE (a, b) > ('a', 'a') ORDER BY a, b"
   },
   {
     "comment": "rowtypes - Statement 73",
@@ -471,13 +471,13 @@
   },
   {
     "comment": "rowtypes - Statement 96",
-    "query": "select row(1, 2)::testtype1 \u003c row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 < row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) < CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 97",
-    "query": "select row(1, 2)::testtype1 \u003c= row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c= CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 <= row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) <= CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 98",
@@ -486,28 +486,28 @@
   },
   {
     "comment": "rowtypes - Statement 99",
-    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 <> row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) <> CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 100",
-    "query": "select row(1, 3)::testtype1 \u003e= row(1, 2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) \u003e= CAST(ROW(1, 2) AS testtype1)"
+    "query": "select row(1, 3)::testtype1 >= row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) >= CAST(ROW(1, 2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 101",
-    "query": "select row(1, 3)::testtype1 \u003e row(1, 2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) \u003e CAST(ROW(1, 2) AS testtype1)"
+    "query": "select row(1, 3)::testtype1 > row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) > CAST(ROW(1, 2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 102",
-    "query": "select row(1, -2)::testtype1 \u003c row(1, -3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c CAST(ROW(1, -3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 < row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) < CAST(ROW(1, -3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 103",
-    "query": "select row(1, -2)::testtype1 \u003c= row(1, -3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c= CAST(ROW(1, -3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 <= row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) <= CAST(ROW(1, -3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 104",
@@ -516,23 +516,23 @@
   },
   {
     "comment": "rowtypes - Statement 105",
-    "query": "select row(1, -2)::testtype1 \u003c\u003e row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c\u003e CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 <> row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) <> CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 106",
-    "query": "select row(1, -3)::testtype1 \u003e= row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) \u003e= CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -3)::testtype1 >= row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) >= CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 107",
-    "query": "select row(1, -3)::testtype1 \u003e row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) \u003e CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -3)::testtype1 > row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) > CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 108",
-    "query": "select row(1, -2)::testtype1 \u003c row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) \u003c CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 < row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) < CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 109",
@@ -541,13 +541,13 @@
   },
   {
     "comment": "rowtypes - Statement 110",
-    "query": "select row(1, 2)::testtype1 \u003c row(1, 'abc')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1, 'abc') AS testtype3)"
+    "query": "select row(1, 2)::testtype1 < row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) < CAST(ROW(1, 'abc') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 111",
-    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1, 'abc')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1, 'abc') AS testtype3)"
+    "query": "select row(1, 2)::testtype1 <> row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) <> CAST(ROW(1, 'abc') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 112",
@@ -556,13 +556,13 @@
   },
   {
     "comment": "rowtypes - Statement 113",
-    "query": "select row(1, 2)::testtype1 \u003c row(1)::testtype5",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c CAST(ROW(1) AS testtype5)"
+    "query": "select row(1, 2)::testtype1 < row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) < CAST(ROW(1) AS testtype5)"
   },
   {
     "comment": "rowtypes - Statement 114",
-    "query": "select row(1, 2)::testtype1 \u003c\u003e row(1)::testtype5",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) \u003c\u003e CAST(ROW(1) AS testtype5)"
+    "query": "select row(1, 2)::testtype1 <> row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) <> CAST(ROW(1) AS testtype5)"
   },
   {
     "comment": "rowtypes - Statement 115",
@@ -571,13 +571,13 @@
   },
   {
     "comment": "rowtypes - Statement 116",
-    "query": "select row(1, '(1,2)')::testtype6 \u003c row(1, '(1,3)')::testtype6",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) \u003c CAST(ROW(1, '(1,3)') AS testtype6)"
+    "query": "select row(1, '(1,2)')::testtype6 < row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) < CAST(ROW(1, '(1,3)') AS testtype6)"
   },
   {
     "comment": "rowtypes - Statement 117",
-    "query": "select row(1, '(1,2)')::testtype6 \u003c\u003e row(1, '(1,3)')::testtype6",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) \u003c\u003e CAST(ROW(1, '(1,3)') AS testtype6)"
+    "query": "select row(1, '(1,2)')::testtype6 <> row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) <> CAST(ROW(1, '(1,3)') AS testtype6)"
   },
   {
     "comment": "rowtypes - Statement 118",
@@ -586,13 +586,13 @@
   },
   {
     "comment": "rowtypes - Statement 119",
-    "query": "select row(1, 2)::testtype1 *\u003c row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 *< row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *< CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 120",
-    "query": "select row(1, 2)::testtype1 *\u003c= row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c= CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 *<= row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *<= CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 121",
@@ -601,28 +601,28 @@
   },
   {
     "comment": "rowtypes - Statement 122",
-    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, 2)::testtype1 *<> row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *<> CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 123",
-    "query": "select row(1, 3)::testtype1 *\u003e= row(1, 2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *\u003e= CAST(ROW(1, 2) AS testtype1)"
+    "query": "select row(1, 3)::testtype1 *>= row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *>= CAST(ROW(1, 2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 124",
-    "query": "select row(1, 3)::testtype1 *\u003e row(1, 2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *\u003e CAST(ROW(1, 2) AS testtype1)"
+    "query": "select row(1, 3)::testtype1 *> row(1, 2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, 3) AS testtype1) *> CAST(ROW(1, 2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 125",
-    "query": "select row(1, -2)::testtype1 *\u003c row(1, -3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c CAST(ROW(1, -3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 *< row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *< CAST(ROW(1, -3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 126",
-    "query": "select row(1, -2)::testtype1 *\u003c= row(1, -3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c= CAST(ROW(1, -3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 *<= row(1, -3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *<= CAST(ROW(1, -3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 127",
@@ -631,23 +631,23 @@
   },
   {
     "comment": "rowtypes - Statement 128",
-    "query": "select row(1, -2)::testtype1 *\u003c\u003e row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c\u003e CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 *<> row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *<> CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 129",
-    "query": "select row(1, -3)::testtype1 *\u003e= row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *\u003e= CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -3)::testtype1 *>= row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *>= CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 130",
-    "query": "select row(1, -3)::testtype1 *\u003e row(1, -2)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *\u003e CAST(ROW(1, -2) AS testtype1)"
+    "query": "select row(1, -3)::testtype1 *> row(1, -2)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -3) AS testtype1) *> CAST(ROW(1, -2) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 131",
-    "query": "select row(1, -2)::testtype1 *\u003c row(1, 3)::testtype1",
-    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *\u003c CAST(ROW(1, 3) AS testtype1)"
+    "query": "select row(1, -2)::testtype1 *< row(1, 3)::testtype1",
+    "expected": "SELECT CAST(ROW(1, -2) AS testtype1) *< CAST(ROW(1, 3) AS testtype1)"
   },
   {
     "comment": "rowtypes - Statement 132",
@@ -656,43 +656,43 @@
   },
   {
     "comment": "rowtypes - Statement 133",
-    "query": "select row(1, true)::testtype2 *\u003c row(2, true)::testtype2",
-    "expected": "SELECT CAST(ROW(1, TRUE) AS testtype2) *\u003c CAST(ROW(2, TRUE) AS testtype2)"
+    "query": "select row(1, true)::testtype2 *< row(2, true)::testtype2",
+    "expected": "SELECT CAST(ROW(1, TRUE) AS testtype2) *< CAST(ROW(2, TRUE) AS testtype2)"
   },
   {
     "comment": "rowtypes - Statement 134",
-    "query": "select row(-2, true)::testtype2 *\u003c row(-1, true)::testtype2",
-    "expected": "SELECT CAST(ROW(-2, TRUE) AS testtype2) *\u003c CAST(ROW(-1, TRUE) AS testtype2)"
+    "query": "select row(-2, true)::testtype2 *< row(-1, true)::testtype2",
+    "expected": "SELECT CAST(ROW(-2, TRUE) AS testtype2) *< CAST(ROW(-1, TRUE) AS testtype2)"
   },
   {
     "comment": "rowtypes - Statement 135",
-    "query": "select row(0, false)::testtype2 *\u003c row(0, true)::testtype2",
-    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *\u003c CAST(ROW(0, TRUE) AS testtype2)"
+    "query": "select row(0, false)::testtype2 *< row(0, true)::testtype2",
+    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *< CAST(ROW(0, TRUE) AS testtype2)"
   },
   {
     "comment": "rowtypes - Statement 136",
-    "query": "select row(0, false)::testtype2 *\u003c\u003e row(0, true)::testtype2",
-    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *\u003c\u003e CAST(ROW(0, TRUE) AS testtype2)"
+    "query": "select row(0, false)::testtype2 *<> row(0, true)::testtype2",
+    "expected": "SELECT CAST(ROW(0, FALSE) AS testtype2) *<> CAST(ROW(0, TRUE) AS testtype2)"
   },
   {
     "comment": "rowtypes - Statement 137",
-    "query": "select row(1, 'abc')::testtype3 *\u003c row(1, 'abd')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c CAST(ROW(1, 'abd') AS testtype3)"
+    "query": "select row(1, 'abc')::testtype3 *< row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *< CAST(ROW(1, 'abd') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 138",
-    "query": "select row(1, 'abc')::testtype3 *\u003c row(1, 'abcd')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c CAST(ROW(1, 'abcd') AS testtype3)"
+    "query": "select row(1, 'abc')::testtype3 *< row(1, 'abcd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *< CAST(ROW(1, 'abcd') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 139",
-    "query": "select row(1, 'abc')::testtype3 *\u003e row(1, 'abd')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003e CAST(ROW(1, 'abd') AS testtype3)"
+    "query": "select row(1, 'abc')::testtype3 *> row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *> CAST(ROW(1, 'abd') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 140",
-    "query": "select row(1, 'abc')::testtype3 *\u003c\u003e row(1, 'abd')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *\u003c\u003e CAST(ROW(1, 'abd') AS testtype3)"
+    "query": "select row(1, 'abc')::testtype3 *<> row(1, 'abd')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 'abc') AS testtype3) *<> CAST(ROW(1, 'abd') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 141",
@@ -701,53 +701,53 @@
   },
   {
     "comment": "rowtypes - Statement 142",
-    "query": "select row(1, '(1,2)')::testtype4 *\u003c row(1, '(1,3)')::testtype4",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *\u003c CAST(ROW(1, '(1,3)') AS testtype4)"
+    "query": "select row(1, '(1,2)')::testtype4 *< row(1, '(1,3)')::testtype4",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *< CAST(ROW(1, '(1,3)') AS testtype4)"
   },
   {
     "comment": "rowtypes - Statement 143",
-    "query": "select row(1, '(1,2)')::testtype4 *\u003c\u003e row(1, '(1,3)')::testtype4",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *\u003c\u003e CAST(ROW(1, '(1,3)') AS testtype4)"
+    "query": "select row(1, '(1,2)')::testtype4 *<> row(1, '(1,3)')::testtype4",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype4) *<> CAST(ROW(1, '(1,3)') AS testtype4)"
   },
   {
     "comment": "rowtypes - Statement 144",
-    "query": "select row(1, 2)::testtype1 *\u003c row(1, 'abc')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1, 'abc') AS testtype3)"
+    "query": "select row(1, 2)::testtype1 *< row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *< CAST(ROW(1, 'abc') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 145",
-    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1, 'abc')::testtype3",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1, 'abc') AS testtype3)"
+    "query": "select row(1, 2)::testtype1 *<> row(1, 'abc')::testtype3",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *<> CAST(ROW(1, 'abc') AS testtype3)"
   },
   {
     "comment": "rowtypes - Statement 146",
-    "query": "select row(1, 2)::testtype1 *\u003c row(1)::testtype5",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c CAST(ROW(1) AS testtype5)"
+    "query": "select row(1, 2)::testtype1 *< row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *< CAST(ROW(1) AS testtype5)"
   },
   {
     "comment": "rowtypes - Statement 147",
-    "query": "select row(1, 2)::testtype1 *\u003c\u003e row(1)::testtype5",
-    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *\u003c\u003e CAST(ROW(1) AS testtype5)"
+    "query": "select row(1, 2)::testtype1 *<> row(1)::testtype5",
+    "expected": "SELECT CAST(ROW(1, 2) AS testtype1) *<> CAST(ROW(1) AS testtype5)"
   },
   {
     "comment": "rowtypes - Statement 148",
-    "query": "select row(1, '(1,2)')::testtype6 *\u003c row(1, '(1,3)')::testtype6",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003c CAST(ROW(1, '(1,3)') AS testtype6)"
+    "query": "select row(1, '(1,2)')::testtype6 *< row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *< CAST(ROW(1, '(1,3)') AS testtype6)"
   },
   {
     "comment": "rowtypes - Statement 149",
-    "query": "select row(1, '(1,2)')::testtype6 *\u003e= row(1, '(1,3)')::testtype6",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003e= CAST(ROW(1, '(1,3)') AS testtype6)"
+    "query": "select row(1, '(1,2)')::testtype6 *>= row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *>= CAST(ROW(1, '(1,3)') AS testtype6)"
   },
   {
     "comment": "rowtypes - Statement 150",
-    "query": "select row(1, '(1,2)')::testtype6 *\u003c\u003e row(1, '(1,3)')::testtype6",
-    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *\u003c\u003e CAST(ROW(1, '(1,3)') AS testtype6)"
+    "query": "select row(1, '(1,2)')::testtype6 *<> row(1, '(1,3)')::testtype6",
+    "expected": "SELECT CAST(ROW(1, '(1,2)') AS testtype6) *<> CAST(ROW(1, '(1,3)') AS testtype6)"
   },
   {
     "comment": "rowtypes - Statement 151",
     "query": "select q.a, q.b = row(2), q.c = array[row(3)], q.d = row(row(4)) from unnest(array[row(1, row(2), array[row(3)], row(row(4))), row(2, row(3), array[row(4)], row(row(5)))]) as q(a int, b record, c record[], d record)",
-    "expected": "SELECT q.a, q.b = ROW(2), q.c = ARRAY[ROW(3)], q.d = ROW(ROW(4)) FROM unnest(ARRAY[ROW(1, ROW(2), ARRAY[ROW(3)], ROW(ROW(4))),ROW(2, ROW(3), ARRAY[ROW(4)], ROW(ROW(5)))]) AS q"
+    "expected": "SELECT q.a, q.b = ROW(2), q.c = ARRAY[ROW(3)], q.d = ROW(ROW(4)) FROM unnest(ARRAY[ROW(1, ROW(2), ARRAY[ROW(3)], ROW(ROW(4))),ROW(2, ROW(3), ARRAY[ROW(4)], ROW(ROW(5)))]) AS q (a INT, b record, c record[], d record)"
   },
   {
     "comment": "rowtypes - Statement 152",
@@ -965,23 +965,23 @@
   },
   {
     "comment": "rowtypes - Statement 195",
-    "query": "explain (costs off) select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
-    "expected": "EXPLAIN (COSTS false) SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+    "query": "explain (costs off) select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q",
+    "expected": "EXPLAIN (COSTS false) SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous < 2000 OFFSET 0) AS q"
   },
   {
     "comment": "rowtypes - Statement 196",
-    "query": "select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
-    "expected": "SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+    "query": "select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand, tenthous FROM tenk1 WHERE thousand = 42 AND tenthous < 2000 OFFSET 0) AS q"
   },
   {
     "comment": "rowtypes - Statement 197",
-    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q",
-    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q"
+    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous < 2000 OFFSET 0) AS q"
   },
   {
     "comment": "rowtypes - Statement 198",
-    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous \u003c 2000 offset 0) q(a,b)",
-    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous \u003c 2000 OFFSET 0) AS q(a, b)"
+    "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q(a,b)",
+    "expected": "SELECT row_to_json(q) FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 WHERE thousand = 42 AND tenthous < 2000 OFFSET 0) AS q(a, b)"
   },
   {
     "comment": "rowtypes - Statement 199",
@@ -1040,18 +1040,18 @@
   },
   {
     "comment": "rowtypes - Statement 210",
-    "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+    "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 > 0)) IS NOT NULL"
   },
   {
     "comment": "rowtypes - Statement 211",
-    "query": "with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
-    "expected": "WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+    "query": "with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null",
+    "expected": "WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT * FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 > 0)) IS NOT NULL"
   },
   {
     "comment": "rowtypes - Statement 212",
-    "query": "create view composite_v as with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select 1 as one from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 \u003e 0)) is not null",
-    "expected": "CREATE VIEW composite_v AS WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT 1 AS one FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 \u003e 0)) IS NOT NULL"
+    "query": "create view composite_v as with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select 1 as one from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null",
+    "expected": "CREATE VIEW composite_v AS WITH cte(c) AS MATERIALIZED (SELECT ROW(1, 2)), cte2(c) AS (SELECT * FROM cte) SELECT 1 AS one FROM cte2 AS t WHERE (SELECT * FROM (SELECT c AS c1) AS s WHERE (SELECT (c1).f1 > 0)) IS NOT NULL"
   },
   {
     "comment": "rowtypes - Statement 213",

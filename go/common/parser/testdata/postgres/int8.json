@@ -62,28 +62,28 @@
   },
   {
     "comment": "int8 - Statement 14",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e 4567890123456789",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <> 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <> 4567890123456789"
   },
   {
     "comment": "int8 - Statement 15",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c 4567890123456789",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 < 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 < 4567890123456789"
   },
   {
     "comment": "int8 - Statement 16",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e 4567890123456789",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 > 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 > 4567890123456789"
   },
   {
     "comment": "int8 - Statement 17",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= 4567890123456789",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <= 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <= 4567890123456789"
   },
   {
     "comment": "int8 - Statement 18",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= 4567890123456789",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 >= 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 >= 4567890123456789"
   },
   {
     "comment": "int8 - Statement 19",
@@ -92,28 +92,28 @@
   },
   {
     "comment": "int8 - Statement 20",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e 456",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <> 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <> 456"
   },
   {
     "comment": "int8 - Statement 21",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c 456",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 < 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 < 456"
   },
   {
     "comment": "int8 - Statement 22",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e 456",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 > 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 > 456"
   },
   {
     "comment": "int8 - Statement 23",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= 456",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <= 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <= 456"
   },
   {
     "comment": "int8 - Statement 24",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= 456",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 >= 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 >= 456"
   },
   {
     "comment": "int8 - Statement 25",
@@ -122,28 +122,28 @@
   },
   {
     "comment": "int8 - Statement 26",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c\u003e q1",
-    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c\u003e q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 <> q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 <> q1"
   },
   {
     "comment": "int8 - Statement 27",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c q1",
-    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 < q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 < q1"
   },
   {
     "comment": "int8 - Statement 28",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003e q1",
-    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003e q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 > q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 > q1"
   },
   {
     "comment": "int8 - Statement 29",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c= q1",
-    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 <= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 <= q1"
   },
   {
     "comment": "int8 - Statement 30",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003e= q1",
-    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003e= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 >= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 >= q1"
   },
   {
     "comment": "int8 - Statement 31",
@@ -152,28 +152,28 @@
   },
   {
     "comment": "int8 - Statement 32",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e '456'::int2",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e CAST('456' AS SMALLINT)"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <> '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <> CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 33",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c '456'::int2",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c CAST('456' AS SMALLINT)"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 < '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 < CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 34",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e '456'::int2",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e CAST('456' AS SMALLINT)"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 > '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 > CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 35",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= '456'::int2",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= CAST('456' AS SMALLINT)"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 <= '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 <= CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 36",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= '456'::int2",
-    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= CAST('456' AS SMALLINT)"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 >= '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 >= CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 37",
@@ -182,28 +182,28 @@
   },
   {
     "comment": "int8 - Statement 38",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c\u003e q1",
-    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c\u003e q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 <> q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) <> q1"
   },
   {
     "comment": "int8 - Statement 39",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c q1",
-    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 < q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) < q1"
   },
   {
     "comment": "int8 - Statement 40",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003e q1",
-    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003e q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 > q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) > q1"
   },
   {
     "comment": "int8 - Statement 41",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c= q1",
-    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 <= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) <= q1"
   },
   {
     "comment": "int8 - Statement 42",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003e= q1",
-    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003e= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 >= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) >= q1"
   },
   {
     "comment": "int8 - Statement 43",
@@ -227,8 +227,8 @@
   },
   {
     "comment": "int8 - Statement 47",
-    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL WHERE q1 \u003c 1000 or (q2 \u003e 0 and q2 \u003c 1000)",
-    "expected": "SELECT q1, q2, q1 * q2 AS multiply FROM int8_tbl WHERE q1 \u003c 1000 OR (q2 \u003e 0 AND q2 \u003c 1000)"
+    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL WHERE q1 < 1000 or (q2 > 0 and q2 < 1000)",
+    "expected": "SELECT q1, q2, q1 * q2 AS multiply FROM int8_tbl WHERE q1 < 1000 OR (q2 > 0 AND q2 < 1000)"
   },
   {
     "comment": "int8 - Statement 48",
@@ -537,8 +537,8 @@
   },
   {
     "comment": "int8 - Statement 109",
-    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 \u003c\u003e 456",
-    "expected": "SELECT CAST(q1 AS INT) FROM int8_tbl WHERE q2 \u003c\u003e 456"
+    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 <> 456",
+    "expected": "SELECT CAST(q1 AS INT) FROM int8_tbl WHERE q2 <> 456"
   },
   {
     "comment": "int8 - Statement 110",
@@ -547,8 +547,8 @@
   },
   {
     "comment": "int8 - Statement 111",
-    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 \u003c\u003e 456",
-    "expected": "SELECT CAST(q1 AS SMALLINT) FROM int8_tbl WHERE q2 \u003c\u003e 456"
+    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 <> 456",
+    "expected": "SELECT CAST(q1 AS SMALLINT) FROM int8_tbl WHERE q2 <> 456"
   },
   {
     "comment": "int8 - Statement 112",
@@ -582,13 +582,13 @@
   },
   {
     "comment": "int8 - Statement 118",
-    "query": "SELECT q1, q2, q1 \u0026 q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS \"xor\", ~q1 AS \"not\" FROM INT8_TBL",
-    "expected": "SELECT q1, q2, q1 \u0026 q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS xor, ~q1 AS \"not\" FROM int8_tbl"
+    "query": "SELECT q1, q2, q1 & q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS \"xor\", ~q1 AS \"not\" FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 & q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS xor, ~q1 AS \"not\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 119",
-    "query": "SELECT q1, q1 \u003c\u003c 2 AS \"shl\", q1 \u003e\u003e 3 AS \"shr\" FROM INT8_TBL",
-    "expected": "SELECT q1, q1 \u003c\u003c 2 AS shl, q1 \u003e\u003e 3 AS shr FROM int8_tbl"
+    "query": "SELECT q1, q1 << 2 AS \"shl\", q1 >> 3 AS \"shr\" FROM INT8_TBL",
+    "expected": "SELECT q1, q1 << 2 AS shl, q1 >> 3 AS shr FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 120",
@@ -607,13 +607,13 @@
   },
   {
     "comment": "int8 - Statement 123",
-    "query": "SELECT (-1::int8\u003c\u003c63)::text",
-    "expected": "SELECT CAST((-CAST(1 AS BIGINT) \u003c\u003c 63) AS TEXT)"
+    "query": "SELECT (-1::int8<<63)::text",
+    "expected": "SELECT CAST((-CAST(1 AS BIGINT) << 63) AS TEXT)"
   },
   {
     "comment": "int8 - Statement 124",
-    "query": "SELECT ((-1::int8\u003c\u003c63)+1)::text",
-    "expected": "SELECT CAST(((-CAST(1 AS BIGINT) \u003c\u003c 63) + 1) AS TEXT)"
+    "query": "SELECT ((-1::int8<<63)+1)::text",
+    "expected": "SELECT CAST(((-CAST(1 AS BIGINT) << 63) + 1) AS TEXT)"
   },
   {
     "comment": "int8 - Statement 125",

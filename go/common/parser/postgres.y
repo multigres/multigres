@@ -3426,12 +3426,10 @@ substr_list:
 		}
 	|	a_expr FOR a_expr
 		{
-			sysTypeName := &ast.TypeName{
-				Names: ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("int4")),
-				Typemod: -1,
-			}
-			tc := ast.NewTypeCast($3, sysTypeName, -1)
-			$$ = ast.NewNodeList($1, ast.NewInteger(1), tc)
+			// SUBSTRING(x FOR n) is SUBSTRING(x FROM 1 FOR n): the implicit start
+			// position is the integer constant 1, and the length is used as-is.
+			// Mirrors PostgreSQL's list_make3($1, makeIntConst(1, -1), $3).
+			$$ = ast.NewNodeList($1, ast.NewA_Const(ast.NewInteger(1), 0), $3)
 		}
 	| 	a_expr SIMILAR a_expr ESCAPE a_expr
 		{
@@ -3936,7 +3934,7 @@ GenericType: type_function_name opt_type_modifiers
 			{
 				// Create qualified type name from name + attrs
 				name := ast.NewString($1)
-				names := &ast.NodeList{Items: append([]ast.Node{name}, $2.Items...)}
+				names := ast.NewNodeList(append([]ast.Node{name}, $2.Items...)...)
 				typeName := makeTypeNameFromNodeList(names)
 				typeName.Typmods = $3
 				$$ = typeName
@@ -4085,8 +4083,9 @@ character:	CHARACTER opt_varying
 CharacterWithLength: character '(' Iconst ')'
 			{
 				typeName := makeTypeNameFromString($1)
-                // Set typmods with the length parameter, similar to PostgreSQL's approach
-                lengthConst := ast.NewInteger(int($3))
+                // Typmods are A_Const, matching the generic SimpleTypename path so
+                // CHAR(5) and the equivalent bpchar(5) produce the same tree.
+                lengthConst := ast.NewA_Const(ast.NewInteger(int($3)), 0)
                 typeName.Typmods = ast.NewNodeList()
                 typeName.Typmods.Append(lengthConst)
                 $$ = typeName
@@ -4099,7 +4098,7 @@ CharacterWithoutLength: character
 				// char defaults to char(1), varchar to no limit
 				if $1 == "bpchar" {
 					// CHAR defaults to CHAR(1)
-                    lengthConst := ast.NewInteger(1)
+                    lengthConst := ast.NewA_Const(ast.NewInteger(1), 0)
                     typeName.Typmods = ast.NewNodeList()
                     typeName.Typmods.Append(lengthConst)
 				}
@@ -4142,7 +4141,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "timestamp"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIMESTAMP opt_timezone
@@ -4164,7 +4163,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "time"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIME opt_timezone
@@ -5669,15 +5668,15 @@ json_behavior_type:
 json_behavior_clause_opt:
 			json_behavior ON EMPTY_P				{
 				// Return a list with ON EMPTY behavior and nil for ON ERROR
-				$$ = &ast.NodeList{Items: []ast.Node{$1, nil}}
+				$$ = ast.NewNodeList($1, nil)
 			}
 		|	json_behavior ON ERROR_P				{
 				// Return a list with nil for ON EMPTY and ON ERROR behavior
-				$$ = &ast.NodeList{Items: []ast.Node{nil, $1}}
+				$$ = ast.NewNodeList(nil, $1)
 			}
 		|	json_behavior ON EMPTY_P json_behavior ON ERROR_P	{
 				// Return a list with both ON EMPTY and ON ERROR behaviors
-				$$ = &ast.NodeList{Items: []ast.Node{$1, $4}}
+				$$ = ast.NewNodeList($1, $4)
 			}
 		|	/* EMPTY */								{ $$ = nil }
 		;
@@ -13290,12 +13289,12 @@ select_fetch_first_value:
 		c_expr									{ $$ = $1 }
 	|	'+' I_or_F_const
 			{
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("+")), nil, $2, -1)
 			}
 	|	'-' I_or_F_const
 			{
 				// Create a unary minus expression
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("-")), nil, $2, -1)
 			}
 	;
 
@@ -13724,7 +13723,7 @@ RevokeRoleStmt:
 				{
 					opt := ast.NewDefElem($2, ast.NewBoolean(false))
 					stmt := ast.NewRevokeRoleStmt($5, $7)
-					stmt.Opt = &ast.NodeList{Items: []ast.Node{opt}}
+					stmt.Opt = ast.NewNodeList(opt)
 					stmt.Grantor = $8
 					stmt.Behavior = $9
 					$$ = stmt

@@ -117,9 +117,9 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
 	// fires as soon as it sees REQUESTING_DEMOTION, then AppointLeaderAction
-	// (BeginTerm + Promote) runs on the surviving cohort — concurrently with
-	// the old primary's pgctld.Stop, because appointLeaderWithTerm excludes
-	// the resigned pooler from preVote and recruit.
+	// (Recruit + Propose) runs on the surviving cohort — concurrently with
+	// the old primary's pgctld.Stop, because runFailover excludes the
+	// resigned pooler from the cohort before recruit.
 	t.Logf("Waiting for multiorch to elect a new primary...")
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	elapsed := time.Since(start)
@@ -131,8 +131,8 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// Lock in a tight upper bound on orch-side failover latency: SIGTERM
 	// delivery → REQUESTING_DEMOTION broadcast → orch detects →
 	// LeaderResignedAnalyzer fires → AppointLeader completes → new primary
-	// visible. Regressions in any of those (e.g. recruitNodes still waiting
-	// on the resigned pooler) would blow past 5s.
+	// visible. Regressions in any of those (e.g. Recruit still waiting on
+	// the resigned pooler) would blow past 5s.
 	require.Less(t, elapsed, 5*time.Second,
 		"graceful primary replacement took %s (expected well under 5s); "+
 			"likely a regression in REQUESTING_DEMOTION delivery, LeaderResignedAnalyzer firing, "+

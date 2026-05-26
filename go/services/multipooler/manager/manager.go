@@ -155,9 +155,9 @@ type MultiPoolerManager struct {
 	initialized bool
 
 	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
-	// (via EmergencyDemote or graceful shutdown). The value is the consensus
-	// term at which the primary resigned. A non-zero value signals the
-	// coordinator to trigger an immediate election. Protected by mu. Cleared
+	// (via Recruit's emergency-demote path or graceful shutdown). The value is
+	// the consensus term at which the primary resigned. A non-zero value signals
+	// the coordinator to trigger an immediate election. Protected by mu. Cleared
 	// when this node is elected primary again.
 	resignedLeaderAtTerm int64
 
@@ -189,8 +189,8 @@ type MultiPoolerManager struct {
 	// the recorded primary — the admin/test explicitly asked replication to
 	// stop. While set, this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE
 	// in its status so the coordinator does not try to include it in the
-	// cohort. Cleared by SetTermPrimary, SetPrimaryConnInfo, and
-	// demoteStalePrimaryLocked — anything that re-establishes a primary
+	// cohort. Cleared by SetTermPrimary and demoteStalePrimaryLocked —
+	// anything that re-establishes a primary
 	// link is interpreted as the admin signal expiring. Not persisted; a
 	// process restart implicitly clears it.
 	walReceiverManuallyStopped atomic.Bool
@@ -212,10 +212,9 @@ type MultiPoolerManager struct {
 
 // promotionState tracks which parts of the promotion are complete
 type promotionState struct {
-	isPrimaryInPostgres    bool
-	isPrimaryInTopology    bool
-	syncReplicationMatches bool
-	currentLSN             string
+	isPrimaryInPostgres bool
+	isPrimaryInTopology bool
+	currentLSN          string
 }
 
 // demotionState tracks which parts of the demotion are complete
@@ -328,7 +327,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService())
+	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService(), newSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -1021,99 +1020,6 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 	return nil
 }
 
-// validateTerm validates that the request term is not stale (>= current term).
-// Unlike validateAndUpdateTerm, this does NOT update the term.
-// This is used when we want to defer the term update until after an operation succeeds.
-// If force is true, validation is skipped.
-func (pm *MultiPoolerManager) validateTerm(ctx context.Context, requestTerm int64, force bool) error {
-	if force {
-		return nil // Skip validation if force is set
-	}
-
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// Check if consensus term has been initialized (term 0 means uninitialized)
-	if currentTerm == 0 {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
-	}
-
-	// Reject stale requests
-	if requestTerm < currentTerm {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
-				requestTerm, currentTerm))
-	}
-
-	// Accept equal or newer terms
-	return nil
-}
-
-// updateTermIfNewer updates the consensus term if the provided term is newer than current.
-// This is used to decouple term validation from term update, allowing updates to occur
-// only after an operation succeeds.
-func (pm *MultiPoolerManager) updateTermIfNewer(ctx context.Context, requestTerm int64) error {
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	if requestTerm <= currentTerm {
-		// Already at or past this term
-		return nil
-	}
-
-	pm.logger.InfoContext(ctx, "Updating to newer term after successful operation",
-		"request_term", requestTerm,
-		"old_term", currentTerm,
-		"service_id", pm.serviceID.String())
-
-	if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
-		return mterrors.Wrap(err, "failed to update consensus term")
-	}
-
-	return nil
-}
-
-// validateTermExactMatch validates that the request term exactly matches the current term.
-// Unlike validateAndUpdateTerm, this does NOT update the term automatically.
-// This is used for Promote to ensure the node was properly recruited before promotion.
-func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, requestTerm int64, force bool) error {
-	if force {
-		return nil // Skip validation if force is set
-	}
-
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// Check if consensus term has been initialized
-	if currentTerm == 0 {
-		pm.logger.ErrorContext(ctx, "Consensus term not initialized - node not recruited",
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized - node must be recruited via BeginTerm first")
-	}
-
-	// Require exact match - do not update term automatically
-	if requestTerm != currentTerm {
-		pm.logger.ErrorContext(ctx, "Promote term mismatch - node not recruited for this term",
-			"request_term", requestTerm,
-			"current_term", currentTerm,
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("term mismatch: node not recruited for term %d (current term is %d). "+
-				"Coordinator must call BeginTerm first to recruit this node",
-				requestTerm, currentTerm))
-	}
-
-	return nil
-}
-
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
@@ -1354,7 +1260,7 @@ func (pm *MultiPoolerManager) drainWriteActivity(ctx context.Context, drainTimeo
 }
 
 // checkPromotionState checks the current state to determine what steps remain
-func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*promotionState, error) {
+func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context) (*promotionState, error) {
 	state := &promotionState{}
 
 	// Check PostgreSQL promotion state
@@ -1382,30 +1288,9 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 
 	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
-	// Default: if no sync config requested, consider it as matching (no requirements to check)
-	state.syncReplicationMatches = true
-
-	// Check sync replication state if config was provided
-	if syncReplicationConfig != nil {
-		if state.isPrimaryInPostgres {
-			state.syncReplicationMatches = false
-			currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
-			if err != nil {
-				pm.logger.WarnContext(ctx, "Failed to get current sync replication config", "error", err)
-			}
-			if err == nil {
-				state.syncReplicationMatches = pm.syncReplicationConfigMatches(currentConfig, syncReplicationConfig)
-			}
-		} else {
-			// Node is a standby being promoted - it doesn't have sync replication configured yet
-			state.syncReplicationMatches = false
-		}
-	}
-
 	pm.logger.InfoContext(ctx, "Checked promotion state",
 		"is_primary_in_postgres", state.isPrimaryInPostgres,
-		"is_primary_in_topology", state.isPrimaryInTopology,
-		"sync_replication_matches", state.syncReplicationMatches)
+		"is_primary_in_topology", state.isPrimaryInTopology)
 
 	return state, nil
 }
@@ -1434,7 +1319,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// TODO: this defer fires before configureReplicationAfterPromotion and
 	// rules.updateRule in the caller, so multiorch sees PRIMARY status while sync
 	// replication is not yet configured and rule history has not been written. If
-	// we want the PROMOTING window to cover the full Promote RPC (including the
+	// we want the PROMOTING window to cover the full promotion path (including the
 	// sync standby ack gate), the defer should move to the caller instead.
 	defer func() {
 		pm.promotionInProgress.Store(false)
@@ -1522,36 +1407,6 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	// StateManager schedules an async publish to topology.
 	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
-	}
-
-	return nil
-}
-
-// configureReplicationAfterPromotion applies synchronous replication configuration
-func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Context, state *promotionState, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) error {
-	if syncReplicationConfig == nil {
-		return nil // No configuration requested
-	}
-
-	// Return early if already configured
-	if state.syncReplicationMatches {
-		pm.logger.InfoContext(ctx, "Sync replication already configured, skipping")
-		return nil
-	}
-
-	pm.logger.InfoContext(ctx, "Sync replication configuration needed")
-	pm.logger.InfoContext(ctx, "Configuring synchronous replication for new cohort")
-	// Use the locked version since we're already holding the action lock from Promote
-	err := pm.configureSynchronousReplicationLocked(ctx,
-		syncReplicationConfig.SynchronousCommit,
-		syncReplicationConfig.SynchronousMethod,
-		syncReplicationConfig.NumSync,
-		syncReplicationConfig.StandbyIds,
-		syncReplicationConfig.ReloadConfig,
-		syncReplicationConfig.Force)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to configure synchronous replication", "error", err)
-		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
 	}
 
 	return nil
@@ -1723,6 +1578,7 @@ const (
 	remedialActionAdjustTypeToPrimary
 	remedialActionAdjustTypeToReplica
 	remedialActionCreateFirstBackup
+	remedialActionReconcileGUC
 	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
 	// topology says REPLICA, but primary_conninfo doesn't match the primary
 	// recorded in ConsensusState.ReplicationPrimary (the most recent
@@ -1771,7 +1627,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Determine what remediation is needed
-	action := pm.determineRemedialAction(currentState)
+	action := pm.determineRemedialAction(ctx, currentState)
 	if action == remedialActionNone {
 		// No action needed - just log status
 		if currentState.postgresRunning {
@@ -1788,7 +1644,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 	defer pm.actionLock.Release(lockCtx)
 
-	// Re-check rewindPending after acquiring the lock: EmergencyDemote sets this flag
+	// Re-check rewindPending after acquiring the lock: Recruit sets this flag
 	// while holding the lock, so we may have been waiting while it demoted the node.
 	if pm.rewindPending.Load() {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
@@ -1808,7 +1664,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	}
 
 	// Re-determine action based on current state
-	action = pm.determineRemedialAction(currentState)
+	action = pm.determineRemedialAction(lockCtx, currentState)
 
 	// Take remedial action with lock held
 	pm.takeRemedialAction(lockCtx, action, currentState)
@@ -1974,7 +1830,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
-func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
+func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
 	// Pgctld unavailable: No action possible
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
@@ -1990,7 +1846,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 		}
 		// Postgres is standby and type is already REPLICA, but check if the resignation
 		// signal needs to be (re-)published. This handles the case where the signal was
-		// lost after a process restart following EmergencyDemote.
+		// lost after a process restart following emergency demotion.
 		if !currentState.isPrimary {
 			pm.mu.Lock()
 			resigned := pm.resignedLeaderAtTerm
@@ -2018,7 +1874,13 @@ func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState
 			// pg_rewind dry-run before re-establishing replication. Cheap
 			// when no divergence, conclusive when there is.
 		}
-		return remedialActionNone // Pooler type already matches
+		// Pooler type already matches; check for a stale GUC that needs re-applying.
+		// Only reconcile the GUC when actually running as primary: synchronous_standby_names
+		// has no effect on a standby, and setting it there leaks state.
+		if currentState.isPrimary && pm.rules.hasInconsistentGUC(ctx) {
+			return remedialActionReconcileGUC
+		}
+		return remedialActionNone
 	}
 
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
@@ -2154,6 +2016,13 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			if err := pm.restoreAndStartPostgres(ctx); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 			}
+		}
+
+	case remedialActionReconcileGUC:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
+		if err := pm.rules.reconcileGUC(ctx, !state.isPrimary); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
 		}
 	}
 }

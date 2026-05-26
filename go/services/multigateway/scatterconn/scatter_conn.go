@@ -834,6 +834,14 @@ func (sc *ScatterConn) CopyInitiate(
 	// Call CopyReady on gateway to initiate the COPY and get format info
 	format, columnFormats, reservedState, err := sc.gateway.CopyReady(ctx, target, queryStr, execOptions, reservationOpts)
 	if err != nil {
+		// When init fails, the multipooler may still have a live reserved
+		// connection (e.g., it was already held for a transaction or temp
+		// tables and only the COPY query itself was rejected). Apply whatever
+		// state came back: a non-nil ReservedState keeps the gateway pointed
+		// at the surviving conn, while a nil/zero state clears the tracking
+		// so we don't end up sending future statements to a connection that
+		// no longer exists.
+		sc.applyReservedState(conn, state, target, reservedState)
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
@@ -945,11 +953,14 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Every error path in executor.CopyFinalize destroys the connection via
-		// Release(ReleaseError), so the multipooler no longer has it. Pass a zero
-		// ReservedState to applyReservedState so it clears state and (if in a transaction)
-		// marks TxnStatusFailed as defense-in-depth.
-		sc.applyReservedState(conn, state, target, nil)
+		// CopyFinalize returns a non-nil ReservedState when a PG-level error
+		// (e.g., constraint violation) left the underlying reserved connection
+		// alive because it is still holding another reason such as a
+		// transaction. A nil state means the connection was released. Either
+		// way, applyReservedState does the right thing: keep tracking if the
+		// state has a non-zero conn ID, clear it and mark the transaction
+		// failed if not.
+		sc.applyReservedState(conn, state, target, reservedState)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 

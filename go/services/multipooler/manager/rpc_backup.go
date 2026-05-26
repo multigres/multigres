@@ -348,25 +348,13 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Delete the consensus term file after restore.
-	//
-	// The term file lives outside PGDATA and is not included in the backup, so
-	// its on-disk value may be ahead of what the restored PGDATA participated in.
-	// Deleting it resets the node to term 0; multiorch will advance the term to
-	// the current cluster value on first contact via BeginTerm.
-	//
-	// TODO: Revisit this when we restore backups for other reasons than to
-	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
-	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
-		pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
-		if err := pm.consensusState.DeleteTermFile(); err != nil {
-			return mterrors.Wrap(err, "failed to delete consensus term file after restore")
-		}
-		pm.healthStreamer.UpdateLeaderObservation(nil)
-		return nil
-	}); err != nil {
-		return err
-	}
+	// Clear the in-memory leader observation. The restored PGDATA may have been
+	// from a different point in time, so the previously observed leader may no
+	// longer be accurate. The term revocation is intentionally preserved: it is
+	// monotonically increasing and the restore does not change who is allowed to
+	// lead — only a coordinator with a term >= the revocation term may configure
+	// this node, which is exactly the right safety property.
+	pm.healthStreamer.UpdateLeaderObservation(nil)
 
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
 		return pm.reopenPoolerManager(ctx)
@@ -713,12 +701,22 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 	stdoutDone := make(chan struct{})
 	stderrDone := make(chan struct{})
 
+	// scanErr captures a scanner error (e.g. bufio.ErrTooLong for lines
+	// exceeding the default 64 KiB buffer) so silent truncation surfaces
+	// to the caller instead of looking like clean EOF. Writes happen
+	// before the corresponding Done channel closes; the close()-then-
+	// channel-receive ordering through stdoutDone/stderrDone → lines →
+	// the consumer loop establishes the happens-before edge that lets
+	// the caller read these without a separate lock.
+	var stdoutScanErr, stderrScanErr error
+
 	go func() {
 		defer close(stdoutDone)
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			lines <- scanner.Text() + "\n"
 		}
+		stdoutScanErr = scanner.Err()
 	}()
 
 	go func() {
@@ -727,6 +725,7 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 		for scanner.Scan() {
 			lines <- scanner.Text() + "\n"
 		}
+		stderrScanErr = scanner.Err()
 	}()
 
 	go func() {
@@ -740,7 +739,20 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 		combinedBuf.WriteString(line)
 	}
 
-	return combinedBuf.String(), cmd.Wait()
+	// cmd.Wait's exit code is the operational signal, so it takes
+	// precedence. If the process exited cleanly but a scanner failed
+	// (e.g. ErrTooLong), surface that so a silently-truncated output
+	// doesn't look successful.
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return combinedBuf.String(), waitErr
+	}
+	if stdoutScanErr != nil {
+		return combinedBuf.String(), fmt.Errorf("stdout scan: %w", stdoutScanErr)
+	}
+	if stderrScanErr != nil {
+		return combinedBuf.String(), fmt.Errorf("stderr scan: %w", stderrScanErr)
+	}
+	return combinedBuf.String(), nil
 }
 
 // findBackupByJobID finds a backup by matching the job_id annotation
@@ -875,9 +887,8 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 
 	// Replica poolers MUST have primary info to backup from primary. The
 	// canonical source is consensusState.ReplicationPrimary, populated by
-	// every RPC that informs this pooler of a primary (SetTermPrimary, the
-	// legacy SetPrimaryConnInfo / DemoteStalePrimary, and Propose's leader
-	// path for the rare self-as-primary case).
+	// every RPC that informs this pooler of a primary (SetTermPrimary and
+	// Propose's leader path for the rare self-as-primary case).
 	primary := pm.consensusState.GetReplicationPrimary().GetPrimary()
 	primaryHost := primary.GetHost()
 	primaryPort := primary.GetPostgresPort()

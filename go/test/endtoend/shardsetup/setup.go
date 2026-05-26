@@ -81,6 +81,8 @@ type SetupConfig struct {
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
+	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
+	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -303,6 +305,30 @@ func WithInitdbSQLFiles(files ...string) SetupOption {
 func WithInitdbSQLDirs(dirs ...string) SetupOption {
 	return func(c *SetupConfig) {
 		c.InitdbSQLDirs = dirs
+	}
+}
+
+// WithPgInitdbArgs forwards the given args verbatim to every pgctld via
+// --pg-initdb-args. Used by the pgregress harness to invoke initdb with
+// `--no-locale --encoding=UTF8`, matching the locale pg_regress uses
+// upstream so locale-sensitive output (char/varchar sort order, to_char
+// 'L' currency symbol, etc.) reproduces the expected fixtures.
+func WithPgInitdbArgs(args string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PgInitdbArgs = args
+	}
+}
+
+// WithPgInitdbExtraConfFiles appends the given postgresql.conf snippet paths
+// to every pgctld via --pg-initdb-extra-conf. Files are concatenated onto the
+// generated postgresql.conf at init time; postgres applies last-write-wins so
+// settings here override the template defaults. Used by the pgregress harness
+// to force `lc_messages/lc_monetary/lc_numeric/lc_time = 'C'` (the template
+// otherwise hard-codes en_US.UTF-8, which makes locale-sensitive output
+// diverge from upstream `pg_regress --no-locale` expected fixtures).
+func WithPgInitdbExtraConfFiles(paths ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PgInitdbExtraConfFiles = append(c.PgInitdbExtraConfFiles, paths...)
 	}
 }
 
@@ -579,6 +605,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Multipooler.LogLevel = config.LogLevel
 		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
 		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
+		inst.Pgctld.PgInitdbArgs = config.PgInitdbArgs
+		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, config.PgInitdbExtraConfFiles...)
 		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
@@ -1466,7 +1494,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 		}
 
 		// Note: We intentionally don't validate term here.
-		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// Term can increase across tests (e.g., when Recruit is called) and
 		// there's no safe way to reset it without an RPC. Tests should work with
 		// whatever term they start with and use relative term values.
 	}
@@ -1504,19 +1532,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		}
 
 		isPrimary := name == s.PrimaryName
-
-		// Check if primary was demoted and restore if needed
-		if isPrimary {
-			inRecovery, err := QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
-			if err != nil {
-				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
-			} else if inRecovery == "t" {
-				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
-					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
-				}
-			}
-		}
 
 		// Restore GUCs to baseline values
 		if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
@@ -1797,19 +1812,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			}
 
 			isPrimary := name == s.PrimaryName
-
-			// Check if primary was demoted and restore if needed
-			if isPrimary {
-				inRecovery, err := QueryStringValue(cleanupCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-				if err != nil {
-					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
-				} else if inRecovery == "t" {
-					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
-						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
-					}
-				}
-			}
 
 			// Restore GUCs to baseline values
 			if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {

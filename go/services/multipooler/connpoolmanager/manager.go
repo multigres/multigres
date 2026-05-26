@@ -105,6 +105,17 @@ type Manager struct {
 	zeroCh    chan struct{}
 }
 
+// CredentialQueryRecorder returns a narrow recorder for the gRPC service's
+// credential-query observations. Returns nil when the manager is unopened
+// or metric init failed; the *Metrics receiver is nil-safe, so callers
+// can treat a nil return as the noop sink.
+func (m *Manager) CredentialQueryRecorder() CredentialQueryRecorder {
+	if m == nil {
+		return nil
+	}
+	return m.metrics
+}
+
 // Open initializes the manager and creates the shared admin pool.
 // User pools are created lazily on first connection request.
 //

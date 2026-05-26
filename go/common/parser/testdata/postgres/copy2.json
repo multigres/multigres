@@ -242,42 +242,42 @@
   {
     "comment": "copy2 - Statement 54",
     "query": "COPY x TO stdout WHERE a = 1",
-    "expected": "COPY x TO STDOUT"
+    "expected": "COPY x TO STDOUT WHERE a = 1"
   },
   {
     "comment": "copy2 - Statement 55",
     "query": "COPY x from stdin WHERE a = 50004",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = 50004"
   },
   {
     "comment": "copy2 - Statement 56",
-    "query": "COPY x from stdin WHERE a \u003e 60003",
-    "expected": "COPY x FROM STDIN"
+    "query": "COPY x from stdin WHERE a > 60003",
+    "expected": "COPY x FROM STDIN WHERE a > 60003"
   },
   {
     "comment": "copy2 - Statement 57",
-    "query": "COPY x from stdin WHERE f \u003e 60003",
-    "expected": "COPY x FROM STDIN"
+    "query": "COPY x from stdin WHERE f > 60003",
+    "expected": "COPY x FROM STDIN WHERE f > 60003"
   },
   {
     "comment": "copy2 - Statement 58",
     "query": "COPY x from stdin WHERE a = max(x.b)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = MAX(x.b)"
   },
   {
     "comment": "copy2 - Statement 59",
     "query": "COPY x from stdin WHERE a IN (SELECT 1 FROM x)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a IN (SELECT 1 FROM x)"
   },
   {
     "comment": "copy2 - Statement 60",
     "query": "COPY x from stdin WHERE a IN (generate_series(1,5))",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a IN (generate_series(1, 5))"
   },
   {
     "comment": "copy2 - Statement 61",
     "query": "COPY x from stdin WHERE a = row_number() over(b)",
-    "expected": "COPY x FROM STDIN"
+    "expected": "COPY x FROM STDIN WHERE a = ROW_NUMBER() OVER b"
   },
   {
     "comment": "copy2 - Statement 62",
@@ -598,8 +598,8 @@
   },
   {
     "comment": "copy2 - Statement 134",
-    "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ language plpgsql immutable;",
-    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 > 0; end $$ language plpgsql immutable;",
+    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 > 0; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "copy2 - Statement 137",

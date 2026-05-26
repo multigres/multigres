@@ -16,10 +16,22 @@ package pgregresstest
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
+
+// regressionOverridesConfPath returns the absolute path to the
+// testdata/pg<major>/regression_overrides.conf snippet that forces lc_* GUCs
+// to 'C' on each pgctld. Resolved via runtime.Caller so the path is correct
+// regardless of the test's working directory at run time.
+func regressionOverridesConfPath() string {
+	_, file, _, _ := runtime.Caller(0)
+	pkgDir := filepath.Dir(file)
+	return filepath.Join(pkgDir, "testdata", "pg17", "regression_overrides.conf")
+}
 
 // setupManager manages the shared test setup for tests in this package.
 var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
@@ -31,6 +43,19 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 		// harness shim (public.multigres_test_session_is_blocked) can map
 		// virtual PIDs back to real backend PIDs through multigateway.
 		shardsetup.WithVpidStamping(),
+		// Force C locale on initdb so locale-sensitive expected outputs
+		// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
+		// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /
+		// collate.utf8 / json_encoding tests still see a real multibyte
+		// codec — pg_regress upstream runs initdb with just --no-locale
+		// (locale=C) and inherits the default encoding (UTF8 on modern
+		// installs); --encoding=SQL_ASCII would break those tests.
+		shardsetup.WithPgInitdbArgs("--no-locale --encoding=UTF8"),
+		// The pgctld postgresql.conf template hard-codes en_US.UTF-8 for the
+		// locale GUCs, which overrides initdb's --no-locale. Append a snippet
+		// that resets lc_* to 'C' so currency/number/time/message formatting
+		// matches upstream expected fixtures.
+		shardsetup.WithPgInitdbExtraConfFiles(regressionOverridesConfPath()),
 	)
 })
 

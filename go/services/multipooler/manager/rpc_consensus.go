@@ -17,11 +17,9 @@ package manager
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
@@ -32,251 +30,6 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
-
-// BeginTerm handles coordinator requests during leader appointments.
-// It consists of two phases:
-//
-// 1. Term Acceptance: Accept the new term based on consensus rules
-//   - Term must be >= current term
-//   - Cannot accept different coordinator for same term
-//   - Atomically update term and accept candidate
-//
-// 2. Action Execution: Execute the specified action after term acceptance
-//   - NO_ACTION: Do nothing
-//   - REVOKE: Demote primary or pause standby replication to revoke old term
-func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (_ *consensusdatapb.BeginTermResponse, retErr error) {
-	// Acquire the action lock to ensure only one consensus operation runs at a time
-	// This prevents split-brain acceptance and ensures term updates are serialized
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "BeginTerm")
-	if err != nil {
-		return nil, err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Log the action type for observability
-	pm.logger.InfoContext(ctx, "BeginTerm received",
-		"term", req.Term,
-		"candidate_id", req.CandidateId.GetName(),
-		"action", req.Action.String(),
-		"shard_id", req.ShardId)
-
-	// Validate action
-	switch req.Action {
-	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
-		// Valid action
-	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION:
-		// Valid action
-	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED:
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"action must be specified (cannot be UNSPECIFIED)")
-	default:
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unknown BeginTerm action type: %v", req.Action)
-	}
-
-	// ========================================================================
-	// Term Acceptance (Consensus Rules)
-	// ========================================================================
-
-	// Get current term for response
-	currentTerm, err := pm.consensusState.GetCurrentTermNumber(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// Atomically update term and accept candidate
-	// This handles all consensus rules: term validation, duplicate check, etc.
-	err = pm.consensusState.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId)
-	if err != nil {
-		// Term not accepted - return rejection with consensus status so the coordinator
-		// learns this pooler's current state even from a rejection.
-		pm.logger.InfoContext(ctx, "Term not accepted",
-			"request_term", req.Term,
-			"current_term", currentTerm,
-			"error", err)
-		resp := &consensusdatapb.BeginTermResponse{
-			Term:     currentTerm,
-			Accepted: false,
-			PoolerId: pm.serviceID.GetName(),
-		}
-		if cs, statusErr := pm.getConsensusStatus(ctx); statusErr != nil {
-			pm.logger.WarnContext(ctx, "Failed to build consensus status for rejection response", "error", statusErr)
-		} else {
-			resp.ConsensusStatus = cs
-		}
-		return resp, nil
-	}
-
-	pm.logger.InfoContext(ctx, "Term accepted",
-		"term", req.Term,
-		"coordinator", req.CandidateId.GetName())
-
-	// Determine revoked role before executing any action (needed for event)
-	revokedRole := ""
-	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
-		if primary, err := pm.isPrimary(ctx); err == nil {
-			if primary {
-				revokedRole = "primary"
-			} else {
-				revokedRole = "standby"
-			}
-		}
-	}
-
-	termEvent := eventlog.TermBegin{
-		NewTerm:      req.Term,
-		PreviousTerm: currentTerm,
-		RevokedRole:  revokedRole,
-	}
-	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
-	defer func() {
-		if retErr == nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
-		} else {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", retErr)
-		}
-	}()
-
-	response := &consensusdatapb.BeginTermResponse{
-		Term:     req.Term,
-		Accepted: true,
-		PoolerId: pm.serviceID.GetName(),
-	}
-
-	// ========================================================================
-	// Action Execution
-	// ========================================================================
-
-	switch req.Action {
-	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION:
-		if cs, statusErr := pm.getConsensusStatus(ctx); statusErr != nil {
-			pm.logger.WarnContext(ctx, "Failed to build consensus status for NO_ACTION response", "error", statusErr)
-		} else {
-			response.ConsensusStatus = cs
-		}
-		return response, nil
-
-	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
-		if err := pm.executeRevoke(ctx, req.Term, response); err != nil {
-			// Term was already accepted and persisted above, so we must return
-			// the response with accepted=true AND the error. This tells the coordinator:
-			// 1. The term was accepted (response.Accepted = true)
-			// 2. The revoke action failed (error != nil)
-			pm.logger.ErrorContext(ctx, "Term accepted but revoke action failed",
-				"term", req.Term,
-				"error", err)
-			return response, mterrors.Wrap(err, "term accepted but revoke action failed")
-		}
-		return response, nil
-
-	default:
-		// Should never reach here due to validation above
-		return response, nil
-	}
-}
-
-// executeRevoke executes the REVOKE action by demoting primary or pausing standby replication.
-// This is called after the term has been accepted.
-func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, response *consensusdatapb.BeginTermResponse) error {
-	// CRITICAL: Must be able to reach Postgres to execute revoke
-	if _, err := pm.query(ctx, "SELECT 1"); err != nil {
-		return mterrors.Wrap(err, "postgres unhealthy, cannot execute revoke")
-	}
-
-	isPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to determine role for revoke")
-	}
-
-	response.WalPosition = &consensusdatapb.WALPosition{
-		Timestamp: timestamppb.Now(),
-	}
-
-	if isPrimary {
-		// Revoke primary: demote
-		// TODO: Implement graceful (non-emergency) demote for planned failovers.
-		// This emergency demote path will remain for BeginTerm REVOKE actions.
-		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
-		drainTimeout := 5 * time.Second
-		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout)
-		if err != nil {
-			return mterrors.Wrap(err, "failed to demote primary during revoke")
-		}
-		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
-		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
-	} else {
-		// Revoke standby: stop receiver and wait for replay to catch up
-		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
-
-		// Stop WAL receiver and wait for it to fully disconnect
-		_, err := pm.pauseReplication(
-			ctx,
-			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-			true /* wait */)
-		if err != nil {
-			return mterrors.Wrap(err, "failed to pause replication during revoke")
-		}
-
-		// Wait for replay to finish processing all WAL that is on disk
-		status, err := pm.waitForReplayStabilize(ctx)
-		if err != nil {
-			return mterrors.Wrap(err, "failed waiting for replay to stabilize during revoke")
-		}
-
-		response.WalPosition.LastReceiveLsn = status.LastReceiveLsn
-		response.WalPosition.LastReplayLsn = status.LastReplayLsn
-		pm.logger.InfoContext(ctx, "Standby revoke complete",
-			"term", term,
-			"last_receive_lsn", status.LastReceiveLsn,
-			"last_replay_lsn", status.LastReplayLsn)
-	}
-
-	// Always capture timeline ID after WAL positions are frozen.
-	// Retained for observability only; does not affect candidate selection.
-	timelineID, err := pm.getTimelineID(ctx)
-	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get timeline ID during revoke; observability data will be incomplete",
-			"term", term, "error", err)
-	} else {
-		response.WalPosition.TimelineId = timelineID
-		pm.logger.InfoContext(ctx, "Captured timeline ID for observability",
-			"term", term, "timeline_id", timelineID)
-	}
-
-	// Capture the highest consensus term replicated to this node, plus the cohort
-	// that was active at that point. The coordinator uses leadership_term as
-	// the primary criterion: a node that has seen a higher term has applied more
-	// of the agreed WAL history (the history write uses RemoteOperationTimeout,
-	// so sync standbys are guaranteed to have acknowledged it).
-	//
-	// observePosition also warms the ruleStore cache, allowing getCachedConsensusStatus
-	// below to read the position without an additional postgres round-trip.
-	if pos, err := pm.rules.observePosition(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get rule history during revoke; candidate selection may be suboptimal",
-			"term", term, "error", err)
-	} else {
-		response.WalPosition.LeadershipTerm = pos.GetRule().GetRuleNumber().GetCoordinatorTerm()
-		pids, pidErr := toPoolerIDs(pos.GetRule().GetCohortMembers())
-		if pidErr != nil {
-			pm.logger.WarnContext(ctx, "Some cohort member IDs have invalid format; using approximate names for candidate selection",
-				"term", term, "error", pidErr)
-		}
-		response.WalPosition.CohortMembers = poolerIDsToAppNames(pids)
-		pm.logger.InfoContext(ctx, "Captured coordinator term for candidate selection",
-			"term", term, "coordinator_term", pos.GetRule().GetRuleNumber().GetCoordinatorTerm())
-	}
-
-	// Capture consensus status after WAL positions are frozen (post-revoke snapshot).
-	// Uses the cached position warmed by observePosition above — no extra DB round-trip.
-	cs, err := pm.getCachedConsensusStatus()
-	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to build cached consensus status", "error", err)
-	}
-	response.ConsensusStatus = cs
-
-	return nil
-}
 
 // buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation,
 // position, and the highest-known RPC-told (rule, primary). Any argument may be
@@ -324,7 +77,7 @@ func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replic
 }
 
 // getConsensusStatus builds a ConsensusStatus snapshot while holding the action lock.
-// Callers must already hold the action lock (i.e. this is called from BeginTerm or
+// Callers must already hold the action lock (i.e. this is called from Recruit or
 // executeRevoke). Uses a consistent disk read for the term and a fresh postgres query
 // for the current position.
 //
@@ -364,7 +117,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 
 // getInconsistentConsensusStatus builds a ConsensusStatus without holding the action lock.
 // Like GetInconsistentTerm, it may observe a partially-updated state during a concurrent
-// BeginTerm, so it is suitable for observability (StatusResponse, health monitors) but not
+// Recruit, so it is suitable for observability (StatusResponse, health monitors) but not
 // for decisions that require a consistent view.
 //
 // Falls back to the ruleStore's cached position when postgres is unreachable, so
@@ -432,9 +185,9 @@ func (pm *MultiPoolerManager) setCohortEligibility(signal clustermetadatapb.Coho
 }
 
 // buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
-// when resignedLeaderAtTerm is set (i.e. after a BeginTerm REVOKE or graceful
-// shutdown of a leader). Nil means this node has not recently held or resigned
-// from primary leadership.
+// when resignedLeaderAtTerm is set (i.e. after a Recruit-driven emergency
+// demotion or graceful shutdown of a leader). Nil means this node has not
+// recently held or resigned from primary leadership.
 func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
 	pm.mu.Lock()
 	resignedTerm := pm.resignedLeaderAtTerm
@@ -470,9 +223,8 @@ func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term 
 	return nil
 }
 
-// clearResignedLeaderAtTerm clears the leadership demotion request. Called by
-// coordinator-driven promotion (Promote) when this node is explicitly
-// re-appointed as primary at a new term.
+// clearResignedLeaderAtTerm clears the leadership demotion request. Called when
+// this node is appointed as primary at a new term.
 // Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
@@ -545,7 +297,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Recruiting primary: demoting and restarting as standby",
 			"revoked_below_term", revokedBelowTerm)
-		if _, err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout); err != nil {
+		if err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout); err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 			return nil, mterrors.Wrap(err, "failed to demote primary during recruit")
 		}
@@ -659,6 +411,21 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if proposedRule == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "proposal.proposed_rule is required")
 	}
+	// Identity and timing for the installed rule come from the proposed
+	// rule itself, not the revocation. The revocation's
+	// accepted_coordinator_id identifies who ran the recruit round; the
+	// rule's coordinator_id identifies the coordinator-of-record for this
+	// rule change. They are usually the same orch but the proposal is the
+	// authoritative source — falling back to time.Now() or the revocation
+	// would silently rewrite the caller's intent.
+	if proposedRule.GetCoordinatorId() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"proposal.proposed_rule.coordinator_id is required")
+	}
+	if proposedRule.GetCreationTime() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"proposal.proposed_rule.creation_time is required")
+	}
 
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 	coordinatorID := revocation.GetAcceptedCoordinatorId()
@@ -671,11 +438,11 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	// Step 1: Validate the term revocation.
 	// ValidateRevocation ensures the WAL position is safe and the coordinator is consistent.
 	// Fails open on I/O error (nil status passes safely).
-	currentStatus, err := pm.getConsensusStatus(ctx)
+	beforeStatus, err := pm.getConsensusStatus(ctx)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
-	if err := commonconsensus.ValidateRevocation(currentStatus, revocation); err != nil {
+	if err := commonconsensus.ValidateRevocation(beforeStatus, revocation); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
@@ -687,7 +454,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	// requiring the two-phase protocol. ValidateRevocation already ensures
 	// storedTerm <= revokedBelowTerm, so a mismatch here always means Recruit
 	// was never called for this term.
-	storedTerm := currentStatus.GetTermRevocation().GetRevokedBelowTerm()
+	storedTerm := beforeStatus.GetTermRevocation().GetRevokedBelowTerm()
 	if storedTerm != revokedBelowTerm {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"must Recruit before Propose: stored term %d != proposal term %d", storedTerm, revokedBelowTerm)
@@ -724,44 +491,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	}
 
 	// Leader path: promote postgres, write rule, enable query service.
-	state, err := pm.checkPromotionState(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	// Pre-configure synchronous_standby_names before pg_promote() so the primary
-	// enforces sync replication from the moment it starts accepting connections.
-	// Both failures are fatal: a misconfigured or partially applied GUC would let
-	// the primary accept writes without the required sync acknowledgment, risking
-	// data loss.
-	// TODO: Eventually updateRule() should own this GUC update so that the ordering
-	// of WAL writes and GUC changes is managed in one place, ensuring the durability
-	// configuration is always consistent with what is recorded in the rule history.
-	if proposedRule.GetDurabilityPolicy() != nil {
-		syncCfg, err := syncConfigFromProposedRule(pm.logger, proposedRule, pm.serviceID)
-		if err != nil {
-			return nil, mterrors.Wrap(err, "cannot derive sync config from proposed rule")
-		}
-		if err := pm.applyGUCsForSyncReplication(ctx, syncCfg); err != nil {
-			return nil, mterrors.Wrap(err, "failed to pre-configure sync replication before promote")
-		}
-	}
-	// ---- BEGIN CRITICAL ORDERING SECTION ----------------------------------------
-	// postgres becomes a writable primary after pg_promote(), but this pooler's
-	// type remains REPLICA until updateTopologyAfterPromotion() below. While type
-	// is REPLICA, the query server returns MTF01 for any PRIMARY (write) request,
-	// causing the gateway to buffer — so no client write transactions can be served.
-	//
-	// DO NOT call updateTopologyAfterPromotion() before updateRule() succeeds.
-	// The rule commit is the durability gate: it waits for sync-standby
-	// acknowledgment, proving the new primary position is replicated. Only after
-	// that gate closes is it safe to advertise PRIMARY + SERVING to the gateway.
-	if err := pm.promoteStandbyToPrimary(ctx, state); err != nil {
-		return nil, err
-	}
-	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to clear resigned primary term")
-	}
-	finalLSN, err := pm.getPrimaryLSN(ctx)
+	state, err := pm.checkPromotionState(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -772,27 +502,36 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if reason == "" {
 		reason = "propose"
 	}
-	if _, err = pm.rules.updateRule(ctx, newRuleUpdate(
+	ruleUpdate := newRuleUpdate(
 		revokedBelowTerm,
-		coordinatorID,
+		proposedRule.GetCoordinatorId(),
 		"promotion",
 		reason,
-		time.Now()).
+		proposedRule.GetCreationTime().AsTime()).
 		withLeader(pm.serviceID).
 		withCohort(proposedRule.GetCohortMembers()).
 		withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
 		withAcceptedMembers(req.GetAcceptedNodeIds()).
-		withWALPosition(finalLSN)); err != nil {
+		withWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
+		withPromotionHook(func(hookCtx context.Context) error {
+			if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+				return mterrors.Wrap(err, "failed to clear resigned primary term")
+			}
+			return pm.promoteStandbyToPrimary(hookCtx, state)
+		})
+	if req.GetProposal().GetSkipOutgoingQuorum() {
+		ruleUpdate.withSkipOutgoingQuorum()
+	}
+	if _, err = pm.rules.updateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "propose failed: could not write rule")
 	}
-	// ---- END CRITICAL ORDERING SECTION ------------------------------------------
-	// Rule committed and replicated. Safe to open write traffic.
-	// updateTopologyAfterPromotion sets poolerType to PRIMARY + SERVING, which
-	// ends the write-buffering window and lets the gateway route writes here.
 	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
 		LeaderID:   pm.serviceID,
 		LeaderTerm: revokedBelowTerm,
 	})
+	// IMPORTANT: updateTopologyAfterPromotion must only be called after updateRule
+	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
+	// updateRule is the durability gate: it waits for sync-standby acknowledgment.
 	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
 	}
@@ -820,13 +559,12 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 // SetTermPrimary is a successful no-op — this makes it safe under retries and under
 // out-of-order delivery from stale recovery rounds.
 //
-// When the receiver is a standby, SetTermPrimary rewrites primary_conninfo (same effect
-// as SetPrimaryConnInfo). When the receiver is currently acting as primary,
-// the caller knows about a more recent rule with a different leader, so this
-// node is a stale primary and gets demoted (same effect as DemoteStalePrimary).
+// When the receiver is a standby, SetTermPrimary rewrites primary_conninfo.
+// When the receiver is currently acting as primary, the caller knows about a
+// more recent rule with a different leader, so this node is a stale primary
+// and gets demoted via pg_rewind.
 //
-// Unlike SetPrimaryConnInfo and DemoteStalePrimary, SetTermPrimary does not perform
-// term validation — the rule comparison is the gate.
+// SetTermPrimary does not perform term validation — the rule comparison is the gate.
 //
 // TODO: when the rule comparison no-ops but WAL replay is paused
 // (pg_is_wal_replay_paused), the caller's intent ("ensure this replica is
@@ -887,7 +625,7 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Honor the revocation promise we made via Recruit/BeginTerm. If the
+	// Honor the revocation promise we made via Recruit. If the
 	// incoming rule is revoked, ignore it: SetTermPrimary is a best-effort FYI and
 	// the cohort will reconverge as it makes progress. Returning the cached
 	// status keeps the response shape consistent with the "incoming rule
@@ -978,8 +716,8 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			return nil, err
 		}
 		// Ensure topology reflects REPLICA. This matters when postgres has
-		// already been demoted (e.g. by BeginTerm REVOKE or an external
-		// pg_promote-then-restart) but the pooler's topology entry still
+		// already been demoted (e.g. by a prior Recruit on this node or an
+		// external pg_promote-then-restart) but the pooler's topology entry still
 		// reads PRIMARY. Without this, the stale PRIMARY label causes the
 		// stale-leader analyzer to keep firing forever. Propose has the same
 		// step on its replica branch for the same reason.
@@ -1011,20 +749,6 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		return nil, mterrors.Wrap(err, "failed to build consensus status after SetTermPrimary")
 	}
 	return &consensusdatapb.SetTermPrimaryResponse{ConsensusStatus: cs}, nil
-}
-
-// syncConfigFromProposedRule derives the synchronous replication config from a proposed rule
-// by delegating to the durability policy.
-func syncConfigFromProposedRule(
-	logger *slog.Logger,
-	rule *clustermetadatapb.ShardRule,
-	leaderID *clustermetadatapb.ID,
-) (*commonconsensus.SyncReplicationConfig, error) {
-	policy, err := commonconsensus.NewPolicyFromProto(rule.GetDurabilityPolicy())
-	if err != nil {
-		return nil, fmt.Errorf("cannot derive sync config: %w", err)
-	}
-	return policy.BuildSyncReplicationConfig(logger, rule.GetCohortMembers(), leaderID)
 }
 
 // ConsensusStatus returns the current status of this node for consensus

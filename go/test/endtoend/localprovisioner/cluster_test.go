@@ -980,7 +980,7 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Log("Both PostgreSQL instances are working correctly!")
 
 		// Wait for pooler types to be assigned (PRIMARY or REPLICA, not UNKNOWN)
-		// This ensures bootstrap has fully completed including ChangeType RPCs
+		// This ensures bootstrap has fully completed including pooler-type assignment
 		zone1Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
 		zone2Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
 		t.Log("Waiting for pooler types to be assigned...")

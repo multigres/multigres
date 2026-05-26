@@ -65,7 +65,7 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 // Idempotency:
 // This action is fully idempotent. If multiple multiorch instances race to fix
 // the same problem, the end result will be identical. The underlying RPC
-// operations (SetPrimaryConnInfo) are implemented as idempotent operations
+// operations (SetTermPrimary) are implemented as idempotent operations
 // at the pooler level and serialized by action locks on the poolers, so
 // concurrent calls are safe and produce the same final state.
 
@@ -201,42 +201,13 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
-	// Use the term numbers already carried in the health state rather than
-	// making extra ConsensusStatus RPCs. Both values come from StatusResponse
-	// via the health stream, so they reflect the same data we would get from
-	// a fresh RPC at the time the problem was detected.
-	//
-	// We take max(primaryTerm, replicaTerm) because after a failover the
-	// replica may have accepted a higher term (from BeginTerm) than the
-	// newly-elected primary has seen yet. validateAndUpdateTerm rejects
-	// requests whose CurrentTerm is below the local term, so using the
-	// maximum satisfies both nodes. A higher term is safe: the primary
-	// accepts it and advances its own term to match.
-	primaryTerm := primary.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	replicaTerm := replica.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	consensusTerm := max(primaryTerm, replicaTerm)
-
-	// Configure primary_conninfo on the replica.
-	if a.config.GetUseNewConsensusFlow() {
-		informReq := &consensusdatapb.SetTermPrimaryRequest{
-			Leader: poolerAddressFor(primary.MultiPooler),
-			Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
-		}
-		if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {
-			return mterrors.Wrap(err, "failed to inform replica of primary")
-		}
-	} else {
-		req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Primary:               primary.MultiPooler,
-			StopReplicationBefore: true,
-			StartReplicationAfter: true,
-			CurrentTerm:           consensusTerm,
-			Force:                 false,
-		}
-
-		if _, err := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req); err != nil {
-			return mterrors.Wrap(err, "failed to set primary connection info")
-		}
+	// Configure primary_conninfo on the replica via SetTermPrimary.
+	informReq := &consensusdatapb.SetTermPrimaryRequest{
+		Leader: topoclient.PoolerAddressFor(primary.MultiPooler),
+		Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
+	}
+	if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {
+		return mterrors.Wrap(err, "failed to inform replica of primary")
 	}
 
 	// Verify replication started
