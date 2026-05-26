@@ -1329,6 +1329,14 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		return err
 	}
 
+	// Promotion supersedes any pending rewind from a prior emergency demotion:
+	// the consensus protocol picked this node as the new leader at a higher
+	// term, so its WAL is by definition the rule going forward. Clear the
+	// flag so the postgres monitor and other operations resume.
+	if pm.rewindPending.Swap(false) {
+		pm.logger.InfoContext(ctx, "Cleared rewindPending before promotion")
+	}
+
 	// Clear primary_conninfo after promotion to prevent accidental replication on restart
 	if err := pm.resetPrimaryConnInfo(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to clear primary_conninfo after promotion", "error", err)

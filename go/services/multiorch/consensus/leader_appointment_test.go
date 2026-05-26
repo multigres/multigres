@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -71,7 +72,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		}
 	}
 
-	return &multiorchdatapb.PoolerHealthState{
+	healthState := &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: healthy,
 		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
@@ -80,6 +81,10 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 			PostgresRunning: healthy,
 		},
 	}
+	if healthy {
+		healthState.LastSeen = timestamppb.Now()
+	}
+	return healthState
 }
 
 func TestAppointLeader(t *testing.T) {
