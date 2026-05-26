@@ -124,8 +124,8 @@ func TestPoolerRecord_PublishIfNeeded_WritesOnStateChange(t *testing.T) {
 	r.publishIfNeeded(t.Context())
 	require.Equal(t, int32(1), ts.calls.Load())
 
-	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
 	}))
 	r.publishIfNeeded(t.Context())
 	assert.Equal(t, int32(2), ts.calls.Load())
@@ -156,9 +156,9 @@ func TestPoolerRecord_Mutate_UpdatesDesiredAndSchedulesPublish(t *testing.T) {
 	ts := &fakeTopoStore{}
 	r := newPoolerRecord(newTestLogger(), ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
 
-	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}))
 
 	// Wakeup channel should be signalled.
@@ -176,47 +176,13 @@ func TestPoolerRecord_Mutate_RequiresActionLock(t *testing.T) {
 	ts := &fakeTopoStore{}
 	r := newPoolerRecord(newTestLogger(), ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
 
-	err := r.Mutate(t.Context(), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	err := r.Mutate(t.Context(), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
 	})
 	require.Error(t, err)
 
 	// State must not have changed.
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
-}
-
-func TestPoolerRecord_Mutate_RejectsImmutableFieldChanges(t *testing.T) {
-	ts := &fakeTopoStore{}
-	initial := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
-	initial.PoolerDir = "/tmp/pooler"
-	initial.Hostname = "host.example.com"
-	initial.ShardKey = &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	initial.PortMap = map[string]int32{"grpc": 15300}
-	r := newPoolerRecord(newTestLogger(), ts, initial)
-
-	cases := []struct {
-		name string
-		fn   func(*clustermetadatapb.MultiPooler)
-	}{
-		{"PoolerDir", func(mp *clustermetadatapb.MultiPooler) { mp.PoolerDir = "/other" }},
-		{"Hostname", func(mp *clustermetadatapb.MultiPooler) { mp.Hostname = "other" }},
-		{"ShardKey", func(mp *clustermetadatapb.MultiPooler) { mp.ShardKey.Shard = "1" }},
-		{"PortMap", func(mp *clustermetadatapb.MultiPooler) { mp.PortMap["grpc"] = 999 }},
-		{"Id", func(mp *clustermetadatapb.MultiPooler) {
-			mp.Id = &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Name: "other"}
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := r.Mutate(newActionLockedCtx(t), tc.fn)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.name)
-
-			// State remains untouched.
-			assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
-			assert.Equal(t, "/tmp/pooler", r.PoolerDir())
-		})
-	}
 }
 
 func TestPoolerRecord_Mutate_CoalescesPendingWakeups(t *testing.T) {
@@ -226,14 +192,14 @@ func TestPoolerRecord_Mutate_CoalescesPendingWakeups(t *testing.T) {
 	// Three back-to-back mutations with no consumer of the wakeup channel.
 	// The size-1 buffer must absorb them without blocking.
 	ctx := newActionLockedCtx(t)
-	require.NoError(t, r.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, r.Mutate(ctx, func(s *MutablePoolerRecordState) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}))
-	require.NoError(t, r.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	require.NoError(t, r.Mutate(ctx, func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
 	}))
-	require.NoError(t, r.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	require.NoError(t, r.Mutate(ctx, func(s *MutablePoolerRecordState) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	}))
 
 	// Exactly one wakeup is pending — drain it.
@@ -304,9 +270,9 @@ func TestPoolerRecord_WakeupTriggersImmediatePublish(t *testing.T) {
 	defer cancel()
 	go r.publisherLoop(ctx, tickC)
 
-	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}))
 
 	require.Eventually(t, func() bool {
@@ -331,8 +297,8 @@ func TestPoolerRecord_TickerDrivesRetry(t *testing.T) {
 	defer cancel()
 	go r.publisherLoop(ctx, tickC)
 
-	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(mp *clustermetadatapb.MultiPooler) {
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}))
 
 	// Wait for the goroutine to attempt (and fail) the wakeup-triggered write.
@@ -387,32 +353,16 @@ func TestPoolerRecord_RegisterAndUnregister(t *testing.T) {
 		return ts.calls.Load() >= 1
 	}, time.Second, time.Millisecond)
 
-	require.NoError(t, r.Unregister(t.Context(), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_DRAINED
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-	}))
+	r.Unregister(t.Context(), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_DRAINED
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	})
 
 	// The final publish should carry whatever state finalize stamped.
 	seen := ts.lastSeen.Load()
 	require.NotNil(t, seen)
 	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, seen.Type)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, seen.ServingStatus)
-}
-
-// TestPoolerRecord_Unregister_RejectsImmutableFinalize ensures the finalize
-// callback can't sneak in a change to identity / topology fields.
-func TestPoolerRecord_Unregister_RejectsImmutableFinalize(t *testing.T) {
-	ts := &fakeTopoStore{}
-	initial := newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
-	initial.ShardKey = &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	r := newPoolerRecord(newTestLogger(), ts, initial)
-	r.Register(t.Context(), func(string) {})
-
-	err := r.Unregister(t.Context(), func(mp *clustermetadatapb.MultiPooler) {
-		mp.ShardKey.Shard = "other"
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ShardKey")
 }
 
 // TestPoolerRecord_Unregister_NoFinalize verifies that Unregister with a nil
@@ -424,11 +374,11 @@ func TestPoolerRecord_Unregister_NoFinalize(t *testing.T) {
 	r.Register(t.Context(), func(string) {})
 
 	// Mutate to PRIMARY before Unregister.
-	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
 	}))
 
-	require.NoError(t, r.Unregister(t.Context(), nil))
+	r.Unregister(t.Context(), nil)
 
 	seen := ts.lastSeen.Load()
 	require.NotNil(t, seen)

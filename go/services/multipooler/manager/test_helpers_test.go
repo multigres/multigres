@@ -36,7 +36,7 @@ func setPoolerTypeForTest(t *testing.T, pm *MultiPoolerManager, poolerType clust
 	ctx, err := pm.actionLock.Acquire(t.Context(), "test-set-type")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(ctx)
-	require.NoError(t, pm.record.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = poolerType
+	require.NoError(t, pm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
+		s.Type = poolerType
 	}))
 }

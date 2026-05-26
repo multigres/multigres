@@ -121,9 +121,9 @@ func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadat
 	// All components converged — update the record and schedule a publish.
 	// Requires the caller to hold the action lock; Mutate will return an
 	// error otherwise.
-	if err := ssm.record.Mutate(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = poolerType
-		mp.ServingStatus = servingStatus
+	if err := ssm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
+		s.Type = poolerType
+		s.ServingStatus = servingStatus
 	}); err != nil {
 		return err
 	}

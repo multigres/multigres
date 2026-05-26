@@ -1034,8 +1034,8 @@ func TestPause_PreservesPublisher(t *testing.T) {
 
 	// Mutate to PRIMARY while paused. The publisher should still pick this
 	// up and reflect it in topology.
-	require.NoError(t, pm.record.Mutate(lockCtx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
+	require.NoError(t, pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
 	}))
 
 	require.Eventually(t, func() bool {

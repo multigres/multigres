@@ -1651,12 +1651,10 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 // publisher before applying the finalize callback, so no other goroutine
 // can publish over our shutdown state regardless of locking.
 func (pm *MultiPoolerManager) StopTopoRegistration(ctx context.Context) {
-	if err := pm.record.Unregister(ctx, func(mp *clustermetadatapb.MultiPooler) {
-		mp.Type = clustermetadatapb.PoolerType_DRAINED
-		mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-	}); err != nil {
-		pm.logger.ErrorContext(ctx, "StopTopoRegistration: Unregister returned error", "error", err)
-	}
+	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_DRAINED
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	})
 }
 
 // WaitUntilReady blocks until the manager reaches Ready or Error state, or

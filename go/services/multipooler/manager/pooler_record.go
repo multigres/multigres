@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -32,6 +31,20 @@ const (
 	topoPublisherRetryInterval = 30 * time.Second
 	topoPublisherWriteTimeout  = 5 * time.Second
 )
+
+// MutablePoolerRecordState is the slice of the MultiPooler topology entry
+// that callers can change through Mutate and Unregister. The Mutate /
+// Unregister callbacks receive a pointer to a struct populated with the
+// current values, so a caller can read and conditionally update them.
+//
+// All other MultiPooler proto fields (Id, ShardKey, PoolerDir, PgDataDir,
+// Hostname, PortMap) are set at construction and the record treats them as
+// immutable — exposing only this struct in the mutation API makes that
+// contract a property of the type system rather than a runtime check.
+type MutablePoolerRecordState struct {
+	Type          clustermetadatapb.PoolerType
+	ServingStatus clustermetadatapb.PoolerServingStatus
+}
 
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
 type poolerTopoStore interface {
@@ -127,8 +140,11 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 	return proto.Clone(r.desired.Load()).(*clustermetadatapb.MultiPooler)
 }
 
-// Mutate clones the current desired state, applies fn, atomically stores the
-// result, and schedules an asynchronous publish.
+// Mutate atomically applies fn to the current MutablePoolerRecordState
+// and schedules an asynchronous publish. fn receives a struct populated
+// with the current values; any modifications it makes become the new
+// desired state. Fields not exposed in MutablePoolerRecordState (Id,
+// ShardKey, PoolerDir, etc.) cannot be touched.
 //
 // ctx must carry an action lock (see AssertActionLockHeld). The action lock
 // serialises state transitions across the whole manager — RPC handlers
@@ -137,24 +153,13 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 // threaded through from the caller. Mutate returns the assertion error
 // without applying fn if the lock is not held.
 //
-// fn must not block or call back into poolerRecord; it should perform simple
-// field assignments only. fn must not modify identity / topology fields (Id,
-// ShardKey, PoolerDir, PgDataDir, Hostname, PortMap) — those are set at
-// construction and are exposed through accessors that assume they never
-// change. Mutate returns an error describing the offending field if fn
-// changes any of them, leaving the desired state untouched.
-func (r *poolerRecord) Mutate(ctx context.Context, fn func(*clustermetadatapb.MultiPooler)) error {
+// fn must not block or call back into poolerRecord; it should perform
+// simple field assignments only.
+func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordState)) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-
-	current := r.desired.Load()
-	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
-	fn(next)
-	if err := checkImmutableFieldsUnchanged(current, next); err != nil {
-		return err
-	}
-	r.desired.Store(next)
+	r.applyMutation(fn)
 
 	// Non-blocking send: if the channel is already full, a publish is already
 	// pending and will pick up the latest desired state.
@@ -165,41 +170,21 @@ func (r *poolerRecord) Mutate(ctx context.Context, fn func(*clustermetadatapb.Mu
 	return nil
 }
 
-// checkImmutableFieldsUnchanged returns an error if a Mutate callback
-// modified a field that poolerRecord treats as immutable. The only
-// legitimate Mutate targets are Type and ServingStatus.
-func checkImmutableFieldsUnchanged(before, after *clustermetadatapb.MultiPooler) error {
-	if !proto.Equal(before.Id, after.Id) {
-		return errors.New("poolerRecord.Mutate: Id is immutable")
+// applyMutation clones the current desired proto, hands a
+// MutablePoolerRecordState view to fn, then writes back the (possibly
+// updated) Type and ServingStatus and atomically stores the result.
+// Caller is responsible for sequencing (action lock, publisher state).
+func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
+	current := r.desired.Load()
+	state := MutablePoolerRecordState{
+		Type:          current.Type,
+		ServingStatus: current.ServingStatus,
 	}
-	if !proto.Equal(before.ShardKey, after.ShardKey) {
-		return errors.New("poolerRecord.Mutate: ShardKey is immutable")
-	}
-	if before.PoolerDir != after.PoolerDir {
-		return errors.New("poolerRecord.Mutate: PoolerDir is immutable")
-	}
-	if before.PgDataDir != after.PgDataDir {
-		return errors.New("poolerRecord.Mutate: PgDataDir is immutable")
-	}
-	if before.Hostname != after.Hostname {
-		return errors.New("poolerRecord.Mutate: Hostname is immutable")
-	}
-	if !portMapsEqual(before.PortMap, after.PortMap) {
-		return errors.New("poolerRecord.Mutate: PortMap is immutable")
-	}
-	return nil
-}
-
-func portMapsEqual(a, b map[string]int32) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
+	fn(&state)
+	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
+	next.Type = state.Type
+	next.ServingStatus = state.ServingStatus
+	r.desired.Store(next)
 }
 
 // Register starts the publisher goroutine and kicks off initial registration
@@ -237,9 +222,11 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 // published state, and cancels the toporeg retry goroutine.
 //
 // finalize lets the caller stamp a shutdown state (e.g. Type=DRAINED,
-// ServingStatus=NOT_SERVING) without going through Mutate. Pass nil to just
-// publish the current desired state. The record stays agnostic about what
-// the shutdown state means — that's the caller's domain knowledge.
+// ServingStatus=NOT_SERVING). The callback receives a MutablePoolerRecordState
+// populated with current values; modifications become the new desired state.
+// Pass nil to just publish whatever the publisher hadn't yet written. The
+// record stays agnostic about what the shutdown state means — that's the
+// caller's domain knowledge.
 //
 // Unlike Mutate, Unregister does NOT require an action lock: the publisher
 // is cancelled before finalize runs, so no concurrent publish can race the
@@ -249,13 +236,13 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 // a bad state.
 //
 // Safe to call on a record that was never Registered.
-func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*clustermetadatapb.MultiPooler)) error {
+func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoolerRecordState)) {
 	r.publisherMu.Lock()
 	cancel := r.publisherCancel
 	r.publisherCancel = nil
 	r.publisherMu.Unlock()
 	if cancel == nil {
-		return nil
+		return
 	}
 
 	// Stop the publisher loop first so there is no concurrent publish in
@@ -264,13 +251,7 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*clustermet
 	r.publisherWG.Wait()
 
 	if finalize != nil {
-		current := r.desired.Load()
-		next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
-		finalize(next)
-		if err := checkImmutableFieldsUnchanged(current, next); err != nil {
-			return err
-		}
-		r.desired.Store(next)
+		r.applyMutation(finalize)
 	}
 
 	desired := r.desired.Load()
@@ -286,7 +267,6 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*clustermet
 	}
 
 	r.tr.Unregister()
-	return nil
 }
 
 // runPublisher is the background loop. It exits when ctx is cancelled.
