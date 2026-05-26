@@ -46,14 +46,17 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Three env vars enable it; setting more
+The test is **disabled by default**. Four env vars enable it; setting more
 than one is fine (the union runs):
 
-- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **both** regression and isolation.
-  This is what CI uses (matches the "Run Extended Query Serving Tests" PR label).
+- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
+  isolation, contrib). This is what CI uses (matches the "Run Extended Query
+  Serving Tests" PR label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
+- `RUN_PGCONTRIB=1` — runs the contrib extension suite only (see
+  "Contrib Extension Tests" below).
 
 ```bash
 # Run both suites (unified report) — same as CI
@@ -77,7 +80,40 @@ PGREGRESS_TESTS="boolean char" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test
 
 # Run specific isolation tests only
 PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific contrib modules only (directory names under contrib/)
+PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
+
+## Contrib Extension Tests
+
+The contrib suite runs the regression suites that core PostgreSQL extensions
+ship in their own `contrib/<module>/{sql,expected}/` directories, executed
+through multigateway. It validates that the most-installed Supabase extensions
+work over the pooled query path. The default module set lives in
+`DefaultContribModules` (see `postgres_builder.go`).
+
+How it differs from the core regression suite:
+
+- **Build features**: two modules need optional `./configure` features, enabled
+  only when the contrib suite runs: `uuid-ossp` (`--with-uuid`, override the
+  implementation with `PG_UUID_LIB`, default `e2fs`) and `pgcrypto`
+  (`--with-ssl=openssl`; PG16+ pgcrypto has no built-in crypto). CI installs
+  `uuid-dev` and `libssl-dev` for these.
+- **Per-module isolation**: every module shares the single `postgres` database
+  (multigateway can't isolate per-DB), so the harness resets the `public`
+  schema on the primary between modules to clear leftover objects/extensions.
+- **Verification**: results go through the same patch pipeline as the core
+  suite (`PGREGRESS_PATCH_MODE`), which whitespace-normalizes output — so
+  error-cursor caret-position shifts caused by multigateway query rewriting are
+  not treated as diffs. Genuine multigres-specific output differences are
+  captured as per-module patches under
+  `testdata/pg17/patches/contrib/<module>/`.
+
+Some extensions are intentionally **excluded**: `dblink` and `postgres_fdw`
+(open outbound connections, which the pooler blocks by design),
+`pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
+rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 ### First Run vs Cached Runs
 

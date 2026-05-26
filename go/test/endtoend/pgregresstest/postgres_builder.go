@@ -287,6 +287,294 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	}, multigatewayPort, password)
 }
 
+// DefaultContribModules is the core-contrib extension test set run through
+// multigateway by default. Each entry is a directory under contrib/ whose
+// sql/ + expected/ fixtures pg_regress drives via the module's installcheck
+// target.
+//
+// The set is the most-installed Supabase extensions (MUL-530) that ship a
+// pg_regress suite in the PostgreSQL source tree, ordered by usage. uuid-ossp
+// and pgcrypto need extra ./configure features enabled by the harness when the
+// contrib suite runs (--with-uuid and --with-ssl=openssl respectively; see
+// TestPostgreSQLRegression).
+//
+// Deliberately excluded:
+//   - dblink, postgres_fdw: open outbound database connections, which the
+//     multigateway pooler blocks by design ("not permitted through the
+//     connection pooler"), so their suites can never pass through the gateway.
+//   - pg_stat_statements: its Makefile sets NO_INSTALLCHECK=1 (it is built for
+//     a temp-instance `make check` only), and it records normalized query text
+//     that multigateway rewrites — not testable via this installcheck harness.
+//   - moddatetime (#22 by usage): lives in contrib/spi, which ships no
+//     pg_regress suite (only *.example files).
+//
+// Higher-usage external extensions (supabase_vault, pg_cron, pg_net, vector,
+// pg_graphql, pgsodium, hypopg, http, ...) are not in the PostgreSQL source
+// tree and are tracked separately.
+var DefaultContribModules = []string{
+	"uuid-ossp",
+	"pgcrypto",
+	"pg_trgm",
+	"unaccent",
+	"citext",
+	"btree_gist",
+	"fuzzystrmatch",
+	"btree_gin",
+	"cube",
+	"earthdistance",
+	"hstore",
+	"ltree",
+}
+
+// ContribModules returns the contrib module directories to test. PGCONTRIB_TESTS
+// (space-separated directory names) overrides the default set when set.
+func ContribModules() []string {
+	if v := os.Getenv("PGCONTRIB_TESTS"); v != "" {
+		return strings.Fields(v)
+	}
+	return DefaultContribModules
+}
+
+// RunContribTests runs each contrib module's installcheck suite against
+// multigateway and returns one merged TestResults across all modules.
+//
+// Each module is a separate pg_regress invocation (make -C contrib/<mod>
+// installcheck). As with the core regression suite we pass
+// --use-existing --dbname=postgres because multigateway rejects DROP/CREATE
+// DATABASE. Per-test names are prefixed with the module directory
+// ("citext/citext") so they stay unique in the merged report.
+//
+// All modules share the single postgres database (multigateway can't isolate
+// per-DB), so before each module we reset the public schema directly on the
+// primary (directPgPort) to clear objects/extensions a previous module left
+// behind — otherwise a module's CREATE TYPE/EXTENSION collides with leftovers
+// and its expected output diverges. The reset bypasses multigateway because
+// the gateway rejects schema DDL; the standby picks it up via WAL.
+//
+// A module that produces no parseable output (e.g. a module with no REGRESS
+// tests) is logged and skipped — one module must not abort the rest of the set.
+func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, modules []string, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	// contrib installcheck targets invoke $(top_builddir)/src/test/regress/pg_regress.
+	// Build it up front so a contrib-only run (RUN_PGCONTRIB without RUN_PGREGRESS)
+	// does not fail for a missing pg_regress binary.
+	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
+	if out, err := executil.Command(ctx, "make", "-C", regressDir, "all").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to build pg_regress: %w\n%s", err, truncateForLog(string(out), 2000))
+	}
+
+	merged := &TestResults{
+		FailureDetails: []TestFailure{},
+		Tests:          []IndividualTestResult{},
+	}
+
+	// Replace pg_regress's strict text diff with the patch-based pipeline, which
+	// whitespace-normalizes both sides (so error-cursor caret-position shifts
+	// from multigateway query rewriting are not diffs) and applies per-test
+	// patches for genuine multigres-specific output differences.
+	mode := GetPatchMode()
+
+	for _, mod := range modules {
+		moduleDir := filepath.Join(pb.BuildDir, "contrib", mod)
+		if !fileExists(filepath.Join(moduleDir, "Makefile")) {
+			t.Logf("contrib/%s: no Makefile in build tree, skipping", mod)
+			continue
+		}
+
+		// Clean slate for this module: drop anything a prior module left in
+		// public. Best-effort — log and proceed if it fails, since the run is
+		// still useful (the failure will show up as a diff).
+		if err := resetContribState(directPgPort, password); err != nil {
+			t.Logf("contrib/%s: warning: public schema reset failed: %v", mod, err)
+		}
+
+		t.Logf("Running contrib/%s installcheck against multigateway...", mod)
+		cmd := executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
+			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
+
+		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
+			suiteName: "Contrib/" + mod,
+			outputDir: filepath.Join(pb.OutputDir, "contrib", mod),
+			srcOutDir: moduleDir,
+		}, multigatewayPort, password)
+		if res == nil {
+			// No TAP output: module has no REGRESS tests or the harness failed
+			// to execute. Log and continue so one module can't abort the set.
+			t.Logf("contrib/%s: no test results (%v)", mod, err)
+			continue
+		}
+
+		// Re-evaluate each test's verdict via the patch pipeline (bare names,
+		// before the module prefix is applied below).
+		pb.verifyContribModule(ctx, mod, res, mode)
+
+		for _, tr := range res.Tests {
+			tr.Name = mod + "/" + tr.Name
+			merged.Tests = append(merged.Tests, tr)
+			switch tr.Status {
+			case "fail":
+				merged.FailedTests++
+				detail := tr.FailReason
+				if detail == "" {
+					detail = "see contrib/" + mod + "/regression.diffs"
+				}
+				merged.FailureDetails = append(merged.FailureDetails, TestFailure{
+					TestName: tr.Name,
+					Error:    detail,
+				})
+			case "skip":
+				merged.SkippedTests++
+			default:
+				merged.PassedTests++
+			}
+		}
+		merged.TimedOut = merged.TimedOut || res.TimedOut
+	}
+
+	merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+	return merged, nil
+}
+
+// verifyContribModule re-evaluates each test in a contrib module's results
+// using the patch-based pipeline (see patch_verify.go), replacing pg_regress's
+// strict text verdict. Expected output lives in the source tree
+// (contrib/<mod>/expected); actual output is written by pg_regress into the
+// build tree (contrib/<mod>/results). Patches are per-module
+// (testdata/pg<major>/patches/contrib/<mod>/<test>.patch) so test names that
+// collide across modules (e.g. "init") do not clash.
+//
+// res.Tests carry bare test names here (the module prefix is applied by the
+// caller afterwards). Statuses are updated in place.
+func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, res *TestResults, mode PatchMode) {
+	moduleSrcDir := filepath.Join(pb.SourceDir, "contrib", mod)
+	moduleBuildDir := filepath.Join(pb.BuildDir, "contrib", mod)
+	patchDir := filepath.Join(PatchesDir(), "contrib", mod)
+	repoRoot := findRepoRoot()
+
+	for i := range res.Tests {
+		test := &res.Tests[i]
+		if test.Status == "skip" {
+			continue
+		}
+
+		// PostgreSQL ships alternate expected files (name_1.out, name_2.out, …)
+		// for output that legitimately varies by platform/build — e.g.
+		// citext_utf8_1.out for a C-locale run, or pgcrypto blowfish_1.out for an
+		// OpenSSL build without the legacy cipher provider. pg_regress passes if
+		// actual matches ANY variant; mirror that here before falling back to
+		// patch-based verification, otherwise a canonical-only comparison
+		// manufactures diffs that aren't multigres behavior at all.
+		variants := expectedVariants(moduleSrcDir, test.Name)
+		actPath := filepath.Join(moduleBuildDir, "results", test.Name+".out")
+		if len(variants) == 0 || !fileExists(actPath) {
+			// Test didn't run or expected missing; keep the TAP verdict.
+			test.FailReason = "expected or actual output missing; kept TAP verdict"
+			continue
+		}
+
+		if actualMatchesAnyVariant(actPath, variants) {
+			test.Status = "pass"
+			test.PatchApplied = false
+			test.PatchPath = ""
+			test.FailReason = ""
+			// A patch is unnecessary once a stock variant matches; drop a stale one.
+			if mode == PatchModeGenerate {
+				_ = os.Remove(filepath.Join(patchDir, test.Name+".patch"))
+			}
+			continue
+		}
+
+		// No variant matches: apply (verify) or write (generate) a patch against
+		// the canonical expected file for genuine multigres-specific differences.
+		outcome, err := VerifyTest(ctx, VerifyInput{
+			Name:         test.Name,
+			ExpectedPath: variants[0],
+			ActualPath:   actPath,
+			PatchDir:     patchDir,
+			RepoRoot:     repoRoot,
+		}, mode)
+		if err != nil {
+			test.Status = "fail"
+			test.FailReason = err.Error()
+			continue
+		}
+
+		test.Status = outcome.Status
+		test.PatchApplied = outcome.PatchApplied
+		test.PatchPath = outcome.PatchPath
+		test.FailReason = outcome.Reason
+	}
+}
+
+// expectedVariants returns the expected-output files pg_regress would accept for
+// a test: the canonical <name>.out first, then numbered variants
+// <name>_1.out … <name>_9.out that exist. Mirrors findExpectedFile's search but
+// returns every match rather than only the first.
+func expectedVariants(regressDir, name string) []string {
+	var out []string
+	canonical := filepath.Join(regressDir, "expected", name+".out")
+	if fileExists(canonical) {
+		out = append(out, canonical)
+	}
+	for i := 1; i < 10; i++ {
+		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
+		if fileExists(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// actualMatchesAnyVariant reports whether the actual output equals any expected
+// variant after whitespace normalization (the same canonicalization the patch
+// pipeline uses, so error-cursor caret shifts are not treated as differences).
+func actualMatchesAnyVariant(actPath string, variants []string) bool {
+	actRaw, err := os.ReadFile(actPath)
+	if err != nil {
+		return false
+	}
+	act := normalizeWhitespace(actRaw)
+	for _, v := range variants {
+		expRaw, err := os.ReadFile(v)
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(normalizeWhitespace(expRaw), act) {
+			return true
+		}
+	}
+	return false
+}
+
+// resetContribState drops and recreates the public schema on the primary's
+// PostgreSQL directly (bypassing multigateway, which rejects schema DDL),
+// clearing every object and extension a previous contrib module installed
+// there. Contrib test fixtures assume a clean database; sharing one postgres
+// DB across modules otherwise leaks types/extensions between them.
+func resetContribState(directPgPort int, password string) error {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		directPgPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	stmts := []string{
+		"DROP SCHEMA IF EXISTS public CASCADE",
+		"CREATE SCHEMA public",
+		"GRANT ALL ON SCHEMA public TO public",
+		"GRANT ALL ON SCHEMA public TO postgres",
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec [%s]: %w", stmt, err)
+		}
+	}
+	return nil
+}
+
 // ParseTestResults parses pg_regress TAP output to extract test results.
 // Returns an error if no TAP-formatted lines are found in the output.
 func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error) {
