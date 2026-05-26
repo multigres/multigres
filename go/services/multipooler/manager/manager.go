@@ -1388,19 +1388,24 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 	}
 }
 
-// updateTopologyAfterPromotion updates the pooler type in topology from REPLICA to PRIMARY
+// updateTopologyAfterPromotion updates the pooler type in topology to PRIMARY
+// and transitions the serving state to SERVING.
+//
+// The serving-state transition must always run, even when the topology already
+// reports PRIMARY. That can happen on re-promotion of the same pooler at a
+// higher term: emergencyDemoteLocked left the topology Type=PRIMARY (only
+// stale-primary demote updates topology) but transitioned serving status to
+// NOT_SERVING. Skipping the SetState call left the pooler stuck at
+// PRIMARY/NOT_SERVING, which prevented the multigateway buffer from draining
+// after the failover.
 func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState) error {
-	// Return early if already updated
 	if state.isPrimaryInTopology {
-		pm.logger.InfoContext(ctx, "Topology already updated, skipping")
-		return nil
+		pm.logger.InfoContext(ctx, "Topology type already PRIMARY; ensuring serving status is SERVING")
+	} else {
+		pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
 	}
 
-	pm.logger.InfoContext(ctx, "Topology update needed")
-	pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
-
-	// Use the serving state manager to transition components (query service, heartbeat, health streamer)
-	// and update the multipooler record. The serving status stays SERVING during promotion.
+	// SetState is idempotent — if already at PRIMARY/SERVING it short-circuits.
 	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
