@@ -84,7 +84,6 @@ generate: parser ## Alias for parser.
 # Build Go binaries only (debug, with symbols)
 build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
 		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
@@ -93,7 +92,6 @@ build: ## Build Go binaries (debug, with symbols).
 # Build Go binaries with coverage
 build-coverage:
 	mkdir -p bin/cov/
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (coverage)"; \
 		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
@@ -102,7 +100,6 @@ build-coverage:
 # Build Go binaries only (release, static, stripped)
 build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
 		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
@@ -166,7 +163,6 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 
 # Clean build artifacts
 clean: ## Remove build artifacts and temp files.
-	rm -f go/common/web/templates/css/pico.*
 	go clean -i ./go/...
 	@for cmd in $(CMDS); do \
 		echo "Removing $(BIN_DIR)/$$cmd"; \
