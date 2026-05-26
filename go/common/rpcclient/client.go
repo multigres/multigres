@@ -204,6 +204,9 @@ type MultiPoolerClient interface {
 	// ExpireBackups removes old backups according to retention policy.
 	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
 
+	// VerifyBackups runs pgbackrest verify against the full stanza.
+	VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error)
+
 	//
 	// Manager Service Methods - PostgreSQL Restart Control
 	//
