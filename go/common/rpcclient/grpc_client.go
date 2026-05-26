@@ -69,19 +69,6 @@ func getPoolerAddr(pooler *clustermetadatapb.MultiPooler) string {
 // Consensus Service Methods
 //
 
-// BeginTerm sends a BeginTerm request for leader appointment.
-func (c *Client) BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.BeginTerm(ctx, request)
-}
-
 // Recruit asks a pooler to stop replication participation and record a TermRevocation.
 func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
@@ -121,45 +108,6 @@ func (c *Client) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.
 	return conn.consensusClient.Status(ctx, request)
 }
 
-// EmergencyDemote demotes the current leader server.
-func (c *Client) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.EmergencyDemote(ctx, request)
-}
-
-// DemoteStalePrimary demotes a stale primary that came back after failover.
-func (c *Client) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.DemoteStalePrimary(ctx, request)
-}
-
-// Promote promotes the multipooler to primary.
-func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.Promote(ctx, request)
-}
-
 // UpdateConsensusRule updates the synchronous standby list (quorum membership).
 func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
@@ -171,19 +119,6 @@ func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadat
 	}()
 
 	return conn.consensusClient.UpdateConsensusRule(ctx, request)
-}
-
-// SetPrimaryConnInfo configures the standby's connection to a primary.
-func (c *Client) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.SetPrimaryConnInfo(ctx, request)
 }
 
 // SetTermPrimary tells a pooler about the current primary, gated on position comparison.

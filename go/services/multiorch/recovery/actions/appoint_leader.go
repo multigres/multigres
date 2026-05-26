@@ -85,10 +85,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// need to trigger failover.
 	//
 	// Note: this relies on the resign flow maintaining PoolerType_PRIMARY until
-	// DemoteStalePrimary completes. If a node somehow becomes the consensus leader
-	// while reporting PoolerType_REPLICA (e.g. a crash-restart as standby without
-	// going through the normal resign → appoint → demote flow), this check would
-	// miss it and proceed with an appointment unnecessarily.
+	// the stale-leader demotion completes. If a node somehow becomes the consensus
+	// leader while reporting PoolerType_REPLICA (e.g. a crash-restart as standby
+	// without going through the normal resign → appoint → demote flow), this check
+	// would miss it and proceed with an appointment unnecessarily.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
@@ -112,14 +112,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
 		"cohort_size", len(cohort))
 
-	// Use the coordinator's AppointLeader to handle the election
-	// It will select the most advanced node based on WAL position
-	// and run the full consensus protocol (term discovery, candidate selection,
-	// node recruitment, quorum validation, promotion, and replication setup)
-	//
-	// Use the problem code as the reason for the election
+	// Use the coordinator's AppointLeader to handle the election.
+	// Use the problem code as the reason for the election.
 	reason := string(problem.Code)
-	if err := a.consensus.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 

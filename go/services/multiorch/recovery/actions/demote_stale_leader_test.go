@@ -117,38 +117,9 @@ func TestDemoteStaleLeaderAction_Priority(t *testing.T) {
 // TestDemoteStaleLeaderAction_ExecuteLegacyFlow asserts that with
 // use-new-consensus-flow disabled, Execute routes through the
 // DemoteStalePrimary RPC and forwards the correct-leader contact info + term.
-func TestDemoteStaleLeaderAction_ExecuteLegacyFlow(t *testing.T) {
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-
-	fakeClient := rpcclient.NewFakeClient()
-
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
-
-	cfg := config.NewTestConfig(config.WithUseNewConsensusFlow(false))
-	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
-
-	problem := types.Problem{
-		Code: types.ProblemStaleLeader,
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-		},
-		PoolerID: staleLeaderID,
-	}
-	require.NoError(t, action.Execute(ctx, problem))
-
-	assert.Contains(t, fakeClient.CallLog, "DemoteStalePrimary(multipooler-cell1-stale-leader)")
-	assert.NotContains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-stale-leader)")
-}
-
-// TestDemoteStaleLeaderAction_ExecuteNewFlow asserts that with
-// use-new-consensus-flow enabled, Execute routes through SetTermPrimary and forwards
-// the correct-leader contact info + position.
-func TestDemoteStaleLeaderAction_ExecuteNewFlow(t *testing.T) {
+// TestDemoteStaleLeaderAction_Execute asserts that Execute routes through
+// SetTermPrimary and forwards the correct-leader contact info + position.
+func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
@@ -159,7 +130,7 @@ func TestDemoteStaleLeaderAction_ExecuteNewFlow(t *testing.T) {
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
 
-	cfg := config.NewTestConfig(config.WithUseNewConsensusFlow(true))
+	cfg := config.NewTestConfig()
 	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
@@ -215,7 +186,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 		},
 	})
 
-	cfg := config.NewTestConfig(config.WithUseNewConsensusFlow(true))
+	cfg := config.NewTestConfig()
 	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
 
 	err := action.Execute(ctx, types.Problem{

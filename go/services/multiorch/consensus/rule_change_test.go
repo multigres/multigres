@@ -107,7 +107,7 @@ func newRuleChangeCoordinator(t *testing.T, fc *rpcclient.FakeClient) *Coordinat
 		Cell:      "zone1",
 		Name:      "coord-1",
 	}
-	return NewCoordinator(coordID, ts, fc, logger, false)
+	return NewCoordinator(coordID, ts, fc, logger)
 }
 
 // fixedProposal builds a trivial tryBuildProposal callback that returns a pre-built
