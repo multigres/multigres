@@ -493,6 +493,7 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	t.Helper()
 
 	// Start the process in background with trace context propagation
+	start := time.Now()
 	err := p.Process.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start %s: %w", p.Name, err)
@@ -525,7 +526,7 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p.GrpcPort), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
-			t.Logf("%s started successfully on gRPC port %d (after %d attempts)", p.Name, p.GrpcPort, connectAttempts)
+			t.Logf("%s started successfully on gRPC port %d (after %d attempts, %s)", p.Name, p.GrpcPort, connectAttempts, time.Since(start).Round(time.Millisecond))
 			return nil
 		}
 		if connectAttempts%logInterval == 0 {
@@ -661,7 +662,8 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	deadline := start.Add(timeout)
 	connectAttempts := 0
 	for time.Now().Before(deadline) {
 		connectAttempts++
@@ -669,7 +671,7 @@ func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Dura
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
-			t.Logf("%s ready on gRPC port %d (after %d attempts)", name, grpcPort, connectAttempts)
+			t.Logf("%s ready on gRPC port %d (after %d attempts, %s)", name, grpcPort, connectAttempts, time.Since(start).Round(time.Millisecond))
 			return nil
 		}
 		if connectAttempts%10 == 0 {
