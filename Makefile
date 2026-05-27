@@ -159,6 +159,33 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
 	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
+# Path to the supabase/postgres checkout. Override with SUPABASE_POSTGRES_DIR=... if needed.
+SUPABASE_POSTGRES_DIR ?= $(HOME)/repos/supabase/postgres
+
+docker-supabase-postgres: ## Build the supabase Postgres base image from Dockerfile-17.
+	docker build \
+	  -f $(SUPABASE_POSTGRES_DIR)/Dockerfile-17 \
+	  -t supabase-postgres:local \
+	  $(SUPABASE_POSTGRES_DIR)
+
+docker-supabase-postgres-test: docker-supabase-postgres ## Build the integration test runner image (supabase Postgres + Go + etcd).
+	docker build \
+	  -f Dockerfile.integration-test \
+	  --build-arg SUPABASE_IMAGE=supabase-postgres:local \
+	  -t supabase-postgres-test:local \
+	  .
+
+test-integration-supabase: docker-supabase-postgres-test ## Run integration tests inside the supabase Postgres container.
+	docker run --rm \
+	  --name multigres-integration-test \
+	  -v $(CURDIR):/multigres \
+	  -v /tmp/go-cache:/home/postgres/.cache \
+	  -w /multigres \
+	  -e TEST_PRINT_LOGS=1 \
+	  -e AWS_ACCESS_KEY_ID=test-access-key \
+	  -e AWS_SECRET_ACCESS_KEY=test-secret-key \
+	  supabase-postgres-test:local
+
 ##@ Maintenance
 
 # Clean build artifacts
