@@ -24,6 +24,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend/testconst"
+
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -111,7 +113,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 			return false
 		}
 		return resp.Status != nil && resp.Status.PostgresReady
-	}, 30*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
+	}, testconst.ManagerStartTimeout, 100*time.Millisecond, "Manager should become ready within %s", testconst.ManagerStartTimeout)
 
 	t.Logf("Manager %s is ready", manager.Name)
 }
