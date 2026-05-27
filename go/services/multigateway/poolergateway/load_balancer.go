@@ -267,31 +267,20 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 		return conn, nil
 	}
 
-	// REPLICA: collect every connection in the shard except the consensus-
-	// confirmed leader. A confirmed leader has term >= 1 from a real
-	// LeaderObservation; the cold-start topology seed (term 0) is ignored
-	// here so a pooler that has since transitioned to Type=REPLICA in
-	// topology can still be selected as a replica candidate.
+	// REPLICA: collect every connection eligible to serve reads in the shard.
+	// A consensus-confirmed leader (term >= 1) is excluded by ID; the
+	// cold-start topology seed (term 0) is treated as if no leader is known
+	// yet, so a pooler that has since transitioned to Type=REPLICA can still
+	// be selected.
 	confirmedLeaderID := ""
 	if leaderObs != nil && leaderObs.LeaderTerm > 0 {
 		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
 	}
 	var candidates []*PoolerConnection
 	for id, conn := range lb.connections {
-		if !matchesShardTarget(conn, target) {
-			continue
+		if matchesReplicaTarget(id, conn, target, confirmedLeaderID) {
+			candidates = append(candidates, conn)
 		}
-		if confirmedLeaderID != "" {
-			if id == confirmedLeaderID {
-				continue
-			}
-		} else if conn.Type() != clustermetadatapb.PoolerType_REPLICA {
-			// No confirmed leader yet. Fall back to topology Type so we don't
-			// accidentally serve reads from a pooler that may turn out to be
-			// the leader.
-			continue
-		}
-		candidates = append(candidates, conn)
 	}
 
 	if len(candidates) == 0 {
@@ -544,6 +533,21 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 	}
 
 	return true
+}
+
+// matchesReplicaTarget reports whether conn is eligible to serve REPLICA
+// traffic for target. With a consensus-confirmed leader, eligibility is
+// "in the shard and not the leader." With no confirmed leader yet (cold
+// start), fall back to topology Type==REPLICA so we don't accidentally
+// serve reads from a pooler that may turn out to be the leader.
+func matchesReplicaTarget(id string, conn *PoolerConnection, target *query.Target, confirmedLeaderID string) bool {
+	if !matchesShardTarget(conn, target) {
+		return false
+	}
+	if confirmedLeaderID != "" {
+		return id != confirmedLeaderID
+	}
+	return conn.Type() == clustermetadatapb.PoolerType_REPLICA
 }
 
 // poolerIDString returns the string ID for a pooler.
