@@ -87,9 +87,23 @@ func (c *MultipoolerClient) Close() error {
 	return nil
 }
 
+// TimedEventually is require.Eventually that also records elapsed time to tc.
+// tc may be nil, in which case timing is not recorded.
+func TimedEventually(t *testing.T, tc *TimingCollector, label string,
+	condition func() bool, waitFor, tick time.Duration, msgAndArgs ...any,
+) {
+	t.Helper()
+	start := time.Now()
+	require.Eventually(t, condition, waitFor, tick, msgAndArgs...)
+	if tc != nil {
+		tc.Record(label, time.Since(start), waitFor)
+	}
+}
+
 // WaitForManagerReady waits for the manager to be in ready state.
 // Follows the pattern from multipooler/setup_test.go:waitForManagerReady.
-func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
+// Elapsed time is recorded to tc when tc is non-nil.
+func WaitForManagerReady(t *testing.T, manager *ProcessInstance, tc *TimingCollector) {
 	t.Helper()
 
 	// Connect to the manager
@@ -103,8 +117,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 
 	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	// Use require.Eventually to wait for manager to be ready
-	require.Eventually(t, func() bool {
+	TimedEventually(t, tc, "manager ready: "+manager.Name, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 

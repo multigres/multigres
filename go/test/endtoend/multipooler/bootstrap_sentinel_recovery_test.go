@@ -101,7 +101,7 @@ func TestBootstrapSentinelCrashRecovery(t *testing.T) {
 			// Start the multipooler. Its first monitor tick should detect the sentinel,
 			// remove any stale pg_data, run a fresh initdb, and complete the first backup.
 			require.NoError(t, inst.Multipooler.Start(t.Context(), t))
-			shardsetup.WaitForManagerReady(t, inst.Multipooler)
+			shardsetup.WaitForManagerReady(t, inst.Multipooler, nil)
 
 			// Poll GetBackups until at least one COMPLETE backup appears.
 			backupClient := createBackupClient(t, inst.Multipooler.GrpcPort)
