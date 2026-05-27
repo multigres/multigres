@@ -390,17 +390,29 @@ func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...
 	return err
 }
 
-// Open opens the database connections and starts background operations.
-// This operation is infallible - if connection pools fail to open, queries will fail
-// gracefully at query time rather than preventing the manager from opening.
-// Open is idempotent and safe to call multiple times.
+// Open opens the database connections and starts background operations, then
+// transitions the pooler to SERVING. This is the entry point for first-time
+// startup; resume-from-Pause goes through openLocked directly so it can
+// restore the pre-Pause serving state rather than blindly setting SERVING.
 //
-// ctx must carry an action lock. The Open path performs a state transition
-// (NOT_SERVING → SERVING) that publishes through pm.record.Mutate, which
-// asserts the lock. Callers: pm.Start acquires its own lock at startup; the
-// resume function returned by pm.Pause captures the caller's lock so it can
-// be passed back here.
+// This operation is infallible — if connection pools fail to open, queries
+// will fail gracefully at query time rather than preventing the manager
+// from opening. Open is idempotent and safe to call multiple times.
+//
+// ctx must carry an action lock. The state transition publishes through
+// pm.record.Mutate, which asserts the lock.
 func (pm *MultiPoolerManager) Open(ctx context.Context) {
+	pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
+}
+
+// openLocked is the shared implementation of Open and Pause's resume. It
+// brings up connections and background goroutines, then transitions to the
+// caller-supplied target serving status. Open uses SERVING; resume passes
+// the serving status that was current immediately before the Pause so the
+// pre-Pause state is restored faithfully (important for stale-primary
+// demote, which Pauses while the pooler is intentionally NOT_SERVING and
+// must not be flipped back to SERVING by resume).
+func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatus clustermetadatapb.PoolerServingStatus) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.isOpen {
@@ -435,13 +447,13 @@ func (pm *MultiPoolerManager) Open(ctx context.Context) {
 
 	pm.isOpen = true
 
-	// Start health heartbeat goroutine and transition to SERVING.
-	// SetState notifies all components (query service, heartbeat, health streamer)
-	// and Mutates the record. The publisher (if running, started by
-	// StartTopoRegistration) picks it up and writes to etcd.
+	// Start health heartbeat goroutine and transition to the target status.
+	// SetState notifies all components (query service, heartbeat, health
+	// streamer) and Mutates the record. The publisher (if running, started
+	// by StartTopoRegistration) picks it up and writes to etcd.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to transition to SERVING on open", "error", err)
+	if err := pm.servingState.SetState(ctx, pm.record.Type(), targetServingStatus); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
 }
 
@@ -463,14 +475,22 @@ func (pm *MultiPoolerManager) Open(ctx context.Context) {
 // carry an action lock (typically the same handler's lock — it does not
 // have to be the same context value, but the lock must still be held).
 //
-// Note: Pause() cancels the manager's context, but Open() creates a fresh one.
+// Pause records the serving status at the time of the call and resume
+// restores it. This matters during stale-primary demote, which Pauses
+// while the pooler is intentionally NOT_SERVING: a hard-coded
+// "resume → SERVING" would publish a transient (PRIMARY, SERVING) to etcd
+// between the Pause and the subsequent ChangeType to REPLICA, which the
+// gateway would briefly cache as the new primary.
+//
+// Note: Pause() cancels the manager's context, but openLocked creates a fresh one.
 func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Context)) {
+	preServingStatus := pm.record.ServingStatus()
 	if !pm.closeLocked(ctx, "paused") {
 		pm.logger.ErrorContext(ctx, "MultiPoolerManager: Pause() called on already-closed manager")
 	}
 
 	return func(resumeCtx context.Context) {
-		pm.Open(resumeCtx)
+		pm.openLocked(resumeCtx, preServingStatus)
 	}
 }
 
