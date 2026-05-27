@@ -97,6 +97,31 @@ func TestExtractBootstrapCredentials_PartialOverridesFallToDefault(t *testing.T)
 	}, got)
 }
 
+func TestExtractBootstrapCredentials_NoCredentialsInConfig(t *testing.T) {
+	// Cells exist but neither the pgctld nor multipooler entries are
+	// present (or they have the wrong shape), so no credential fields are
+	// resolved. extractBootstrapCredentials should fall back to the
+	// defaults for every field rather than returning a partial/empty
+	// record. This catches a regression where, e.g., a future refactor
+	// makes the function return a zero-valued struct when nothing matches.
+	provConfig := map[string]any{
+		"cells": map[string]any{
+			"zone1": map[string]any{
+				// no pgctld, no multipooler — also covers the case where
+				// they exist but aren't maps:
+				"pgctld":      "wrong-type",
+				"multipooler": 42,
+			},
+		},
+	}
+	got := extractBootstrapCredentials(provConfig)
+	assert.Equal(t, bootstrapCredentials{
+		user:     defaultPostgresUser,
+		password: defaultPostgresPassword,
+		database: defaultPostgresDatabase,
+	}, got)
+}
+
 func TestWaitForGatewaysReady_AllReadyImmediately(t *testing.T) {
 	probe := func(_ context.Context, _ string, _ int) error { return nil }
 	gws := []gatewayEndpoint{
