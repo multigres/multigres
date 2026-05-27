@@ -874,6 +874,14 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	patchURLPrefix := githubBlobURLPrefix()
 
 	for _, s := range suites {
+		// The contrib suite's per-test detail is rendered by the richer
+		// Extension Coverage table below (it carries the same per-test results
+		// plus catalog context), so skip the generic per-test section here. The
+		// contrib badge above is still shown.
+		if s.Name == "Contrib Extension Tests" {
+			continue
+		}
+
 		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
 
 		if s.Results.TimedOut {
