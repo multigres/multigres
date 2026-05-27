@@ -25,6 +25,10 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 SQLLOGICTEST_VER = v0.29.1
 export SQLLOGICTEST_VER
+# pgproto ships no release binaries; we build from a pinned source commit.
+# PGPROTO_VER is therefore a git commit SHA, not a semver tag.
+PGPROTO_VER = fa08c9c96df9ca514cd19aa7f587e27c7ac63160
+export PGPROTO_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
