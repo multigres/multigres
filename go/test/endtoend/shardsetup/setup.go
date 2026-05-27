@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -1656,6 +1657,15 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 4. Start pgctld + multipooler for all nodes
 	for name, inst := range s.Multipoolers {
+		// Immediate shutdown (step 3) is best-effort and returns before the OS
+		// has released the postmaster's listen socket — under CI load the old
+		// postmaster can still own the pg-port when we get here. Restarting now
+		// makes the new postmaster fail to bind ("could not create any TCP/IP
+		// sockets: address already in use"), so it never reaches PostgresReady
+		// and WaitForManagerReady times out with an opaque error. Wait for the
+		// port to actually free first.
+		waitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
+
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
 		}
@@ -1689,6 +1699,32 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
+// waitForPortFree blocks until no process is listening on localhost:port, or
+// the timeout elapses. It is used between stopping postgres and restarting it
+// on the same port during ReinitializeCluster, so the new postmaster can bind.
+//
+// A successful net.Listen means the port is free (an active listener on the
+// same port — e.g. a not-yet-exited postmaster — makes Listen fail even with
+// SO_REUSEADDR). If the port never frees we log and return rather than fail
+// here; the subsequent start surfaces a precise bind error.
+func waitForPortFree(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	addr := fmt.Sprintf(":%d", port)
+	deadline := time.Now().Add(timeout)
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			_ = ln.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Logf("ReinitializeCluster: warning: port %d still in use after %s (%v); proceeding anyway", port, timeout, err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // wipeTopologyForReinit removes the etcd keys that would otherwise carry
