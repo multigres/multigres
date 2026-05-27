@@ -292,39 +292,13 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 // sql/ + expected/ fixtures pg_regress drives via the module's installcheck
 // target.
 //
-// The set is the most-installed Supabase extensions (MUL-530) that ship a
-// pg_regress suite in the PostgreSQL source tree, ordered by usage. uuid-ossp
+// It is derived from ExtensionCatalog (every StatusCovered entry), which is the
+// single source of truth for coverage state and the rationale behind each
+// extension's status (covered / pending / unsupported / external). uuid-ossp
 // and pgcrypto need extra ./configure features enabled by the harness when the
-// contrib suite runs (--with-uuid and --with-ssl=openssl respectively; see
-// TestPostgreSQLRegression).
-//
-// Deliberately excluded:
-//   - dblink, postgres_fdw: open outbound database connections, which the
-//     multigateway pooler blocks by design ("not permitted through the
-//     connection pooler"), so their suites can never pass through the gateway.
-//   - pg_stat_statements: its Makefile sets NO_INSTALLCHECK=1 (it is built for
-//     a temp-instance `make check` only), and it records normalized query text
-//     that multigateway rewrites — not testable via this installcheck harness.
-//   - moddatetime (#22 by usage): lives in contrib/spi, which ships no
-//     pg_regress suite (only *.example files).
-//
-// Higher-usage external extensions (supabase_vault, pg_cron, pg_net, vector,
-// pg_graphql, pgsodium, hypopg, http, ...) are not in the PostgreSQL source
-// tree and are tracked separately.
-var DefaultContribModules = []string{
-	"uuid-ossp",
-	"pgcrypto",
-	"pg_trgm",
-	"unaccent",
-	"citext",
-	"btree_gist",
-	"fuzzystrmatch",
-	"btree_gin",
-	"cube",
-	"earthdistance",
-	"hstore",
-	"ltree",
-}
+// contrib suite runs (--with-uuid and --with-ssl=openssl; see
+// TestPostgreSQLRegression). See extensions.go.
+var DefaultContribModules = CoveredContribModules()
 
 // ContribModules returns the contrib module directories to test. PGCONTRIB_TESTS
 // (space-separated directory names) overrides the default set when set.
@@ -937,6 +911,17 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			fmt.Fprintf(&sb, "| %d | %s | %s | %s | %s |\n", i+1, test.Name, status, patchCell, duration)
 		}
 		sb.WriteString("\n")
+	}
+
+	// Extension coverage map: the full catalog (covered / pending / unsupported
+	// / external) merged with this run's per-test contrib results. Rendered
+	// whenever a contrib suite ran so the report doubles as the living coverage
+	// tracker (see extensions.go).
+	for _, s := range suites {
+		if s.Name == "Contrib Extension Tests" {
+			sb.WriteString(ExtensionCoverageMarkdown(s.Results))
+			break
+		}
 	}
 
 	summary := sb.String()

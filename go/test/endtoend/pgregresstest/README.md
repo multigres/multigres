@@ -115,6 +115,22 @@ Some extensions are intentionally **excluded**: `dblink` and `postgres_fdw`
 `pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
 rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
+### Coverage map
+
+`extensions.go` holds `ExtensionCatalog` — the authoritative list of every
+extension in the target fleet (`pg_available_extensions`) with its kind
+(contrib / external) and coverage status (covered / pending / unsupported /
+external, each with a reason). `DefaultContribModules` is **derived** from it
+(the `covered` entries), so enrolling a new extension is a one-line catalog
+edit.
+
+Every compatibility report includes a generated **Extension Coverage** table
+(`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
+results: covered extensions expand to one row per sub-test with the live
+pass/fail, while pending/unsupported/external extensions show a single row with
+the reason. The table is the living coverage tracker — it updates automatically
+as catalog entries move to `covered` and their suites run.
+
 ### First Run vs Cached Runs
 
 **First run** (no cache):
