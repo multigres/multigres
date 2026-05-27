@@ -2296,7 +2296,7 @@ func (i *IntoClause) TargetString() string {
 		var colNames []string
 		for _, item := range i.ColNames.Items {
 			if str, ok := item.(*String); ok {
-				colNames = append(colNames, str.SVal)
+				colNames = append(colNames, QuoteIdentifier(str.SVal))
 			}
 		}
 		if len(colNames) > 0 {

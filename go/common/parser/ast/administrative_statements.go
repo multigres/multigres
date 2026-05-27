@@ -1094,7 +1094,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 		var funcNames []string
 		for _, item := range cts.Funcname.Items {
 			if str, ok := item.(*String); ok {
-				funcNames = append(funcNames, str.SVal)
+				funcNames = append(funcNames, QuoteIdentifier(str.SVal))
 			}
 		}
 		funcNameStr := strings.Join(funcNames, ".")

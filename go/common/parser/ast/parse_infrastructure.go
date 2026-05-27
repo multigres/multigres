@@ -173,11 +173,13 @@ func (a *A_Expr) SqlString() string {
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
-			// This is a qualified operator - format as OPERATOR(schema.op)
+			// This is a qualified operator - format as OPERATOR(schema.op).
+			// The leading parts are schema identifiers (quote them); the final
+			// part is the operator symbol (emit verbatim).
 			var parts []string
 			for _, item := range a.Name.Items {
 				if str, ok := item.(*String); ok {
-					parts = append(parts, str.SVal)
+					parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
 				} else {
 					parts = append(parts, item.String())
 				}
@@ -1140,7 +1142,7 @@ func (a *A_Indirection) SqlString() string {
 			case *String:
 				// Field access: obj.field
 				result.WriteString(".")
-				result.WriteString(indNode.SVal)
+				result.WriteString(QuoteIdentifier(indNode.SVal))
 			case *A_Indices:
 				// Array subscript: obj[index] or obj[lower:upper]
 				result.WriteString(indNode.SqlString())
@@ -2217,7 +2219,9 @@ func (o *ObjectWithArgs) SqlString() string {
 		var names []string
 		for _, item := range o.Objname.Items {
 			if str, ok := item.(*String); ok {
-				names = append(names, str.SVal)
+				// Objname may name a function/type (identifier, quote it) or an
+				// operator (symbol, emit verbatim).
+				names = append(names, QuoteIdentifierOrOperator(str.SVal))
 			}
 		}
 		if len(names) > 0 {

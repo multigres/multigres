@@ -1153,18 +1153,18 @@ func (d *DefElem) SqlStringForFunction() string {
 		}
 	case "support":
 		if d.Arg != nil {
-			// For SUPPORT, we want the unquoted function name
+			// SUPPORT names a function (qualified identifier), which must be quoted.
 			if nodeList, ok := d.Arg.(*NodeList); ok && nodeList.Len() > 0 {
 				// Handle qualified names like schema.func_name
 				nameStrs := make([]string, 0, nodeList.Len())
 				for i := 0; i < nodeList.Len(); i++ {
 					if strNode, ok := nodeList.Items[i].(*String); ok {
-						nameStrs = append(nameStrs, strNode.SVal)
+						nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 					}
 				}
 				return "SUPPORT " + strings.Join(nameStrs, ".")
 			} else if strNode, ok := d.Arg.(*String); ok {
-				return "SUPPORT " + strNode.SVal
+				return "SUPPORT " + QuoteIdentifier(strNode.SVal)
 			} else {
 				return "SUPPORT " + d.Arg.SqlString()
 			}
@@ -2572,7 +2572,7 @@ func (i *IndexElem) SqlString() string {
 		var opclassParts []string
 		for _, item := range i.Opclass.Items {
 			if strNode, ok := item.(*String); ok {
-				opclassParts = append(opclassParts, strNode.SVal)
+				opclassParts = append(opclassParts, QuoteIdentifier(strNode.SVal))
 			} else if item != nil {
 				opclassParts = append(opclassParts, item.SqlString())
 			}
@@ -2694,7 +2694,7 @@ func (v *ViewStmt) SqlString() string {
 		var aliasStrs []string
 		for _, item := range v.Aliases.Items {
 			if alias, ok := item.(*String); ok {
-				aliasStrs = append(aliasStrs, alias.SVal)
+				aliasStrs = append(aliasStrs, QuoteIdentifier(alias.SVal))
 			}
 		}
 		if len(aliasStrs) > 0 {
@@ -2783,7 +2783,7 @@ func (a *AlterDomainStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range a.TypeName.Items {
 			if str, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, str.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2875,7 +2875,7 @@ func (c *CreateDomainStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range c.Domainname.Items {
 			if str, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, str.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -3482,7 +3482,7 @@ func (c *CreateFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
@@ -3497,7 +3497,7 @@ func (c *CreateFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
@@ -3577,7 +3577,7 @@ func (a *AlterFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
@@ -3595,7 +3595,7 @@ func (a *AlterFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
@@ -3919,7 +3919,7 @@ func (c *CreateEventTrigStmt) SqlString() string {
 		var funcParts []string
 		for _, item := range c.FuncName.Items {
 			if strNode, ok := item.(*String); ok {
-				funcParts = append(funcParts, strNode.SVal)
+				funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(funcParts, ".")+"()")

@@ -612,6 +612,13 @@ func collectNonIdentifierStrings(stmt ast.Stmt, skip map[*ast.String]bool) {
 			if isBuiltinTypeNameList(n.Names) || isPgCatalogQualified(n.Names) {
 				add(n.Names)
 			}
+		case *ast.VariableSetStmt:
+			// SET XML OPTION { DOCUMENT | CONTENT } stores its value as a bare
+			// keyword String that the deparser emits verbatim (uppercased), not as
+			// a quotable identifier — so mangling it would be a false positive.
+			if n.Name == "xmloption" {
+				add(n.Args)
+			}
 		}
 		return true
 	}, nil)
@@ -681,14 +688,11 @@ func rewriteIdentifiers(stmt ast.Stmt) ast.Stmt {
 // concern of TestParseDeparseRoundtrip. This catches quoting bugs that the plain
 // round-trip test (which never sees an identifier needing quotes) cannot.
 //
-// WORK IN PROGRESS / KNOWN FAILING: the rewriter captures identifiers generically
-// (every simple-identifier *String node plus the structural Go-string fields),
-// which surfaces a large backlog of pre-existing deparser quoting bugs across the
-// DDL deparse paths (CREATE FUNCTION/TRIGGER/DOMAIN/AGGREGATE/INDEX/OPERATOR ...,
-// qualified function names, field indirection, access-method names). These are
-// being fixed incrementally; until then this test is expected to fail, and every
-// failure it reports is a genuine deparser bug to fix. As paths are fixed the
-// failure count should only shrink — a new failure means a regression.
+// The rewriter captures identifiers generically (every simple-identifier *String
+// node plus the structural Go-string fields), so this guards every deparse path
+// reached by the corpus against forgetting to quote an identifier. A new failure
+// means a deparse path emits an identifier (or qualified name part) raw instead of
+// through QuoteIdentifier.
 func (s *parseTestSuite) TestParseIdentifierRewriteRoundtrip() {
 	s.identifierRewriteFile("select_cases.json")
 	s.identifierRewriteFile("misc_cases.json")

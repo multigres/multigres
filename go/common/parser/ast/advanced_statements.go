@@ -1106,7 +1106,7 @@ func formatRenameObjectName(renameType ObjectType, object Node) string {
 				name = nodeList.Items[1].SqlString()
 			}
 			if str, ok := nodeList.Items[0].(*String); ok {
-				method = str.SVal
+				method = QuoteIdentifier(str.SVal)
 			} else {
 				method = nodeList.Items[0].SqlString()
 			}
@@ -1352,7 +1352,7 @@ func (n *AlterOwnerStmt) SqlString() string {
 				if nodeList.Len() >= 2 {
 					methodStr := ""
 					if str, ok := nodeList.Items[0].(*String); ok {
-						methodStr = str.SVal
+						methodStr = QuoteIdentifier(str.SVal)
 					} else {
 						methodStr = nodeList.Items[0].SqlString()
 					}
