@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/version"
 	serviceinfopb "github.com/multigres/multigres/go/pb/serviceinfo"
 )
 
@@ -31,15 +32,16 @@ type serviceInfoServer struct {
 }
 
 func (s *serviceInfoServer) GetBuildInfo(_ context.Context, _ *serviceinfopb.GetBuildInfoRequest) (*serviceinfopb.GetBuildInfoResponse, error) {
-	snap := readBuildSnapshot()
+	snap := version.Read()
 	bi := &serviceinfopb.BuildInfo{
-		Revision:  snap.revision,
-		Modified:  snap.modified,
-		GoVersion: snap.goVersion,
-		MainPath:  snap.mainPath,
+		Version:   version.Version,
+		Revision:  snap.Revision,
+		Modified:  snap.Modified,
+		GoVersion: snap.GoVersion,
+		MainPath:  snap.MainPath,
 	}
-	if !snap.commitTime.IsZero() {
-		bi.CommitTime = timestamppb.New(snap.commitTime)
+	if !snap.CommitTime.IsZero() {
+		bi.CommitTime = timestamppb.New(snap.CommitTime)
 	}
 	return &serviceinfopb.GetBuildInfoResponse{BuildInfo: bi}, nil
 }
