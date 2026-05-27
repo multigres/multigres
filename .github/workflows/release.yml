@@ -313,7 +313,7 @@ jobs:
             done
           done
 
-          shasum -a 256 -c dist/checksums.txt
+          (cd dist && shasum -a 256 -c checksums.txt)
 
           mkdir -p release-artifacts
           for artifact in "${archives[@]}" "${checksums[@]}"; do
