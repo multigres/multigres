@@ -35,7 +35,24 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser help
+# Release tag injected at build time via -ldflags -X. For normal builds
+# the commit SHA and commit time come from runtime/debug.BuildInfo (Go's
+# -buildvcs). COMMIT and DATE are link-time overrides used when BuildInfo
+# is unavailable.All overridable from the environment so release/Docker 
+# pipelines can pass specific values.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?=
+DATE ?=
+VERSION_PKG := github.com/multigres/multigres/go/common/version
+LDFLAGS_VERSION := -X $(VERSION_PKG).Version=$(VERSION)
+ifneq ($(COMMIT),)
+LDFLAGS_VERSION += -X $(VERSION_PKG).revisionOverride=$(COMMIT)
+endif
+ifneq ($(DATE),)
+LDFLAGS_VERSION += -X $(VERSION_PKG).commitTimeOverride=$(DATE)
+endif
+
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
 
 ##@ General
 
@@ -91,7 +108,7 @@ build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
-		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+		go build -ldflags="$(LDFLAGS_VERSION)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries with coverage
@@ -99,7 +116,7 @@ build-coverage:
 	mkdir -p bin/cov/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (coverage)"; \
-		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
+		go build -cover -covermode=atomic -coverpkg=./... -ldflags="$(LDFLAGS_VERSION)" -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries only (release, static, stripped)
@@ -107,7 +124,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
-		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+		CGO_ENABLED=0 go build -ldflags="-w -s $(LDFLAGS_VERSION)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)
@@ -125,7 +142,7 @@ images:
 install: ## Install binaries to GOPATH/bin.
 	@for cmd in $(CMDS); do \
 		echo "Installing $$cmd"; \
-		go install ./go/cmd/$$cmd; \
+		go install -ldflags="$(LDFLAGS_VERSION)" ./go/cmd/$$cmd; \
 	done
 
 ##@ Testing

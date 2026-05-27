@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgsecret"
 	"github.com/multigres/multigres/go/common/servenv"
+	versionpkg "github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -156,8 +157,9 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	var span trace.Span
 
 	root := &cobra.Command{
-		Use:   constants.ServicePgctld,
-		Short: "PostgreSQL control daemon for Multigres",
+		Use:     constants.ServicePgctld,
+		Version: versionpkg.String(constants.ServicePgctld),
+		Short:   "PostgreSQL control daemon for Multigres",
 		Long: `pgctld manages PostgreSQL server instances within the Multigres cluster.
 It provides lifecycle management including start, stop, restart, and configuration
 management for PostgreSQL servers.`,
@@ -188,6 +190,8 @@ management for PostgreSQL servers.`,
 			return nil
 		},
 	}
+
+	root.SetVersionTemplate("{{.Version}}\n")
 
 	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username (overrides "+constants.PgUserEnvVar+" env var)")

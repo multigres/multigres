@@ -120,6 +120,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # Full history + tags so the commit timestamp below resolves.
+          fetch-depth: 0
 
       - name: Set release image tags
         env:
@@ -138,6 +140,7 @@ jobs:
             echo "RELEASE_TAG=$image_tag"
             echo "PUSH_IMAGE=true"
             echo "IMAGE_REF=ghcr.io/${REPOSITORY_OWNER}/${IMAGE}"
+            echo "COMMIT_DATE=$(git show -s --format=%cI "${GITHUB_SHA}")"
           } >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
@@ -165,6 +168,10 @@ jobs:
           tags: ${{ env.IMAGE_REF }}:${{ env.RELEASE_TAG }}
           provenance: mode=max
           sbom: true
+          build-args: |
+            VERSION=${{ env.RELEASE_TAG }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ env.COMMIT_DATE }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/services/multigateway"
 
 	"github.com/spf13/cobra"
@@ -32,10 +33,11 @@ func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 	mg := multigateway.NewMultiGateway()
 
 	cmd := &cobra.Command{
-		Use:   constants.ServiceMultigateway,
-		Short: "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
-		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
-		Args:  cobra.NoArgs,
+		Use:     constants.ServiceMultigateway,
+		Short:   "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
+		Long:    "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
+		Args:    cobra.NoArgs,
+		Version: version.String(constants.ServiceMultigateway),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return mg.CobraPreRunE(cmd)
 		},
@@ -43,6 +45,7 @@ func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 			return run(cmd.Context(), mg)
 		},
 	}
+	cmd.SetVersionTemplate("{{.Version}}\n")
 
 	mg.RegisterFlags(cmd.Flags())
 
