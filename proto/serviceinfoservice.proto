@@ -39,8 +39,9 @@ message GetBuildInfoResponse {
 }
 
 // BuildInfo describes the source revision and build settings of the
-// running binary. Fields are populated from runtime/debug.BuildInfo,
-// which Go injects automatically when -buildvcs is true (the default).
+// running binary. VCS fields are populated from BuildInfo
+// (auto-embedded by Go when -buildvcs is true, the default), the
+// release version is injected at link time via -ldflags.
 message BuildInfo {
   // revision is the VCS commit SHA (e.g. "60c52835c693523...").
   // Empty if the binary was built outside a VCS or with -buildvcs=false.
@@ -64,4 +65,8 @@ message BuildInfo {
   // which binary is responding when callers proxy through a discovery
   // layer.
   string main_path = 5;
+
+  // version is the release tag (e.g. "v0.1.0") injected at link time
+  // via -ldflags. "dev" for builds without an injected tag.
+  string version = 6;
 }

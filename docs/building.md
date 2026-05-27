@@ -69,6 +69,43 @@ This starts a multigres cluster. To stop:
 multigres cluster stop
 ```
 
+## Version Metadata
+
+Main service/CLI binaries report build metadata via `--version`:
+
+```bash
+multigateway --version
+# multigateway
+#   version:   v0.1.0
+#   commit:    60c52835c693523b...
+#   committed: 2026-05-27T15:34:04Z
+#   go:        go1.25.0
+#   platform:  linux/amd64
+```
+
+Only the release tag is injected manually, via this `ldflags` `-X` symbol:
+
+- `github.com/multigres/multigres/go/common/version.Version`
+
+The commit SHA, commit timestamp, and Go toolchain come from
+`runtime/debug.BuildInfo`, which the Go toolchain populates
+automatically when `-buildvcs` is true (the default). The same metadata
+is exposed at runtime through the HTTP `/version` endpoint, the gRPC
+`ServiceInfo.GetBuildInfo` RPC, and the OTel `service.version`
+resource attribute.
+
+`make build` and `make build-release` derive `VERSION` from `git
+describe`. Override via environment:
+
+```bash
+make build-release VERSION=v0.1.0
+```
+
+Release builds (GoReleaser) inject `{{.Version}}` from the release tag.
+Container images expose `VERSION`/`COMMIT`/`DATE` as
+`org.opencontainers.image.version`, `.revision`, and `.created` labels
+for offline inspection via `docker inspect`.
+
 ## Testing
 
 To run all tests:

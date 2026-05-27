@@ -33,6 +33,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -64,6 +65,15 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
+      - name: Compute build metadata
+        id: buildmeta
+        run: |
+          {
+            echo "version=$(git describe --tags --always --dirty)"
+            echo "commit=${GITHUB_SHA}"
+            echo "date=$(git show -s --format=%cI "${GITHUB_SHA}")"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push cluster Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
@@ -72,6 +82,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.buildmeta.outputs.version }}
+            COMMIT=${{ steps.buildmeta.outputs.commit }}
+            DATE=${{ steps.buildmeta.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64

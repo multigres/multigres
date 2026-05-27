@@ -15,13 +15,27 @@ RUN apk add --no-cache git make bash
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Release metadata injected into binaries via the Makefile's -ldflags.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 COPY . .
-RUN make build-release
+RUN make build-release VERSION=$VERSION COMMIT=$COMMIT DATE=$DATE
 
 # =========================================================================
 # Stage 2: Final PostgreSQL + pgctld
 # =========================================================================
 FROM postgres:17.7
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
+LABEL org.opencontainers.image.version="$VERSION"
+LABEL org.opencontainers.image.revision="$COMMIT"
+LABEL org.opencontainers.image.created="$DATE"
 
 # Install pgBackRest from PostgreSQL APT repository and procps
 RUN apt-get update && \

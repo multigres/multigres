@@ -17,18 +17,30 @@ RUN apk add --no-cache git make bash
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Release metadata injected into binaries via the Makefile's -ldflags.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 # Copy source and build static binaries using Makefile
 COPY . .
-RUN make build-release
+RUN make build-release VERSION=$VERSION COMMIT=$COMMIT DATE=$DATE
 
 # =========================================================================
 # Stage 2: The Final Production Stage
 # =========================================================================
 FROM debian:bookworm-slim
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
 LABEL org.opencontainers.image.description="A single container image containing all Multigres components."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.version="$VERSION"
+LABEL org.opencontainers.image.revision="$COMMIT"
+LABEL org.opencontainers.image.created="$DATE"
 
 # Set pipefail to catch errors in piped commands
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

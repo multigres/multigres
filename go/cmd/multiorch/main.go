@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/services/multiorch"
 
 	"github.com/spf13/cobra"
@@ -31,10 +32,11 @@ func CreateMultiOrchCommand() (*cobra.Command, *multiorch.MultiOrch) {
 	mo := multiorch.NewMultiOrch()
 
 	cmd := &cobra.Command{
-		Use:   constants.ServiceMultiorch,
-		Short: "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Long:  "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Args:  cobra.NoArgs,
+		Use:     constants.ServiceMultiorch,
+		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+		Args:    cobra.NoArgs,
+		Version: version.String(constants.ServiceMultiorch),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return mo.CobraPreRunE(cmd)
 		},
@@ -42,6 +44,7 @@ func CreateMultiOrchCommand() (*cobra.Command, *multiorch.MultiOrch) {
 			return run(cmd, args, mo)
 		},
 	}
+	cmd.SetVersionTemplate("{{.Version}}\n")
 
 	mo.RegisterFlags(cmd.Flags())
 
