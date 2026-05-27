@@ -1003,29 +1003,37 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 
 	pm.logger.InfoContext(ctx, "Stopping postgres if running")
 
-	// Close ONLY connection pools to release database connections.
-	// This allows postgres to stop cleanly without waiting for connections,
-	// but keeps the manager operational for subsequent operations.
-	pm.mu.Lock()
-	pm.closeConnectionsLocked()
-	pm.mu.Unlock()
+	resume := pm.Pause(ctx)
+	defer resume(ctx)
 
-	// Stop postgres (no-op if already stopped)
-	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
-	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-		// Treat "already stopped" errors as success to make this truly idempotent.
-		// This handles race conditions where postgres was stopped between our check and stop call.
+	var lastErr error
+	for _, m := range pgctldStopModes {
+		stepCtx, cancel := context.WithTimeout(ctx, m.timeout)
+		_, err := pm.pgctldClient.Stop(stepCtx, &pgctldpb.StopRequest{
+			Mode:    m.name,
+			Timeout: durationpb.New(m.timeout),
+		})
+		cancel()
+		if err == nil {
+			pm.logger.InfoContext(ctx, "pgctld.Stop succeeded", "mode", m.name)
+			return nil
+		}
+		// Treat "already stopped" as success: handles races where postgres
+		// stopped between our check and the stop call, and earlier-mode
+		// escalation that already brought postgres down.
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "not running") ||
 			strings.Contains(errMsg, "no child processes") ||
 			strings.Contains(errMsg, "no such process") {
-			pm.logger.InfoContext(ctx, "Postgres already stopped, continuing", "error", errMsg)
+			pm.logger.InfoContext(ctx, "Postgres already stopped, continuing",
+				"mode", m.name, "error", errMsg)
 			return nil
 		}
-		return mterrors.Wrap(err, "failed to stop postgres")
+		lastErr = err
+		pm.logger.WarnContext(ctx, "pgctld.Stop failed; escalating",
+			"mode", m.name, "timeout", m.timeout, "error", err)
 	}
-
-	return nil
+	return mterrors.Wrap(lastErr, "failed to stop postgres after fast/immediate escalation")
 }
 
 // runPgRewind runs pg_rewind to sync with source.

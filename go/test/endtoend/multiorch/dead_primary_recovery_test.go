@@ -239,13 +239,17 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
 	t.Logf("Recruit accepted by primary, emergency demotion triggered")
 
-	// Allow 30s: emergency demotion drains active writes for up to 5s before
-	// restarting postgres as standby, so PostgresRunning lag plus grace period and
-	// election can need ~25s — 30s gives adequate headroom.
-	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
-	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
-	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after emergency demotion")
-	t.Logf("New primary elected: %s", newPrimaryName)
+	// The demoted primary stays in the recruit cohort and may either
+	// re-promote (it had the most advanced WAL) or be replaced by a different
+	// pooler — both are valid post-demotion outcomes. We require that some
+	// primary advances to a higher term with at least 2 standbys streaming
+	// (cluster is 3 poolers, so the primary + 2 standbys = full topology),
+	// then wait for full recovery so multiorch's StaleLeader demote updates
+	// the old primary's topology entry from PRIMARY to REPLICA.
+	t.Logf("Waiting for multiorch to recover from emergency demotion (primary at term > %d with >= 2 standbys)...", oldPrimaryTerm)
+	newPrimaryName := shardsetup.WaitForHigherTermPrimary(t, setup, oldPrimaryTerm, 2, 45*time.Second)
+	t.Logf("Primary after emergency demotion: %s (was %s)", newPrimaryName, currentPrimaryName)
+	setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")
@@ -253,13 +257,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	newPrimaryClient.Close()
-	require.NoError(t, err, "should be able to get status from new primary")
+	require.NoError(t, err, "should be able to get status from primary")
 	newPrimaryTerm := newStatusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
-
-	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "New primary should have higher term than old primary's original term")
-
-	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
+	t.Logf("Primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "Primary's term should be strictly greater than the demoted primary's original term")
 
 	successWrites, failedWrites := validator.Stats()
 	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
