@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // WriteJSON marshals v with two-space indent and writes it to
@@ -108,5 +109,20 @@ func BadgeMarkdown(label string, passed, total, expected int, timedOut bool) str
 			colour = "yellow"
 		}
 	}
-	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, label, value, colour)
+	// The label goes into the shields.io URL path, where a raw space breaks the
+	// image (e.g. a multi-word label like "Contrib Extension"). Escape it per
+	// shields.io rules so multi-word labels render. The alt text keeps the raw
+	// label for readability.
+	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, encodeBadgeField(label), value, colour)
+}
+
+// encodeBadgeField escapes a string for use in a shields.io badge URL path
+// segment: literal underscores and dashes are doubled, then spaces become
+// single underscores (which shields.io renders back as spaces). Order matters —
+// the space substitution runs last so it is not re-escaped.
+func encodeBadgeField(s string) string {
+	s = strings.ReplaceAll(s, "_", "__")
+	s = strings.ReplaceAll(s, "-", "--")
+	s = strings.ReplaceAll(s, " ", "_")
+	return s
 }
