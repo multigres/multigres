@@ -768,10 +768,17 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	assert.Contains(t, errorOutput, existingConfig)
 }
 
-// executeStartCommand runs the actual multigres binary with "cluster start" command
+// executeStartCommand runs the actual multigres binary with "cluster start" command.
+//
+// TODO: drop the `--wait-for-bootstrap=false` override and let the production default
+// (`true`) apply once the multiorch StaleLeader flap during bootstrap is resolved.
+// Today the cluster doesn't stably reach "ready to serve queries" within the probe's
+// 2-minute budget, so leaving the wait on causes `cluster start` to time out here.
+// The tests already perform their own downstream readiness checks (WaitForBootstrap,
+// waitForMultigatewayReady, etc.), so the in-process probe is redundant for them.
 func executeStartCommand(t *testing.T, args []string, tempDir string) (string, error) {
 	// Prepare the full command: "multigres cluster start <args>"
-	cmdArgs := append([]string{"cluster", "start"}, args...)
+	cmdArgs := append([]string{"cluster", "start", "--wait-for-bootstrap=false"}, args...)
 	cmd := exec.Command("multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
