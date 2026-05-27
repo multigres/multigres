@@ -125,10 +125,19 @@ func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.D
 // AddPooler creates a new PoolerConnection for the given pooler.
 // If a connection already exists for this pooler, it updates the pooler info.
 //
-// AddPooler does not touch leader state — that comes exclusively from
-// LeaderObservation. When a newly-added connection happens to be the leader
-// already-known via prior observations, the buffer is drained promptly via
-// notifyIfLeaderServingLocked.
+// AddPooler does not establish leader identity from real consensus state —
+// that comes exclusively from LeaderObservation on health streams. The one
+// concession is a cold-start fallback: if no LeaderObservation has been
+// received for the shard yet and topology says this pooler is PRIMARY, we
+// seed `leaders[shard]` with a synthetic LeaderObservation at term 0. Any
+// real observation (term >= 1) beats this seed unconditionally, so a stale
+// Type=PRIMARY assertion from a demoted-then-restarted pooler cannot
+// override consensus. The seed only matters during the gateway's startup
+// window before health streams have produced any observations.
+//
+// TODO: once multipooler publishes its current LeaderObservation into its
+// etcd record (the proto would need a `last_observed_leader` field), drop
+// the synthetic seed and use that real observation instead.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	poolerID := poolerIDString(pooler.Id)
 
@@ -137,9 +146,14 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 	key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
 
-	// Existing pooler — just refresh topology metadata. No leader-state effects.
+	// Existing pooler — refresh topology metadata. The cold-start hint below
+	// can also fire here: at cluster bootstrap, poolers are first discovered
+	// as REPLICA, then their Type transitions to PRIMARY after multiorch
+	// promotes one. That transition is the first topology signal of who
+	// leads, before any health stream reports a LeaderObservation.
 	if conn, exists := lb.connections[poolerID]; exists {
 		conn.UpdatePoolerInfo(pooler)
+		lb.maybeSeedColdStartLeaderLocked(key, pooler)
 		lb.notifyIfLeaderServingLocked(key, conn)
 		return nil
 	}
@@ -150,6 +164,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	}
 
 	lb.connections[poolerID] = conn
+	lb.maybeSeedColdStartLeaderLocked(key, pooler)
 
 	// If a prior LeaderObservation already named this pooler the leader, the
 	// first health update may be slow — trigger buffer drain now so traffic
@@ -162,6 +177,34 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 		"cell", pooler.Id.GetCell())
 
 	return nil
+}
+
+// maybeSeedColdStartLeaderLocked sets `leaders[key]` to a term-0 synthetic
+// LeaderObservation when topology says this pooler is PRIMARY and no real
+// observation has been received yet for the shard. Any real observation
+// (term >= 1) overrides this seed via the standard term-reconciliation in
+// onPoolerHealthUpdate, so a stale Type=PRIMARY assertion from a
+// demoted-then-restarted pooler cannot override consensus. Caller must hold
+// lb.mu.
+//
+// TODO: once multipooler publishes its current LeaderObservation into its
+// etcd record (the proto would need a `last_observed_leader` field), drop
+// this synthetic seed and use the real observation instead.
+func (lb *LoadBalancer) maybeSeedColdStartLeaderLocked(key shardKey, pooler *clustermetadatapb.MultiPooler) {
+	if pooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+		return
+	}
+	if lb.leaders[key] != nil {
+		return
+	}
+	lb.leaders[key] = &multipoolerservice.LeaderObservation{
+		LeaderId:   pooler.Id,
+		LeaderTerm: 0,
+	}
+	lb.logger.Debug("cold-start leader hint from topology",
+		"pooler_id", poolerIDString(pooler.Id),
+		"tablegroup", key.tableGroup,
+		"shard", key.shard)
 }
 
 // RemovePooler closes and removes the PoolerConnection for the given pooler ID.
@@ -224,23 +267,28 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 		return conn, nil
 	}
 
-	// REPLICA: collect every connection in the shard except the known leader.
-	leaderID := ""
-	if leaderObs != nil {
-		leaderID = poolerIDString(leaderObs.LeaderId)
+	// REPLICA: collect every connection in the shard except the consensus-
+	// confirmed leader. A confirmed leader has term >= 1 from a real
+	// LeaderObservation; the cold-start topology seed (term 0) is ignored
+	// here so a pooler that has since transitioned to Type=REPLICA in
+	// topology can still be selected as a replica candidate.
+	confirmedLeaderID := ""
+	if leaderObs != nil && leaderObs.LeaderTerm > 0 {
+		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
 	}
 	var candidates []*PoolerConnection
 	for id, conn := range lb.connections {
 		if !matchesShardTarget(conn, target) {
 			continue
 		}
-		if leaderObs != nil {
-			if id == leaderID {
+		if confirmedLeaderID != "" {
+			if id == confirmedLeaderID {
 				continue
 			}
 		} else if conn.Type() != clustermetadatapb.PoolerType_REPLICA {
-			// Cold start: no LeaderObservation yet. Fall back to topology hint
-			// so we don't accidentally serve reads from a future leader.
+			// No confirmed leader yet. Fall back to topology Type so we don't
+			// accidentally serve reads from a pooler that may turn out to be
+			// the leader.
 			continue
 		}
 		candidates = append(candidates, conn)
@@ -449,10 +497,19 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	}
 }
 
-// notifyIfLeaderServingLocked calls onPrimaryServing if the given connection is
-// the known leader of the shard and is serving. StopBuffering is idempotent,
-// so calling this on every health update is safe and ensures buffering stops
-// promptly once the leader is ready. Caller must hold lb.mu.
+// notifyIfLeaderServingLocked calls onPrimaryServing if the given connection
+// is the known leader of the shard and is both SERVING and self-reporting
+// PoolerType_PRIMARY on its health stream. StopBuffering is idempotent, so
+// calling this on every health update is safe and ensures buffering stops
+// promptly once the leader is ready.
+//
+// The PoolerType_PRIMARY check is critical: a LeaderObservation can arrive
+// before the named pooler has finished transitioning its query server to
+// PRIMARY/SERVING (e.g. during Promote, UpdateLeaderObservation fires before
+// changeTypeLocked). Draining buffered requests too early would send them
+// to a pooler that still rejects PRIMARY traffic.
+//
+// Caller must hold lb.mu.
 func (lb *LoadBalancer) notifyIfLeaderServingLocked(key shardKey, conn *PoolerConnection) {
 	if lb.onPrimaryServing == nil {
 		return
@@ -461,7 +518,11 @@ func (lb *LoadBalancer) notifyIfLeaderServingLocked(key shardKey, conn *PoolerCo
 	if leader == nil || poolerIDString(leader.LeaderId) != conn.ID() {
 		return
 	}
-	if !conn.Health().IsServing() {
+	health := conn.Health()
+	if health == nil || !health.IsServing() {
+		return
+	}
+	if health.Target.GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 		return
 	}
 	lb.onPrimaryServing(key.tableGroup, key.shard)

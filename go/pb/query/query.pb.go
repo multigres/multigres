@@ -759,6 +759,7 @@ type Target struct {
 	Shard string `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
 	// pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
 	// If not specified (UNKNOWN), defaults to PRIMARY
+	// TODO: Change from PoolerType something else, like a TargetType or ServingType enum.
 	PoolerType    clustermetadata.PoolerType `protobuf:"varint,3,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
