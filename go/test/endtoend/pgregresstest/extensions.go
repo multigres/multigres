@@ -59,92 +59,54 @@ type ExtensionInfo struct {
 	Note string
 }
 
-// ExtensionCatalog is the authoritative map of every extension available in
-// the target Supabase PostgreSQL fleet (pg_available_extensions, see MUL-155)
-// and its coverage state in this harness. The covered set is the source of
-// truth for what the contrib suite runs (CoveredContribModules derives
-// DefaultContribModules from it), so adding an extension here as StatusCovered
-// is all that is needed to enroll it — the generated coverage report then
-// reflects its per-test results automatically.
+// ExtensionCatalog is the coverage map for the most-installed Supabase
+// PostgreSQL extensions — the ~35 highest-usage extensions by installed
+// projects (MUL-155 Hex dashboard), which between them account for the vast
+// majority of fleet usage. It is not the full pg_available_extensions list;
+// long-tail extensions are out of scope until usage warrants them.
+//
+// The covered set is the source of truth for what the contrib suite runs
+// (CoveredContribModules derives DefaultContribModules from it), so adding an
+// extension here as StatusCovered is all that is needed to enroll it — the
+// generated coverage report then reflects its per-test results automatically.
 //
 // Keep entries ordered by Name for easy diffing.
 var ExtensionCatalog = []ExtensionInfo{
-	{"address_standardizer", KindExternal, StatusExternal, "PostGIS"},
-	{"address_standardizer_data_us", KindExternal, StatusExternal, "PostGIS"},
-	{"amcheck", KindContrib, StatusPending, ""},
-	{"autoinc", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"bloom", KindContrib, StatusPending, ""},
 	{"btree_gin", KindContrib, StatusCovered, ""},
 	{"btree_gist", KindContrib, StatusCovered, ""},
 	{"citext", KindContrib, StatusCovered, ""},
 	{"cube", KindContrib, StatusCovered, ""},
 	{"dblink", KindContrib, StatusUnsupported, "pooler blocks outbound connections"},
-	{"dict_int", KindContrib, StatusPending, ""},
-	{"dict_xsyn", KindContrib, StatusPending, ""},
 	{"earthdistance", KindContrib, StatusCovered, "depends on cube"},
-	{"file_fdw", KindContrib, StatusPending, ""},
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
 	{"http", KindExternal, StatusExternal, ""},
 	{"hypopg", KindExternal, StatusExternal, ""},
 	{"index_advisor", KindExternal, StatusExternal, "depends on hypopg"},
-	{"insert_username", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"intagg", KindContrib, StatusUnsupported, "no pg_regress suite (deprecated SQL module)"},
-	{"intarray", KindContrib, StatusPending, ""},
-	{"isn", KindContrib, StatusPending, ""},
-	{"lo", KindContrib, StatusPending, ""},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"pageinspect", KindContrib, StatusPending, ""},
-	{"pg_buffercache", KindContrib, StatusPending, ""},
 	{"pg_cron", KindExternal, StatusExternal, ""},
-	{"pg_freespacemap", KindContrib, StatusPending, ""},
 	{"pg_graphql", KindExternal, StatusExternal, "Rust"},
-	{"pg_hashids", KindExternal, StatusExternal, ""},
 	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
-	{"pg_prewarm", KindContrib, StatusPending, ""},
-	{"pg_repack", KindExternal, StatusExternal, ""},
-	{"pg_stat_monitor", KindExternal, StatusExternal, ""},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
-	{"pg_surgery", KindContrib, StatusPending, ""},
-	{"pg_tle", KindExternal, StatusExternal, ""},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
-	{"pg_visibility", KindContrib, StatusPending, ""},
-	{"pg_walinspect", KindContrib, StatusPending, ""},
 	{"pgaudit", KindExternal, StatusExternal, ""},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusExternal, "depends on pgcrypto"},
 	{"pgmq", KindExternal, StatusExternal, ""},
-	{"pgroonga", KindExternal, StatusExternal, "Groonga"},
-	{"pgroonga_database", KindExternal, StatusExternal, "Groonga"},
-	{"pgrouting", KindExternal, StatusExternal, ""},
-	{"pgrowlocks", KindContrib, StatusPending, ""},
 	{"pgsodium", KindExternal, StatusExternal, "libsodium"},
-	{"pgstattuple", KindContrib, StatusPending, ""},
 	{"pgtap", KindExternal, StatusExternal, ""},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
 	{"plpgsql_check", KindExternal, StatusExternal, ""},
 	{"postgis", KindExternal, StatusExternal, ""},
-	{"postgis_raster", KindExternal, StatusExternal, "PostGIS"},
-	{"postgis_sfcgal", KindExternal, StatusExternal, "PostGIS"},
-	{"postgis_tiger_geocoder", KindExternal, StatusExternal, "PostGIS"},
 	{"postgis_topology", KindExternal, StatusExternal, "PostGIS"},
 	{"postgres_fdw", KindContrib, StatusUnsupported, "pooler blocks CREATE SERVER / outbound connections"},
-	{"refint", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"rum", KindExternal, StatusExternal, ""},
-	{"seg", KindContrib, StatusPending, ""},
-	{"sslinfo", KindContrib, StatusPending, "needs --with-ssl=openssl; reports the client TLS connection"},
 	{"supabase_vault", KindExternal, StatusExternal, ""},
-	{"tablefunc", KindContrib, StatusPending, ""},
-	{"tcn", KindContrib, StatusPending, ""},
-	{"tsm_system_rows", KindContrib, StatusPending, ""},
-	{"tsm_system_time", KindContrib, StatusPending, ""},
 	{"unaccent", KindContrib, StatusCovered, ""},
 	{"uuid-ossp", KindContrib, StatusCovered, "needs --with-uuid"},
 	{"vector", KindExternal, StatusExternal, "pgvector"},
 	{"wrappers", KindExternal, StatusExternal, "Rust"},
-	{"xml2", KindContrib, StatusPending, "needs --with-libxml"},
 }
 
 // CoveredContribModules returns the contrib module directories the suite runs,
@@ -241,10 +203,10 @@ func ExtensionCoverageMarkdown(contrib *TestResults) string {
 
 	var sb strings.Builder
 	sb.WriteString("### Extension Coverage\n\n")
-	fmt.Fprintf(&sb, "%d of %d extensions covered (%d contrib, %d external). "+
-		"Covered extensions run their shipped pg_regress suite through multigateway; "+
-		"the per-test result below is from this run.\n\n",
-		covered, len(ExtensionCatalog), contribTotal, externalTotal)
+	fmt.Fprintf(&sb, "Most-installed extensions (top ~%d by usage). %d covered "+
+		"(%d contrib, %d external). Covered extensions run their shipped pg_regress "+
+		"suite through multigateway; the per-test result below is from this run.\n\n",
+		len(ExtensionCatalog), covered, contribTotal, externalTotal)
 	sb.WriteString("| Extension | Kind | Coverage | Test | Result | Notes |\n")
 	sb.WriteString("|-----------|------|----------|------|--------|-------|\n")
 
@@ -260,28 +222,23 @@ func ExtensionCoverageMarkdown(contrib *TestResults) string {
 					extCell, kindCell, covCell, e.Note)
 				continue
 			}
+			// One row per extension: stack each sub-test and its result on its
+			// own line within the cell (GitHub renders <br> inside table cells),
+			// so the Test and Result columns line up row-for-row. Per-test
+			// "patched" is appended inline to keep it aligned.
+			names := make([]string, len(tests))
+			results := make([]string, len(tests))
 			for i, tr := range tests {
-				// Extension-level note only on the first row; continuation rows
-				// carry just the per-test "patched" marker.
-				var note string
-				if i == 0 {
-					note = e.Note
-				}
+				names[i] = tr.Name
+				r := resultCell(tr.Status)
 				if tr.PatchApplied {
-					if note != "" {
-						note += "; "
-					}
-					note += "patched"
+					r += " (patched)"
 				}
-				if i == 0 {
-					fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s | %s |\n",
-						extCell, kindCell, covCell, tr.Name, resultCell(tr.Status), note)
-				} else {
-					// Blank the grouped cells on continuation rows.
-					fmt.Fprintf(&sb, "| | | | %s | %s | %s |\n",
-						tr.Name, resultCell(tr.Status), note)
-				}
+				results[i] = r
 			}
+			fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s | %s |\n",
+				extCell, kindCell, covCell,
+				strings.Join(names, "<br>"), strings.Join(results, "<br>"), e.Note)
 			continue
 		}
 

@@ -117,12 +117,13 @@ rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 ### Coverage map
 
-`extensions.go` holds `ExtensionCatalog` — the authoritative list of every
-extension in the target fleet (`pg_available_extensions`) with its kind
-(contrib / external) and coverage status (covered / pending / unsupported /
-external, each with a reason). `DefaultContribModules` is **derived** from it
-(the `covered` entries), so enrolling a new extension is a one-line catalog
-edit.
+`extensions.go` holds `ExtensionCatalog` — the most-installed Supabase
+extensions (the top ~35 by usage from the MUL-155 Hex dashboard, which cover
+the vast majority of fleet usage; not the full `pg_available_extensions` list)
+with each one's kind (contrib / external) and coverage status (covered /
+pending / unsupported / external, each with a reason). `DefaultContribModules`
+is **derived** from it (the `covered` entries), so enrolling a new extension is
+a one-line catalog edit.
 
 Every compatibility report includes a generated **Extension Coverage** table
 (`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
