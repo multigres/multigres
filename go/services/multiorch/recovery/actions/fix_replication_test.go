@@ -543,13 +543,6 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 		},
 	})
-	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-			},
-		},
-	}
 
 	fakeClient := &connInfoSetNotStreamingClient{
 		FakeClient: baseFakeClient,

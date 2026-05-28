@@ -1374,14 +1374,11 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
-	// Force a checkpoint on the new timeline in the background. pg_rewind requires a
-	// checkpoint on the target's timeline to identify the divergence point; without it,
-	// rewinding a previously-promoted replica may fail. Running this in a goroutine
-	// avoids extending the promotionInProgress window (which suppresses PrimaryIsDead
-	// alerts) by the checkpoint I/O duration. The checkpoint is only needed before a
-	// future pg_rewind, which requires another full failover cycle, so there is no
-	// urgency. pm.ctx ties the goroutine to the manager lifetime, not the RPC request.
+	// Force a checkpoint in the background so pg_rewind can later identify the
+	// divergence point on this timeline. Run async to avoid extending the
+	// promotionInProgress suppression window by the checkpoint I/O duration.
 	go func() {
+		pm.logger.InfoContext(pm.ctx, "Forcing checkpoint after promotion")
 		if err := pm.exec(pm.ctx, "CHECKPOINT"); err != nil {
 			pm.logger.WarnContext(pm.ctx, "Failed to force checkpoint after promotion", "error", err)
 		}

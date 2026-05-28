@@ -42,7 +42,7 @@ import (
 //  3. Stop R1's WAL receiver, then promote R1 via pg_promote() — R1 is now on timeline 2
 //  4. Write a diverging row to R1 (exists on timeline 2 only)
 //  5. Restart R1 as a standby — WAL receiver fails due to timeline divergence
-//  6. Restart orch — detects R1 not replicating, tries SetPrimaryConnInfo,
+//  6. Restart orch — detects R1 not replicating, tries SetTermPrimary,
 //     WAL receiver fails → tryPgRewind → RewindToSource RPC → pg_rewind runs
 //  7. Verify R1 rejoins P with the diverged row absent and baseline data present
 func TestRewindDivergedReplica(t *testing.T) {
@@ -199,8 +199,6 @@ func TestRewindDivergedReplica(t *testing.T) {
 	err = row.Scan(&divergedCount)
 	require.NoError(t, err, "should query R1 for diverged row")
 	require.Equal(t, 0, divergedCount, "diverged row should NOT be present on R1 after pg_rewind")
-	t.Log("Data consistency verified: baseline present, diverged row absent")
-
 	// Verify R1 is streaming from P and added to P's synchronous standby list
 	verifyReplicaReplicating(t, setup, r1Name, pName)
 
@@ -212,12 +210,4 @@ func TestRewindDivergedReplica(t *testing.T) {
 		return isReplicaInStandbyList(t, primaryClient, r1Name)
 	}, 15*time.Second, 1*time.Second, "R1 should be added to P's synchronous standby list")
 	t.Log("R1 is in P's synchronous standby list")
-
-	t.Log("TestRewindDivergedReplica completed successfully")
 }
-
-// TODO: TestRewindRejectedByHigherTerm — verify that orch handles a replica that has
-// advanced its term revocation beyond the primary's current rule. The old BeginTerm(NO_ACTION)
-// API used to set this up has been removed; the new approach would use Recruit() to advance
-// R1's RevokedBelowTerm, then verify orch's SetTermPrimary is treated as a no-op and the
-// correct recovery path is taken.
