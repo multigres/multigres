@@ -55,8 +55,15 @@ docker build \
   .
 ```
 
-This extends the published Supabase Postgres image with Go 1.25.10, etcd, and
-the test entrypoint script. Takes ~3 minutes on first run; cached thereafter.
+This extends the published Supabase Postgres image with Go 1.25.10, etcd,
+pgbackrest, and the test entrypoint script. Takes ~3 minutes on first run;
+cached thereafter.
+
+pgbackrest is required because the Multigres bootstrap process
+(`createFirstBackupAndInitializeLocked`) runs `pgbackrest stanza-create` and
+takes the first backup before marking a shard as initialized. The locally-built
+`supabase-postgres:local` image (from `Dockerfile-17`) does not ship pgbackrest;
+the test runner image installs it from Alpine's community repo.
 
 To use a different tag, substitute the value of `SUPABASE_IMAGE`. Check
 [Docker Hub](https://hub.docker.com/r/supabase/postgres/tags) for the latest

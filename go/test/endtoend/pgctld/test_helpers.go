@@ -15,6 +15,7 @@
 package pgctld
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -147,16 +148,16 @@ func verifyServerStopped(t *testing.T, port int) bool {
 	return false
 }
 
-// getPgBackRestPID finds the pgbackrest server process ID for a specific config path
-// Returns PID or 0 if not found
+// getPgBackRestPID finds the pgbackrest server process ID for a specific config path.
+// Returns the PID or 0 if not found.
 func getPgBackRestPID(t *testing.T, configPath string) int {
 	t.Helper()
 
-	// Get all pgbackrest server processes
+	// Get all pgbackrest server processes.
 	cmd := exec.Command("pgrep", "-f", "pgbackrest server")
 	output, err := cmd.Output()
 	if err != nil {
-		// Process not found
+		// No matching processes found.
 		return 0
 	}
 
@@ -165,28 +166,48 @@ func getPgBackRestPID(t *testing.T, configPath string) int {
 		return 0
 	}
 
-	// Check each PID to find one using our specific config
+	// Check each PID to find one using our specific config.
 	for pidLine := range strings.SplitSeq(pidStr, "\n") {
 		var pid int
 		_, err = fmt.Sscanf(pidLine, "%d", &pid)
 		if err != nil {
 			continue
 		}
-
-		// Check if this process is using our config by checking environment
-		envCmd := exec.Command("sh", "-c", fmt.Sprintf("ps eww -p %d | grep -o 'PGBACKREST_CONFIG=[^[:space:]]*'", pid))
-		envOutput, err := envCmd.Output()
-		if err != nil {
-			continue
-		}
-
-		envStr := strings.TrimSpace(string(envOutput))
-		if strings.Contains(envStr, configPath) {
+		if pidUsesConfig(pid, configPath) {
 			return pid
 		}
 	}
 
 	return 0
+}
+
+// pidUsesConfig reports whether the process with the given PID was started
+// with PGBACKREST_CONFIG set to (or containing) configPath.
+//
+// On Linux we read /proc/<pid>/environ directly — this avoids relying on
+// "ps eww", whose -e flag (print environment) is not supported by
+// Alpine/BusyBox ps.  On non-Linux systems (macOS CI) we fall back to ps.
+func pidUsesConfig(pid int, configPath string) bool {
+	// Linux fast-path: /proc/<pid>/environ is NUL-separated env entries.
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+	if err == nil {
+		for entry := range bytes.SplitSeq(data, []byte{0}) {
+			if bytes.HasPrefix(entry, []byte("PGBACKREST_CONFIG=")) &&
+				bytes.Contains(entry, []byte(configPath)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Fallback for macOS and other systems that expose proc env via ps.
+	envCmd := exec.Command("sh", "-c",
+		fmt.Sprintf("ps eww -p %d | grep -o 'PGBACKREST_CONFIG=[^[:space:]]*'", pid))
+	envOutput, envErr := envCmd.Output()
+	if envErr != nil {
+		return false
+	}
+	return strings.Contains(strings.TrimSpace(string(envOutput)), configPath)
 }
 
 // killProcess sends SIGKILL to process by PID
@@ -320,7 +341,7 @@ func getPgBackRestStatus(t *testing.T, client pgctldservice.PgCtldClient) *pgctl
 // PGPASSWORD so pgctld init/start/stop subprocesses can satisfy the scram-sha-256
 // requirement without needing a real PostgreSQL instance.
 func mockBinEnv(binDir, pgDataDir string) []string {
-	env := append(os.Environ(),
+	env := append(utils.BaseTestEnv(),
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 		constants.PgDataDirEnvVar+"="+pgDataDir,
 		constants.PgPasswordEnvVar+"=test-password",
@@ -336,7 +357,13 @@ func mockBinEnv(binDir, pgDataDir string) []string {
 // Includes a default POSTGRES_PASSWORD because pgctld now refuses to init or
 // serve without one (pg_hba.conf requires scram-sha-256 for all connections).
 // Also sets PGPASSWORD so psql subprocesses can authenticate.
+//
+// Uses utils.BaseTestEnv() as the base environment to strip container-specific
+// variables (POSTGRES_USER=supabase_admin, POSTGRES_INITDB_SQL_FILES) that would
+// otherwise be inherited from the Supabase Postgres container and corrupt the
+// test cluster. POSTGRES_USER=postgres is set by BaseTestEnv().
 func setupTestEnv(cmd *executil.Cmd, poolerDir string) {
+	cmd.SetEnv(utils.BaseTestEnv())
 	cmd.AddEnv(
 		"PGCONNECT_TIMEOUT=5",
 		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
