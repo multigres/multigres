@@ -110,7 +110,7 @@ func verifyTracePatch(ctx context.Context, pgTrace, mgTrace, patchDir, name stri
 		case err == nil:
 			baseline = patched
 			out.PatchApplied = true
-			out.PatchPath = patchPath
+			out.PatchPath = relPatchPath(patchPath)
 		case mode == PatchModeVerify:
 			out.ResidualDiff = fmt.Sprintf("patch %s failed to apply (likely stale): %v", patchPath, err)
 			return out, nil
@@ -169,7 +169,7 @@ func verifyTracePatch(ctx context.Context, pgTrace, mgTrace, patchDir, name stri
 	}
 	out.Matched = true
 	out.PatchApplied = true
-	out.PatchPath = patchPath
+	out.PatchPath = relPatchPath(patchPath)
 	return out, nil
 }
 
@@ -272,4 +272,16 @@ func ensureTrailingNewline(s string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// relPatchPath returns patchPath relative to the current working directory (the
+// package dir during `go test`) so report output is portable, falling back to
+// the input when a relative path can't be computed.
+func relPatchPath(patchPath string) string {
+	if wd, err := os.Getwd(); err == nil {
+		if rel, relErr := filepath.Rel(wd, patchPath); relErr == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return patchPath
 }

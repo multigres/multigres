@@ -286,11 +286,18 @@ PGPASSWORD=<pw> bin/pgproto -h 127.0.0.1 -p <port> -u <user> -d <db> \
 `.github/workflows/test-pgproto.yml` runs the suite on:
 
 - **PRs labeled `Run Extended Query Serving Tests`** — opt-in per-PR (the same
-  label also triggers `sqllogictest` and `pgregresstest`).
-- **Weekly cron** — baseline tracking + Slack digest.
+  label also triggers `sqllogictest` and `pgregresstest`). A PR that introduces
+  an unpatched divergence turns the check red, so you must either fix the gateway
+  or record the divergence with `make pgproto-update-patches`.
+- **Daily cron** (09:30 UTC) — a health check that Slack-alerts on any failure.
 - **`workflow_dispatch`** — manual kick.
 
-Files that produce a PostgreSQL baseline but a differing multigateway trace are
-surfaced in a Slack notification from the scheduled job.
+There is **no baseline/regression tracking**: because known divergences are
+absorbed by patches, the expected state is simply "zero unpatched divergences",
+and the Go test fails when any remain. So a failing job _is_ the signal — the
+daily cron alerts Slack on any failure (an unpatched divergence or an
+infrastructure problem), and the per-file diff is in `results.json` /
+`compatibility-report.md` (uploaded as an artifact and written to the job
+summary).
 
 [pgproto]: https://github.com/tatsuo-ishii/pgproto

@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,10 +54,10 @@ const (
 // PostgreSQL's exactly. Results are written to results.json plus a markdown
 // summary.
 //
-// This test is deliberately tolerant of failures. It does not fail the Go test
-// on proxy divergence; it records per-file match/mismatch counts. CI inspects
-// results.json and alerts when any file produces a postgres baseline but the
-// multigateway trace differs.
+// Known, accepted divergences are recorded as patches under testdata/patches/
+// (see patch.go), so the expected baseline is zero *unpatched* divergences. The
+// test fails when any remain — that is the correctness gate. Use
+// `make pgproto-update-patches` (generate mode) to record a reviewed divergence.
 //
 // Skipped by default. Set RUN_EXTENDED_QUERY_SERVING_TESTS=1 to run (this is a
 // correctness suite, gated by the same env var / PR label as sqllogictest and
@@ -264,8 +265,24 @@ func TestPgProtoConformance(t *testing.T) {
 		t.Logf("warning: failed to write markdown summary: %v", err)
 	}
 
-	// No t.Fatal / t.Error based on divergence. Tracking is the job here;
-	// regression gating happens in CI against the cached baseline.
+	// The expected baseline is zero *unpatched* divergences: known divergences
+	// are absorbed by testdata/patches/ (verify mode), so anything left is
+	// genuinely unexpected. Fail in that case so PR checks go red and the daily
+	// cron alerts. To accept a reviewed divergence, record it with
+	// `make pgproto-update-patches` and add an explanatory comment to the patch.
+	// Generate mode never reaches here with divergences (it absorbs them).
+	if report.PassedPGOnly > 0 {
+		var names []string
+		for _, tr := range report.Tests {
+			if tr.Postgres.Passed && !tr.Gateway.Passed {
+				names = append(names, tr.Name)
+			}
+		}
+		t.Errorf("%d unpatched multigateway divergence(s) from PostgreSQL: %s\n"+
+			"Fix the gateway, or record an accepted divergence with `make pgproto-update-patches` "+
+			"(then add a comment to the generated patch explaining why).",
+			report.PassedPGOnly, strings.Join(names, ", "))
+	}
 }
 
 // runOne invokes pgproto against a single target for one file, with its own
