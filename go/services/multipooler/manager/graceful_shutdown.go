@@ -56,6 +56,10 @@ var pgctldStopModes = []struct {
 func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
 
+	// TODO: issue a bounded CHECKPOINT before resigning so there's a recent
+	// checkpoint if the failover process doesn't go smoothly and rewinds are
+	// needed.
+
 	lockCtx, err := pm.actionLock.Acquire(ctx, "GracefulShutdown")
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to acquire action lock for graceful shutdown",
