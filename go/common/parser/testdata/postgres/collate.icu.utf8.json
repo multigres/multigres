@@ -709,13 +709,11 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 165",
-    "query": "CREATE COLLATION test4 FROM nonsense",
-    "expected": "CREATE COLLATION test4 FROM \"nonsense\""
+    "query": "CREATE COLLATION test4 FROM nonsense"
   },
   {
     "comment": "collate.icu.utf8 - Statement 166",
-    "query": "CREATE COLLATION test5 FROM test0",
-    "expected": "CREATE COLLATION test5 FROM \"test0\""
+    "query": "CREATE COLLATION test5 FROM test0"
   },
   {
     "comment": "collate.icu.utf8 - Statement 167",

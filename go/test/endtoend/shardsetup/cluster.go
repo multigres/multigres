@@ -113,6 +113,11 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
+
+	// Timings records elapsed durations for timeout-bounded setup operations.
+	// Reported at test teardown so you can see which operations are approaching
+	// their limits on slow runners.
+	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.
@@ -317,7 +322,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 
@@ -347,7 +352,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
 		SocketFile:  socketFile,
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
+		Environment: append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler

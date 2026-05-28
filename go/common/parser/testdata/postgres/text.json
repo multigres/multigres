@@ -77,7 +77,7 @@
   {
     "comment": "text - Statement 16",
     "query": "select i, left('ahoj', i), right('ahoj', i) from generate_series(-5, 5) t(i) order by i",
-    "expected": "SELECT i, left('ahoj', i), right('ahoj', i) FROM generate_series(-5, 5) AS t(i) ORDER BY i"
+    "expected": "SELECT i, \"left\"('ahoj', i), \"right\"('ahoj', i) FROM generate_series(-5, 5) AS t(i) ORDER BY i"
   },
   {
     "comment": "text - Statement 17",

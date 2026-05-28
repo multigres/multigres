@@ -106,6 +106,37 @@ func QuoteIdentifier(name string) string {
 	return name
 }
 
+// operatorNameChars are the characters a PostgreSQL operator name is built from
+// (see the "self"/"op_chars" sets in the scanner). An identifier never contains
+// any of these.
+const operatorNameChars = "+-*/<>=~!@#%^&|`?"
+
+// isOperatorName reports whether name looks like an operator (e.g. "+", "~~",
+// "->>") rather than an identifier. Operator names are emitted verbatim;
+// QuoteIdentifier would wrongly wrap them in double quotes.
+func isOperatorName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if !strings.ContainsRune(operatorNameChars, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// QuoteIdentifierOrOperator quotes name as an identifier, unless it is an
+// operator name, which is returned unchanged. Use it for qualified object names
+// (e.g. ObjectWithArgs) whose parts may be either a function/type identifier or
+// an operator symbol.
+func QuoteIdentifierOrOperator(name string) string {
+	if isOperatorName(name) {
+		return name
+	}
+	return QuoteIdentifier(name)
+}
+
 // QuoteStringLiteral quotes a string literal for SQL
 // Handles escaping of single quotes and other special characters
 func QuoteStringLiteral(value string) string {

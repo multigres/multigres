@@ -35,6 +35,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend/testconst"
+
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
@@ -557,7 +559,9 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MultiOrchInstances: make(map[string]*ProcessInstance),
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
+		Timings:            &TimingCollector{},
 	}
+	t.Cleanup(func() { setup.Timings.Report(t) })
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler
 	// shares the same CA / server cert. Done before the per-pooler loop so the
@@ -616,7 +620,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
 	// Use setup.ctx for process lifetime, passed ctx only for tracing
-	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart)
+	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart, setup.Timings)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -1083,9 +1087,10 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
 	defer cancel()
 
+	start := time.Now()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -1093,8 +1098,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "timeout after 60s")
-			return "", errors.New("timeout waiting for shard bootstrap after 60s")
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -1102,6 +1107,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
+				setup.Timings.Record("shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1281,7 +1287,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool) {
+func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool, tc *TimingCollector) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startMultipoolerInstances")
@@ -1329,7 +1335,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 		}
 
 		// Wait for multipooler to be ready
-		WaitForManagerReady(t, multipooler)
+		WaitForManagerReady(t, multipooler, tc)
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1656,7 +1662,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		if err := inst.Multipooler.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start multipooler %s: %v", name, err)
 		}
-		WaitForManagerReady(t, inst.Multipooler)
+		WaitForManagerReady(t, inst.Multipooler, s.Timings)
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 

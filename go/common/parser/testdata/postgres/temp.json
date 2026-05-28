@@ -429,7 +429,8 @@
   },
   {
     "comment": "temp - Statement 89",
-    "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema"
+    "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema",
+    "expected": "SELECT \"current_schema\"() ~ 'pg_temp' AS is_temp_schema"
   },
   {
     "comment": "temp - Statement 90",

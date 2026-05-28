@@ -201,6 +201,7 @@ message Target {
 
   // pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
   // If not specified (UNKNOWN), defaults to PRIMARY
+  // TODO: Change from PoolerType something else, like a TargetType or ServingType enum.
   clustermetadata.PoolerType pooler_type = 3;
 }
 

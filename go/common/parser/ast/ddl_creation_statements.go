@@ -276,12 +276,12 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		parts = append(parts, "FUNCTION")
 	}
 
-	// Function name
+	// Function name (possibly schema-qualified); each part is an identifier.
 	if cfs.FuncName != nil && cfs.FuncName.Len() > 0 {
 		var nameParts []string
 		for _, item := range cfs.FuncName.Items {
 			if name, ok := item.(*String); ok {
-				nameParts = append(nameParts, name.SVal)
+				nameParts = append(nameParts, QuoteIdentifier(name.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameParts, "."))
@@ -632,7 +632,7 @@ func formatSeqOption(opt *DefElem) string {
 			var parts []string
 			for _, item := range nodeList.Items {
 				if str, ok := item.(*String); ok {
-					parts = append(parts, str.SVal)
+					parts = append(parts, QuoteIdentifier(str.SVal))
 				}
 			}
 			if len(parts) > 0 {
@@ -811,9 +811,8 @@ func (oci *CreateOpClassItem) SqlString() string {
 		var orderFamilyNames []string
 		for i := 0; i < oci.OrderFamily.Len(); i++ {
 			nameNode := oci.OrderFamily.Items[i]
-			// Handle String nodes specially to avoid quotes for operator family names
 			if stringNode, ok := nameNode.(*String); ok {
-				orderFamilyNames = append(orderFamilyNames, stringNode.SVal)
+				orderFamilyNames = append(orderFamilyNames, QuoteIdentifier(stringNode.SVal))
 			} else {
 				orderFamilyNames = append(orderFamilyNames, nameNode.SqlString())
 			}
@@ -895,7 +894,7 @@ func (cocs *CreateOpClassStmt) SqlString() string {
 		nameStrs := make([]string, 0, cocs.OpClassName.Len())
 		for i := 0; i < cocs.OpClassName.Len(); i++ {
 			if strNode, ok := cocs.OpClassName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -924,7 +923,7 @@ func (cocs *CreateOpClassStmt) SqlString() string {
 		familyStrs := make([]string, 0, cocs.OpFamilyName.Len())
 		for i := 0; i < cocs.OpFamilyName.Len(); i++ {
 			if strNode, ok := cocs.OpFamilyName.Items[i].(*String); ok {
-				familyStrs = append(familyStrs, strNode.SVal)
+				familyStrs = append(familyStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "FAMILY", strings.Join(familyStrs, "."))
@@ -1036,7 +1035,7 @@ func (cofs *CreateOpFamilyStmt) SqlString() string {
 		nameStrs := make([]string, 0, cofs.OpFamilyName.Len())
 		for i := 0; i < cofs.OpFamilyName.Len(); i++ {
 			if strNode, ok := cofs.OpFamilyName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -1246,7 +1245,7 @@ func (ccs *CreateConversionStmt) SqlString() string {
 		nameStrs := make([]string, 0, ccs.ConversionName.Len())
 		for i := 0; i < ccs.ConversionName.Len(); i++ {
 			if strNode, ok := ccs.ConversionName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -1264,7 +1263,7 @@ func (ccs *CreateConversionStmt) SqlString() string {
 		funcStrs := make([]string, 0, ccs.FuncName.Len())
 		for i := 0; i < ccs.FuncName.Len(); i++ {
 			if strNode, ok := ccs.FuncName.Items[i].(*String); ok {
-				funcStrs = append(funcStrs, strNode.SVal)
+				funcStrs = append(funcStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "FROM", strings.Join(funcStrs, "."))
@@ -1553,12 +1552,13 @@ func (ds *DefineStmt) SqlString() string {
 		parts = append(parts, "IF NOT EXISTS")
 	}
 
-	// Add name
+	// Add name. DefineStmt covers AGGREGATE/TYPE/COLLATION/TEXT SEARCH (identifier
+	// names) as well as OPERATOR (a symbol), so use the operator-aware quoter.
 	if ds.DefNames != nil && len(ds.DefNames.Items) > 0 {
 		var nameStrs []string
 		for _, item := range ds.DefNames.Items {
 			if name, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, name.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifierOrOperator(name.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -1688,11 +1688,11 @@ func (ds *DefineStmt) SqlString() string {
 					var nameStrs []string
 					for _, item := range nodeList.Items {
 						if name, ok := item.(*String); ok {
-							nameStrs = append(nameStrs, name.SVal)
+							nameStrs = append(nameStrs, QuoteIdentifier(name.SVal))
 						}
 					}
 					if len(nameStrs) > 0 {
-						parts = append(parts, "FROM \""+strings.Join(nameStrs, ".")+"\"")
+						parts = append(parts, "FROM", strings.Join(nameStrs, "."))
 						return strings.Join(parts, " ")
 					}
 				}
@@ -1992,7 +1992,7 @@ func (ces *CreateEnumStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range ces.TypeName.Items {
 			if name, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, name.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(name.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2155,7 +2155,7 @@ func (aes *AlterEnumStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range aes.TypeName.Items {
 			if name, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, name.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(name.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2249,7 +2249,7 @@ func (crs *CreateRangeStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range crs.TypeName.Items {
 			if name, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, name.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(name.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2360,7 +2360,7 @@ func (css *CreateStatsStmt) SqlString() string {
 		nameStrs := make([]string, 0, css.DefNames.Len())
 		for i := 0; i < css.DefNames.Len(); i++ {
 			if strNode, ok := css.DefNames.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2370,7 +2370,7 @@ func (css *CreateStatsStmt) SqlString() string {
 		typeStrs := make([]string, 0, css.StatTypes.Len())
 		for i := 0; i < css.StatTypes.Len(); i++ {
 			if strNode, ok := css.StatTypes.Items[i].(*String); ok {
-				typeStrs = append(typeStrs, strNode.SVal)
+				typeStrs = append(typeStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "("+strings.Join(typeStrs, ", ")+")")
@@ -2496,7 +2496,7 @@ func (cpls *CreatePLangStmt) SqlString() string {
 		handlerStrs := make([]string, 0, cpls.PLHandler.Len())
 		for i := 0; i < cpls.PLHandler.Len(); i++ {
 			if strNode, ok := cpls.PLHandler.Items[i].(*String); ok {
-				handlerStrs = append(handlerStrs, strNode.SVal)
+				handlerStrs = append(handlerStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "HANDLER", strings.Join(handlerStrs, "."))
@@ -2506,7 +2506,7 @@ func (cpls *CreatePLangStmt) SqlString() string {
 		inlineStrs := make([]string, 0, cpls.PLInline.Len())
 		for i := 0; i < cpls.PLInline.Len(); i++ {
 			if strNode, ok := cpls.PLInline.Items[i].(*String); ok {
-				inlineStrs = append(inlineStrs, strNode.SVal)
+				inlineStrs = append(inlineStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "INLINE", strings.Join(inlineStrs, "."))
@@ -2516,7 +2516,7 @@ func (cpls *CreatePLangStmt) SqlString() string {
 		validatorStrs := make([]string, 0, cpls.PLValidator.Len())
 		for i := 0; i < cpls.PLValidator.Len(); i++ {
 			if strNode, ok := cpls.PLValidator.Items[i].(*String); ok {
-				validatorStrs = append(validatorStrs, strNode.SVal)
+				validatorStrs = append(validatorStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "VALIDATOR", strings.Join(validatorStrs, "."))

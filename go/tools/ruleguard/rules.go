@@ -96,6 +96,30 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
 }
 
+// onlyPoolerRecordPublishesMultiPooler enforces that the multipooler
+// service's poolerRecord is the single writer of MultiPooler topology
+// entries via RegisterMultiPooler. The record routes writes through the
+// eventually-consistent Mutate → publisher pipeline; any other caller
+// would bypass that pipeline, splitting write paths and risking state
+// divergence between in-memory desired state and what etcd shows.
+//
+// Excluded:
+//   - go/services/multipooler/manager/pooler_record.go: the one legal
+//     production caller (the publisher loop and the final-publish path
+//     inside Unregister).
+//   - test files (*_test.go): tests construct topology fixtures via
+//     RegisterMultiPooler directly.
+//   - go/common/topoclient/: the package implementing RegisterMultiPooler
+//     itself.
+func onlyPoolerRecordPublishesMultiPooler(m dsl.Matcher) {
+	m.Match(`$ts.RegisterMultiPooler($ctx, $mp, $upd)`).
+		Where(
+			!m.File().Name.Matches(`pooler_record\.go$`) &&
+				!m.File().Name.Matches(`_test\.go$`) &&
+				!m.File().PkgPath.Matches(`/common/topoclient`)).
+		Report("RegisterMultiPooler must only be called from poolerRecord; route writes through pm.record.Mutate so they flow through the publisher (eventually-consistent + bounded retry)")
+}
+
 // disallowDirectPgctldStopInTests prevents test code from calling pgctld Stop() directly
 // in test packages that run multipooler alongside pgctld. The postgres monitor runs
 // continuously and will restart postgres immediately after it is stopped, causing races.

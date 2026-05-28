@@ -69,10 +69,14 @@ jobs:
             --jsonfile=integration-test-results.jsonl \
             --junitfile=integration-test-results.xml \
             -- \
-            -skip TestPostgreSQLRegression -timeout=30m
+            -v -skip TestPostgreSQLRegression -timeout=30m
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
+
+      - name: Write startup timing to summary
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/startup-timing-summary.py
 
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

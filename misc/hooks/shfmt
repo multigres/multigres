@@ -9,13 +9,19 @@ if ! command -v shfmt >/dev/null 2>&1; then
   exit 0
 fi
 
-FILES=$(git diff --cached --name-only --diff-filter=ACMR)
-[ -z "$FILES" ] && exit 0
-
-# Format all selected files
-echo "$FILES" | xargs shfmt --apply-ignore -w
-
-# Add back the modified/formatted files to staging
-echo "$FILES" | xargs git add
-
+# Filter to shell files only: shfmt errors on files that start with '#' but
+# are not shell (Makefile, *.md) because it mistakes the comment character for
+# a shell comment and then fails on the first non-shell token.
+# Collect shell files into an array. The natural form `files=($(command))`
+# triggers shellcheck SC2207 (word-splitting / glob expansion). mapfile is
+# the usual fix but requires bash 4+, which macOS does not ship. The while-
+# read loop below is equivalent, portable to bash 3.2, and shellcheck-clean.
+files=()
+while IFS= read -r f; do
+  files+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bash|bats|mksh|zsh)$' || true)
+if [ ${#files[@]} -ne 0 ]; then
+  shfmt --apply-ignore -w "${files[@]}"
+  git add "${files[@]}"
+fi
 exit 0

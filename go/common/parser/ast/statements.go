@@ -211,7 +211,7 @@ func (a *Alias) SqlString() string {
 		var colAliases []string
 		for _, col := range a.ColNames.Items {
 			if str, ok := col.(*String); ok {
-				colAliases = append(colAliases, str.SVal)
+				colAliases = append(colAliases, QuoteIdentifier(str.SVal))
 			}
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
@@ -276,7 +276,7 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result.WriteString("." + i.SVal)
+					result.WriteString("." + QuoteIdentifier(i.SVal))
 				case *A_Indices:
 					// Array index or slice
 					result.WriteString(i.SqlString())
@@ -372,7 +372,7 @@ func (r *ResTarget) SqlString() string {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result.WriteString("." + i.SVal)
+					result.WriteString("." + QuoteIdentifier(i.SVal))
 				case *A_Indices:
 					// Array index or slice
 					result.WriteString(i.SqlString())
@@ -1365,14 +1365,14 @@ func (sc *CTESearchClause) SqlString() string {
 	colNames := make([]string, 0, sc.SearchColList.Len())
 	for _, item := range sc.SearchColList.Items {
 		if str, ok := item.(*String); ok {
-			colNames = append(colNames, str.SVal)
+			colNames = append(colNames, QuoteIdentifier(str.SVal))
 		}
 	}
 
 	return fmt.Sprintf("SEARCH %s BY %s SET %s",
 		direction,
 		strings.Join(colNames, ", "),
-		sc.SearchSeqColumn)
+		QuoteIdentifier(sc.SearchSeqColumn))
 }
 
 // NewCTECycleClause creates a new CTECycleClause node.
@@ -1392,13 +1392,13 @@ func (cc *CTECycleClause) SqlString() string {
 	colNames := make([]string, 0, cc.CycleColList.Len())
 	for _, item := range cc.CycleColList.Items {
 		if str, ok := item.(*String); ok {
-			colNames = append(colNames, str.SVal)
+			colNames = append(colNames, QuoteIdentifier(str.SVal))
 		}
 	}
 
 	result := fmt.Sprintf("CYCLE %s SET %s",
 		strings.Join(colNames, ", "),
-		cc.CycleMarkColumn)
+		QuoteIdentifier(cc.CycleMarkColumn))
 
 	if cc.CycleMarkValue != nil && cc.CycleMarkDefault != nil {
 		result += fmt.Sprintf(" TO %s DEFAULT %s",
@@ -1406,7 +1406,7 @@ func (cc *CTECycleClause) SqlString() string {
 			PrintAExprConst(cc.CycleMarkDefault))
 	}
 
-	result += " USING " + cc.CyclePathColumn
+	result += " USING " + QuoteIdentifier(cc.CyclePathColumn)
 
 	return result
 }
@@ -1451,7 +1451,7 @@ func (c *CommonTableExpr) SqlString() string {
 		var cols []string
 		for _, col := range c.Aliascolnames.Items {
 			if str, ok := col.(*String); ok {
-				cols = append(cols, str.SVal)
+				cols = append(cols, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))
@@ -1924,13 +1924,13 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
-					accessMethod = strVal.SVal
+					accessMethod = QuoteIdentifier(strVal.SVal)
 				}
 
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
-						nameParts = append(nameParts, strVal.SVal)
+						nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 					}
 				}
 
@@ -1975,13 +1975,13 @@ func (d *DropStmt) sqlStringForDropOpFamily() string {
 
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
-					accessMethod = strVal.SVal
+					accessMethod = QuoteIdentifier(strVal.SVal)
 				}
 
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
-						nameParts = append(nameParts, strVal.SVal)
+						nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 					}
 				}
 
@@ -2029,7 +2029,7 @@ func (d *DropStmt) sqlStringForDropTransform() string {
 			}
 			parts = append(parts, "LANGUAGE")
 			if strVal, ok := langName.(*String); ok {
-				parts = append(parts, strVal.SVal)
+				parts = append(parts, QuoteIdentifier(strVal.SVal))
 			}
 		}
 	}
@@ -2057,7 +2057,7 @@ func (d *DropStmt) sqlStringForDropSubscription() string {
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if nameList, ok := d.Objects.Items[0].(*NodeList); ok && len(nameList.Items) > 0 {
 			if strVal, ok := nameList.Items[0].(*String); ok {
-				parts = append(parts, strVal.SVal)
+				parts = append(parts, QuoteIdentifier(strVal.SVal))
 			}
 		}
 	}

@@ -1,0 +1,88 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Multigres Integration Tests (Supabase Postgres)
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC nightly
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test-integration-supabase:
+    name: Run integration tests against Supabase Postgres
+    runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
+
+    steps:
+      - name: Checkout multigres
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout supabase/postgres
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: supabase/postgres
+          path: supabase-postgres
+          persist-credentials: false
+
+      - name: Build supabase Postgres base image
+        env:
+          SUPABASE_POSTGRES_DIR: ${{ github.workspace }}/supabase-postgres
+        run: .github/scripts/build-supabase-postgres.sh
+
+      - name: Build integration test runner image
+        run: .github/scripts/build-supabase-postgres-test-image.sh
+
+      - name: Run integration tests
+        env:
+          TEST_PRINT_LOGS: "1"
+          AWS_ACCESS_KEY_ID: test-access-key
+          AWS_SECRET_ACCESS_KEY: test-secret-key
+          RERUN_FAILS: "3"
+        run: .github/scripts/run-integration-tests-supabase.sh
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-test-logs-supabase
+          path: |
+            integration-test-results.jsonl
+            integration-test-results.xml
+          retention-days: 14
+
+      - name: Test Report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Integration Tests (Supabase Postgres)
+          path: integration-test-results.jsonl
+          reporter: golang-json
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./integration-test-results.xml
+          report_type: test_results
+          flags: integration-supabase
+          fail_ci_if_error: false

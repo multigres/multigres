@@ -150,7 +150,7 @@
   {
     "comment": "tuplesort - Statement 35",
     "query": "SELECT LEFT(a,10),b FROM (VALUES(REPEAT('a', 512 * 1024),1),(REPEAT('b', 512 * 1024),2)) v(a,b) ORDER BY v.a DESC",
-    "expected": "SELECT left(a, 10), b FROM (VALUES (repeat('a', 512 * 1024), 1), (repeat('b', 512 * 1024), 2)) AS v(a, b) ORDER BY v.a DESC"
+    "expected": "SELECT \"left\"(a, 10), b FROM (VALUES (repeat('a', 512 * 1024), 1), (repeat('b', 512 * 1024), 2)) AS v(a, b) ORDER BY v.a DESC"
   },
   {
     "comment": "tuplesort - Statement 36",

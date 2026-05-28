@@ -566,13 +566,11 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 132",
-    "query": "CREATE COLLATION test4 FROM nonsense",
-    "expected": "CREATE COLLATION test4 FROM \"nonsense\""
+    "query": "CREATE COLLATION test4 FROM nonsense"
   },
   {
     "comment": "collate.windows.win1252 - Statement 133",
-    "query": "CREATE COLLATION test5 FROM test0",
-    "expected": "CREATE COLLATION test5 FROM \"test0\""
+    "query": "CREATE COLLATION test5 FROM test0"
   },
   {
     "comment": "collate.windows.win1252 - Statement 134",

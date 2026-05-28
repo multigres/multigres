@@ -324,7 +324,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	shardsetup.WaitForEvent(t, newReplica.Multipooler.LogFile, "restore.attempt", "success", 90*time.Second)
 	t.Logf("%s auto-restored from backup — post-failover archive is usable", newReplicaName)
 
-	shardsetup.WaitForManagerReady(t, newReplica.Multipooler)
+	shardsetup.WaitForManagerReady(t, newReplica.Multipooler, nil)
 
 	// Drive multiorch's recovery loop synchronously so FixReplication wires
 	// pooler-4's replication to the current primary on the current term.

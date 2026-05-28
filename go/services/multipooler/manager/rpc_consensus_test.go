@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -86,7 +87,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Shutdown() })
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
 	// Assign mock pooler controller and rule store BEFORE starting the manager
 	// to avoid race conditions.
