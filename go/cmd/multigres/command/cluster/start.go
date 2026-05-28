@@ -19,10 +19,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner"
@@ -102,7 +104,7 @@ type gatewayProbeFunc func(ctx context.Context, host string, port int) error
 // func) so tests can swap it out without spinning up a real cluster.
 var runGatewayProbeFn = func(ctx context.Context, host string, port int, creds bootstrapCredentials) error {
 	connStr := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=2",
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=1",
 		host, port, creds.user, creds.password, creds.database,
 	)
 	db, err := sql.Open("postgres", connStr)
@@ -116,6 +118,12 @@ var runGatewayProbeFn = func(ctx context.Context, host string, port int, creds b
 	_, err = db.ExecContext(probeCtx, "SELECT 1")
 	return err
 }
+
+// bootstrapHeartbeatInterval controls how often waitForGatewaysReady prints a
+// "still waiting" line when no gateway status has changed. It's a var (not a
+// constant) so tests can shrink it to avoid 30s real-time waits. Not
+// user-tunable via a flag.
+var bootstrapHeartbeatInterval = 30 * time.Second
 
 // ServiceInfo holds information about a provisioned service
 type ServiceInfo struct {
@@ -240,44 +248,143 @@ func collectGateways(results []*provisioner.ProvisionResult) []gatewayEndpoint {
 	return gws
 }
 
-// waitForGatewaysReady polls every gateway via probe until each succeeds
-// or ctx is cancelled. Each gateway is polled in its own goroutine.
-// Returns an error listing the gateways that never became ready by the
-// time ctx expires.
-func waitForGatewaysReady(ctx context.Context, gateways []gatewayEndpoint, probe gatewayProbeFunc) error {
-	ready := make([]bool, len(gateways))
-	var wg sync.WaitGroup
-	for i, gw := range gateways {
-		wg.Add(1)
-		go func(i int, gw gatewayEndpoint) {
-			defer wg.Done()
-			r := retry.New(constants.LocalGatewayBootstrapPollInterval, constants.LocalGatewayBootstrapPollInterval)
-			for _, err := range r.Attempts(ctx) {
-				if err != nil {
-					return
-				}
-				if err := probe(ctx, gw.host, gw.port); err == nil {
-					ready[i] = true
-					fmt.Printf("✅ - %s ready at %s:%d\n", gw.name, gw.host, gw.port)
-					return
-				}
-			}
-		}(i, gw)
-	}
-	wg.Wait()
+// gwStatus is the latest known readiness state of a single gateway, shared
+// between its probe goroutine (the writer) and the printer goroutine (the
+// reader) under a mutex.
+type gwStatus struct {
+	ready   bool   // probe has succeeded at least once
+	lastErr string // sanitized text of the most recent failed probe; shown only in the timeout summary
+}
 
+// sanitizeProbeErr renders a probe error as a single trimmed line so it fits on
+// one terminal row when included in the timeout summary.
+func sanitizeProbeErr(err error) string {
+	return strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
+}
+
+// progressPrinter owns all progress output for waitForGatewaysReady. Keeping
+// every write in one place (driven by a single goroutine) guarantees stdout
+// lines never interleave. It remembers what it last printed per gateway so it
+// emits each gateway's "waiting" and "ready" lines exactly once.
+type progressPrinter struct {
+	w            io.Writer
+	gateways     []gatewayEndpoint
+	printedReady []bool
+	printedWait  []bool
+	lastActivity time.Time // when we last printed anything
+}
+
+func newProgressPrinter(w io.Writer, gateways []gatewayEndpoint, start time.Time) *progressPrinter {
+	return &progressPrinter{
+		w:            w,
+		gateways:     gateways,
+		printedReady: make([]bool, len(gateways)),
+		printedWait:  make([]bool, len(gateways)),
+		lastActivity: start,
+	}
+}
+
+// renderChanges prints each gateway's state the first time it is seen: a
+// "waiting" line when a gateway is still pending, then a "ready" line once it
+// answers. Probe errors are intentionally not shown here — they only surface in
+// the timeout summary — so the live output stays terse.
+func (p *progressPrinter) renderChanges(snapshot []gwStatus) {
+	for i, gw := range p.gateways {
+		switch {
+		case snapshot[i].ready && !p.printedReady[i]:
+			p.printedReady[i] = true
+			fmt.Fprintf(p.w, "✅ - %s ready at %s:%d\n", gw.name, gw.host, gw.port)
+			p.lastActivity = time.Now()
+		case !snapshot[i].ready && !p.printedWait[i]:
+			p.printedWait[i] = true
+			fmt.Fprintf(p.w, "⏳ - waiting for %s at %s:%d to become available\n",
+				gw.name, gw.host, gw.port)
+			p.lastActivity = time.Now()
+		}
+	}
+}
+
+// renderHeartbeat prints a single "still waiting" line listing every pending
+// gateway, but only when nothing has been printed for at least
+// bootstrapHeartbeatInterval. This reassures the operator that a long-running,
+// unchanged wait hasn't hung.
+func (p *progressPrinter) renderHeartbeat(snapshot []gwStatus, elapsed time.Duration) {
+	if time.Since(p.lastActivity) < bootstrapHeartbeatInterval {
+		return
+	}
+	var pending []string
+	for i, gw := range p.gateways {
+		if snapshot[i].ready {
+			continue
+		}
+		pending = append(pending, fmt.Sprintf("%s (%s:%d)", gw.name, gw.host, gw.port))
+	}
+	if len(pending) == 0 {
+		return
+	}
+	fmt.Fprintf(p.w, "⏳ - Still waiting (%s elapsed): %s\n",
+		elapsed.Round(time.Second), strings.Join(pending, ", "))
+	p.lastActivity = time.Now()
+}
+
+// waitForGatewaysReady probes every gateway until each succeeds or ctx is
+// cancelled. Gateways are probed sequentially in a single goroutine: every
+// probe self-caps (LocalGatewayBootstrapProbeTimeout), so on localhost a full
+// cycle is fast and there's no need for concurrency, channels, or locks. The
+// printer runs inline, so progress lines never interleave. On success it prints
+// a summary line and returns nil; on ctx expiry it returns an error listing the
+// gateways that never became ready and how long it waited.
+func waitForGatewaysReady(ctx context.Context, w io.Writer, gateways []gatewayEndpoint, probe gatewayProbeFunc) error {
+	start := time.Now()
+	statuses := make([]gwStatus, len(gateways))
+	printer := newProgressPrinter(w, gateways, start)
+
+	r := retry.New(constants.LocalGatewayBootstrapPollInterval, constants.LocalGatewayBootstrapPollInterval)
+	for _, rerr := range r.Attempts(ctx) {
+		if rerr != nil {
+			break // ctx cancelled or timed out
+		}
+		allUp := true
+		for i, gw := range gateways {
+			if statuses[i].ready {
+				continue
+			}
+			if perr := probe(ctx, gw.host, gw.port); perr == nil {
+				statuses[i].ready = true
+			} else {
+				allUp = false
+				statuses[i].lastErr = sanitizeProbeErr(perr)
+			}
+		}
+		printer.renderChanges(statuses)
+		if allUp {
+			break
+		}
+		printer.renderHeartbeat(statuses, time.Since(start))
+	}
+
+	// On timeout the last probe error is the most useful diagnostic, so include
+	// it per pending gateway here even though the live progress lines omit it.
 	var pending []string
 	for i, gw := range gateways {
-		if !ready[i] {
+		if statuses[i].ready {
+			continue
+		}
+		if statuses[i].lastErr != "" {
+			pending = append(pending, fmt.Sprintf("%s (%s:%d, last error: %s)", gw.name, gw.host, gw.port, statuses[i].lastErr))
+		} else {
 			pending = append(pending, fmt.Sprintf("%s (%s:%d)", gw.name, gw.host, gw.port))
 		}
 	}
+
+	elapsed := time.Since(start).Round(time.Second)
 	if len(pending) > 0 {
 		return fmt.Errorf(
-			"cluster did not become ready to serve queries within %s; gateways not ready: %s. Check the multigateway and multipooler log files listed above for details",
-			constants.LocalBootstrapWaitTimeout, strings.Join(pending, ", "),
+			"cluster did not become ready to serve queries within %s; gateways not ready: %s. Check the multigateway and multipooler log files listed above for details (waited %s)",
+			constants.LocalBootstrapWaitTimeout, strings.Join(pending, ", "), elapsed,
 		)
 	}
+	fmt.Fprintf(w, "✅ - Cluster ready to serve queries (total wait: %s)\n", elapsed)
 	return nil
 }
 
@@ -356,7 +463,7 @@ func start(cmd *cobra.Command, args []string) error {
 		fmt.Printf("⏳ - Waiting up to %s for the cluster to start serving queries...\n", constants.LocalBootstrapWaitTimeout)
 		waitCtx, cancel := context.WithTimeout(ctx, constants.LocalBootstrapWaitTimeout)
 		defer cancel()
-		if err := waitForGatewaysReady(waitCtx, gateways, probe); err != nil {
+		if err := waitForGatewaysReady(waitCtx, os.Stdout, gateways, probe); err != nil {
 			return err
 		}
 	}
