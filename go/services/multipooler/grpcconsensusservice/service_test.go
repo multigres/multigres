@@ -109,7 +109,7 @@ func TestConsensusService_Status(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 	require.NoError(t, os.MkdirAll(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
-	defer pm.Shutdown()
+	defer pm.ShutdownForTest(t.Context())
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -197,7 +197,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 	require.NoError(t, os.MkdirAll(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, constants.MultigresMarkerDirectory, "MULTIGRES_INITIALIZED"), []byte("initialized\n"), 0o644))
-	defer pm.Shutdown()
+	defer pm.ShutdownForTest(t.Context())
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())

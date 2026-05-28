@@ -462,7 +462,7 @@ func (gs *GrantStmt) SqlString() string {
 					var colNames []string
 					for _, col := range priv.Cols.Items {
 						if colStr, ok := col.(*String); ok {
-							colNames = append(colNames, colStr.SVal)
+							colNames = append(colNames, QuoteIdentifier(colStr.SVal))
 						}
 					}
 					if len(colNames) > 0 {
@@ -538,7 +538,7 @@ func (gs *GrantStmt) SqlString() string {
 			if rangeVar, ok := obj.(*RangeVar); ok {
 				objNames = append(objNames, FormatFullyQualifiedName(rangeVar.CatalogName, rangeVar.SchemaName, rangeVar.RelName))
 			} else if str, ok := obj.(*String); ok {
-				objNames = append(objNames, str.SVal)
+				objNames = append(objNames, QuoteIdentifier(str.SVal))
 			} else if integer, ok := obj.(*Integer); ok {
 				// For large objects and other numeric identifiers
 				objNames = append(objNames, strconv.Itoa(integer.IVal))
@@ -547,11 +547,13 @@ func (gs *GrantStmt) SqlString() string {
 				objNames = append(objNames, objWithArgs.SqlString())
 			} else if nodeList, ok := obj.(*NodeList); ok {
 				// For types and other complex objects, extract names from the NodeList
+				var qualParts []string
 				for _, item := range nodeList.Items {
 					if str, ok := item.(*String); ok {
-						objNames = append(objNames, str.SVal)
+						qualParts = append(qualParts, QuoteIdentifier(str.SVal))
 					}
 				}
+				objNames = append(objNames, strings.Join(qualParts, "."))
 			}
 		}
 		parts = append(parts, strings.Join(objNames, ", "))
@@ -803,7 +805,7 @@ func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
 						var schemaNames []string
 						for _, schema := range nodeList.Items {
 							if str, ok := schema.(*String); ok {
-								schemaNames = append(schemaNames, str.SVal)
+								schemaNames = append(schemaNames, QuoteIdentifier(str.SVal))
 							}
 						}
 						parts = append(parts, strings.Join(schemaNames, ", "))
@@ -840,7 +842,7 @@ func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
 						var colNames []string
 						for _, col := range priv.Cols.Items {
 							if str, ok := col.(*String); ok {
-								colNames = append(colNames, str.SVal)
+								colNames = append(colNames, QuoteIdentifier(str.SVal))
 							}
 						}
 						privStr += " (" + strings.Join(colNames, ", ") + ")"
@@ -2353,11 +2355,11 @@ func formatCopyOption(option *DefElem) string {
 	case *A_Star:
 		return optionName + " *"
 	case *NodeList:
-		// Handle lists like force_quote (col1, col2)
+		// Handle column-name lists like force_quote (col1, col2)
 		var listItems []string
 		for _, item := range arg.Items {
 			if str, ok := item.(*String); ok {
-				listItems = append(listItems, str.SVal)
+				listItems = append(listItems, QuoteIdentifier(str.SVal))
 			}
 		}
 		if len(listItems) > 0 {

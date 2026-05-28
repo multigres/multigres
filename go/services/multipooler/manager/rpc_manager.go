@@ -139,7 +139,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// passfile points libpq at the pgpass file written at manager startup so the
 	// standby can authenticate to the primary via SCRAM without embedding the
 	// password in postgresql.auto.conf. It is omitted when pgpassPath is unset
-	// (early startup or unit tests that bypass loadMultiPoolerFromTopo).
+	// (early startup or unit tests that bypass loadShardConfigFromGlobalTopo).
 	user := constants.DefaultPostgresUser
 	if pm.connPoolMgr != nil {
 		user = pm.connPoolMgr.PgUser()
@@ -638,16 +638,11 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
 
-	// Use the serving state manager to transition components and update the multipooler record.
-	// The serving status stays SERVING during type changes (the node remains available).
+	// Use the serving state manager to transition components and update the pooler record.
+	// The serving status stays SERVING during type changes (the node remains available). Mutate
+	// inside StateManager schedules an async publish to topology.
 	if err := pm.servingState.SetState(ctx, poolerType, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state")
-	}
-
-	// Notify the topology publisher of the new state. The write to etcd happens
-	// asynchronously so that a temporarily unreachable etcd does not block type changes.
-	if err := pm.topoPublisher.Notify(ctx, pm.multipooler); err != nil {
-		pm.logger.ErrorContext(ctx, "topoPublisher.Notify called without action lock", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
@@ -898,8 +893,8 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	wantRewind := pm.rewindPending.Load()
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
-	resume := pm.Pause()
-	defer resume() // safety net; explicit resume() below after restart succeeds
+	resume := pm.Pause(ctx)
+	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
 
 	if err := pm.pgctldStopWithEscalation(ctx); err != nil {
 		return false, mterrors.Wrap(err, "stop postgres")
@@ -938,7 +933,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 
 	// Resume the manager now that postgres is back up. The deferred resume()
 	// remains in place as a safety net for the path below.
-	resume()
+	resume(ctx)
 
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
 		return false, mterrors.Wrap(err, "wait for database after restart as standby")
@@ -1016,7 +1011,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 // This function updates them to point to the current pooler's directories
 func (pm *MultiPoolerManager) fixPgBackRestPaths(ctx context.Context) error {
 	pm.mu.Lock()
-	poolerDir := pm.multipooler.PoolerDir
+	poolerDir := pm.record.PoolerDir()
 	pm.mu.Unlock()
 
 	if poolerDir == "" {

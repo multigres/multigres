@@ -13,11 +13,15 @@ To regenerate these test files from PostgreSQL source:
 
 1. **Get PostgreSQL test files**:
 
+   The script reads from `../postgres-tests/` — a local scratch directory that
+   is **not** checked into this repo. Create it on demand:
+
    ```bash
    # Clone PostgreSQL repository (if not already done)
    git clone https://github.com/postgres/postgres.git
 
    # Copy test files to postgres-tests directory (one level up)
+   mkdir -p ../postgres-tests
    cp postgres/src/test/regress/sql/*.sql ../postgres-tests/
    ```
 

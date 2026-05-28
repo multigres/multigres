@@ -348,7 +348,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready
-		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
+		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler, nil)
 
 		// Wait for auto-restore to complete. We don't assert
 		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a

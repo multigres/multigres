@@ -113,6 +113,11 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
+
+	// Timings records elapsed durations for timeout-bounded setup operations.
+	// Reported at test teardown so you can see which operations are approaching
+	// their limits on slow runners.
+	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.
@@ -181,6 +186,11 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 }
 
 // RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
+// Returns nil (without failing the test) when no primary is found — callers that require a
+// primary should assert on the return value (e.g. require.NotNil). Returning nil rather than
+// calling t.Fatal is important because RefreshPrimary is used inside assert.Never callbacks,
+// which spawn goroutines; a t.Fatal from such a goroutine would fail the test spuriously when
+// cleanup tears down the multipoolers after the assertion window has already passed.
 func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 	t.Helper()
 
@@ -206,7 +216,7 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 		}
 	}
 
-	t.Fatal("RefreshPrimary: no primary found in cluster")
+	t.Logf("RefreshPrimary: no primary found in cluster")
 	return nil
 }
 
@@ -300,7 +310,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 
@@ -330,7 +340,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
 		SocketFile:  socketFile,
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
+		Environment: append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler

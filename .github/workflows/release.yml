@@ -15,6 +15,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -23,8 +24,8 @@ permissions:
   contents: read
 
 jobs:
-  verify-tag:
-    name: Verify Tag
+  verify-ref:
+    name: Verify Release Ref
     runs-on: ubuntu-24.04
 
     steps:
@@ -35,6 +36,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -44,6 +46,7 @@ jobs:
           fi
 
       - name: Verify tag is on release branch
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_SHA: ${{ github.sha }}
           TAG_NAME: ${{ github.ref_name }}
@@ -64,7 +67,7 @@ jobs:
 
   test-go:
     name: Test Go
-    needs: verify-tag
+    needs: verify-ref
     runs-on: ubuntu-24.04
 
     steps:
@@ -88,9 +91,11 @@ jobs:
   build-release-images:
     name: Build Release Images
     needs: test-go
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      id-token: write
       packages: write
 
     strategy:
@@ -116,11 +121,18 @@ jobs:
       - name: Set release image tags
         env:
           IMAGE: ${{ matrix.image }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          image_tag="$TAG_NAME"
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            image_tag="dry-run-${GITHUB_RUN_ID}"
+          fi
+
           {
-            echo "RELEASE_TAG=$TAG_NAME"
+            echo "RELEASE_TAG=$image_tag"
             echo "PUSH_IMAGE=true"
             echo "IMAGE_REF=ghcr.io/${REPOSITORY_OWNER}/${IMAGE}"
           } >> "$GITHUB_ENV"
@@ -135,13 +147,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
       - name: Build release image
+        id: build-release-image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: ${{ env.PUSH_IMAGE }}
           tags: ${{ env.IMAGE_REF }}:${{ env.RELEASE_TAG }}
+          provenance: mode=max
+          sbom: true
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -151,11 +171,29 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Verify published image
-        run: docker buildx imagetools inspect "${IMAGE_REF}:${RELEASE_TAG}"
+        env:
+          IMAGE_DIGEST: ${{ steps.build-release-image.outputs.digest }}
+        run: docker buildx imagetools inspect "${IMAGE_REF}@${IMAGE_DIGEST}"
+
+      - name: Sign release image
+        env:
+          IMAGE_DIGEST: ${{ steps.build-release-image.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_REF}@${IMAGE_DIGEST}"
+
+      - name: Verify release image signature
+        env:
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          IMAGE_DIGEST: ${{ steps.build-release-image.outputs.digest }}
+        run: |
+          cosign verify \
+            --certificate-identity "$CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE_REF}@${IMAGE_DIGEST}"
 
   goreleaser:
     name: Publish GitHub Release
     needs: build-release-images
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -186,3 +224,104 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  goreleaser-snapshot:
+    name: GoReleaser Snapshot
+    needs: test-go
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          version: v2.16.0
+          args: check
+
+      - name: Run GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          version: v2.16.0
+          args: release --snapshot --clean --skip=publish
+
+      - name: Verify snapshot artifacts
+        run: |
+          set -euo pipefail
+
+          expected_entries=(
+            "LICENSE"
+            "README.md"
+            "multigres"
+            "pgctld"
+            "multigateway"
+            "multiorch"
+            "multipooler"
+            "multiadmin"
+          )
+
+          test -f dist/artifacts.json
+          test -f dist/checksums.txt
+
+          mapfile -t archives < <(
+            jq -r '.[] | select(.type == "Archive") | .path' dist/artifacts.json
+          )
+          mapfile -t checksums < <(
+            jq -r '.[] | select(.type == "Checksum") | .path' dist/artifacts.json
+          )
+
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "::error::GoReleaser did not produce archive artifacts"
+            exit 1
+          fi
+
+          if [[ ${#checksums[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one GoReleaser checksum artifact, found ${#checksums[@]}"
+            exit 1
+          fi
+
+          for artifact in "${archives[@]}" "${checksums[@]}"; do
+            if [[ ! -f "$artifact" ]]; then
+              echo "::error::GoReleaser artifact is missing from disk: ${artifact}"
+              exit 1
+            fi
+          done
+
+          for archive in "${archives[@]}"; do
+            if [[ "$archive" == *.tar.gz ]]; then
+              entries="$(tar -tzf "$archive")"
+            else
+              entries="$(unzip -Z1 "$archive")"
+            fi
+
+            for expected_entry in "${expected_entries[@]}"; do
+              if ! grep -Fxq "$expected_entry" <<< "$entries"; then
+                echo "::error::${archive} is missing ${expected_entry}"
+                exit 1
+              fi
+            done
+          done
+
+          (cd dist && shasum -a 256 -c checksums.txt)
+
+          mkdir -p release-artifacts
+          for artifact in "${archives[@]}" "${checksums[@]}"; do
+            cp "$artifact" release-artifacts/
+          done
+
+      - name: Upload GoReleaser snapshot artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: goreleaser-snapshot
+          path: release-artifacts/
