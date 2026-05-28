@@ -675,46 +675,54 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	// A standby with rewindPending=true was emergency-demoted earlier and still
-	// has divergent WAL relative to the new primary. Routing through
-	// demoteStalePrimaryLocked runs pg_rewind, which clears rewindPending and
-	// makes the node recruitable again. Without this, the lightweight standby
-	// branch sets primary_conninfo but leaves the WAL divergent, and the next
-	// Recruit refuses with "rewind pending after emergency demotion".
-	needsRewind := pm.rewindPending.Load()
-
 	// Reported to the gateway as the new leader's term. Not term validation —
 	// the rule compare above is the gate. SetTermPrimary does not bump the local
 	// revocation: revocations are authored by coordinators via Recruit, and
 	// an SetTermPrimary is a notification, not a revoke.
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
-	if isPrimary || needsRewind {
-		pm.logger.InfoContext(ctx, "SetTermPrimary: demoting stale primary",
+	if isPrimary {
+		pm.rewindPending.Store(true)
+	}
+
+	if pm.rewindPending.Load() {
+		// If a rewind is pending, restartAsStandbyLocked() will take care of the rewind.
+		pm.logger.InfoContext(ctx, "SetTermPrimary: stale primary, restarting as standby",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber(),
-			"is_primary", isPrimary,
-			"rewind_pending", needsRewind)
-		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, rule); err != nil {
+			"is_primary", isPrimary)
+		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {
 			return nil, err
+		}
+		if err := pm.resetSynchronousReplication(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
+		}
+		// Postgres just came back as a standby with no primary_conninfo;
+		// (false, false) is enough — no in-flight replication to pause, and
+		// the WAL receiver starts once conninfo is reloaded.
+		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port, false, false); err != nil {
+			return nil, mterrors.Wrap(err, "configure replication to source primary")
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "SetTermPrimary: updating standby primary_conninfo",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
+		// Already a standby with an active stream; pause replay, swap
+		// conninfo, resume on the new primary.
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
-		// Ensure topology reflects REPLICA. This matters when postgres has
-		// already been demoted (e.g. by a prior Recruit on this node or an
-		// external pg_promote-then-restart) but the pooler's topology entry still
-		// reads PRIMARY. Without this, the stale PRIMARY label causes the
-		// stale-leader analyzer to keep firing forever. Propose has the same
-		// step on its replica branch for the same reason.
-		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetTermPrimary", "error", err)
-		}
+	}
+
+	// Ensure topology reflects REPLICA. This matters when postgres has
+	// already been demoted (e.g. by a prior Recruit on this node or an
+	// external pg_promote-then-restart) but the pooler's topology entry still
+	// reads PRIMARY. Without this, the stale PRIMARY label causes the
+	// stale-leader analyzer to keep firing forever. Propose has the same
+	// step on its replica branch for the same reason.
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetTermPrimary", "error", err)
 	}
 
 	// Advertise the new leader to the health stream so the gateway can route
