@@ -13,11 +13,14 @@ multigateway's response trace diverges from a real PostgreSQL's:
 
 Two invocations per corpus file (one per target). **PostgreSQL is the oracle:**
 a file "passes" on the multigateway when its normalized response trace matches
-PostgreSQL's exactly. Per-file match/mismatch is recorded for both targets and
-written to `results.json` + a markdown summary. **Divergences do not fail the
-Go test** — this suite is a tracker, not a gate. CI flags any file that
-produces a PostgreSQL baseline but a differing multigateway trace, the same way
-`sqllogictest` and `pgregresstest` do.
+PostgreSQL's — either exactly, or after applying a recorded known-divergence
+patch (see "Known divergences and patches"). Per-file results are written to
+`results.json` + a markdown summary.
+
+**This suite is a gate.** Known divergences are absorbed by patches, so the
+expected baseline is zero _unpatched_ divergences and the Go test **fails** when
+any remain. There is no separate regression/baseline tracking — a failing run is
+the signal.
 
 ## Why pgproto, and why differential
 
@@ -37,14 +40,15 @@ against PostgreSQL catches relay bugs the normal-path tests never reach.
 Running each file through both direct PG and the multigateway distinguishes
 three outcomes:
 
-- **Match** (multigateway trace == postgres trace) — the proxy relayed the
-  exchange faithfully.
-- **Proxy divergence** (postgres produced a baseline, multigateway differs) —
-  a bug in the multigres query/protocol path. High-signal; this is what CI
-  alerts on.
+- **Match** (multigateway trace == postgres trace, possibly via a patch) — the
+  proxy relayed the exchange faithfully, or the divergence is a recorded known
+  one.
+- **Proxy divergence** (postgres produced a baseline, multigateway differs, no
+  patch covers it) — a bug in the multigres query/protocol path. This fails the
+  gate: fix the gateway, or record the divergence as a patch.
 - **No baseline** (postgres itself could not produce a trace, e.g. a malformed
   data file or a connection failure) — a harness/corpus problem, recorded and
-  categorized so it doesn't pollute the divergence channel.
+  kept distinct from the proxy-divergence signal.
 
 ## The pgproto data-file format
 
@@ -212,30 +216,31 @@ socket code.
 # One-time setup: builds pgproto from pinned source into bin/.
 make tools
 
-# Required before integration tests.
-make build
+# Verify against recorded patches (builds the cluster + PostgreSQL as needed).
+make pgproto
 
-# Run (skipped without RUN_EXTENDED_QUERY_SERVING_TESTS=1; matches the
-# "Run Extended Query Serving Tests" PR label).
-scripts/portpool.sh start
-RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
-  MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
-  go test -v -timeout 30m \
-    -run TestPgProtoConformance \
-    ./go/test/endtoend/queryserving/pgproto/...
+# Record/refresh patches from the current run (review the diff before committing).
+make pgproto-update-patches
 ```
 
-During iteration, scope to a single file with `PGPROTO_CORPUS_GLOB`:
+The `make` targets set `RUN_EXTENDED_QUERY_SERVING_TESTS=1` and the patch mode
+for you. To run by hand — e.g. to scope to one file during iteration — invoke
+`go test` directly (the suite is skipped unless
+`RUN_EXTENDED_QUERY_SERVING_TESTS=1`, which matches the "Run Extended Query
+Serving Tests" PR label):
 
 ```bash
-PGPROTO_CORPUS_GLOB='extended_query.pgproto' RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
+make build
+scripts/portpool.sh start
+PGPROTO_CORPUS_GLOB='extended_query.pgproto' \
+  RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
   MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
-  go test -v -run TestPgProtoConformance \
+  go test -v -timeout 30m -run TestPgProtoConformance \
     ./go/test/endtoend/queryserving/pgproto/...
 ```
 
-Per the project convention, prefer the `/mt-dev` skill for test execution:
-`/mt-dev integration pgproto`.
+> Note: plain `/mt-dev integration` does not enable this suite — it doesn't set
+> `RUN_EXTENDED_QUERY_SERVING_TESTS`, so the test self-skips. Use `make pgproto`.
 
 ## Environment variables
 
@@ -254,16 +259,16 @@ Written under `builder.OutputDir` (i.e.
 `/tmp/multigres_pg_cache/results/<timestamp>/`):
 
 - `results.json` — a one-element **array** holding the `PgProto` suite object,
-  with per-file `status`/`note`, per-target `passed` booleans, counters
-  (`passed_both` = matched, `passed_pg_only` = proxy divergence,
-  `passed_mg_only`, `failed_both` = no baseline), and the pinned `corpus_commit`
-  (the pgproto tool revision). The array shape and field names match
-  `sqllogictest`/`pgregresstest` so `.github/scripts/detect-regressions.sh` and
-  the CI `jq` divergence filter (`postgres.passed == true and
-multigateway.passed == false`) work unchanged. Divergent files carry a
-  unified diff of the two traces in the multigateway `output`.
-- `compatibility-report.md` — shields.io badges, counters, and a per-file diff
-  for each proxy divergence. Appended to `GITHUB_STEP_SUMMARY` when set.
+  with per-file `status`/`note`, per-target `passed` booleans, the patch fields
+  (`patch_applied`, `patch_path`), and counters: `passed_both` = matched (of
+  which `passed_via_patch` are known divergences absorbed by a patch),
+  `passed_pg_only` = unpatched proxy divergence, `passed_mg_only`, `failed_both`
+  = no baseline. Also records the pinned `corpus_commit` (the pgproto tool
+  revision). The field layout mirrors `sqllogictest`/`pgregresstest`. Unpatched
+  divergences carry the residual diff in the multigateway `output`.
+- `compatibility-report.md` — shields.io badges, counters, a per-file diff for
+  each new (unpatched) divergence, and the list of known divergences absorbed by
+  patches. Appended to `GITHUB_STEP_SUMMARY` when set.
 
 ## Expanding the corpus
 

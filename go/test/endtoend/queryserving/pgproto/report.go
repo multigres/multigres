@@ -25,9 +25,9 @@ import (
 )
 
 // fileReport is the per-file record in the serialized report. Its field layout
-// mirrors sqllogictest/pgregresstest so .github/scripts/detect-regressions.sh
-// and the CI divergence filter (postgres.passed && !multigateway.passed) work
-// unchanged.
+// mirrors sqllogictest/pgregresstest for familiarity; pgproto itself gates on
+// the Go test exit (it fails on unpatched divergences) rather than on a
+// downstream baseline comparison.
 type fileReport struct {
 	Name     string `json:"name"`           // relative path, e.g. "simple_query.pgproto"
 	Status   string `json:"status"`         // "pass" | "fail"
@@ -46,8 +46,8 @@ type fileReport struct {
 //
 // For pgproto, "passed" is differential, not intrinsic: postgres.passed means
 // the baseline trace was produced (pgproto ran cleanly against PG), and
-// multigateway.passed means the multigateway ran cleanly AND reproduced PG's
-// normalized trace exactly.
+// multigateway.passed means the multigateway ran cleanly AND its normalized
+// trace matched PG's — exactly, or after a recorded known-divergence patch.
 type perRun struct {
 	Passed   bool   `json:"passed"`
 	TimedOut bool   `json:"timed_out,omitempty"`
@@ -57,10 +57,9 @@ type perRun struct {
 }
 
 // suiteReport is what we serialize. Fields line up with sqllogictest /
-// pgregresstest so downstream tooling can treat all three identically. pgproto
-// emits a single suite (each data file mixes simple and extended protocol
-// however it likes), but the on-disk shape is still an array of suites for
-// compatibility with detect-regressions.sh.
+// pgregresstest for familiarity. pgproto emits a single suite (each data file
+// mixes simple and extended protocol however it likes), serialized as a
+// one-element array to match the sibling suites' on-disk shape.
 type suiteReport struct {
 	Name           string       `json:"name"` // "PgProto"
 	CorpusDir      string       `json:"corpus_dir"`
@@ -201,9 +200,8 @@ func toPerRun(r *runResult, passed bool) perRun {
 	return out
 }
 
-// writeJSON writes the suite (wrapped in a single-element array) to
-// <outputDir>/results.json. The array shape is what
-// .github/scripts/detect-regressions.sh and the CI jq filter expect.
+// writeJSON writes the suite (wrapped in a single-element array, matching the
+// sibling suites' shape) to <outputDir>/results.json.
 func writeJSON(outputDir string, report *suiteReport) (string, error) {
 	return suiteutil.WriteJSON(outputDir, "results.json", []*suiteReport{report})
 }
