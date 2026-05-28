@@ -185,13 +185,26 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 	return s.GetMultipoolerInstance(s.PrimaryName)
 }
 
-// RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
-// Returns nil (without failing the test) when no primary is found — callers that require a
-// primary should assert on the return value (e.g. require.NotNil). Returning nil rather than
-// calling t.Fatal is important because RefreshPrimary is used inside assert.Never callbacks,
-// which spawn goroutines; a t.Fatal from such a goroutine would fail the test spuriously when
-// cleanup tears down the multipoolers after the assertion window has already passed.
+// RefreshPrimary queries all multipoolers to find the current primary and
+// updates PrimaryName. Fatals if no primary is found. Inside polling loops
+// (assert.Never / assert.Eventually) use TryFindPrimary instead — a
+// transient miss in a poll should not fatal the test.
 func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+	inst, ok := s.TryFindPrimary(t)
+	if !ok {
+		t.Fatal("RefreshPrimary: no primary found in cluster")
+	}
+	return inst
+}
+
+// TryFindPrimary is the single-shot, non-fatal probe used by RefreshPrimary.
+// Returns (instance, true) on success, (nil, false) when no pooler currently
+// reports IsInitialized + PoolerType=PRIMARY. Suitable for poll callbacks
+// (e.g. assert.Never) where a single miss should retry, not fail the test —
+// the Status RPC for a given pooler can transiently time out while multiorch
+// is reconciling sync_standby_names.
+func (s *ShardSetup) TryFindPrimary(t *testing.T) (*MultipoolerInstance, bool) {
 	t.Helper()
 
 	for name, inst := range s.Multipoolers {
@@ -211,13 +224,12 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 
 		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 			s.PrimaryName = name
-			t.Logf("RefreshPrimary: current primary is %s", name)
-			return inst
+			t.Logf("TryFindPrimary: current primary is %s", name)
+			return inst, true
 		}
 	}
 
-	t.Logf("RefreshPrimary: no primary found in cluster")
-	return nil
+	return nil, false
 }
 
 // GetStandbys returns all multipooler instances that are not the primary.
