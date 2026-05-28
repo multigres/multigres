@@ -88,7 +88,6 @@ generate: parser ## Alias for parser.
 # Build Go binaries only (debug, with symbols)
 build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
 		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
@@ -97,7 +96,6 @@ build: ## Build Go binaries (debug, with symbols).
 # Build Go binaries with coverage
 build-coverage:
 	mkdir -p bin/cov/
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (coverage)"; \
 		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
@@ -106,7 +104,6 @@ build-coverage:
 # Build Go binaries only (release, static, stripped)
 build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
 		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
@@ -181,12 +178,37 @@ pgproto: build ## Run the pgproto wire-protocol conformance suite with patch-bas
 pgproto-update-patches: build ## Regenerate pgproto testdata/patches/*.patch from the current run.
 	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=generate \
 	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
+# Path to the supabase/postgres checkout. Override with SUPABASE_POSTGRES_DIR=... if needed.
+SUPABASE_POSTGRES_DIR ?= $(HOME)/repos/supabase/postgres
+
+docker-supabase-postgres: ## Build the supabase Postgres base image from Dockerfile-17.
+	docker build \
+	  -f $(SUPABASE_POSTGRES_DIR)/Dockerfile-17 \
+	  -t supabase-postgres:local \
+	  $(SUPABASE_POSTGRES_DIR)
+
+docker-supabase-postgres-test: docker-supabase-postgres ## Build the integration test runner image (supabase Postgres + Go + etcd).
+	docker build \
+	  -f Dockerfile.integration-test \
+	  --build-arg SUPABASE_IMAGE=supabase-postgres:local \
+	  -t supabase-postgres-test:local \
+	  .
+
+test-integration-supabase: docker-supabase-postgres-test ## Run integration tests inside the supabase Postgres container.
+	docker run --rm \
+	  --name multigres-integration-test \
+	  -v $(CURDIR):/multigres \
+	  -v /tmp/go-cache:/home/postgres/.cache \
+	  -w /multigres \
+	  -e TEST_PRINT_LOGS=1 \
+	  -e AWS_ACCESS_KEY_ID=test-access-key \
+	  -e AWS_SECRET_ACCESS_KEY=test-secret-key \
+	  supabase-postgres-test:local
 
 ##@ Maintenance
 
 # Clean build artifacts
 clean: ## Remove build artifacts and temp files.
-	rm -f go/common/web/templates/css/pico.*
 	go clean -i ./go/...
 	@for cmd in $(CMDS); do \
 		echo "Removing $(BIN_DIR)/$$cmd"; \

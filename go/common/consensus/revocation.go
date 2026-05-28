@@ -45,9 +45,13 @@ import (
 func NewTermRevocation(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	coordinatorID *clustermetadatapb.ID,
+	initiatedAt *timestamppb.Timestamp,
 ) (*clustermetadatapb.TermRevocation, error) {
 	if len(statuses) == 0 {
 		return nil, errors.New("NewTermRevocation: statuses must be non-empty")
+	}
+	if initiatedAt == nil {
+		return nil, errors.New("NewTermRevocation: initiatedAt must be non-nil")
 	}
 	var maxTerm int64
 	var maxRule *clustermetadatapb.RuleNumber
@@ -76,7 +80,7 @@ func NewTermRevocation(
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
 		AcceptedCoordinatorId:  coordinatorID,
-		CoordinatorInitiatedAt: timestamppb.Now(),
+		CoordinatorInitiatedAt: initiatedAt,
 		OutgoingRule:           maxRule,
 	}, nil
 }

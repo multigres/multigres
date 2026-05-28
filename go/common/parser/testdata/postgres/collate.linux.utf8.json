@@ -670,13 +670,11 @@
   },
   {
     "comment": "collate.linux.utf8 - Statement 160",
-    "query": "CREATE COLLATION test4 FROM nonsense",
-    "expected": "CREATE COLLATION test4 FROM \"nonsense\""
+    "query": "CREATE COLLATION test4 FROM nonsense"
   },
   {
     "comment": "collate.linux.utf8 - Statement 161",
-    "query": "CREATE COLLATION test5 FROM test0",
-    "expected": "CREATE COLLATION test5 FROM \"test0\""
+    "query": "CREATE COLLATION test5 FROM test0"
   },
   {
     "comment": "collate.linux.utf8 - Statement 162",

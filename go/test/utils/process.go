@@ -16,10 +16,54 @@ package utils
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/executil"
 )
+
+// BaseTestEnv returns a copy of os.Environ() safe for use in pgctld and multipooler
+// test processes. It strips variables that the Supabase Postgres container exports
+// and that would corrupt the test cluster setup:
+//
+//   - POSTGRES_USER=supabase_admin — causes initdb to create a "supabase_admin"
+//     superuser instead of "postgres", so "postgres" gets no SCRAM verifier and all
+//     test connections (which authenticate as "postgres") fail with "password
+//     authentication failed".
+//   - POSTGRES_INITDB_SQL_FILES — points at Supabase migration SQL that assumes a
+//     pre-existing "supabase_admin" role; running it under the test user breaks
+//     initdb post-setup.
+//   - POSTGRES_INITDB_SQL_DIRS — same concern as POSTGRES_INITDB_SQL_FILES.
+//
+// POSTGRES_INITDB_ARGS is intentionally NOT stripped. The Supabase image sets it to
+// "--locale-provider=icu --icu-locale=en_US.UTF-8 --allow-group-access". The ICU
+// locale flags are necessary: the Supabase Postgres binary requires ICU locale data
+// for startup, and that data is available via LOCALE_ARCHIVE inside the container.
+// Stripping these flags causes Postgres to start but crash immediately (before
+// multipooler can connect), because the binary cannot fall back to a glibc-only
+// locale configuration.  On a developer's macOS machine POSTGRES_INITDB_ARGS is
+// typically absent, so leaving it unstripped is a no-op there.
+//
+// After stripping, POSTGRES_USER=postgres is appended so initdb always creates
+// "postgres" as the superuser — the role every test connection uses.
+func BaseTestEnv() []string {
+	strip := map[string]bool{
+		constants.PgUserEnvVar:           true,
+		constants.PgInitdbSQLFilesEnvVar: true,
+		constants.PgInitdbSQLDirsEnvVar:  true,
+	}
+	base := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		if !strip[key] {
+			base = append(base, kv)
+		}
+	}
+	base = append(base, constants.PgUserEnvVar+"="+constants.DefaultPostgresUser)
+	return base
+}
 
 // CommandWithOrphanProtection creates a command wrapped in run_in_test.sh for orphan
 // process protection. The process uses context.Background() for its lifetime, avoiding

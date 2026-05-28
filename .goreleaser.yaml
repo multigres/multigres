@@ -1,7 +1,109 @@
 version: 2
 
 builds:
-  - skip: true
+  - id: multigres
+    main: ./go/cmd/multigres
+    binary: multigres
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: pgctld
+    main: ./go/cmd/pgctld
+    binary: pgctld
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: multigateway
+    main: ./go/cmd/multigateway
+    binary: multigateway
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: multiorch
+    main: ./go/cmd/multiorch
+    binary: multiorch
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: multipooler
+    main: ./go/cmd/multipooler
+    binary: multipooler
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: multiadmin
+    main: ./go/cmd/multiadmin
+    binary: multiadmin
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: >-
+      multigres-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+    format_overrides:
+      - goos: darwin
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
 
 changelog:
   use: github
@@ -40,4 +142,5 @@ release:
     - `ghcr.io/multigres/pgctld:{{ .Tag }}`
     - `ghcr.io/multigres/multiadmin-web:{{ .Tag }}`
 
+    Downloadable binary archives and checksums are attached to this GitHub release.
     Source archives are available on this GitHub release.

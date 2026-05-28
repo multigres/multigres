@@ -93,9 +93,10 @@ type ShardAnalysis struct {
 	LeaderLastPostgresReadyTime time.Time
 
 	// LeaderHasResigned is true when the topology leader has voluntarily requested
-	// replacement via the REQUESTING_DEMOTION signal (set during EmergencyDemote or
-	// graceful shutdown of a leader). LeaderResignedAnalyzer keys off this to trigger
-	// immediate failover, separately from the LeaderIsDead reachability-based path.
+	// replacement via the REQUESTING_DEMOTION signal (set during Recruit's
+	// primary-demotion path or graceful shutdown of a leader). LeaderResignedAnalyzer
+	// keys off this to trigger immediate failover, separately from the LeaderIsDead
+	// reachability-based path.
 	LeaderHasResigned bool
 
 	// PromotingPrimaryID is the ID of the topology primary that is currently running

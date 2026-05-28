@@ -35,6 +35,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend/testconst"
+
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
@@ -1083,7 +1085,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
 	defer cancel()
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -1093,8 +1095,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "timeout after 60s")
-			return "", errors.New("timeout waiting for shard bootstrap after 60s")
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -1494,7 +1496,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 		}
 
 		// Note: We intentionally don't validate term here.
-		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// Term can increase across tests (e.g., when Recruit is called) and
 		// there's no safe way to reset it without an RPC. Tests should work with
 		// whatever term they start with and use relative term values.
 	}
@@ -1532,19 +1534,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		}
 
 		isPrimary := name == s.PrimaryName
-
-		// Check if primary was demoted and restore if needed
-		if isPrimary {
-			inRecovery, err := QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
-			if err != nil {
-				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
-			} else if inRecovery == "t" {
-				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
-					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
-				}
-			}
-		}
 
 		// Restore GUCs to baseline values
 		if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
@@ -1825,19 +1814,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			}
 
 			isPrimary := name == s.PrimaryName
-
-			// Check if primary was demoted and restore if needed
-			if isPrimary {
-				inRecovery, err := QueryStringValue(cleanupCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-				if err != nil {
-					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
-				} else if inRecovery == "t" {
-					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
-						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
-					}
-				}
-			}
 
 			// Restore GUCs to baseline values
 			if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {

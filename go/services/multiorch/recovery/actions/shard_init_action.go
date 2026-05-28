@@ -36,7 +36,7 @@ import (
 // shardInitCoordinator is the subset of consensus.Coordinator used by ShardInitAction.
 type shardInitCoordinator interface {
 	GetBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error)
-	AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error
+	AppointInitialLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState) error
 	GetCoordinatorID() *clustermetadatapb.ID
 }
 
@@ -151,7 +151,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 			len(committedCohort), len(committedIDs), err)
 	}
 
-	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
+	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey, committedCohort); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
 	}
 

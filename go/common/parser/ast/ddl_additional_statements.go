@@ -193,7 +193,7 @@ func (c *CreateAmStmt) SqlString() string {
 		handlerNames := make([]string, 0, c.HandlerName.Len())
 		for i := 0; i < c.HandlerName.Len(); i++ {
 			if strNode, ok := c.HandlerName.Items[i].(*String); ok {
-				handlerNames = append(handlerNames, strNode.SVal)
+				handlerNames = append(handlerNames, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "HANDLER", strings.Join(handlerNames, "."))
@@ -244,7 +244,7 @@ func (a *AlterStatsStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.DefNames.Len())
 		for i := 0; i < a.DefNames.Len(); i++ {
 			if strNode, ok := a.DefNames.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -879,7 +879,7 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.OpFamilyName.Len())
 		for i := 0; i < a.OpFamilyName.Len(); i++ {
 			if strNode, ok := a.OpFamilyName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -1012,7 +1012,7 @@ func (a *AlterTypeStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.TypeName.Len())
 		for i := 0; i < a.TypeName.Len(); i++ {
 			if strNode, ok := a.TypeName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))

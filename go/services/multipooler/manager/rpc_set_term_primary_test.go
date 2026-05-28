@@ -262,10 +262,9 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 // when the receiver is acting as primary (pg_is_in_recovery=false) and the
 // supplied position is higher, SetTermPrimary must drive a full demote — pg_rewind,
 // restart as standby, set primary_conninfo at the new primary, flip topology
-// to REPLICA, advance the consensus term, and update the gateway's leader
-// observation. demoteStalePrimaryLocked itself is also covered by
-// TestDemoteStalePrimary_UpdatesConsensusTerm; this test pins down SetTermPrimary's
-// routing decision plus the wiring that the helper expects from its caller.
+// to REPLICA, and update the gateway's leader observation. The revocation is
+// intentionally NOT touched (SetTermPrimary is a notification, not a recruit;
+// revocations are authored by coordinators via Recruit).
 func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
@@ -302,9 +301,8 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
-	// Persist an initial revocation lower than the incoming rule's
-	// coordinator_term so updateTermIfNewer (inside demoteStalePrimaryLocked)
-	// has work to do and we can assert it ran.
+	// Seed an initial revocation so we can verify SetTermPrimary leaves it
+	// untouched even when the incoming rule's coordinator_term is higher.
 	require.NoError(t, pm.consensusState.setRevocation(
 		&clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 	))

@@ -73,9 +73,9 @@ type DurabilityPolicy interface {
 	// cohort keeps the caller-side contract simple.
 	//
 	// On success the config is always non-nil — every promotion explicitly
-	// rewires Postgres replication, so the caller can blindly translate it
-	// to a ConfigureSynchronousReplicationRequest. For policies trivially
-	// satisfied without sync replication (RequiredCount==1), the config
+	// rewires Postgres replication, so the caller can blindly hand the
+	// returned SyncReplicationConfig to SyncStandbyManager. For policies
+	// trivially satisfied without sync replication (RequiredCount==1), the config
 	// uses SYNCHRONOUS_COMMIT_LOCAL with an empty SyncStandbyIDs, which
 	// causes Postgres to clear synchronous_standby_names — explicitly
 	// dropping any stale sync configuration the new primary may have

@@ -17,6 +17,7 @@ package mock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -30,6 +31,7 @@ import (
 type QueryService struct {
 	mu       sync.Mutex
 	patterns []queryPattern
+	beginErr error
 }
 
 type queryPattern struct {
@@ -181,6 +183,92 @@ func (m *QueryService) QueryMultiStatement(ctx context.Context, queryStr string)
 // For the mock, arguments are ignored and matching is done solely on the query string.
 func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
 	return m.Query(ctx, queryStr)
+}
+
+// SetBeginError configures Begin to fail with the given error. Pass nil to clear.
+// Useful for exercising transaction-start failure paths.
+func (m *QueryService) SetBeginError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.beginErr = err
+}
+
+// Begin implements executor.InternalQueryService. The returned transaction
+// routes Query/QueryArgs through the same pattern matcher as the stateless
+// methods, so tests register patterns for the statements run inside the
+// transaction (including BEGIN/COMMIT/ROLLBACK if they want to assert on them).
+// BEGIN, COMMIT, and ROLLBACK are matched only when a pattern exists for them;
+// otherwise they succeed silently so existing tests need not register them.
+func (m *QueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
+	m.mu.Lock()
+	beginErr := m.beginErr
+	m.mu.Unlock()
+	if beginErr != nil {
+		return nil, beginErr
+	}
+	if err := m.queryIfMatched(ctx, "BEGIN"); err != nil {
+		return nil, err
+	}
+	return &mockTx{m: m}, nil
+}
+
+// queryIfMatched runs queryStr through the matcher only if a pattern matches it,
+// returning any configured error. Unmatched control statements succeed silently.
+func (m *QueryService) queryIfMatched(ctx context.Context, queryStr string) error {
+	m.mu.Lock()
+	matched := false
+	for i := range m.patterns {
+		if m.patterns[i].pattern.MatchString(queryStr) {
+			matched = true
+			break
+		}
+	}
+	m.mu.Unlock()
+	if !matched {
+		return nil
+	}
+	_, err := m.Query(ctx, queryStr)
+	return err
+}
+
+// mockTx is the mock implementation of executor.InternalTx.
+type mockTx struct {
+	m        *QueryService
+	finished bool
+}
+
+// Query implements executor.InternalTx.
+func (tx *mockTx) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
+	if tx.finished {
+		return nil, errors.New("transaction already finished")
+	}
+	return tx.m.Query(ctx, queryStr)
+}
+
+// QueryArgs implements executor.InternalTx.
+func (tx *mockTx) QueryArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
+	if tx.finished {
+		return nil, errors.New("transaction already finished")
+	}
+	return tx.m.Query(ctx, queryStr)
+}
+
+// Commit implements executor.InternalTx.
+func (tx *mockTx) Commit(ctx context.Context) error {
+	if tx.finished {
+		return errors.New("transaction already finished")
+	}
+	tx.finished = true
+	return tx.m.queryIfMatched(ctx, "COMMIT")
+}
+
+// Rollback implements executor.InternalTx.
+func (tx *mockTx) Rollback(ctx context.Context) error {
+	if tx.finished {
+		return nil
+	}
+	tx.finished = true
+	return tx.m.queryIfMatched(ctx, "ROLLBACK")
 }
 
 // MakeQueryResult creates a sqltypes.Result from columns and rows.

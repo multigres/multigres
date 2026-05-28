@@ -180,6 +180,7 @@ func (r *coordinatorLedRuleChange) Run(
 		}
 		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
 			NewPrimary: p.GetProposalLeader().GetId().GetName(),
+			Reason:     r.reason,
 		})
 	}
 
@@ -232,11 +233,13 @@ func (r *coordinatorLedRuleChange) Run(
 	if leaderErr != nil {
 		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
 			NewPrimary: newPrimary,
+			Reason:     r.reason,
 		}, "error", leaderErr)
 		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
 	}
 	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, eventlog.PrimaryPromotion{
 		NewPrimary: newPrimary,
+		Reason:     r.reason,
 	})
 	return nil
 }

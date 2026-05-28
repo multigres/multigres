@@ -47,8 +47,7 @@ type mockCoordinator struct {
 
 	appointInitialLeaderErr error
 	appointedCohort         []*multiorchdatapb.PoolerHealthState
-	appointedShardID        string
-	appointedDatabase       string
+	appointedShardKey       *clustermetadatapb.ShardKey
 
 	coordinatorID *clustermetadatapb.ID
 }
@@ -57,10 +56,9 @@ func (m *mockCoordinator) GetBootstrapPolicy(_ context.Context, _ string) (*clus
 	return m.bootstrapPolicy, m.bootstrapPolicyErr
 }
 
-func (m *mockCoordinator) AppointInitialLeader(_ context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error {
-	m.appointedShardID = shardID
+func (m *mockCoordinator) AppointInitialLeader(_ context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState) error {
+	m.appointedShardKey = shardKey
 	m.appointedCohort = cohort
-	m.appointedDatabase = database
 	return m.appointInitialLeaderErr
 }
 
@@ -247,8 +245,7 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 	require.Len(t, coord.appointedCohort, 2)
 	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
-	assert.Equal(t, "0", coord.appointedShardID)
-	assert.Equal(t, "testdb", coord.appointedDatabase)
+	assert.Equal(t, testShardInitShardKey, coord.appointedShardKey)
 }
 
 func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {

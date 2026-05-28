@@ -360,7 +360,7 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", cfg.User}
+	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=scram-sha-256", "--auth-host=scram-sha-256", "-U", cfg.User}
 
 	// Invariant: production callers (runInit, the InitDataDir gRPC handler)
 	// populate Password, PasswordSource (and PasswordFile when source==File)

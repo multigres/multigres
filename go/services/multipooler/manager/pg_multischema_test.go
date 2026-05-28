@@ -86,7 +86,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		qsc:             &mockPoolerController{queryService: mockQueryService},
 		topoClient:      topoStore,
 		config:          &Config{},
-		multipooler:     multiPooler,
+		record:          newRecordFromProto(multiPooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
 	}
