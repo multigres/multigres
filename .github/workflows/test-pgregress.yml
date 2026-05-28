@@ -20,7 +20,18 @@ on:
     - cron: "0 9 * * 1" # Weekly summary: Monday 9:00 AM UTC
   pull_request:
     types: [labeled]
+  # checkov:skip=CKV_GHA_7: dispatch input is a closed-set choice (see options below) used only to route an env var inside the test harness — it does not influence the build output, only which targets run. Dispatching the workflow is restricted to repository collaborators by GitHub, so the input source is trusted.
   workflow_dispatch:
+    inputs:
+      targets:
+        description: "PGREGRESS_TARGETS — frontends to run the suites against"
+        required: false
+        default: "multigateway"
+        type: choice
+        options:
+          - multigateway
+          - "multigateway,pgbouncer-session,pgbouncer-tx"
+          - "pgbouncer-session,pgbouncer-tx"
 
 permissions: {}
 
@@ -52,6 +63,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev
 
+      # Pgbouncer is only required for comparison-target runs (the
+      # workflow_dispatch path with pgbouncer-* in PGREGRESS_TARGETS). The
+      # nightly cron, weekly cron, and "Run Extended Query Serving Tests"
+      # PR label all run multigateway-only and skip this step.
+      #
+      # The GitHub-hosted Ubuntu runner has the PGDG apt source preconfigured
+      # (signed-by /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg),
+      # so we just install — adding a second pgdg.list with a different
+      # Signed-By path triggers "Conflicting values set for option Signed-By".
+      # The runtime version check in RequirePgbouncer (pgbouncer.go)
+      # hard-fails if PGDG ships a version that diverges from
+      # PinnedPgbouncerVersion, surfacing it as a clean test failure rather
+      # than silently changing baseline output.
+      - name: Install pgbouncer (PGDG)
+        if: ${{ github.event_name == 'workflow_dispatch' && contains(inputs.targets, 'pgbouncer') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pgbouncer
+          pgbouncer --version
+
       - name: Build
         run: make build
 
@@ -69,9 +101,14 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
+      # PGREGRESS_TARGETS: workflow_dispatch supplies the dropdown selection;
+      # all other triggers (schedule, PR label) leave it unset so the harness
+      # defaults to multigateway-only — matching pre-comparison-mode CI.
+      # The Go-side ParseTargets accepts an empty string as "multigateway".
       - name: Run PostgreSQL compatibility tests
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          PGREGRESS_TARGETS: ${{ github.event_name == 'workflow_dispatch' && inputs.targets || '' }}
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
@@ -138,7 +175,8 @@ jobs:
         if: >-
           !cancelled() &&
           steps.regressions.outputs.found == 'true' &&
-          github.event_name == 'schedule'
+          github.event_name == 'schedule' &&
+          github.repository == 'multigres/multigres'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |
@@ -169,7 +207,8 @@ jobs:
         if: >-
           !cancelled() &&
           (github.event.schedule == '0 9 * * 1' || github.event_name == 'workflow_dispatch') &&
-          steps.results.outputs.path != ''
+          steps.results.outputs.path != '' &&
+          github.repository == 'multigres/multigres'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
           RESULTS_PATH: ${{ steps.results.outputs.path }}
@@ -180,10 +219,12 @@ jobs:
           baseline_file="/tmp/pgregress-baseline/results.json"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Compute previous pass count from baseline (if it exists)
+          # Compute previous pass count from baseline (if it exists). The
+          # weekly summary tracks the multigateway target only — pgbouncer
+          # comparison targets are out of scope for this rollup.
           prev_passed="null"
           if [[ -f "$baseline_file" ]]; then
-            prev_passed=$(jq '[.[].tests[] | select(.status == "pass")] | length' "$baseline_file")
+            prev_passed=$(jq '[.[].targets.multigateway.tests[]? | select(.status == "pass")] | length' "$baseline_file")
           fi
 
           # Build per-suite sections and compute overall totals
@@ -192,13 +233,16 @@ jobs:
             --argjson prev_passed "$prev_passed" \
             --arg url "$run_url" \
             '
-            ($results[0] | map({
-              name: .name,
-              total: (.tests | length),
-              passed: ([.tests[] | select(.status == "pass")] | length),
-              failed: ([.tests[] | select(.status == "fail")] | length),
-              failing_names: ([.tests[] | select(.status == "fail") | .name] | join(", ") | if length > 300 then .[:300] + "..." else . end)
-            })) as $suites |
+            ($results[0] | map(
+              (.targets.multigateway.tests // []) as $tests |
+              {
+                name: .name,
+                total: ($tests | length),
+                passed: ([$tests[] | select(.status == "pass")] | length),
+                failed: ([$tests[] | select(.status == "fail")] | length),
+                failing_names: ([$tests[] | select(.status == "fail") | .name] | join(", ") | if length > 300 then .[:300] + "..." else . end)
+              }
+            )) as $suites |
 
             ($suites | map(.total) | add) as $total |
             ($suites | map(.passed) | add) as $passed |
@@ -237,7 +281,8 @@ jobs:
         if: >-
           !cancelled() &&
           steps.results.outputs.path == '' &&
-          github.event_name == 'schedule'
+          github.event_name == 'schedule' &&
+          github.repository == 'multigres/multigres'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
         run: |

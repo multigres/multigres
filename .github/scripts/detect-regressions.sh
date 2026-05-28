@@ -51,18 +51,27 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
+# Regression detection only compares the multigateway target. The pgbouncer
+# comparison targets exist as a control baseline and are out of scope for
+# pass/fail regression tracking.
+#
 # Build a map of baseline test statuses: { "suite/test": "status" }
 # Then compare against current results to find regressions.
 regressions=$(jq -n \
   --slurpfile baseline "$BASELINE" \
   --slurpfile current "$CURRENT" \
   '
-  # Build lookup: "SuiteName/TestName" -> status
-  ($baseline[0] | [.[] | .name as $suite | .tests[] | {key: ($suite + "/" + .name), value: .status}] | from_entries) as $base_map |
+  # Build lookup: "SuiteName/TestName" -> status (multigateway target only)
+  ($baseline[0] | [
+     .[] | .name as $suite |
+     (.targets.multigateway.tests // [])[] |
+     {key: ($suite + "/" + .name), value: .status}
+   ] | from_entries) as $base_map |
 
-  # Find tests that passed in baseline but fail now
+  # Find tests that passed in baseline but fail now (multigateway target only)
   [
-    $current[0][] | .name as $suite | .tests[] |
+    $current[0][] | .name as $suite |
+    (.targets.multigateway.tests // [])[] |
     select(.status == "fail") |
     ($suite + "/" + .name) as $key |
     select($base_map[$key] == "pass") |

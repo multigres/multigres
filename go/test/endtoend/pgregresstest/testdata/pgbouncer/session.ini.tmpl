@@ -1,0 +1,42 @@
+# pgbouncer config for the pgregress "pgbouncer-session" comparison target.
+#
+# Session pooling assigns one backend connection per client for the whole
+# session, so it behaves almost identically to a direct PostgreSQL connection.
+# Used as the "near-vanilla" pooler baseline.
+#
+# Authentication: auth_type = any accepts any client login on the loopback
+# listener without consulting an auth_file. The backend connection is
+# authenticated using the user + password baked into the [databases] entries
+# below (pgbouncer ignores the client-provided username when auth_type = any).
+# Safe for test-only loopback use; do not adopt this config in production.
+#
+# Note: auth_type = trust would also accept the login but requires the user
+# to be listed in an auth_file, which would be one more file to manage just
+# to make the harness work.
+
+[databases]
+# Wildcard with no dbname=: pgbouncer forwards to the database name the client
+# requested. pg_regress connects to "postgres" to issue CREATE DATABASE
+# regression, then reconnects to "regression" to run the suite — both paths
+# need to work transparently through the pooler.
+* = host=127.0.0.1 port={{.BackendPort}} user=postgres password={{.Password}}
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = {{.ListenPort}}
+auth_type = any
+pool_mode = session
+max_client_conn = 500
+default_pool_size = 100
+# server_lifetime = 0 makes pgbouncer close a backend the moment it is
+# returned to the pool, so every new client connection gets a freshly
+# initialised PostgreSQL backend. Without this, the upstream regression
+# tests trip over backend reuse: temp tables, prepared statements, LOAD'ed
+# extensions, and the ON login event trigger all leak across what the test
+# assumes are independent sessions. The cost is a ~20-50ms backend
+# startup per client connection, paid in test runtime, not real-world ops.
+server_lifetime = 0
+server_reset_query = DISCARD ALL
+ignore_startup_parameters = extra_float_digits,options,application_name,search_path
+logfile = {{.LogPath}}
+unix_socket_dir =

@@ -233,13 +233,28 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	return results, nil
 }
 
-// RunRegressionTests runs PostgreSQL regression tests against multigateway.
+// RunRegressionTests runs PostgreSQL regression tests against the supplied
+// frontend port.
 //
 // Uses make installcheck-tests with TESTS variable to run specific regression tests
-// against the existing PostgreSQL server (multigateway).
+// against the existing PostgreSQL server. The installcheck-tests target runs
+// specific tests against an already-running PostgreSQL server, unlike
+// installcheck which runs the entire parallel_schedule.
 //
-// The installcheck-tests target runs specific tests against an already-running
-// PostgreSQL server, unlike installcheck which runs the entire parallel_schedule.
+// useExistingDB controls pg_regress's database-lifecycle mode:
+//
+//   - true  → pass --use-existing --dbname=postgres so pg_regress runs every
+//     test inside the pre-existing "postgres" DB. Used by the multigateway
+//     target because multigateway rejects DROP DATABASE (see
+//     go/services/multigateway/planner/unsafe_stmt.go) and pg_regress's
+//     default CREATE-then-DROP flow would fail. Cost: every test shares one
+//     DB, so many upstream tests that hard-code the "regression" DB name or
+//     assume a fresh schema fail with name/state collisions.
+//   - false → let pg_regress own the lifecycle: it connects to PGDATABASE,
+//     issues CREATE DATABASE regression, then runs tests inside that fresh
+//     DB. Used by the pgbouncer targets where the backend tolerates
+//     CREATE/DROP DATABASE; recovers ~11 of the tests that the shared-DB
+//     mode loses.
 //
 // From PostgreSQL's src/test/regress/GNUmakefile:
 //
@@ -251,24 +266,17 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 //	PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE - connection params
 //
 // Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
-func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
+func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, frontendPort int, password string, useExistingDB bool) (*TestResults, error) {
 	t.Helper()
 
-	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
+	t.Logf("Running PostgreSQL regression tests against port %d (useExistingDB=%t)...", frontendPort, useExistingDB)
 
 	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
 	makeArgs := []string{"-C", regressDir}
 
-	// --use-existing: skip pg_regress's automatic DROP + CREATE of the
-	// "regression" database. Multigateway rejects DROP DATABASE (see the
-	// unsafe-statement list in go/services/multigateway/planner/unsafe_stmt.go),
-	// so we can't let pg_regress manage the database. Instead we run against
-	// the existing "postgres" database for the whole suite.
-	//
-	// --dbname=postgres: point pg_regress at that existing database. pg_regress
-	// will create/drop the expected schema objects per test; cross-test state
-	// leakage is still possible but has not surfaced in practice.
-	makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
+	if useExistingDB {
+		makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
+	}
 
 	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
 		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
@@ -284,7 +292,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 		suiteName: "Regression",
 		outputDir: pb.OutputDir,
 		srcOutDir: regressDir,
-	}, multigatewayPort, password)
+	}, frontendPort, password)
 }
 
 // ParseTestResults parses pg_regress TAP output to extract test results.
@@ -553,34 +561,74 @@ func CountScheduleTests(scheduleFile string) (int, error) {
 	return count, nil
 }
 
-// SuiteResult holds results for one test suite.
+// SuiteResult holds results for one test suite across one or more targets.
+//
+// PerTarget is keyed by Target (e.g. TargetMultigateway, TargetPgbouncerSession,
+// TargetPgbouncerTx). When PGREGRESS_TARGETS is unset or selects a single
+// target the map has one entry.
+//
+// ExpectedTests is the number of tests in the upstream schedule file (parallel
+// or isolation). It applies to every target — schedules are target-independent
+// — and is captured once from the run that produced the largest suite.
 type SuiteResult struct {
-	Name          string       // e.g. "Regression Tests", "Isolation Tests"
-	Results       *TestResults // parsed TAP results
-	ExpectedTests int          // total tests from schedule file (0 = unknown)
+	Name          string                  // e.g. "Regression Tests", "Isolation Tests"
+	PerTarget     map[Target]*TestResults // target -> parsed TAP results
+	ExpectedTests int                     // total tests from schedule file (0 = unknown)
 }
 
-// githubBlobURLPrefix returns an absolute URL prefix of the form
-// "https://github.com/<owner>/<repo>/blob/<sha>/" when running inside a
-// GitHub Actions job, or an empty string otherwise. Repo-relative paths
-// concatenated onto this prefix resolve to the blob view of that file at
-// the exact commit the job is executing against.
-func githubBlobURLPrefix() string {
-	serverURL := os.Getenv("GITHUB_SERVER_URL")
-	repo := os.Getenv("GITHUB_REPOSITORY")
-	sha := os.Getenv("GITHUB_SHA")
-	if serverURL == "" || repo == "" || sha == "" {
-		return ""
+// orderedTargets returns the targets present in PerTarget, in canonical order.
+func (s *SuiteResult) orderedTargets() []Target {
+	var out []Target
+	for _, t := range allTargets {
+		if _, ok := s.PerTarget[t]; ok {
+			out = append(out, t)
+		}
 	}
-	return fmt.Sprintf("%s/%s/blob/%s/", serverURL, repo, sha)
+	return out
+}
+
+// reportUsesPgbouncer returns true if any suite in the report ran a pgbouncer
+// target. Drives whether the version header advertises a pgbouncer version
+// or "n/a" (the default multigateway-only run uses no pgbouncer).
+func reportUsesPgbouncer(suites []SuiteResult) bool {
+	for _, s := range suites {
+		for _, tgt := range s.orderedTargets() {
+			if tgt == TargetPgbouncerSession || tgt == TargetPgbouncerTx {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// statusCell maps a per-test status to the compact glyph rendered in the
+// wide compatibility table.
+func statusCell(status string) string {
+	switch status {
+	case "pass":
+		return "✅"
+	case "fail":
+		return "❌"
+	case "skip":
+		return "⏭️"
+	case "":
+		return "-"
+	default:
+		return status
+	}
 }
 
 // WriteMarkdownSummary generates a unified markdown report covering one or more
-// test suites. It writes the report to pb.OutputDir/compatibility-report.md and
-// appends it to GITHUB_STEP_SUMMARY when running in CI.
+// test suites and one or more targets. It writes the report to
+// pb.OutputDir/compatibility-report.md and appends it to GITHUB_STEP_SUMMARY
+// when running in CI.
 //
-// Each suite gets its own badge showing pass rate and timeout status. Full diffs
-// are available in the CI artifact (regression.diffs).
+// Layout: per-suite per-target badge row, then for each suite a single wide
+// table with one row per test and one column per target. The Patch and
+// Duration columns from the previous single-target report are intentionally
+// dropped — patch handling is scoped to multigateway anyway (pgbouncer
+// targets run no patches) and per-target durations carry no comparison
+// signal. Patch artifacts remain on disk under the CI uploads.
 func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
 
@@ -588,65 +636,103 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
 
-	for _, s := range suites {
-		label := strings.TrimSuffix(s.Name, " Tests")
-		sb.WriteString(suiteutil.BadgeMarkdown(
-			label,
-			s.Results.PassedTests,
-			s.Results.TotalTests,
-			s.ExpectedTests,
-			s.Results.TimedOut,
-		))
-		sb.WriteString(" ")
+	pgbouncerLabel := "n/a"
+	if reportUsesPgbouncer(suites) {
+		pgbouncerLabel = PinnedPgbouncerVersion
 	}
-	sb.WriteString("\n\n")
-
-	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`\n", PostgresVersion)
+	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`  \n", PostgresVersion)
+	fmt.Fprintf(&sb, "**Pgbouncer Version:** `%s`  \n", pgbouncerLabel)
 	fmt.Fprintf(&sb, "**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
-	// Build an absolute URL prefix for patch links when running in CI.
-	// Without this, markdown like [patch](go/test/.../foo.patch) is resolved
-	// relative to the step-summary page (/actions/runs/<id>/) and produces a
-	// 404 URL like .../actions/runs/go/test/.../foo.patch. Falls back to a
-	// relative link when the GitHub Actions env vars aren't set (local runs).
-	patchURLPrefix := githubBlobURLPrefix()
+	// Per-suite badge rows: one badge per (suite, target) so a comparison
+	// run surfaces all six (or however many) pass rates at the top.
+	for _, s := range suites {
+		for _, tgt := range s.orderedTargets() {
+			r := s.PerTarget[tgt]
+			if r == nil {
+				continue
+			}
+			label := fmt.Sprintf("%s — %s", strings.TrimSuffix(s.Name, " Tests"), tgt)
+			sb.WriteString(suiteutil.BadgeMarkdown(
+				label,
+				r.PassedTests,
+				r.TotalTests,
+				s.ExpectedTests,
+				r.TimedOut,
+			))
+			sb.WriteString(" ")
+		}
+		sb.WriteString("\n\n")
+	}
 
 	for _, s := range suites {
 		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
 
-		if s.Results.TimedOut {
-			ran := s.Results.TotalTests
+		targets := s.orderedTargets()
+		if len(targets) == 0 {
+			sb.WriteString("_No target results recorded for this suite._\n\n")
+			continue
+		}
+
+		// Per-target timeout notices. Targets time out independently so each
+		// gets its own callout, identified by name.
+		for _, tgt := range targets {
+			r := s.PerTarget[tgt]
+			if r == nil || !r.TimedOut {
+				continue
+			}
+			ran := r.TotalTests
 			if s.ExpectedTests > 0 {
-				fmt.Fprintf(&sb, "> **Timed out** — %d of %d scheduled tests executed before the deadline.\n\n", ran, s.ExpectedTests)
+				fmt.Fprintf(&sb, "> **%s timed out** — %d of %d scheduled tests executed before the deadline.\n\n", tgt, ran, s.ExpectedTests)
 			} else {
-				fmt.Fprintf(&sb, "> **Timed out** — %d tests executed before the deadline.\n\n", ran)
+				fmt.Fprintf(&sb, "> **%s timed out** — %d tests executed before the deadline.\n\n", tgt, ran)
 			}
 		}
 
-		sb.WriteString("| # | Test | Status | Patch | Duration |\n")
-		sb.WriteString("|---|------|--------|-------|----------|\n")
-
-		for i, test := range s.Results.Tests {
-			status := "✅ ok"
-			switch test.Status {
-			case "fail":
-				status = "❌ FAIL"
-			case "skip":
-				status = "⏭️ skip"
-			}
-			duration := test.Duration
-			if duration == "" {
-				duration = "-"
-			}
-			patchCell := "-"
-			if test.PatchApplied {
-				if test.PatchPath != "" {
-					patchCell = fmt.Sprintf("📎 [patch](%s%s)", patchURLPrefix, test.PatchPath)
-				} else {
-					patchCell = "📎 applied"
+		// Build the union ordered list of tests across all targets, plus a
+		// per-target lookup for status retrieval. The first target's order
+		// is canonical; tests appearing only in later targets are appended
+		// in the order they show up there.
+		var orderedNames []string
+		seen := make(map[string]bool)
+		lookups := make([]map[string]IndividualTestResult, len(targets))
+		for i, tgt := range targets {
+			r := s.PerTarget[tgt]
+			lookup := make(map[string]IndividualTestResult)
+			if r != nil {
+				for _, test := range r.Tests {
+					lookup[test.Name] = test
+					if !seen[test.Name] {
+						seen[test.Name] = true
+						orderedNames = append(orderedNames, test.Name)
+					}
 				}
 			}
-			fmt.Fprintf(&sb, "| %d | %s | %s | %s | %s |\n", i+1, test.Name, status, patchCell, duration)
+			lookups[i] = lookup
+		}
+
+		// Render the wide header.
+		sb.WriteString("| # | Test |")
+		for _, tgt := range targets {
+			fmt.Fprintf(&sb, " %s |", tgt)
+		}
+		sb.WriteString("\n|---|------|")
+		for range targets {
+			sb.WriteString("---|")
+		}
+		sb.WriteString("\n")
+
+		for i, name := range orderedNames {
+			fmt.Fprintf(&sb, "| %d | %s |", i+1, name)
+			for k := range targets {
+				test, ok := lookups[k][name]
+				if !ok {
+					sb.WriteString(" - |")
+					continue
+				}
+				fmt.Fprintf(&sb, " %s |", statusCell(test.Status))
+			}
+			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -660,23 +746,54 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	return summary, nil
 }
 
-// jsonSuiteResult is the JSON-serializable representation of a single test suite's results.
-type jsonSuiteResult struct {
-	Name  string                 `json:"name"`
+// jsonTargetResult is the JSON-serializable representation of one target's
+// pass/fail results within a suite.
+type jsonTargetResult struct {
 	Tests []IndividualTestResult `json:"tests"`
 }
 
+// jsonSuiteResult is the JSON-serializable representation of a single test
+// suite's results across every target it ran on.
+//
+// The schema is:
+//
+//	{
+//	  "name": "Regression Tests",
+//	  "targets": {
+//	    "multigateway":      {"tests": [...]},
+//	    "pgbouncer-session": {"tests": [...]},
+//	    "pgbouncer-tx":      {"tests": [...]}
+//	  }
+//	}
+//
+// Multigateway-only runs emit a single entry under "targets". Consumers must
+// reach through .targets.<name>.tests to access the per-test array; the
+// previous flat `.tests` shape no longer exists.
+type jsonSuiteResult struct {
+	Name    string                      `json:"name"`
+	Targets map[string]jsonTargetResult `json:"targets"`
+}
+
 // WriteJSONResults serializes suite results to pb.OutputDir/results.json.
-// This file is consumed by CI scripts that compare runs to detect regressions.
+// This file is consumed by CI scripts (detect-regressions.sh, the Slack weekly
+// summary jq pipeline) that compare runs to detect regressions.
 func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
 
 	var out []jsonSuiteResult
 	for _, s := range suites {
-		out = append(out, jsonSuiteResult{
-			Name:  s.Name,
-			Tests: s.Results.Tests,
-		})
+		entry := jsonSuiteResult{
+			Name:    s.Name,
+			Targets: make(map[string]jsonTargetResult, len(s.PerTarget)),
+		}
+		for _, target := range s.orderedTargets() {
+			res := s.PerTarget[target]
+			if res == nil {
+				continue
+			}
+			entry.Targets[string(target)] = jsonTargetResult{Tests: res.Tests}
+		}
+		out = append(out, entry)
 	}
 
 	resultsPath, err := suiteutil.WriteJSON(pb.OutputDir, "results.json", out)
