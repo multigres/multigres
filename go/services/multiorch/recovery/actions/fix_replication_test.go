@@ -538,7 +538,10 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 
 	baseFakeClient := rpcclient.NewFakeClient()
 	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: true,
+			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+		},
 	})
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
 		"multipooler-cell1-primary": {
