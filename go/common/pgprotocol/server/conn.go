@@ -993,7 +993,16 @@ func (c *Conn) handleParse() error {
 		// (Describe, Sync) would corrupt the next query's response stream.
 		// The error packet stays buffered until Sync flushes the batch — same shape
 		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
-		return c.writeExtendedQueryError(mterrors.MTD04.NewWithDetail(err.Error()))
+		//
+		// Preserve a structured PostgreSQL diagnostic when the handler produced
+		// one (e.g. a 42601 syntax_error from the parser) so the client sees the
+		// same SQLSTATE PostgreSQL would send. Only opaque errors with no SQLSTATE
+		// are wrapped as MTD04, which marks a genuinely internal Parse failure.
+		var diag *mterrors.PgDiagnostic
+		if !errors.As(err, &diag) {
+			err = mterrors.MTD04.NewWithDetail(err.Error())
+		}
+		return c.writeExtendedQueryError(err)
 	}
 
 	// Send ParseComplete message. Stays buffered for the rest of the batch.

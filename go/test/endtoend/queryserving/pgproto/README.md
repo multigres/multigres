@@ -28,9 +28,9 @@ each scenario is hand-coded in Go. `pgproto` instead reads a **data file** of
 raw protocol messages and sends them verbatim — in any order, including
 deliberately malformed or out-of-spec sequences that are awkward to express
 through a client library (Bind before Parse, Execute against a closed portal,
-COPY interrupted by CopyFail, error-then-Sync recovery, fast-path
-FunctionCall). That declarative, expand-by-adding-a-file shape is exactly what
-makes it valuable for a proxy: the multigateway sits in the middle of the wire
+COPY interrupted by CopyFail, error-then-Sync recovery). That declarative,
+expand-by-adding-a-file shape is exactly what makes it valuable for a proxy:
+the multigateway sits in the middle of the wire
 protocol, so feeding it adversarial message orderings and diffing its responses
 against PostgreSQL catches relay bugs the normal-path tests never reach.
 
