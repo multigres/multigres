@@ -59,11 +59,8 @@ type ExtensionInfo struct {
 	Note string
 }
 
-// ExtensionCatalog is the coverage map for the most-installed Supabase
-// PostgreSQL extensions — the ~35 highest-usage extensions by installed
-// projects (MUL-155 Hex dashboard), which between them account for the vast
-// majority of fleet usage. It is not the full pg_available_extensions list;
-// long-tail extensions are out of scope until usage warrants them.
+// ExtensionCatalog is the coverage map for common PostgreSQL extensions. It is
+// not the full pg_available_extensions list.
 //
 // The covered set is the source of truth for what the contrib suite runs
 // (CoveredContribModules derives DefaultContribModules from it), so adding an

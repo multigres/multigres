@@ -798,7 +798,7 @@ func normalizeSingleTypeName(typeName string) string {
 	case "bool", "boolean":
 		return "BOOLEAN"
 	case "bpchar":
-		return "CHAR"
+		return "bpchar"
 	case "char":
 		// pg_catalog."char" is a one-byte ad-hoc type distinct from bpchar/CHAR;
 		// preserve the quoting so it does not collapse to bpchar(1) on the wire.
@@ -916,18 +916,6 @@ func (t *TypeName) SqlString() string {
 
 	// Use normalizeTypeName to handle both single and qualified names
 	typeName := normalizeTypeName(nameParts)
-
-	// Unbounded bpchar is NOT char(1): the internal type "bpchar" with no typmod
-	// is unlimited length, but the SQL keyword CHAR with no length means char(1).
-	// normalizeSingleTypeName maps bpchar -> CHAR, which is only correct when a
-	// length modifier is present. Without this, a cast like 'ABA'::bpchar would
-	// deparse to CAST('ABA' AS CHAR), and PostgreSQL would re-read CHAR as
-	// char(1) and silently truncate to 'A'. Emit bpchar verbatim so the full
-	// value is preserved.
-	if (t.Typmods == nil || t.Typmods.Len() == 0) &&
-		len(nameParts) > 0 && strings.EqualFold(nameParts[len(nameParts)-1], "bpchar") {
-		typeName = "bpchar"
-	}
 
 	// Add type modifiers if present
 	if t.Typmods != nil && t.Typmods.Len() > 0 {

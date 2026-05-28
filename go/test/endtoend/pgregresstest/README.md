@@ -89,9 +89,9 @@ PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/tes
 
 The contrib suite runs the regression suites that core PostgreSQL extensions
 ship in their own `contrib/<module>/{sql,expected}/` directories, executed
-through multigateway. It validates that the most-installed Supabase extensions
-work over the pooled query path. The default module set lives in
-`DefaultContribModules` (see `postgres_builder.go`).
+through multigateway. It validates that common PostgreSQL extensions work over
+the pooled query path. The default module set lives in `DefaultContribModules`
+(see `postgres_builder.go`).
 
 How it differs from the core regression suite:
 
@@ -117,13 +117,11 @@ rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 ### Coverage map
 
-`extensions.go` holds `ExtensionCatalog` — the most-installed Supabase
-extensions (the top ~35 by usage from the MUL-155 Hex dashboard, which cover
-the vast majority of fleet usage; not the full `pg_available_extensions` list)
-with each one's kind (contrib / external) and coverage status (covered /
-pending / unsupported / external, each with a reason). `DefaultContribModules`
-is **derived** from it (the `covered` entries), so enrolling a new extension is
-a one-line catalog edit.
+`extensions.go` holds `ExtensionCatalog` — common PostgreSQL extensions, not
+the full `pg_available_extensions` list, with each one's kind (contrib /
+external) and coverage status (covered / pending / unsupported / external, each
+with a reason). `DefaultContribModules` is **derived** from it (the `covered`
+entries), so enrolling a new extension is a one-line catalog edit.
 
 Every compatibility report includes a generated **Extension Coverage** table
 (`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
