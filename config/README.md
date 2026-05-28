@@ -64,18 +64,23 @@ The following environment variables are recognized by `pgctld` (and to
 some extent, Multipooler) and follow the Docker `postgres` image
 convention.
 
-| Variable               | CLI flag               | Default    | Description                           |
-| ---------------------- | ---------------------- | ---------- | ------------------------------------- |
-| `POSTGRES_USER`        | `--pg-user` / `-U`     | `postgres` | PostgreSQL user name                  |
-| `POSTGRES_PASSWORD`    | _(none)_               | _(empty)_  | PostgreSQL password                   |
-| `POSTGRES_DB`          | `--pg-database` / `-D` | `postgres` | PostgreSQL database name              |
-| `POSTGRES_INITDB_ARGS` | `--pg-initdb-args`     | _(empty)_  | Extra arguments forwarded to `initdb` |
+| Variable                 | CLI flag               | Default    | Description                                                |
+| ------------------------ | ---------------------- | ---------- | ---------------------------------------------------------- |
+| `POSTGRES_USER`          | `--pg-user` / `-U`     | `postgres` | PostgreSQL user name                                       |
+| `POSTGRES_PASSWORD`      | _(none)_               | _(empty)_  | PostgreSQL password (inline)                               |
+| `POSTGRES_PASSWORD_FILE` | _(none)_               | _(empty)_  | Path to a file containing the password (preferred for k8s) |
+| `POSTGRES_DB`            | `--pg-database` / `-D` | `postgres` | PostgreSQL database name                                   |
+| `POSTGRES_INITDB_ARGS`   | `--pg-initdb-args`     | _(empty)_  | Extra arguments forwarded to `initdb`                      |
 
 `POSTGRES_USER`
-: PostgreSQL user for connecting to PostgreSQL server and perform administrative actions. This user requires `SUPERUSER` privileges and is expected to use SCRAM-256 password authentication over a local socket connection, but this is not enforced.
+: PostgreSQL user that Multigres uses to connect to the PostgreSQL server and perform administrative actions. This user **must have `SUPERUSER` privileges**.
+The default `initdb` configuration sets up SCRAM-SHA-256 authentication over a local socket connection, which is what we recommend. Multigres itself does not require any specific authentication method, so any `pg_hba.conf` policy (including `trust`) will work, but anything weaker than SCRAM is not secure.
 
 `POSTGRES_PASSWORD`
-: Password for the user provided in `POSTGRES_USER`.
+: Password for the user provided in `POSTGRES_USER`. Use `POSTGRES_PASSWORD_FILE` instead when running in environments that mount secrets as files (the k8s demo, for example).
+
+`POSTGRES_PASSWORD_FILE`
+: Path to a file containing the password for `POSTGRES_USER`. When set, `pgctld` reads the password from this file instead of `POSTGRES_PASSWORD`.
 
 `POSTGRES_DB`
 : PostgreSQL database name to use when connecting to the database.
