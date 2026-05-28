@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -167,12 +168,10 @@ func runPgproto(ctx context.Context, t suiteutil.Target, resetter *suiteutil.Sch
 // because a failed connection leaves runResult.Ran false and is handled as an
 // ExecErr instead of being diffed.
 //
-// So normalization is intentionally light: it strips trailing whitespace and
-// drops blank lines and comment-like noise, leaving the FE=>/<= BE lines whose
-// content (including ErrorResponse field codes and the source file/line, which
-// are identical across targets sharing one PostgreSQL build) is exactly what we
-// want to compare. Keep new normalization rules here — and document them in the
-// README — if a future divergence turns out to be benign target-specific noise.
+// Beyond trimming whitespace and blank lines, the one substantive rule is
+// reduceErrorLine: Error/NoticeResponse lines are compared by SQLSTATE only.
+// See that function for why the message text, position, and source-location
+// fields are intentionally dropped.
 func normalizeTrace(s string) string {
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, len(lines))
@@ -181,9 +180,39 @@ func normalizeTrace(s string) string {
 		if line == "" {
 			continue
 		}
-		out = append(out, line)
+		out = append(out, reduceErrorLine(line))
 	}
 	return strings.Join(out, "\n")
+}
+
+// errorLineRe matches a pgproto-rendered Error/NoticeResponse trace line and
+// captures (1) the message kind prefix and (2) the SQLSTATE in the `C` field.
+// pgproto prints diagnostic fields as space-separated "<letter> <value>" pairs;
+// PostgreSQL always emits the code before the free-text message, so the first
+// " C <5 chars>" is the SQLSTATE.
+var errorLineRe = regexp.MustCompile(`^(<= BE (?:Error|Notice)Response)\(.*?\sC ([0-9A-Za-z]{5})\b.*\)$`)
+
+// reduceErrorLine collapses an Error/NoticeResponse trace line to just its
+// message kind and SQLSTATE code, dropping the human-readable message, the
+// character position, and PostgreSQL's backend source-location fields
+// (F=file, L=line, R=routine, W=where, etc.).
+//
+// The SQLSTATE is the only part of an error a proxy must preserve. The other
+// fields are not reproducible by the multigateway: F/L/R are PostgreSQL's
+// internal C-source location, which the proxy has no access to, and for errors
+// the multigateway raises itself (e.g. parse failures from its own parser) the
+// wording and character position legitimately differ from PostgreSQL's. Diffing
+// those would only ever surface noise, never a real proxy bug — whereas a
+// SQLSTATE mismatch (e.g. 57014 vs 08P01) is a genuine divergence and is kept.
+//
+// Lines that are not Error/NoticeResponse (or, defensively, an error line with
+// no parseable C field) are returned unchanged.
+func reduceErrorLine(line string) string {
+	m := errorLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	return fmt.Sprintf("%s(C %s)", m[1], m[2])
 }
 
 // maxOutputBytes bounds how much raw trace we keep per file in the final

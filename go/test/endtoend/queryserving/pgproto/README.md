@@ -107,15 +107,29 @@ diff clean:
   connection startup, **before** the trace begins, so it never appears. There
   is therefore no per-connection run-varying data (PID, secret, timestamp) to
   strip.
-- `ErrorResponse` / `NoticeResponse` print every field, including the source
-  file (`F`) and line (`L`). Those are PostgreSQL-version-specific but identical
-  across both targets, which share one PostgreSQL build — so a difference there
-  is a genuine divergence, not noise.
 
-Normalization (`normalizeTrace` in `runner.go`) is therefore intentionally
-light: it trims trailing whitespace and drops blank lines. If a future
-divergence turns out to be benign target-specific noise, add the rule there and
-document it in this section.
+`ErrorResponse` / `NoticeResponse` are the one case needing real normalization.
+`pgproto` prints every diagnostic field PostgreSQL sends, and several of them are
+**not something a proxy can reproduce**:
+
+- `F` (source file), `L` (source line), `R` (routine) are PostgreSQL's internal
+  **C-source** location. The multigateway has no access to these, so it can never
+  emit them.
+- For errors the multigateway raises itself (e.g. a parse failure from its own
+  parser), the message wording (`M`) and character position (`P`) legitimately
+  differ from PostgreSQL's — the gateway parser reports a different position and
+  phrasing than the backend scanner.
+
+The only part of an error a proxy must preserve is the **SQLSTATE** (`C`). So
+`reduceErrorLine` (in `runner.go`) collapses every `Error`/`NoticeResponse` line
+to its message kind and SQLSTATE — e.g. `<= BE ErrorResponse(C 42601)` — and the
+differential comparison is on that alone. Diffing the dropped fields would only
+ever surface noise, never a real proxy bug, whereas a SQLSTATE mismatch (e.g.
+`57014` vs `08P01` on a failed COPY) is a genuine divergence and is still caught.
+
+Aside from this, normalization (`normalizeTrace` in `runner.go`) just trims
+trailing whitespace and drops blank lines. If a future divergence turns out to
+be benign target-specific noise, add the rule there and document it here.
 
 ## Tool install
 
