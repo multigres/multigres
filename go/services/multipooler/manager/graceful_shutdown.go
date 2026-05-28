@@ -44,25 +44,16 @@ var pgctldStopModes = []struct {
 	{"immediate", 5 * time.Second},
 }
 
-// GracefulShutdown publishes REQUESTING_DEMOTION on the health stream (for a
-// current leader) and then stops Postgres. Registered as a servenv OnTermSync
+// GracefulShutdown drains traffic, publishes COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the
+// health stream and then stops Postgres. Registered as a servenv OnTermSync
 // hook so it runs on SIGTERM bounded by --onterm-timeout.
-//
-// The announcement is sequenced before pgctld.Stop because reading the
-// primary term requires querying postgres for the current rule position;
-// doing it post-stop would silently no-op and force the coordinator to wait
-// for stream EOF + LeaderIsDead grace period instead of firing
-// LeaderResignedAnalyzer immediately.
 //
 // The topology Type=DRAINED transition happens after this returns via the
 // existing OnClose -> mp.Shutdown -> tr.Unregister chain registered in
 // services/multipooler/init.go.
 //
-// The action lock is held for the whole sequence: pgctld.Stop is gated behind
-// the protectedPgctldClient action-lock check, and announcing the resignation
-// involves reading consensus state and writing resignedLeaderAtTerm under the
-// same lock — holding it across both serialises against any concurrent
-// consensus operation (Recruit, Propose, etc.).
+// The action lock is held for the whole sequence because pgctld.Stop is
+// gated behind the protectedPgctldClient action-lock check.
 func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
 
@@ -111,26 +102,9 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 		}
 	}
 
-	// If we are the leader, announce REQUESTING_DEMOTION before stopping
-	// postgres. primaryTermLocked reads the current rule position from
-	// postgres, so the read must happen while postgres is still alive;
-	// running it post-stop would fail and the coordinator would have to wait
-	// for stream EOF + LeaderIsDead grace period instead. No-op for
-	// non-leaders and partially-initialized managers (consensus not wired).
-	// Mirrors the primary-demote pattern in Recruit (rpc_consensus.go).
-	if pm.consensusState != nil && pm.rules != nil {
-		primaryTerm, err := pm.primaryTermLocked(lockCtx)
-		switch {
-		case err != nil:
-			pm.logger.WarnContext(lockCtx, "could not read primary term for resignation announcement; coordinator will fail over via stream EOF",
-				"error", err)
-		case primaryTerm != 0:
-			if err := pm.setResignedLeaderAtTerm(lockCtx, primaryTerm); err != nil {
-				pm.logger.WarnContext(lockCtx, "failed to record resigned primary term",
-					"error", err)
-			}
-		}
-	}
+	// Advertise cohort ineligibility before stopping postgres just in case
+	// stopping is slow. We're favoring speed of failover rather than grace.
+	pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
 
 	pm.stopPostgresLocked(lockCtx)
 

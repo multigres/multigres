@@ -79,8 +79,8 @@ func (r *recordingPgctldClient) modesCalled() []string {
 // newGracefulShutdownTestManager constructs a MultiPoolerManager wired with
 // stubs sufficient to exercise GracefulShutdown without needing topology,
 // gRPC services, or a real connection pool. The healthStreamer is constructed
-// because broadcastHealth is called on it; other subsystems are nil and must
-// not be touched by the code under test.
+// because setCohortEligibility -> broadcastHealth is called on it; other
+// subsystems are nil and must not be touched by the code under test.
 func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldClient) *MultiPoolerManager {
 	t.Helper()
 
@@ -107,12 +107,6 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 				Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 			},
 		}),
-		// Fresh on-disk consensus state at a temp dir. announceLeaderResignationLocked
-		// reads primary term via primaryTermLocked -> getConsensusStatus -> ConsensusState;
-		// without this it nil-pointers. With no revocation file it reads as term 0,
-		// matching the "not currently the leader" path so the test exercises a no-op
-		// announce.
-		consensusState: NewConsensusState(t.TempDir(), id),
 	}
 }
 
@@ -350,75 +344,46 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 		"topology Updated nanos must not change on idempotent call")
 }
 
-// TestGracefulShutdown_AnnouncesBeforeStop is a regression test for the
-// ordering bug where primaryTermLocked was called after pgctld.Stop:
-// primaryTermLocked reads from postgres (via rules.observePosition), so it
-// would silently no-op once postgres was down and the coordinator would have
-// to wait for stream-EOF + LeaderIsDead grace period instead of firing
-// LeaderResignedAnalyzer on REQUESTING_DEMOTION.
+// TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop is a regression
+// test for the ordering guarantee that cohort-ineligibility is broadcast
+// before pgctld.Stop. If the order flipped, the broadcast would race against
+// stream EOF and the coordinator would have to fall back to LeaderIsDead's
+// grace period instead of firing LeaderResignedAnalyzer immediately on the
+// INELIGIBLE signal.
 //
-// The fake ruleStore is configured to fail observePosition the moment
-// pgctld.Stop has been called. If GracefulShutdown stops postgres before
-// announcing, observePosition fails and resignedLeaderAtTerm stays 0 — the
-// assertion that resignedLeaderAtTerm == primary_term would then fail.
-func TestGracefulShutdown_AnnouncesBeforeStop(t *testing.T) {
-	const primaryTerm int64 = 42
+// pgctld.Stop's callback captures the cohort eligibility state at the moment
+// of the call, so the assertion fails if the announce was sequenced after
+// the stop.
+func TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop(t *testing.T) {
+	pm := newGracefulShutdownTestManager(t, nil)
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	id := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test",
-	}
-
-	// rules returns a position where this pooler is leader at term=primaryTerm,
-	// but only until pgctld.Stop is first called — afterwards observePosition
-	// fails, mirroring the "postgres is down" reality.
-	rules := &fakeRuleStore{
-		pos: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
-				LeaderId:   id,
-				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: primaryTerm},
-			},
-		},
-	}
-
+	var atStopSignal clustermetadatapb.CohortEligibilitySignal
 	pgctld := &recordingPgctldClient{
 		stopFn: func(string) error {
-			// Simulate postgres going away: observePosition starts failing.
-			rules.mu.Lock()
-			rules.observeErr = errors.New("postgres unreachable: process stopped")
-			rules.mu.Unlock()
+			pm.mu.Lock()
+			atStopSignal = pm.cohortEligibility
+			pm.mu.Unlock()
 			return nil
 		},
 	}
-
-	pm := &MultiPoolerManager{
-		logger:         logger,
-		serviceID:      id,
-		config:         &Config{},
-		pgctldClient:   pgctld,
-		healthStreamer: newHealthStreamer(logger, id, "tg", "0"),
-		actionLock:     NewActionLock(),
-		consensusState: NewConsensusState(t.TempDir(), id),
-		rules:          rules,
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-			Id: id,
-			LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
-				Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
-			},
-		}),
-	}
+	pm.pgctldClient = pgctld
 
 	pm.GracefulShutdown(context.Background())
 
 	require.Equal(t, []string{"fast"}, pgctld.modesCalled(),
 		"pgctld.Stop should have been called once (fast succeeded)")
+	require.Equal(t,
+		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		atStopSignal,
+		"cohort eligibility must be INELIGIBLE before pgctld.Stop runs; if it was "+
+			"the default ELIGIBLE, the announce was sequenced AFTER stop and the "+
+			"broadcast races stream EOF")
 
 	pm.mu.Lock()
-	got := pm.resignedLeaderAtTerm
+	finalSignal := pm.cohortEligibility
 	pm.mu.Unlock()
-	require.Equal(t, primaryTerm, got,
-		"resignedLeaderAtTerm must be set to the primary term; if 0, the announce was "+
-			"sequenced AFTER pgctld.Stop and observePosition failed for the dead postgres")
+	require.Equal(t,
+		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+		finalSignal,
+		"cohort eligibility must remain INELIGIBLE after GracefulShutdown returns")
 }
