@@ -145,4 +145,38 @@ func TestLeaderNeedsReplacement(t *testing.T) {
 		}
 		assert.False(t, LeaderNeedsReplacement(p))
 	})
+
+	t.Run("CohortEligibility INELIGIBLE returns true even without leadership signal", func(t *testing.T) {
+		// Graceful-shutdown path: the pooler advertises INELIGIBLE without
+		// touching LeadershipStatus, and the analyzer must still trigger
+		// replacement.
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+				Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+			},
+		}
+		assert.True(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("CohortEligibility INELIGIBLE returns true regardless of term", func(t *testing.T) {
+		// Cohort eligibility is not term-gated, unlike REQUESTING_DEMOTION.
+		p := poolerWithLeaderTerm(t, 0)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+				Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+			},
+		}
+		assert.True(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("CohortEligibility ELIGIBLE returns false", func(t *testing.T) {
+		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+				Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+			},
+		}
+		assert.False(t, LeaderNeedsReplacement(p))
+	})
 }
