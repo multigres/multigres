@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -224,8 +225,34 @@ func TestPgProtoConformance(t *testing.T) {
 
 	t.Logf("Phase 6: ran %d of %d files (timed_out=%v)", ran, len(files), timedOut)
 
-	// Phase 7: build the suite report and persist it.
-	report := newSuiteReport("PgProto", corpusRoot, pgResults, mgResults, startedAt, timedOut)
+	// Phase 7: patch-aware comparison. A recorded known divergence lives in
+	// testdata/patches/<name>.patch and is applied to PostgreSQL's trace to form
+	// the expected multigateway trace; the file passes when the multigateway
+	// matches that patched baseline. PGPROTO_PATCH_MODE=generate (re)writes the
+	// patches from the current run. See patch.go.
+	patchMode := getPatchMode()
+	patchDir := filepath.Join(corpusRoot, "patches")
+	t.Logf("Phase 7: patch verification (mode=%s, dir=%s)", patchMode, patchDir)
+	outcomes := make([]patchOutcome, len(pgResults))
+	for i := range pgResults {
+		pg, mg := pgResults[i], mgResults[i]
+		if !pg.Ran || !mg.Ran {
+			continue // no baseline or no candidate trace — nothing to patch-compare
+		}
+		name := pg.File
+		if rel, err := filepath.Rel(corpusRoot, pg.File); err == nil {
+			name = rel
+		}
+		oc, err := verifyTracePatch(overall, pg.Trace, mg.Trace, patchDir, name, patchMode)
+		if err != nil {
+			t.Logf("  patch verify %s: %v", name, err)
+			continue
+		}
+		outcomes[i] = oc
+	}
+
+	// Phase 8: build the suite report and persist it.
+	report := newSuiteReport("PgProto", corpusRoot, pgResults, mgResults, outcomes, startedAt, timedOut)
 	report.logSummary(t)
 
 	if jsonPath, err := writeJSON(builder.OutputDir, report); err != nil {

@@ -131,6 +131,61 @@ Aside from this, normalization (`normalizeTrace` in `runner.go`) just trims
 trailing whitespace and drops blank lines. If a future divergence turns out to
 be benign target-specific noise, add the rule there and document it here.
 
+## Known divergences and patches
+
+Some divergences are real but accepted — the multigateway behaves differently
+from PostgreSQL in a way we understand and have chosen not to fix (yet). Rather
+than let them re-flag on every run, we record them as **patches**, exactly like
+the `pgregresstest` suite does.
+
+A patch lives at `testdata/patches/<name>.patch` (where `<name>` is the corpus
+file without its `.pgproto` suffix). It is a `diff -U3` that is applied to
+PostgreSQL's normalized trace to produce the **expected multigateway trace**.
+A patch may begin with a **comment preamble** — any lines before the `--- a`
+header (we use `#`) — explaining _why_ the divergence is accepted. The comment is
+stripped before the diff is applied and is **preserved across regeneration**, so
+`make pgproto-update-patches` won't drop your explanation. Always add one.
+
+A file then:
+
+- **passes exactly** when the multigateway trace equals PostgreSQL's, with no
+  patch needed;
+- **passes via patch** when it equals the patched baseline — a recorded known
+  divergence (`patch_applied: true` in `results.json`, listed separately in the
+  markdown report);
+- **fails (new divergence)** when a residual diff remains — i.e. the
+  multigateway diverged in a way no patch covers. This is what CI alerts on.
+
+So adding a patch turns "we know this differs" into a checked-in expectation,
+while any _new_ or _changed_ divergence still fails loudly (the patch either
+leaves a residual diff or stops applying).
+
+### Workflow
+
+```bash
+# Verify against recorded patches (the default; what CI runs).
+make pgproto
+
+# Absorb the current divergences by (re)writing testdata/patches/*.patch,
+# then review the generated patches in your diff before committing.
+make pgproto-update-patches
+```
+
+Equivalently, set `PGPROTO_PATCH_MODE=generate` on a direct `go test` run.
+Generate mode also deletes patches that are no longer needed (a file that now
+matches PostgreSQL exactly).
+
+### Current patches
+
+- **`error_recovery.patch`** — extended-query message sequencing on a plan-time
+  error. For `SELECT 1/0` (Parse→Bind→Execute→Sync), PostgreSQL constant-folds
+  `1/0` at **plan time, during Bind**, so it sends `ParseComplete` →
+  `ErrorResponse` and never `BindComplete`. The multigateway plans/executes
+  lazily at Execute, so it sends `BindComplete` before the error. Matching
+  PostgreSQL would require eager bind-time planning against the backend (an
+  extra round-trip on the latency-sensitive path) for negligible client benefit,
+  so the divergence is recorded rather than fixed.
+
 ## Tool install
 
 `pgproto` publishes no prebuilt binaries — it is C built against `libpq` — so
@@ -184,13 +239,14 @@ Per the project convention, prefer the `/mt-dev` skill for test execution:
 
 ## Environment variables
 
-| Var                                | Default                   | Purpose                                             |
-| ---------------------------------- | ------------------------- | --------------------------------------------------- |
-| `RUN_EXTENDED_QUERY_SERVING_TESTS` | unset (test skips)        | Set to `1` to enable. Also enables sqllogictest.    |
-| `PGPROTO_CORPUS_DIR`               | `testdata/`               | Override to point at an external set of data files. |
-| `PGPROTO_CORPUS_GLOB`              | `**/*.pgproto`            | Scope which corpus files run. Supports `**`.        |
-| `PGPROTO_PER_FILE_TIMEOUT`         | `2m`                      | Per-file (per-target) wall-time budget.             |
-| `MULTIGRES_PG_CACHE_DIR`           | `/tmp/multigres_pg_cache` | Shared with sqllogictest — PG source + build cache. |
+| Var                                | Default                   | Purpose                                                    |
+| ---------------------------------- | ------------------------- | ---------------------------------------------------------- |
+| `RUN_EXTENDED_QUERY_SERVING_TESTS` | unset (test skips)        | Set to `1` to enable. Also enables sqllogictest.           |
+| `PGPROTO_CORPUS_DIR`               | `testdata/`               | Override to point at an external set of data files.        |
+| `PGPROTO_CORPUS_GLOB`              | `**/*.pgproto`            | Scope which corpus files run. Supports `**`.               |
+| `PGPROTO_PER_FILE_TIMEOUT`         | `2m`                      | Per-file (per-target) wall-time budget.                    |
+| `PGPROTO_PATCH_MODE`               | `verify`                  | `verify` checks against patches; `generate` rewrites them. |
+| `MULTIGRES_PG_CACHE_DIR`           | `/tmp/multigres_pg_cache` | Shared with sqllogictest — PG source + build cache.        |
 
 ## Outputs
 

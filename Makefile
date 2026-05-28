@@ -34,7 +34,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgproto pgproto-update-patches proto tools parser help
 
 ##@ General
 
@@ -165,6 +165,22 @@ pgregress: build ## Run the PostgreSQL regression suite with patch-based verific
 pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from the current run.
 	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
 	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Run the pgproto wire-protocol conformance suite (patch-verify mode). Requires
+# `make build` and `make tools` (builds the pgproto binary); clones/builds
+# PostgreSQL on first run. Known divergences are recorded as patches under
+# go/test/endtoend/queryserving/pgproto/testdata/patches/.
+pgproto: build ## Run the pgproto wire-protocol conformance suite with patch-based verification.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=verify \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
+
+# Re-run the pgproto suite in generate mode: any residual divergence between the
+# multigateway and PostgreSQL is absorbed by (re)writing
+# go/test/endtoend/queryserving/pgproto/testdata/patches/<name>.patch. Review the
+# resulting patches in the PR diff before merging.
+pgproto-update-patches: build ## Regenerate pgproto testdata/patches/*.patch from the current run.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=generate \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
 
 ##@ Maintenance
 

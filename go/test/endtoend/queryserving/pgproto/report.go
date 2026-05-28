@@ -35,6 +35,11 @@ type fileReport struct {
 	Postgres perRun `json:"postgres"`       // baseline (direct PG) — the oracle
 	Gateway  perRun `json:"multigateway"`   // candidate (multigres)
 	Note     string `json:"note,omitempty"` // human note (divergence, exec err, timeout)
+	// PatchApplied is true when the file passes via a recorded known-divergence
+	// patch (testdata/patches/<name>.patch) rather than an exact trace match.
+	PatchApplied bool `json:"patch_applied,omitempty"`
+	// PatchPath is the patch file path (for report links). Empty when no patch.
+	PatchPath string `json:"patch_path,omitempty"`
 }
 
 // perRun is one target's outcome for a single file.
@@ -57,33 +62,36 @@ type perRun struct {
 // however it likes), but the on-disk shape is still an array of suites for
 // compatibility with detect-regressions.sh.
 type suiteReport struct {
-	Name          string       `json:"name"` // "PgProto"
-	CorpusDir     string       `json:"corpus_dir"`
-	CorpusCommit  string       `json:"corpus_commit"` // pinned pgproto tool commit
-	TimedOut      bool         `json:"timed_out"`
-	TotalFiles    int          `json:"total_files"`
-	PassedBoth    int          `json:"passed_both"`
-	PassedPGOnly  int          `json:"passed_pg_only"` // proxy divergence
-	PassedMGOnly  int          `json:"passed_mg_only"`
-	FailedBoth    int          `json:"failed_both"`
-	PGPassed      int          `json:"postgres_passed"`
-	GatewayPassed int          `json:"multigateway_passed"`
-	StartedAt     time.Time    `json:"started_at"`
-	Duration      string       `json:"duration"`
-	Tests         []fileReport `json:"tests"`
+	Name           string       `json:"name"` // "PgProto"
+	CorpusDir      string       `json:"corpus_dir"`
+	CorpusCommit   string       `json:"corpus_commit"` // pinned pgproto tool commit
+	TimedOut       bool         `json:"timed_out"`
+	TotalFiles     int          `json:"total_files"`
+	PassedBoth     int          `json:"passed_both"`
+	PassedViaPatch int          `json:"passed_via_patch"` // subset of passed_both: known divergences absorbed by a patch
+	PassedPGOnly   int          `json:"passed_pg_only"`   // proxy divergence (unpatched)
+	PassedMGOnly   int          `json:"passed_mg_only"`
+	FailedBoth     int          `json:"failed_both"`
+	PGPassed       int          `json:"postgres_passed"`
+	GatewayPassed  int          `json:"multigateway_passed"`
+	StartedAt      time.Time    `json:"started_at"`
+	Duration       string       `json:"duration"`
+	Tests          []fileReport `json:"tests"`
 }
 
-// newSuiteReport builds the suite report from paired per-file results.
-// pgResults and mgResults must align on File path.
+// newSuiteReport builds the suite report from paired per-file results and their
+// patch outcomes. pgResults, mgResults, and outcomes must align by index.
 //
 // PostgreSQL is the oracle: postgres.passed = the PG run produced a trace
-// (pg.Ran); multigateway.passed = the MG run produced a trace AND its
-// normalized trace equals PG's. A file where PG itself could not produce a
-// baseline (pg.Ran == false) is recorded but never counts as a proxy
-// divergence — that is a harness/corpus problem, surfaced via the note.
-func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, startedAt time.Time, timedOut bool) *suiteReport {
-	if len(pgResults) != len(mgResults) {
-		panic(fmt.Sprintf("pgproto: mismatched result slices for %s: pg=%d mg=%d", name, len(pgResults), len(mgResults)))
+// (pg.Ran); multigateway.passed = the MG run produced a trace that matches the
+// (possibly patched) PG baseline. A file passing via a recorded patch is a
+// known, accepted divergence — counted as a pass but flagged with PatchApplied.
+// An unpatched residual divergence is a proxy bug (passed_pg_only). A file where
+// PG itself could not produce a baseline (pg.Ran == false) is recorded but never
+// counts as a proxy divergence — that is a harness/corpus problem.
+func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, outcomes []patchOutcome, startedAt time.Time, timedOut bool) *suiteReport {
+	if len(pgResults) != len(mgResults) || len(pgResults) != len(outcomes) {
+		panic(fmt.Sprintf("pgproto: mismatched slices for %s: pg=%d mg=%d outcomes=%d", name, len(pgResults), len(mgResults), len(outcomes)))
 	}
 
 	report := &suiteReport{
@@ -99,6 +107,7 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 	for i := range pgResults {
 		pg := pgResults[i]
 		mg := mgResults[i]
+		oc := outcomes[i]
 
 		fileName := pg.File
 		if corpusRoot != "" {
@@ -108,8 +117,9 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 		}
 
 		pgPassed := pg.Ran
-		traceMatch := mg.Trace == pg.Trace
-		mgPassed := mg.Ran && traceMatch
+		// The multigateway "passes" when its trace matches the (possibly patched)
+		// PostgreSQL baseline — see verifyTracePatch.
+		mgPassed := mg.Ran && oc.Matched
 
 		if pgPassed {
 			report.PGPassed++
@@ -123,6 +133,9 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 		case pgPassed && mgPassed:
 			report.PassedBoth++
 			status = "pass"
+			if oc.PatchApplied {
+				report.PassedViaPatch++
+			}
 		case pgPassed && !mgPassed:
 			report.PassedPGOnly++
 		case !pgPassed && mgPassed:
@@ -139,26 +152,29 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 			note = "multigateway runner error: " + mg.ExecErr.Error()
 		case pg.TimedOut || mg.TimedOut:
 			note = "timed out (per-file deadline)"
-		case pgPassed && !mgPassed && !traceMatch:
-			note = "divergence: multigateway trace differs from postgres"
+		case pgPassed && mgPassed && oc.PatchApplied:
+			note = "known divergence absorbed by patch: " + oc.PatchPath
+		case pgPassed && !mgPassed:
+			note = "divergence: multigateway trace differs from postgres (not covered by a patch)"
 		}
 
 		pgRun := toPerRun(pg, pgPassed)
 		mgRun := toPerRun(mg, mgPassed)
-		// On a pure trace divergence (both ran, traces differ) the bare traces
-		// are not actionable on their own — attach a unified diff so the report
-		// shows exactly where the multigateway deviated from PostgreSQL.
-		if pgPassed && mg.Ran && !traceMatch {
-			mgRun.Output = truncateOutput(unifiedDiff(pg.Trace, mg.Trace), maxOutputBytes)
+		// On an unpatched divergence, attach the residual diff (patched-postgres
+		// vs multigateway) so the report shows exactly what is new/uncovered.
+		if pgPassed && !mgPassed && oc.ResidualDiff != "" {
+			mgRun.Output = truncateOutput(oc.ResidualDiff, maxOutputBytes)
 		}
 
 		report.Tests = append(report.Tests, fileReport{
-			Name:     fileName,
-			Status:   status,
-			Duration: (pg.Duration + mg.Duration).Round(time.Millisecond).String(),
-			Postgres: pgRun,
-			Gateway:  mgRun,
-			Note:     note,
+			Name:         fileName,
+			Status:       status,
+			Duration:     (pg.Duration + mg.Duration).Round(time.Millisecond).String(),
+			Postgres:     pgRun,
+			Gateway:      mgRun,
+			Note:         note,
+			PatchApplied: oc.PatchApplied,
+			PatchPath:    oc.PatchPath,
 		})
 	}
 
@@ -220,7 +236,8 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 	sb.WriteString("| Metric | Count |\n|---|---|\n")
 	fmt.Fprintf(&sb, "| Files in run | %d |\n", r.TotalFiles)
 	fmt.Fprintf(&sb, "| Matched both (multigateway == postgres) | %d |\n", r.PassedBoth)
-	fmt.Fprintf(&sb, "| Proxy divergence (postgres baseline, multigateway differs) | %d |\n", r.PassedPGOnly)
+	fmt.Fprintf(&sb, "| — of which known divergences absorbed by a patch | %d |\n", r.PassedViaPatch)
+	fmt.Fprintf(&sb, "| New proxy divergence (not covered by a patch) | %d |\n", r.PassedPGOnly)
 	fmt.Fprintf(&sb, "| Multigateway-only pass (postgres baseline missing) | %d |\n", r.PassedMGOnly)
 	fmt.Fprintf(&sb, "| No baseline (postgres could not produce a trace) | %d |\n\n", r.FailedBoth)
 
@@ -231,7 +248,7 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 		}
 	}
 	if divergences > 0 {
-		fmt.Fprintf(&sb, "### %d proxy divergence(s)\n\n", divergences)
+		fmt.Fprintf(&sb, "### %d new proxy divergence(s) — not covered by a patch\n\n", divergences)
 		for _, tr := range r.Tests {
 			if tr.Postgres.Passed && !tr.Gateway.Passed {
 				fmt.Fprintf(&sb, "#### `%s`\n\n", tr.Name)
@@ -245,6 +262,16 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 		}
 	}
 
+	if r.PassedViaPatch > 0 {
+		fmt.Fprintf(&sb, "### %d known divergence(s) absorbed by patches\n\n", r.PassedViaPatch)
+		for _, tr := range r.Tests {
+			if tr.PatchApplied {
+				fmt.Fprintf(&sb, "- `%s` — `%s`\n", tr.Name, tr.PatchPath)
+			}
+		}
+		sb.WriteString("\n")
+	}
+
 	summary := sb.String()
 	path, err := suiteutil.WriteMarkdown(outputDir, "compatibility-report.md", summary)
 	if err != nil {
@@ -252,44 +279,6 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 	}
 	t.Logf("Markdown summary written to: %s", path)
 	return summary, nil
-}
-
-// unifiedDiff renders a minimal line-oriented diff of two traces: PostgreSQL's
-// baseline is the "-" side, the multigateway's trace is the "+" side. It is not
-// a full LCS diff — it walks both line lists in lockstep and emits the lines
-// that differ — but for short protocol traces that is enough to see where the
-// multigateway deviated.
-func unifiedDiff(pgTrace, mgTrace string) string {
-	pgLines := strings.Split(pgTrace, "\n")
-	mgLines := strings.Split(mgTrace, "\n")
-
-	var sb strings.Builder
-	sb.WriteString("--- postgres (baseline)\n+++ multigateway\n")
-
-	n := max(len(pgLines), len(mgLines))
-	for i := range n {
-		var pgL, mgL string
-		havePG := i < len(pgLines)
-		haveMG := i < len(mgLines)
-		if havePG {
-			pgL = pgLines[i]
-		}
-		if haveMG {
-			mgL = mgLines[i]
-		}
-		switch {
-		case havePG && haveMG && pgL == mgL:
-			fmt.Fprintf(&sb, " %s\n", pgL)
-		default:
-			if havePG {
-				fmt.Fprintf(&sb, "-%s\n", pgL)
-			}
-			if haveMG {
-				fmt.Fprintf(&sb, "+%s\n", mgL)
-			}
-		}
-	}
-	return strings.TrimRight(sb.String(), "\n")
 }
 
 // logSummary dumps a compact summary of the suite to the test log.
@@ -302,8 +291,8 @@ func (r *suiteReport) logSummary(t *testing.T) {
 	}
 	t.Logf("  postgres baseline produced:   %d/%d", r.PGPassed, r.TotalFiles)
 	t.Logf("  multigateway matched:         %d/%d", r.GatewayPassed, r.TotalFiles)
-	t.Logf("  matched both:                 %d", r.PassedBoth)
-	t.Logf("  proxy divergences (PG ok, MG differs): %d", r.PassedPGOnly)
+	t.Logf("  matched both:                 %d (of which %d via patch)", r.PassedBoth, r.PassedViaPatch)
+	t.Logf("  new proxy divergences (PG ok, MG differs, unpatched): %d", r.PassedPGOnly)
 	t.Logf("  unexpected MG-only passes:    %d", r.PassedMGOnly)
 	t.Logf("  no baseline (PG failed):      %d", r.FailedBoth)
 	t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
