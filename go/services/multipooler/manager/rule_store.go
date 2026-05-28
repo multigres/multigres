@@ -381,7 +381,7 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 		       created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
 		         ELSE pg_current_wal_lsn()
 		       END::text AS current_lsn
 		FROM multigres.current_rule
@@ -740,7 +740,7 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		       updated.created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
 		         ELSE pg_current_wal_lsn()
 		       END::text AS current_lsn
 		FROM updated, inserted`,

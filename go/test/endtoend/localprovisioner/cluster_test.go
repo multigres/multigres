@@ -342,10 +342,22 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 }
 
 // getProcessArgs returns the full command-line of a running process as a single space-separated string.
+//
+// On Linux we read /proc/<pid>/cmdline directly, which is NUL-separated and
+// works on Alpine/BusyBox where "ps -o args=" is not supported.  On non-Linux
+// systems (macOS dev machines) we fall back to ps.
 func getProcessArgs(pid int) (string, error) {
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
-	if err != nil {
-		return "", fmt.Errorf("ps -p %d failed: %w", pid, err)
+	// Linux fast-path: /proc/<pid>/cmdline is NUL-separated argv.
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err == nil {
+		args := strings.ReplaceAll(string(data), "\x00", " ")
+		return strings.TrimSpace(args), nil
+	}
+
+	// Fallback for macOS and other systems.
+	out, psErr := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if psErr != nil {
+		return "", fmt.Errorf("ps -p %d failed: %w", pid, psErr)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -783,7 +795,7 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// LC_ALL is required to avoid "postmaster became multithreaded during startup" on macOS
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(utils.BaseTestEnv(),
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
 		"LC_ALL=en_US.UTF-8",
 	)
@@ -859,7 +871,7 @@ func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 
 	// Connect via TCP using the default password "postgres" (from PgPassword config)
 	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
-	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+	cmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD=postgres")
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))

@@ -30,7 +30,7 @@ ARG GO_SHA256_ARM64=654da1f9b50a5d1c2a85ccf8ed405aa89c06e94d18384628bf186f771267
 # curl and tar are only needed to download and verify the Go toolchain;
 # they are removed via the .build-tools virtual group after installation.
 # hadolint ignore=DL3018,DL4006
-RUN apk add --no-cache make git etcd && \
+RUN apk add --no-cache make git etcd pgbackrest && \
   apk add --no-cache --virtual .build-tools curl tar && \
   case "$(uname -m)" in \
     x86_64)  ARCH=amd64; GO_SHA256="${GO_SHA256_AMD64}" ;; \
