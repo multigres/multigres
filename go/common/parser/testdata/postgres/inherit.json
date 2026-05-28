@@ -2450,12 +2450,12 @@
   {
     "comment": "inherit - Statement 495",
     "query": "create index on permtest_parent (left(c, 3))",
-    "expected": "CREATE INDEX ON permtest_parent USING btree ( (left(c, 3)) )"
+    "expected": "CREATE INDEX ON permtest_parent USING btree ( (\"left\"(c, 3)) )"
   },
   {
     "comment": "inherit - Statement 496",
     "query": "insert into permtest_parent select 1, 'a', left(fipshash(i::text), 5) from generate_series(0, 100) i",
-    "expected": "INSERT INTO permtest_parent SELECT 1, 'a', left(fipshash(CAST(i AS TEXT)), 5) FROM generate_series(0, 100) AS i"
+    "expected": "INSERT INTO permtest_parent SELECT 1, 'a', \"left\"(fipshash(CAST(i AS TEXT)), 5) FROM generate_series(0, 100) AS i"
   },
   {
     "comment": "inherit - Statement 497",
@@ -2490,7 +2490,7 @@
   {
     "comment": "inherit - Statement 503",
     "query": "explain (costs off) select * from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and left(p1.c, 3) ~ 'a1$'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM permtest_parent AS p1 INNER JOIN permtest_parent AS p2 ON p1.a = p2.a AND left(p1.c, 3) ~ 'a1$'"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM permtest_parent AS p1 INNER JOIN permtest_parent AS p2 ON p1.a = p2.a AND \"left\"(p1.c, 3) ~ 'a1$'"
   },
   {
     "comment": "inherit - Statement 504",
@@ -2510,7 +2510,7 @@
   {
     "comment": "inherit - Statement 507",
     "query": "explain (costs off) select p2.a, p1.c from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and left(p1.c, 3) ~ 'a1$'",
-    "expected": "EXPLAIN (COSTS false) SELECT p2.a, p1.c FROM permtest_parent AS p1 INNER JOIN permtest_parent AS p2 ON p1.a = p2.a AND left(p1.c, 3) ~ 'a1$'"
+    "expected": "EXPLAIN (COSTS false) SELECT p2.a, p1.c FROM permtest_parent AS p1 INNER JOIN permtest_parent AS p2 ON p1.a = p2.a AND \"left\"(p1.c, 3) ~ 'a1$'"
   },
   {
     "comment": "inherit - Statement 508",
