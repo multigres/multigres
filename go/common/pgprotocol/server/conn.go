@@ -928,6 +928,25 @@ func (c *Conn) handleQuery() error {
 	return c.writeReadyForQuery()
 }
 
+// preserveExtendedQueryError returns err unchanged when it already carries a
+// structured PostgreSQL diagnostic, so the client sees the real SQLSTATE the
+// handler produced (e.g. 42601 syntax_error from the parser on Parse, 26000
+// invalid_sql_statement_name for a missing prepared statement on Bind/Describe,
+// 34000 invalid_cursor_name for a missing portal on Describe). Only an opaque
+// error with no SQLSTATE is wrapped with fallback, which marks a genuinely
+// internal failure of the extended-query step. Drivers branch on these
+// SQLSTATEs, so blanket-wrapping a structured error as an internal MTDxx code
+// (which clients read as a proxy bug) would be a real protocol divergence from
+// PostgreSQL — see the pgproto conformance suite's bind_before_parse and
+// describe_unknown corpus files.
+func preserveExtendedQueryError(err error, fallback *mterrors.MTError) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return err
+	}
+	return fallback.NewWithDetail(err.Error())
+}
+
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 // Parse message format:
 // - Statement name (string, null-terminated)
@@ -994,15 +1013,10 @@ func (c *Conn) handleParse() error {
 		// The error packet stays buffered until Sync flushes the batch — same shape
 		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
 		//
-		// Preserve a structured PostgreSQL diagnostic when the handler produced
-		// one (e.g. a 42601 syntax_error from the parser) so the client sees the
-		// same SQLSTATE PostgreSQL would send. Only opaque errors with no SQLSTATE
-		// are wrapped as MTD04, which marks a genuinely internal Parse failure.
-		var diag *mterrors.PgDiagnostic
-		if !errors.As(err, &diag) {
-			err = mterrors.MTD04.NewWithDetail(err.Error())
-		}
-		return c.writeExtendedQueryError(err)
+		// Preserve a structured PostgreSQL diagnostic (e.g. 42601 syntax_error
+		// from the parser); only opaque errors are wrapped as MTD04, a genuinely
+		// internal Parse failure. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD04))
 	}
 
 	// Send ParseComplete message. Stays buffered for the rest of the batch.
@@ -1088,7 +1102,11 @@ func (c *Conn) handleBind() error {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
 		// ReadyForQuery is sent only in response to Sync. The error packet
 		// stays buffered until Sync flushes the batch.
-		return c.writeExtendedQueryError(mterrors.MTD05.NewWithDetail(err.Error()))
+		//
+		// Preserve a structured diagnostic (e.g. 26000 for a Bind referencing a
+		// prepared statement that was never Parsed); only opaque errors become
+		// MTD05. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD05))
 	}
 
 	// Send BindComplete message. Stays buffered for the rest of the batch.
@@ -1271,7 +1289,10 @@ func (c *Conn) handleDescribe() error {
 	// Describe('P') was already flushed by handleMessage before this call.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		return c.writeExtendedQueryError(mterrors.MTD06.NewWithDetail(err.Error()))
+		// Preserve a structured diagnostic — 26000 for an unknown prepared
+		// statement, 34000 for an unknown portal — so the two cases stay
+		// distinguishable; only opaque errors become MTD06.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD06))
 	}
 
 	// Send ParameterDescription only for statement describes ('S').
@@ -1312,7 +1333,9 @@ func (c *Conn) resolveDeferredPortalDescribe() error {
 	c.deferredPortalDescribeName = ""
 	desc, err := c.handler.HandleDescribe(c.ctx, c, 'P', name)
 	if err != nil {
-		return c.writeExtendedQueryError(mterrors.MTD06.NewWithDetail(err.Error()))
+		// Preserve a structured diagnostic (34000 for an unknown portal); only
+		// opaque errors become MTD06. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD06))
 	}
 	if desc != nil && desc.Fields != nil {
 		return c.writeRowDescription(desc.Fields)
