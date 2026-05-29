@@ -17,7 +17,6 @@ package sqllogictest
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -133,7 +132,7 @@ func runSqllogictest(ctx context.Context, t suiteutil.Target, resetter *suiteuti
 	res := &runResult{
 		File:     file,
 		Duration: elapsed,
-		Output:   truncateOutput(output, maxOutputBytes),
+		Output:   suiteutil.TruncateOutput(output, maxOutputBytes),
 	}
 
 	switch {
@@ -141,7 +140,7 @@ func runSqllogictest(ctx context.Context, t suiteutil.Target, resetter *suiteuti
 		res.Passed = true
 	case ctx.Err() == context.DeadlineExceeded:
 		res.TimedOut = true
-	case isExitError(err):
+	case suiteutil.IsExitError(err):
 		// Non-zero exit: test failure — the captured output names the
 		// offending record. Treat as expected "not passed".
 	default:
@@ -155,15 +154,3 @@ func runSqllogictest(ctx context.Context, t suiteutil.Target, resetter *suiteuti
 // the final report. Failing files often print enough context to diagnose;
 // huge walls of diff text serve no one.
 const maxOutputBytes = 4 * 1024
-
-func truncateOutput(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit] + "\n... (output truncated)"
-}
-
-func isExitError(err error) bool {
-	var ee *exec.ExitError
-	return errors.As(err, &ee)
-}
