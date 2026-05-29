@@ -1,0 +1,202 @@
+[
+  {
+    "comment": "plpgsql_trap - Statement 1",
+    "query": "create function trap_zero_divide(int) returns int as $$ declare x int; sx smallint; begin begin raise notice 'should see this'; x := 100 / $1; raise notice 'should see this only if % <> 0', $1; sx := $1; raise notice 'should see this only if % fits in smallint', $1; if $1 < 0 then raise exception '% is less than zero', $1; end if; exception when division_by_zero then raise notice 'caught division_by_zero'; x := -1; when NUMERIC_VALUE_OUT_OF_RANGE then raise notice 'caught numeric_value_out_of_range'; x := -2; end; return x; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION trap_zero_divide (INT) RETURNS INT AS $$ declare x int; sx smallint; begin begin raise notice 'should see this'; x := 100 / $1; raise notice 'should see this only if % <> 0', $1; sx := $1; raise notice 'should see this only if % fits in smallint', $1; if $1 < 0 then raise exception '% is less than zero', $1; end if; exception when division_by_zero then raise notice 'caught division_by_zero'; x := -1; when NUMERIC_VALUE_OUT_OF_RANGE then raise notice 'caught numeric_value_out_of_range'; x := -2; end; return x; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 2",
+    "query": "select trap_zero_divide(50)",
+    "expected": "SELECT trap_zero_divide(50)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 3",
+    "query": "select trap_zero_divide(0)",
+    "expected": "SELECT trap_zero_divide(0)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 4",
+    "query": "select trap_zero_divide(100000)",
+    "expected": "SELECT trap_zero_divide(100000)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 5",
+    "query": "select trap_zero_divide(-100)",
+    "expected": "SELECT trap_zero_divide(-100)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 6",
+    "query": "create table match_source as select x as id, x*10 as data, x/10 as ten from generate_series(1,100) x",
+    "expected": "CREATE TABLE match_source AS SELECT x AS id, x * 10 AS data, x / 10 AS ten FROM generate_series(1, 100) AS x"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 7",
+    "query": "create function trap_matching_test(int) returns int as $$ declare x int; sx smallint; y int; begin begin x := 100 / $1; sx := $1; select into y data from match_source where id = (select id from match_source b where ten = $1); exception when data_exception then raise notice 'caught data_exception'; x := -1; when NUMERIC_VALUE_OUT_OF_RANGE OR CARDINALITY_VIOLATION then raise notice 'caught numeric_value_out_of_range or cardinality_violation'; x := -2; end; return x; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION trap_matching_test (INT) RETURNS INT AS $$ declare x int; sx smallint; y int; begin begin x := 100 / $1; sx := $1; select into y data from match_source where id = (select id from match_source b where ten = $1); exception when data_exception then raise notice 'caught data_exception'; x := -1; when NUMERIC_VALUE_OUT_OF_RANGE OR CARDINALITY_VIOLATION then raise notice 'caught numeric_value_out_of_range or cardinality_violation'; x := -2; end; return x; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 8",
+    "query": "select trap_matching_test(50)",
+    "expected": "SELECT trap_matching_test(50)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 9",
+    "query": "select trap_matching_test(0)",
+    "expected": "SELECT trap_matching_test(0)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 10",
+    "query": "select trap_matching_test(100000)",
+    "expected": "SELECT trap_matching_test(100000)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 11",
+    "query": "select trap_matching_test(1)",
+    "expected": "SELECT trap_matching_test(1)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 12",
+    "query": "create temp table foo (f1 int)",
+    "expected": "CREATE TEMPORARY TABLE foo (f1 INT)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 13",
+    "query": "create function subxact_rollback_semantics() returns int as $$ declare x int; begin x := 1; insert into foo values(x); begin x := x + 1; insert into foo values(x); raise exception 'inner'; exception when others then x := x * 10; end; insert into foo values(x); return x; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION subxact_rollback_semantics () RETURNS INT AS $$ declare x int; begin x := 1; insert into foo values(x); begin x := x + 1; insert into foo values(x); raise exception 'inner'; exception when others then x := x * 10; end; insert into foo values(x); return x; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 14",
+    "query": "select subxact_rollback_semantics()",
+    "expected": "SELECT subxact_rollback_semantics()"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 15",
+    "query": "select * from foo",
+    "expected": "SELECT * FROM foo"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 16",
+    "query": "drop table foo",
+    "expected": "DROP TABLE foo"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 17",
+    "query": "create function trap_timeout() returns void as $$ begin declare x int; begin  select count(*) into x from generate_series(1, 1_000_000_000_000); exception when others then raise notice 'caught others?'; when query_canceled then raise notice 'nyeah nyeah, can''t stop me'; end;   raise exception 'end of function'; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION trap_timeout () RETURNS void AS $$ begin declare x int; begin  select count(*) into x from generate_series(1, 1_000_000_000_000); exception when others then raise notice 'caught others?'; when query_canceled then raise notice 'nyeah nyeah, can''t stop me'; end;   raise exception 'end of function'; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 18",
+    "query": "begin",
+    "expected": "BEGIN"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 19",
+    "query": "set statement_timeout to 1000",
+    "expected": "SET statement_timeout = 1000"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 20",
+    "query": "select trap_timeout()",
+    "expected": "SELECT trap_timeout()"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 21",
+    "query": "rollback",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 22",
+    "query": "create function test_variable_storage() returns text as $$ declare x text; begin x := '1234'; begin x := x || '5678';  perform trap_zero_divide(-100); exception when others then x := x || '9012'; end; return x; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION test_variable_storage () RETURNS TEXT AS $$ declare x text; begin x := '1234'; begin x := x || '5678';  perform trap_zero_divide(-100); exception when others then x := x || '9012'; end; return x; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 23",
+    "query": "select test_variable_storage()",
+    "expected": "SELECT test_variable_storage()"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 24",
+    "query": "create temp table root(f1 int primary key)",
+    "expected": "CREATE TEMPORARY TABLE root (f1 INT PRIMARY KEY)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 25",
+    "query": "create temp table leaf(f1 int references root deferrable)",
+    "expected": "CREATE TEMPORARY TABLE leaf (f1 INT REFERENCES root DEFERRABLE)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 26",
+    "query": "insert into root values(1)",
+    "expected": "INSERT INTO root VALUES (1)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 27",
+    "query": "insert into leaf values(1)",
+    "expected": "INSERT INTO leaf VALUES (1)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 28",
+    "query": "insert into leaf values(2)",
+    "expected": "INSERT INTO leaf VALUES (2)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 29",
+    "query": "create function trap_foreign_key(int) returns int as $$ begin begin insert into leaf values($1); exception when foreign_key_violation then raise notice 'caught foreign_key_violation'; return 0; end; return 1; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION trap_foreign_key (INT) RETURNS INT AS $$ begin begin insert into leaf values($1); exception when foreign_key_violation then raise notice 'caught foreign_key_violation'; return 0; end; return 1; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 30",
+    "query": "create function trap_foreign_key_2() returns int as $$ begin begin set constraints all immediate; exception when foreign_key_violation then raise notice 'caught foreign_key_violation'; return 0; end; return 1; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION trap_foreign_key_2 () RETURNS INT AS $$ begin begin set constraints all immediate; exception when foreign_key_violation then raise notice 'caught foreign_key_violation'; return 0; end; return 1; end$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 31",
+    "query": "select trap_foreign_key(1)",
+    "expected": "SELECT trap_foreign_key(1)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 32",
+    "query": "select trap_foreign_key(2)",
+    "expected": "SELECT trap_foreign_key(2)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 33",
+    "query": "set constraints all deferred",
+    "expected": "SET CONSTRAINTS ALL DEFERRED"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 34",
+    "query": "savepoint x",
+    "expected": "SAVEPOINT x"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 35",
+    "query": "set constraints all immediate",
+    "expected": "SET CONSTRAINTS ALL IMMEDIATE"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 36",
+    "query": "rollback to x",
+    "expected": "ROLLBACK TO SAVEPOINT x"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 37",
+    "query": "select trap_foreign_key_2()",
+    "expected": "SELECT trap_foreign_key_2()"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 38",
+    "query": "commit",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 39",
+    "query": "drop function trap_foreign_key(int)",
+    "expected": "DROP FUNCTION trap_foreign_key(INT)"
+  },
+  {
+    "comment": "plpgsql_trap - Statement 40",
+    "query": "drop function trap_foreign_key_2()",
+    "expected": "DROP FUNCTION trap_foreign_key_2()"
+  }
+]

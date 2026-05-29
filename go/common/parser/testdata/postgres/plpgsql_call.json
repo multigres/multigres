@@ -1,0 +1,364 @@
+[
+  {
+    "comment": "plpgsql_call - Statement 1",
+    "query": "CREATE PROCEDURE test_proc1() LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$",
+    "expected": "CREATE PROCEDURE test_proc1 () LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 2",
+    "query": "CALL test_proc1()"
+  },
+  {
+    "comment": "plpgsql_call - Statement 3",
+    "query": "CREATE PROCEDURE test_proc2() LANGUAGE plpgsql AS $$ BEGIN RETURN 5; END; $$",
+    "expected": "CREATE PROCEDURE test_proc2 () LANGUAGE plpgsql AS $$ BEGIN RETURN 5; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 4",
+    "query": "CREATE TABLE test1 (a int)",
+    "expected": "CREATE TABLE test1 (a INT)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 5",
+    "query": "CREATE PROCEDURE test_proc3(x int) LANGUAGE plpgsql AS $$ BEGIN INSERT INTO test1 VALUES (x); END; $$",
+    "expected": "CREATE PROCEDURE test_proc3 (x INT) LANGUAGE plpgsql AS $$ BEGIN INSERT INTO test1 VALUES (x); END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 6",
+    "query": "CALL test_proc3(55)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 7",
+    "query": "SELECT * FROM test1"
+  },
+  {
+    "comment": "plpgsql_call - Statement 8",
+    "query": "CREATE PROCEDURE test_proc3a() LANGUAGE plpgsql AS $$ BEGIN COMMIT; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; RAISE NOTICE 'done'; END; $$",
+    "expected": "CREATE PROCEDURE test_proc3a () LANGUAGE plpgsql AS $$ BEGIN COMMIT; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; RAISE NOTICE 'done'; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 9",
+    "query": "CALL test_proc3a()"
+  },
+  {
+    "comment": "plpgsql_call - Statement 10",
+    "query": "CREATE TEMP TABLE tt1(f1 int)",
+    "expected": "CREATE TEMPORARY TABLE tt1 (f1 INT)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 11",
+    "query": "TRUNCATE TABLE test1",
+    "expected": "TRUNCATE TABLE test1 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "plpgsql_call - Statement 12",
+    "query": "CREATE PROCEDURE test_proc4(y int) LANGUAGE plpgsql AS $$ BEGIN CALL test_proc3(y); CALL test_proc3($1); END; $$",
+    "expected": "CREATE PROCEDURE test_proc4 (y INT) LANGUAGE plpgsql AS $$ BEGIN CALL test_proc3(y); CALL test_proc3($1); END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 13",
+    "query": "CALL test_proc4(66)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 14",
+    "query": "CREATE PROCEDURE test_proc5(INOUT a text) LANGUAGE plpgsql AS $$ BEGIN a := a || '+' || a; END; $$",
+    "expected": "CREATE PROCEDURE test_proc5 (INOUT a TEXT) LANGUAGE plpgsql AS $$ BEGIN a := a || '+' || a; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 15",
+    "query": "CALL test_proc5('abc')"
+  },
+  {
+    "comment": "plpgsql_call - Statement 16",
+    "query": "CREATE PROCEDURE test_proc6(a int, INOUT b int, INOUT c int) LANGUAGE plpgsql AS $$ BEGIN b := b * a; c := c * a; END; $$",
+    "expected": "CREATE PROCEDURE test_proc6 (a INT, INOUT b INT, INOUT c INT) LANGUAGE plpgsql AS $$ BEGIN b := b * a; c := c * a; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 17",
+    "query": "CALL test_proc6(2, 3, 4)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 18",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE x int := 3; y int := 4; BEGIN CALL test_proc6(2, x, y); RAISE INFO 'x = %, y = %', x, y; CALL test_proc6(2, c => y, b => x); RAISE INFO 'x = %, y = %', x, y; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE x int := 3; y int := 4; BEGIN CALL test_proc6(2, x, y); RAISE INFO ''x = %, y = %'', x, y; CALL test_proc6(2, c => y, b => x); RAISE INFO ''x = %, y = %'', x, y; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 19",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE x int := 3; y int := 4; BEGIN CALL test_proc6(2, x + 1, y); RAISE INFO 'x = %, y = %', x, y; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE x int := 3; y int := 4; BEGIN CALL test_proc6(2, x + 1, y); RAISE INFO ''x = %, y = %'', x, y; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 20",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE x constant int := 3; y int := 4; BEGIN CALL test_proc6(2, x, y); END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE x constant int := 3; y int := 4; BEGIN CALL test_proc6(2, x, y); END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 21",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE x int := 3; y int := 4; BEGIN FOR i IN 1..5 LOOP CALL test_proc6(i, x, y); RAISE INFO 'x = %, y = %', x, y; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE x int := 3; y int := 4; BEGIN FOR i IN 1..5 LOOP CALL test_proc6(i, x, y); RAISE INFO ''x = %, y = %'', x, y; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 22",
+    "query": "CREATE PROCEDURE test_proc7(x int, INOUT a int, INOUT b numeric) LANGUAGE plpgsql AS $$ BEGIN IF x > 1 THEN a := x / 10; b := x / 2; CALL test_proc7(b::int, a, b); END IF; END; $$",
+    "expected": "CREATE PROCEDURE test_proc7 (x INT, INOUT a INT, INOUT b NUMERIC) LANGUAGE plpgsql AS $$ BEGIN IF x > 1 THEN a := x / 10; b := x / 2; CALL test_proc7(b::int, a, b); END IF; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 23",
+    "query": "CALL test_proc7(100, -1, -1)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 24",
+    "query": "CREATE PROCEDURE test_proc7c(x int, INOUT a int, INOUT b numeric) LANGUAGE plpgsql AS $$ BEGIN a := x / 10; b := x / 2; COMMIT; END; $$",
+    "expected": "CREATE PROCEDURE test_proc7c (x INT, INOUT a INT, INOUT b NUMERIC) LANGUAGE plpgsql AS $$ BEGIN a := x / 10; b := x / 2; COMMIT; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 25",
+    "query": "CREATE PROCEDURE test_proc7cc(_x int) LANGUAGE plpgsql AS $$ DECLARE _a int; _b numeric; BEGIN CALL test_proc7c(_x, _a, _b); RAISE NOTICE '_x: %,_a: %, _b: %', _x, _a, _b; END $$",
+    "expected": "CREATE PROCEDURE test_proc7cc (_x INT) LANGUAGE plpgsql AS $$ DECLARE _a int; _b numeric; BEGIN CALL test_proc7c(_x, _a, _b); RAISE NOTICE '_x: %,_a: %, _b: %', _x, _a, _b; END $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 26",
+    "query": "CALL test_proc7cc(10)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 27",
+    "query": "CREATE PROCEDURE test_proc8a(INOUT a int, INOUT b int) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; a := a * 10; b := b + 10; END; $$",
+    "expected": "CREATE PROCEDURE test_proc8a (INOUT a INT, INOUT b INT) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; a := a * 10; b := b + 10; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 28",
+    "query": "CALL test_proc8a(10, 20)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 29",
+    "query": "CALL test_proc8a(b => 20, a => 10)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 30",
+    "query": "DO $$ DECLARE _a int; _b int; BEGIN _a := 10; _b := 30; CALL test_proc8a(_a, _b); RAISE NOTICE '_a: %, _b: %', _a, _b; CALL test_proc8a(b => _b, a => _a); RAISE NOTICE '_a: %, _b: %', _a, _b; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; BEGIN _a := 10; _b := 30; CALL test_proc8a(_a, _b); RAISE NOTICE ''_a: %, _b: %'', _a, _b; CALL test_proc8a(b => _b, a => _a); RAISE NOTICE ''_a: %, _b: %'', _a, _b; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 31",
+    "query": "CREATE PROCEDURE test_proc8b(INOUT a int, INOUT b int, INOUT c int) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; a := a * 10; b := b + 10; c := c * -10; END; $$",
+    "expected": "CREATE PROCEDURE test_proc8b (INOUT a INT, INOUT b INT, INOUT c INT) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; a := a * 10; b := b + 10; c := c * -10; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 32",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8b(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; CALL test_proc8b(_a, c => _c, b => _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8b(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; CALL test_proc8b(_a, c => _c, b => _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 33",
+    "query": "CREATE PROCEDURE test_proc8c(INOUT a int, INOUT b int, INOUT c int DEFAULT 11) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; a := a * 10; b := b + 10; c := c * -10; END; $$",
+    "expected": "CREATE PROCEDURE test_proc8c (INOUT a INT, INOUT b INT, INOUT c INT DEFAULT 11) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; a := a * 10; b := b + 10; c := c * -10; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 34",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, c => _c, b => _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; _a := 10; _b := 30; _c := 50; CALL test_proc8c(c => _c, b => _b, a => _a); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, c => _c, b => _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; _a := 10; _b := 30; _c := 50; CALL test_proc8c(c => _c, b => _b, a => _a); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 35",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 36",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, b => _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 50; CALL test_proc8c(_a, b => _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 37",
+    "query": "CREATE PROCEDURE test_proc9(IN a int, OUT b int) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; b := a * 2; END; $$",
+    "expected": "CREATE PROCEDURE test_proc9 (a INT, OUT b INT) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; b := a * 2; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 38",
+    "query": "DO $$ DECLARE _a int; _b int; BEGIN _a := 10; _b := 30; CALL test_proc9(_a, _b); RAISE NOTICE '_a: %, _b: %', _a, _b; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; BEGIN _a := 10; _b := 30; CALL test_proc9(_a, _b); RAISE NOTICE ''_a: %, _b: %'', _a, _b; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 39",
+    "query": "CREATE PROCEDURE test_proc10(IN a int, OUT b int, IN c int DEFAULT 11) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; b := a - c; END; $$",
+    "expected": "CREATE PROCEDURE test_proc10 (a INT, OUT b INT, c INT DEFAULT 11) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %, c: %', a, b, c; b := a - c; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 40",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b, c => _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(a => _a, b => _b, c => _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, c => _c, b => _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, b => _b); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(b => _b, a => _a); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b, c => _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(a => _a, b => _b, c => _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, c => _c, b => _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(_a, b => _b); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c;  _a := 10; _b := 30; _c := 7; CALL test_proc10(b => _b, a => _a); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 41",
+    "query": "CREATE PROCEDURE test_proc11(a OUT int, VARIADIC b int[]) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; a := b[1] + b[2]; END; $$",
+    "expected": "CREATE PROCEDURE test_proc11 (OUT a INT, VARIADIC b INT[]) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %, b: %', a, b; a := b[1] + b[2]; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 42",
+    "query": "DO $$ DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 7; CALL test_proc11(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int; BEGIN _a := 10; _b := 30; _c := 7; CALL test_proc11(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 43",
+    "query": "CREATE PROCEDURE test_proc12(a anyelement, OUT b anyelement, OUT c anyarray) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %', a; b := a; c := array[a]; END; $$",
+    "expected": "CREATE PROCEDURE test_proc12 (a anyelement, OUT b anyelement, OUT c anyarray) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'a: %', a; b := a; c := array[a]; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 44",
+    "query": "DO $$ DECLARE _a int; _b int; _c int[]; BEGIN _a := 10; CALL test_proc12(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c int[]; BEGIN _a := 10; CALL test_proc12(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 45",
+    "query": "DO $$ DECLARE _a int; _b int; _c text[]; BEGIN _a := 10; CALL test_proc12(_a, _b, _c); RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c; END $$",
+    "expected": "DO ' DECLARE _a int; _b int; _c text[]; BEGIN _a := 10; CALL test_proc12(_a, _b, _c); RAISE NOTICE ''_a: %, _b: %, _c: %'', _a, _b, _c; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 46",
+    "query": "TRUNCATE test1",
+    "expected": "TRUNCATE TABLE test1 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "plpgsql_call - Statement 47",
+    "query": "CREATE FUNCTION triggerfunc1() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE z int := 0; BEGIN CALL test_proc6(2, NEW.a, NEW.a); RETURN NEW; END; $$",
+    "expected": "CREATE FUNCTION triggerfunc1 () RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE z int := 0; BEGIN CALL test_proc6(2, NEW.a, NEW.a); RETURN NEW; END; $$"
+  },
+  {
+    "comment": "plpgsql_call - Statement 48",
+    "query": "CREATE TRIGGER t1 BEFORE INSERT ON test1 EXECUTE PROCEDURE triggerfunc1()",
+    "expected": "CREATE TRIGGER t1 BEFORE INSERT ON test1 EXECUTE FUNCTION triggerfunc1()"
+  },
+  {
+    "comment": "plpgsql_call - Statement 49",
+    "query": "INSERT INTO test1 VALUES (1), (2), (3)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 50",
+    "query": "UPDATE test1 SET a = 22 WHERE a = 2"
+  },
+  {
+    "comment": "plpgsql_call - Statement 51",
+    "query": "SELECT * FROM test1 ORDER BY a"
+  },
+  {
+    "comment": "plpgsql_call - Statement 52",
+    "query": "DROP PROCEDURE test_proc1"
+  },
+  {
+    "comment": "plpgsql_call - Statement 53",
+    "query": "DROP PROCEDURE test_proc3"
+  },
+  {
+    "comment": "plpgsql_call - Statement 54",
+    "query": "DROP PROCEDURE test_proc4"
+  },
+  {
+    "comment": "plpgsql_call - Statement 55",
+    "query": "DROP TABLE test1"
+  },
+  {
+    "comment": "plpgsql_call - Statement 56",
+    "query": "CREATE PROCEDURE p1(v_cnt int, v_Text inout text = NULL) AS $$ BEGIN v_Text := 'v_cnt = ' || v_cnt; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE PROCEDURE p1 (v_cnt INT, INOUT v_text TEXT DEFAULT NULL) AS $$ BEGIN v_Text := 'v_cnt = ' || v_cnt; END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 57",
+    "query": "DO $$ DECLARE v_Text text; v_cnt  integer := 42; BEGIN CALL p1(v_cnt := v_cnt); RAISE NOTICE '%', v_Text; END; $$",
+    "expected": "DO ' DECLARE v_Text text; v_cnt  integer := 42; BEGIN CALL p1(v_cnt := v_cnt); RAISE NOTICE ''%'', v_Text; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 58",
+    "query": "DO $$ DECLARE v_Text text; v_cnt  integer := 42; BEGIN CALL p1(v_cnt := v_cnt, v_Text := v_Text); RAISE NOTICE '%', v_Text; END; $$",
+    "expected": "DO ' DECLARE v_Text text; v_cnt  integer := 42; BEGIN CALL p1(v_cnt := v_cnt, v_Text := v_Text); RAISE NOTICE ''%'', v_Text; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 59",
+    "query": "DO $$ DECLARE v_Text text; BEGIN CALL p1(10, v_Text := v_Text); RAISE NOTICE '%', v_Text; END; $$",
+    "expected": "DO ' DECLARE v_Text text; BEGIN CALL p1(10, v_Text := v_Text); RAISE NOTICE ''%'', v_Text; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 60",
+    "query": "DO $$ DECLARE v_Text text; v_cnt  integer; BEGIN CALL p1(v_Text := v_Text, v_cnt := v_cnt); RAISE NOTICE '%', v_Text; END; $$",
+    "expected": "DO ' DECLARE v_Text text; v_cnt  integer; BEGIN CALL p1(v_Text := v_Text, v_cnt := v_cnt); RAISE NOTICE ''%'', v_Text; END; '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 61",
+    "query": "CREATE PROCEDURE inner_p (f1 int) AS $$ BEGIN RAISE NOTICE 'inner_p(%)', f1; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE PROCEDURE inner_p (f1 INT) AS $$ BEGIN RAISE NOTICE 'inner_p(%)', f1; END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 62",
+    "query": "CREATE FUNCTION f(int) RETURNS int AS $$ SELECT $1 + 1 $$ LANGUAGE sql",
+    "expected": "CREATE FUNCTION f (INT) RETURNS INT AS $$ SELECT $1 + 1 $$ LANGUAGE sql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 63",
+    "query": "CREATE PROCEDURE outer_p (f1 int) AS $$ BEGIN RAISE NOTICE 'outer_p(%)', f1; CALL inner_p(f(f1)); END $$ LANGUAGE plpgsql",
+    "expected": "CREATE PROCEDURE outer_p (f1 INT) AS $$ BEGIN RAISE NOTICE 'outer_p(%)', f1; CALL inner_p(f(f1)); END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 64",
+    "query": "CREATE FUNCTION outer_f (f1 int) RETURNS void AS $$ BEGIN RAISE NOTICE 'outer_f(%)', f1; CALL inner_p(f(f1)); END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION outer_f (f1 INT) RETURNS void AS $$ BEGIN RAISE NOTICE 'outer_f(%)', f1; CALL inner_p(f(f1)); END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 65",
+    "query": "CALL outer_p(42)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 66",
+    "query": "SELECT outer_f(42)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 67",
+    "query": "DROP FUNCTION f(int)",
+    "expected": "DROP FUNCTION f(INT)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 68",
+    "query": "CREATE FUNCTION f(int) RETURNS int AS $$ SELECT $1 + 2 $$ LANGUAGE sql",
+    "expected": "CREATE FUNCTION f (INT) RETURNS INT AS $$ SELECT $1 + 2 $$ LANGUAGE sql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 69",
+    "query": "CREATE TABLE t_test (x int)",
+    "expected": "CREATE TABLE t_test (x INT)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 70",
+    "query": "INSERT INTO t_test VALUES (0)"
+  },
+  {
+    "comment": "plpgsql_call - Statement 71",
+    "query": "CREATE FUNCTION f_get_x () RETURNS int AS $$ DECLARE l_result int; BEGIN SELECT x INTO l_result FROM t_test; RETURN l_result; END $$ LANGUAGE plpgsql STABLE",
+    "expected": "CREATE FUNCTION f_get_x () RETURNS INT AS $$ DECLARE l_result int; BEGIN SELECT x INTO l_result FROM t_test; RETURN l_result; END $$ LANGUAGE plpgsql STABLE"
+  },
+  {
+    "comment": "plpgsql_call - Statement 72",
+    "query": "CREATE PROCEDURE f_print_x (x int) AS $$ BEGIN RAISE NOTICE 'f_print_x(%)', x; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE PROCEDURE f_print_x (x INT) AS $$ BEGIN RAISE NOTICE 'f_print_x(%)', x; END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_call - Statement 73",
+    "query": "DO $$ BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); ROLLBACK; END $$",
+    "expected": "DO ' BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); ROLLBACK; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 74",
+    "query": "DO $$ BEGIN BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); EXCEPTION WHEN division_by_zero THEN RAISE NOTICE '%', SQLERRM; END; ROLLBACK; END $$",
+    "expected": "DO ' BEGIN BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); EXCEPTION WHEN division_by_zero THEN RAISE NOTICE ''%'', SQLERRM; END; ROLLBACK; END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 75",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "plpgsql_call - Statement 76",
+    "query": "DO $$ BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE 'f_get_x(%)', f_get_x(); CALL f_print_x(f_get_x()); END $$",
+    "expected": "DO ' BEGIN UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); UPDATE t_test SET x = x + 1; RAISE NOTICE ''f_get_x(%)'', f_get_x(); CALL f_print_x(f_get_x()); END '"
+  },
+  {
+    "comment": "plpgsql_call - Statement 77",
+    "query": "ROLLBACK"
+  }
+]

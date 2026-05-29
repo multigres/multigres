@@ -493,6 +493,10 @@ func (s *parseTestSuite) TestParseDeparseRoundtrip() {
 	s.roundtripFile("ddl_cases.json")
 	s.roundtripFile("dml_cases.json")
 	s.roundtripFile("set_cases.json")
+	// deparse_cases.json is the curated deparse test corpus imported from
+	// pganalyze/libpg_query (test/deparse_tests.c). It targets deparser
+	// edge cases across statement types.
+	s.roundtripFile("deparse_cases.json")
 
 	postgresDir := "testdata/postgres"
 	files, err := os.ReadDir(postgresDir)

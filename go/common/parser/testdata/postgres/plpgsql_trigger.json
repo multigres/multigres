@@ -1,0 +1,32 @@
+[
+  {
+    "comment": "plpgsql_trigger - Statement 1",
+    "query": "create table testtr (a int, b text)",
+    "expected": "CREATE TABLE testtr (a INT, b TEXT)"
+  },
+  {
+    "comment": "plpgsql_trigger - Statement 2",
+    "query": "create function testtr_trigger() returns trigger language plpgsql as $$begin raise notice 'tg_op = %', tg_op; raise notice 'old(%) = %', old.a, row(old.*); raise notice 'new(%) = %', new.a, row(new.*); if (tg_op = 'DELETE') then return old; else return new; end if; end$$",
+    "expected": "CREATE FUNCTION testtr_trigger () RETURNS trigger LANGUAGE plpgsql AS $$begin raise notice 'tg_op = %', tg_op; raise notice 'old(%) = %', old.a, row(old.*); raise notice 'new(%) = %', new.a, row(new.*); if (tg_op = 'DELETE') then return old; else return new; end if; end$$"
+  },
+  {
+    "comment": "plpgsql_trigger - Statement 3",
+    "query": "create trigger testtr_trigger before insert or delete or update on testtr for each row execute function testtr_trigger()",
+    "expected": "CREATE TRIGGER testtr_trigger BEFORE INSERT OR UPDATE OR DELETE ON testtr FOR EACH ROW EXECUTE FUNCTION testtr_trigger()"
+  },
+  {
+    "comment": "plpgsql_trigger - Statement 4",
+    "query": "insert into testtr values (1, 'one'), (2, 'two')",
+    "expected": "INSERT INTO testtr VALUES (1, 'one'), (2, 'two')"
+  },
+  {
+    "comment": "plpgsql_trigger - Statement 5",
+    "query": "update testtr set a = a + 1",
+    "expected": "UPDATE testtr SET a = a + 1"
+  },
+  {
+    "comment": "plpgsql_trigger - Statement 6",
+    "query": "delete from testtr",
+    "expected": "DELETE FROM testtr"
+  }
+]

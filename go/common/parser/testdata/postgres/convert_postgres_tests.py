@@ -82,16 +82,27 @@ def extract_sql_statements(content: str) -> List[str]:
                         dollar_quote_tag = match.group(1)
                     in_function_body = True
                     function_quote_style = "dollar"
-            # Look for DO blocks with dollar quotes
-            elif re.search(r"^do\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE):
+            # Look for DO blocks with dollar quotes. The optional LANGUAGE
+            # clause may precede the body (e.g. DO LANGUAGE plpgsql $$ ... $$),
+            # so allow it before the opening dollar tag; otherwise the body is
+            # split on its internal semicolons into invalid fragments.
+            elif re.search(
+                r"^do\s+(?:language\s+\w+\s+)?(\$\w*\$)", stmt_so_far, re.IGNORECASE
+            ):
                 # DO block starts
-                match = re.search(r"^do\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE)
+                match = re.search(
+                    r"^do\s+(?:language\s+\w+\s+)?(\$\w*\$)",
+                    stmt_so_far,
+                    re.IGNORECASE,
+                )
                 if match:
                     dollar_quote_tag = match.group(1)
                 in_function_body = True
                 function_quote_style = "dollar"
-            # Look for DO blocks with single quotes
-            elif re.search(r"^do\s+\'\s*$", stmt_so_far, re.IGNORECASE):
+            # Look for DO blocks with single quotes (LANGUAGE clause optional).
+            elif re.search(
+                r"^do\s+(?:language\s+\w+\s+)?\'\s*$", stmt_so_far, re.IGNORECASE
+            ):
                 # DO block with single quote starts
                 in_function_body = True
                 function_quote_style = "single"
