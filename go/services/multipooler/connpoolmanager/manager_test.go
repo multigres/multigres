@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,8 +279,9 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 // TestWithReopenRetry_RetriesOnReopen covers the race in which
 // reopenConnections (triggered by MonitorPostgres after a postgres restart)
 // closes the user pool while a connection acquisition is already in-flight.
-// The helper must notice the generation bump and retry against the fresh pool
-// rather than surfacing the transient ErrPoolClosed to the caller.
+// The helper must retry against the fresh snapshot rather than surfacing the
+// transient ErrPoolClosed to the caller, including the Close-but-not-yet-Open
+// window where lifecycle is "reopening" and the manager is still mid-swap.
 func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -287,28 +289,55 @@ func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
+	manager.BeginReopen()
+	t.Cleanup(manager.EndReopen)
+
+	ctx := context.Background()
+	connConfig := &ConnectionConfig{
+		SocketFile: server.ClientConfig().SocketFile,
+		Host:       server.ClientConfig().Host,
+		Port:       server.ClientConfig().Port,
+		Database:   server.ClientConfig().Database,
+	}
+
+	reopenNow := make(chan struct{})
+	reopenDone := make(chan struct{})
+	go func() {
+		defer close(reopenDone)
+		<-reopenNow
+		// This is the "Open" half of the simulated reopenConnections window.
+		manager.Open(ctx, connConfig)
+		manager.EndReopen()
+	}()
 
 	calls := 0
-	result, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		if calls == 1 {
-			// Simulate reopenConnections running mid-flight: the pool we
-			// were handed has been closed, but a new one has already been
-			// installed with a bumped generation.
-			manager.generation.Add(1)
+			// Simulate the "Close" half of reopenConnections running mid-flight.
+			// withReopenRetry should block on EndReopen and then retry once.
+			manager.Close()
+			close(reopenNow)
 			return 0, connpool.ErrPoolClosed
 		}
 		return 42, nil
 	})
+
+	select {
+	case <-reopenDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for simulated reopen to finish")
+	}
 
 	require.NoError(t, err)
 	assert.Equal(t, 42, result)
 	assert.Equal(t, 2, calls, "should have retried once after the reopen")
 }
 
-// TestWithReopenRetry_SurfacesGenuineClose covers the non-reopen case: the
-// manager is actually shutting down, so ErrPoolClosed must be returned to the
-// caller instead of being retried into an infinite loop.
+// TestWithReopenRetry_SurfacesGenuineClose covers the terminal-shutdown case:
+// the manager itself is closed mid-flight (e.g. Close() races with an
+// in-flight query), so the original ErrPoolClosed must be returned without
+// retrying — the retry would only re-hit a closed manager.
 func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -318,21 +347,46 @@ func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
-		// No generation bump — manager hasn't been reopened.
+		// Simulate Close() racing with the in-flight op: manager transitions
+		// to terminally closed and ErrPoolClosed should be surfaced.
+		manager.Close()
 		return 0, connpool.ErrPoolClosed
 	})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
-	assert.Equal(t, 1, calls, "should not retry when generation did not advance")
+	assert.Equal(t, 1, calls, "should not retry once the manager is closed")
 }
 
-// TestWithReopenRetry_OnlyRetriesOnce ensures the helper stops after one retry
-// even if the retry also fails with ErrPoolClosed (e.g. if a second reopen
-// races with the retry). Without a cap this could loop forever.
-func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
+// TestWithReopenRetry_FailsFastOnPreClosedManager covers the case where the
+// manager is already closed before the call begins: getOrCreateUserPool
+// short-circuits with "manager is closed" and op is never invoked.
+func TestWithReopenRetry_FailsFastOnPreClosedManager(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	manager.Close()
+
+	calls := 0
+	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+		calls++
+		return 0, nil
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "manager is closed")
+	assert.Equal(t, 0, calls, "op must not run when manager is already closed")
+}
+
+// TestWithReopenRetry_RetriesErrPoolClosedUpToCap ensures ErrPoolClosed retries
+// are bounded, so repeated transient closes do not loop forever.
+func TestWithReopenRetry_RetriesErrPoolClosedUpToCap(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -341,15 +395,43 @@ func TestWithReopenRetry_OnlyRetriesOnce(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
-		manager.generation.Add(1)
 		return 0, connpool.ErrPoolClosed
 	})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, connpool.ErrPoolClosed)
-	assert.Equal(t, 2, calls, "should retry exactly once, not loop")
+	assert.Equal(t, maxPoolClosedRetries+1, calls, "should retry up to cap, then surface error")
+}
+
+// TestWithReopenRetry_ReopenWaitHonorsContextCancellation verifies that callers
+// don't block forever if reopen bookkeeping stalls: waiting on a reopen window
+// must respect the request context's deadline.
+func TestWithReopenRetry_ReopenWaitHonorsContextCancellation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	manager.BeginReopen()
+	t.Cleanup(manager.EndReopen)
+	manager.Close() // Keep lifecycle in reopening with pools closed.
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	calls := 0
+	_, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+		calls++
+		return 0, connpool.ErrPoolClosed
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, 1, calls, "should stop while waiting for reopen completion")
 }
 
 // TestWithReopenRetry_EvictsStalePoolOnAuthError verifies the stale-key
@@ -369,7 +451,7 @@ func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
 
 	var seenPools []*UserPool
 	calls := 0
-	result, err := withReopenRetry(manager, "testuser", nil, nil, func(pool *UserPool) (int, error) {
+	result, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(pool *UserPool) (int, error) {
 		calls++
 		seenPools = append(seenPools, pool)
 		if calls == 1 {
@@ -405,7 +487,7 @@ func TestWithReopenRetry_SurfacesPersistentAuthError(t *testing.T) {
 	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
 
 	calls := 0
-	_, err := withReopenRetry(manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 0, fmt.Errorf("dial failed: %w", authErr)
 	})

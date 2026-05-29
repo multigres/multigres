@@ -711,6 +711,18 @@ func (pm *MultiPoolerManager) reopenConnections(_ context.Context) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	// Signal connpoolmanager that this close->open cycle is a transient reopen,
+	// not a terminal shutdown. withReopenRetry can then wait out the window
+	// before retrying ErrPoolClosed once.
+	type reopenAware interface {
+		BeginReopen()
+		EndReopen()
+	}
+	if mgr, ok := pm.connPoolMgr.(reopenAware); ok {
+		mgr.BeginReopen()
+		defer mgr.EndReopen()
+	}
+
 	pm.closeConnectionsLocked()
 	pm.openConnectionsLocked()
 }

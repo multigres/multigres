@@ -606,6 +606,6 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 		logger:  logger,
 		metrics: metrics,
 	}
-	mgr.closed.Store(true) // Manager is closed until Open() is called
+	mgr.lifecycle.Store(uint32(managerLifecycleClosed)) // Manager is closed until Open() is called
 	return mgr
 }
