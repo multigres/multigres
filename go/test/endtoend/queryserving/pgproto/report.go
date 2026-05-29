@@ -220,8 +220,12 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 	fmt.Fprintf(&sb, "**Started:** %s UTC — **Duration:** %s\n\n",
 		r.StartedAt.UTC().Format(time.RFC3339), r.Duration)
 
-	pgLabel := r.Name + "-postgres"
-	mgLabel := r.Name + "-multigateway"
+	// shields.io parses the static-badge path as label-message-color and renders
+	// "_" as a space, so build the label with "_" instead of "-". This keeps the
+	// label free of literal dashes (which add extra path segments that can break
+	// rendering of the badge image in GitHub summaries).
+	pgLabel := r.Name + "_postgres"
+	mgLabel := r.Name + "_multigateway"
 	fmt.Fprintf(&sb, "%s %s\n\n",
 		suiteutil.BadgeMarkdown(pgLabel, r.PGPassed, r.TotalFiles, 0, r.TimedOut),
 		suiteutil.BadgeMarkdown(mgLabel, r.GatewayPassed, r.TotalFiles, 0, r.TimedOut),
