@@ -21,7 +21,7 @@ const (
 	// LocalBootstrapWaitTimeout bounds how long `multigres cluster start`
 	// waits for every multigateway to serve queries end-to-end before
 	// giving up.
-	LocalBootstrapWaitTimeout = 2 * time.Minute
+	LocalBootstrapWaitTimeout = 5 * time.Minute
 
 	// LocalGatewayBootstrapPollInterval is the delay between consecutive
 	// readiness probes against a single gateway. The retry package
@@ -29,7 +29,8 @@ const (
 	LocalGatewayBootstrapPollInterval = 1 * time.Second
 
 	// LocalGatewayBootstrapProbeTimeout bounds a single readiness probe
-	// (a `SELECT 1` through multigateway) so a hung connection cannot
-	// stall the wait loop.
-	LocalGatewayBootstrapProbeTimeout = 5 * time.Second
+	// (a `SELECT 1` through multigateway) so a hung gateway cannot stall the
+	// sequential wait loop. Kept short because probes target localhost, where
+	// a healthy gateway answers in milliseconds.
+	LocalGatewayBootstrapProbeTimeout = 1 * time.Second
 )
