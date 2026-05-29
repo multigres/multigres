@@ -17,7 +17,6 @@ package pgproto
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -132,7 +131,7 @@ func runPgproto(ctx context.Context, t suiteutil.Target, resetter *suiteutil.Sch
 		File:     file,
 		Duration: elapsed,
 		Trace:    normalizeTrace(raw),
-		RawTrace: truncateOutput(raw, maxOutputBytes),
+		RawTrace: suiteutil.TruncateOutput(raw, maxOutputBytes),
 	}
 
 	switch {
@@ -141,13 +140,13 @@ func runPgproto(ctx context.Context, t suiteutil.Target, resetter *suiteutil.Sch
 	case ctx.Err() == context.DeadlineExceeded:
 		res.TimedOut = true
 		res.ExecErr = fmt.Errorf("pgproto timed out against %s", t.Name)
-	case isExitError(err):
+	case suiteutil.IsExitError(err):
 		// Non-zero exit: pgproto could not complete (connect/auth failure,
 		// malformed data file, or socket error). The captured trace usually
 		// names the cause (e.g. "Failed to connect to ..."). Surface it as a
 		// harness/corpus error, not a protocol divergence.
 		res.ExecErr = fmt.Errorf("pgproto exited non-zero against %s: %w (trace: %s)",
-			t.Name, err, firstLine(raw))
+			t.Name, err, suiteutil.FirstLine(raw))
 	default:
 		res.ExecErr = fmt.Errorf("pgproto exec error against %s: %w", t.Name, err)
 	}
@@ -218,21 +217,3 @@ func reduceErrorLine(line string) string {
 // maxOutputBytes bounds how much raw trace we keep per file in the final
 // report. Diverging files print enough to diagnose; huge traces serve no one.
 const maxOutputBytes = 8 * 1024
-
-func truncateOutput(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit] + "\n... (output truncated)"
-}
-
-func isExitError(err error) bool {
-	var ee *exec.ExitError
-	return errors.As(err, &ee)
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	first, _, _ := strings.Cut(s, "\n")
-	return strings.TrimSpace(first)
-}

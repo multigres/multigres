@@ -24,59 +24,11 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
 
-// fileReport is the per-file record in the serialized report. Its field layout
-// mirrors sqllogictest/pgregresstest for familiarity; pgproto itself gates on
-// the Go test exit (it fails on unpatched divergences) rather than on a
-// downstream baseline comparison.
-type fileReport struct {
-	Name     string `json:"name"`           // relative path, e.g. "simple_query.pgproto"
-	Status   string `json:"status"`         // "pass" | "fail"
-	Duration string `json:"duration"`       // combined duration across targets
-	Postgres perRun `json:"postgres"`       // baseline (direct PG) — the oracle
-	Gateway  perRun `json:"multigateway"`   // candidate (multigres)
-	Note     string `json:"note,omitempty"` // human note (divergence, exec err, timeout)
-	// PatchApplied is true when the file passes via a recorded known-divergence
-	// patch (testdata/patches/<name>.patch) rather than an exact trace match.
-	PatchApplied bool `json:"patch_applied,omitempty"`
-	// PatchPath is the patch file path (for report links). Empty when no patch.
-	PatchPath string `json:"patch_path,omitempty"`
-}
-
-// perRun is one target's outcome for a single file.
-//
-// For pgproto, "passed" is differential, not intrinsic: postgres.passed means
-// the baseline trace was produced (pgproto ran cleanly against PG), and
-// multigateway.passed means the multigateway ran cleanly AND its normalized
-// trace matched PG's — exactly, or after a recorded known-divergence patch.
-type perRun struct {
-	Passed   bool   `json:"passed"`
-	TimedOut bool   `json:"timed_out,omitempty"`
-	Duration string `json:"duration"`
-	Output   string `json:"output,omitempty"`
-	ExecErr  string `json:"exec_err,omitempty"`
-}
-
-// suiteReport is what we serialize. Fields line up with sqllogictest /
-// pgregresstest for familiarity. pgproto emits a single suite (each data file
-// mixes simple and extended protocol however it likes), serialized as a
-// one-element array to match the sibling suites' on-disk shape.
-type suiteReport struct {
-	Name           string       `json:"name"` // "PgProto"
-	CorpusDir      string       `json:"corpus_dir"`
-	CorpusCommit   string       `json:"corpus_commit"` // pinned pgproto tool commit
-	TimedOut       bool         `json:"timed_out"`
-	TotalFiles     int          `json:"total_files"`
-	PassedBoth     int          `json:"passed_both"`
-	PassedViaPatch int          `json:"passed_via_patch"` // subset of passed_both: known divergences absorbed by a patch
-	PassedPGOnly   int          `json:"passed_pg_only"`   // proxy divergence (unpatched)
-	PassedMGOnly   int          `json:"passed_mg_only"`
-	FailedBoth     int          `json:"failed_both"`
-	PGPassed       int          `json:"postgres_passed"`
-	GatewayPassed  int          `json:"multigateway_passed"`
-	StartedAt      time.Time    `json:"started_at"`
-	Duration       string       `json:"duration"`
-	Tests          []fileReport `json:"tests"`
-}
+// The serialized report shapes (PerRun / FileReport / SuiteReport) and the
+// pass/divergence counting live in suiteutil; this file holds the pgproto-
+// specific parts: how the differential verdict is computed (PostgreSQL is the
+// oracle — the multigateway "passes" when its normalized trace matches the
+// possibly-patched PG baseline), the human notes, and the markdown/log rendering.
 
 // newSuiteReport builds the suite report from paired per-file results and their
 // patch outcomes. pgResults, mgResults, and outcomes must align by index.
@@ -88,21 +40,12 @@ type suiteReport struct {
 // An unpatched residual divergence is a proxy bug (passed_pg_only). A file where
 // PG itself could not produce a baseline (pg.Ran == false) is recorded but never
 // counts as a proxy divergence — that is a harness/corpus problem.
-func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, outcomes []patchOutcome, startedAt time.Time, timedOut bool) *suiteReport {
+func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, outcomes []patchOutcome, startedAt time.Time, timedOut bool) *suiteutil.SuiteReport {
 	if len(pgResults) != len(mgResults) || len(pgResults) != len(outcomes) {
 		panic(fmt.Sprintf("pgproto: mismatched slices for %s: pg=%d mg=%d outcomes=%d", name, len(pgResults), len(mgResults), len(outcomes)))
 	}
 
-	report := &suiteReport{
-		Name:         name,
-		CorpusDir:    corpusRoot,
-		CorpusCommit: PgprotoCommit,
-		TimedOut:     timedOut,
-		TotalFiles:   len(pgResults),
-		StartedAt:    startedAt,
-		Duration:     time.Since(startedAt).Round(time.Second).String(),
-	}
-
+	files := make([]suiteutil.DiffFile, 0, len(pgResults))
 	for i := range pgResults {
 		pg := pgResults[i]
 		mg := mgResults[i]
@@ -119,29 +62,6 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 		// The multigateway "passes" when its trace matches the (possibly patched)
 		// PostgreSQL baseline — see verifyTracePatch.
 		mgPassed := mg.Ran && oc.Matched
-
-		if pgPassed {
-			report.PGPassed++
-		}
-		if mgPassed {
-			report.GatewayPassed++
-		}
-
-		status := "fail"
-		switch {
-		case pgPassed && mgPassed:
-			report.PassedBoth++
-			status = "pass"
-			if oc.PatchApplied {
-				report.PassedViaPatch++
-			}
-		case pgPassed && !mgPassed:
-			report.PassedPGOnly++
-		case !pgPassed && mgPassed:
-			report.PassedMGOnly++
-		default:
-			report.FailedBoth++
-		}
 
 		note := ""
 		switch {
@@ -162,29 +82,36 @@ func newSuiteReport(name, corpusRoot string, pgResults, mgResults []*runResult, 
 		// On an unpatched divergence, attach the residual diff (patched-postgres
 		// vs multigateway) so the report shows exactly what is new/uncovered.
 		if pgPassed && !mgPassed && oc.ResidualDiff != "" {
-			mgRun.Output = truncateOutput(oc.ResidualDiff, maxOutputBytes)
+			mgRun.Output = suiteutil.TruncateOutput(oc.ResidualDiff, maxOutputBytes)
 		}
 
-		report.Tests = append(report.Tests, fileReport{
+		files = append(files, suiteutil.DiffFile{
 			Name:         fileName,
-			Status:       status,
-			Duration:     (pg.Duration + mg.Duration).Round(time.Millisecond).String(),
+			PGPassed:     pgPassed,
+			MGPassed:     mgPassed,
 			Postgres:     pgRun,
 			Gateway:      mgRun,
 			Note:         note,
+			Combined:     pg.Duration + mg.Duration,
 			PatchApplied: oc.PatchApplied,
 			PatchPath:    oc.PatchPath,
 		})
 	}
 
-	return report
+	return suiteutil.NewSuiteReport(suiteutil.SuiteMeta{
+		Name:         name,
+		CorpusDir:    corpusRoot,
+		CorpusCommit: PgprotoCommit,
+		StartedAt:    startedAt,
+		TimedOut:     timedOut,
+	}, files)
 }
 
 // toPerRun converts a runResult into the serialized per-target record. The
 // passed verdict is supplied by the caller because it is differential, not a
 // property of the run in isolation.
-func toPerRun(r *runResult, passed bool) perRun {
-	out := perRun{
+func toPerRun(r *runResult, passed bool) suiteutil.PerRun {
+	out := suiteutil.PerRun{
 		Passed:   passed,
 		TimedOut: r.TimedOut,
 		Duration: r.Duration.Round(time.Millisecond).String(),
@@ -202,14 +129,14 @@ func toPerRun(r *runResult, passed bool) perRun {
 
 // writeJSON writes the suite (wrapped in a single-element array, matching the
 // sibling suites' shape) to <outputDir>/results.json.
-func writeJSON(outputDir string, report *suiteReport) (string, error) {
-	return suiteutil.WriteJSON(outputDir, "results.json", []*suiteReport{report})
+func writeJSON(outputDir string, report *suiteutil.SuiteReport) (string, error) {
+	return suiteutil.WriteJSON(outputDir, "results.json", []*suiteutil.SuiteReport{report})
 }
 
 // writeMarkdownSummary emits the suite summary with shields.io badges,
 // counters, and the proxy-divergence list. Mirrored to GITHUB_STEP_SUMMARY when
 // set so the CI job page shows pass rates without downloading artifacts.
-func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (string, error) {
+func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteutil.SuiteReport) (string, error) {
 	t.Helper()
 
 	var sb strings.Builder
@@ -284,7 +211,7 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteReport) (strin
 }
 
 // logSummary dumps a compact summary of the suite to the test log.
-func (r *suiteReport) logSummary(t *testing.T) {
+func logSummary(t *testing.T, r *suiteutil.SuiteReport) {
 	t.Helper()
 	t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	t.Logf("%s summary (%d files, %s):", r.Name, r.TotalFiles, r.Duration)

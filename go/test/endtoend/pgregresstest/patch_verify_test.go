@@ -19,6 +19,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
 
 // fixture builds expected/actual/patchDir with the given contents and returns
@@ -131,7 +133,7 @@ func TestVerify_DiffAbsorbedByPatch_Passes(t *testing.T) {
 	// act. In real usage this is what VerifyTest does internally on every
 	// run; tests that bypass VerifyTest must normalize first so the patch
 	// applies to the normalized expected that VerifyTest will hand back.
-	patch, err := generateDiff(t.Context(), normalizeWhitespace([]byte(exp)), normalizeWhitespace([]byte(act)))
+	patch, err := suiteutil.GenerateDiff(t.Context(), normalizeWhitespace([]byte(exp)), normalizeWhitespace([]byte(act)))
 	if err != nil || len(patch) == 0 {
 		t.Fatalf("could not generate test patch: %v (len=%d)", err, len(patch))
 	}

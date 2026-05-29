@@ -116,7 +116,7 @@ func TestPgProtoConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCorpusDir: %v", err)
 	}
-	files, err := listCorpusFiles(corpusRoot)
+	files, err := suiteutil.ListCorpusFiles(corpusRoot, "PGPROTO_CORPUS_GLOB", DefaultCorpusGlob)
 	if err != nil {
 		t.Fatalf("listCorpusFiles: %v", err)
 	}
@@ -162,13 +162,7 @@ func TestPgProtoConformance(t *testing.T) {
 	// pins to a single backend and the pg_namespace/pg_class invalidation
 	// queue stays bounded — see suiteutil.SchemaResetter for the failure mode
 	// this avoids.
-	resetCtx, resetCancel := context.WithTimeout(t.Context(), 30*time.Second)
-	pgResetter, err := suiteutil.NewSchemaResetter(resetCtx, pgTarget)
-	resetCancel()
-	if err != nil {
-		t.Fatalf("open postgres schema-resetter: %v", err)
-	}
-	t.Cleanup(func() { pgResetter.Close(context.Background()) })
+	pgResetter := suiteutil.NewSchemaResetterWithCleanup(t, pgTarget)
 
 	primary := setup.GetPrimary(t)
 	mgResetTarget := suiteutil.Target{
@@ -179,13 +173,7 @@ func TestPgProtoConformance(t *testing.T) {
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
 	}
-	resetCtx, resetCancel = context.WithTimeout(t.Context(), 30*time.Second)
-	mgResetter, err := suiteutil.NewSchemaResetter(resetCtx, mgResetTarget)
-	resetCancel()
-	if err != nil {
-		t.Fatalf("open multigateway schema-resetter (direct to primary PG): %v", err)
-	}
-	t.Cleanup(func() { mgResetter.Close(context.Background()) })
+	mgResetter := suiteutil.NewSchemaResetterWithCleanup(t, mgResetTarget)
 
 	// Phase 6: for each file, run both targets. PG first (the baseline trace),
 	// then the multigateway. Honors the overall test deadline so a timeout
@@ -198,31 +186,23 @@ func TestPgProtoConformance(t *testing.T) {
 	var (
 		pgResults []*runResult
 		mgResults []*runResult
-		timedOut  bool
-		ran       int
 	)
-	for i, f := range files {
-		select {
-		case <-overall.Done():
-			t.Logf("overall deadline reached after %d/%d files; stopping run loop", i, len(files))
-			timedOut = true
-		default:
-		}
-		if timedOut {
-			break
-		}
-
-		ran++
-		pgRes := runOne(overall, perFileTimeout, pgTarget, pgResetter, f)
-		mgRes := runOne(overall, perFileTimeout, mgTarget, mgResetter, f)
-		pgResults = append(pgResults, pgRes)
-		mgResults = append(mgResults, mgRes)
-
-		if (i+1)%25 == 0 || (i+1) == len(files) {
+	ran, timedOut := suiteutil.RunCorpusLoop(t, overall, files,
+		func(i int, f string) {
+			pgRes := suiteutil.RunWithTimeout(overall, perFileTimeout, func(ctx context.Context) *runResult {
+				return runPgproto(ctx, pgTarget, pgResetter, f)
+			})
+			mgRes := suiteutil.RunWithTimeout(overall, perFileTimeout, func(ctx context.Context) *runResult {
+				return runPgproto(ctx, mgTarget, mgResetter, f)
+			})
+			pgResults = append(pgResults, pgRes)
+			mgResults = append(mgResults, mgRes)
+		},
+		func(done, total int) {
 			t.Logf("  progress: %d/%d files (postgres baseline=%d, multigateway matched=%d)",
-				i+1, len(files), ranCount(pgResults), matchedCount(pgResults, mgResults))
-		}
-	}
+				done, total, ranCount(pgResults), matchedCount(pgResults, mgResults))
+		},
+	)
 
 	t.Logf("Phase 6: ran %d of %d files (timed_out=%v)", ran, len(files), timedOut)
 
@@ -254,7 +234,7 @@ func TestPgProtoConformance(t *testing.T) {
 
 	// Phase 8: build the suite report and persist it.
 	report := newSuiteReport("PgProto", corpusRoot, pgResults, mgResults, outcomes, startedAt, timedOut)
-	report.logSummary(t)
+	logSummary(t, report)
 
 	if jsonPath, err := writeJSON(builder.OutputDir, report); err != nil {
 		t.Logf("warning: failed to write results.json: %v", err)
@@ -283,14 +263,6 @@ func TestPgProtoConformance(t *testing.T) {
 			"(then add a comment to the generated patch explaining why).",
 			report.PassedPGOnly, strings.Join(names, ", "))
 	}
-}
-
-// runOne invokes pgproto against a single target for one file, with its own
-// bounded context.
-func runOne(parent context.Context, perFileTimeout time.Duration, t suiteutil.Target, resetter *suiteutil.SchemaResetter, file string) *runResult {
-	ctx, cancel := context.WithTimeout(parent, perFileTimeout)
-	defer cancel()
-	return runPgproto(ctx, t, resetter, file)
 }
 
 // ranCount counts how many PG runs produced a baseline trace.

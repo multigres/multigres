@@ -18,9 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
 )
 
 // The pgproto corpus lives in-tree under testdata/ as hand-written .pgproto
@@ -63,79 +60,4 @@ func resolveCorpusDir() (string, error) {
 		return "", fmt.Errorf("corpus dir %q is not a directory", abs)
 	}
 	return abs, nil
-}
-
-// listCorpusFiles returns the data files in corpusDir matching
-// PGPROTO_CORPUS_GLOB (defaulting to DefaultCorpusGlob). Paths are absolute and
-// sorted so per-file ordering is deterministic across runs.
-//
-// The glob uses doublestar semantics: "**" matches across path components, "*"
-// matches within a single component, "?" matches a single non-/ char.
-func listCorpusFiles(corpusDir string) ([]string, error) {
-	glob := os.Getenv("PGPROTO_CORPUS_GLOB")
-	if glob == "" {
-		glob = DefaultCorpusGlob
-	}
-
-	re, err := globToRegexp(glob)
-	if err != nil {
-		return nil, fmt.Errorf("compile glob %q: %w", glob, err)
-	}
-
-	var files []string
-	walkErr := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(corpusDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		if re.MatchString(filepath.ToSlash(rel)) {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if walkErr != nil {
-		return nil, fmt.Errorf("walk %s: %w", corpusDir, walkErr)
-	}
-	sort.Strings(files)
-	return files, nil
-}
-
-// globToRegexp translates a shell glob into an anchored regexp. `**` matches
-// across path separators, `*` matches within one segment, `?` matches a single
-// non-`/` character. Regex metacharacters are escaped via regexp.QuoteMeta so
-// regex syntax in the pattern stays literal.
-//
-// `a/**/b` also matches `a/b` (zero intermediate segments): a `/` immediately
-// after `**` is consumed along with it.
-func globToRegexp(pat string) (*regexp.Regexp, error) {
-	var b strings.Builder
-	b.Grow(len(pat) + 4)
-	b.WriteString(`\A`)
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
-		switch c {
-		case '*':
-			if i+1 < len(pat) && pat[i+1] == '*' {
-				b.WriteString(`.*`)
-				i++
-				if i+1 < len(pat) && pat[i+1] == '/' {
-					i++
-				}
-			} else {
-				b.WriteString(`[^/]*`)
-			}
-		case '?':
-			b.WriteString(`[^/]`)
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
-		}
-	}
-	b.WriteString(`\z`)
-	return regexp.Compile(b.String())
 }
