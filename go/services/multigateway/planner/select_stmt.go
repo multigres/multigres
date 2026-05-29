@@ -58,7 +58,7 @@ func (p *Planner) planSelectStmt(
 	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
 	for _, sc := range setConfigs {
 		base := syntheticSetStmt(sc)
-		if sc.Bound {
+		if sc.hasBoundParams() {
 			refs := &engine.BoundSetConfigRefs{
 				NameParam:    sc.NameBind,
 				ValueParam:   sc.ValueBind,

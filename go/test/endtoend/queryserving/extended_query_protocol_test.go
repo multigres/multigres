@@ -645,14 +645,14 @@ func TestExtendedProtocol_TransactionIsolation(t *testing.T) {
 	}
 }
 
-// TestExtendedQueryProtocol_SetConfigBoundParam pins the Supabase Storage
-// migration shape: SELECT set_config('search_path', $1, false) over the
-// extended protocol. Without the bind-materialization path the multigateway
+// TestExtendedQueryProtocol_SetConfigBoundParam pins the extended-protocol
+// query shape SELECT set_config('search_path', $1, false). Without support
+// for bound set_config arguments, multigateway
 // planner rejects the bound parameter with
 // "set_config value argument must be a literal, not a bound parameter"
 // because the AST validator runs at Plan() time, when the AST still carries
-// a ParamRef. With the fix, MaterializeBoundSetConfigs substitutes the
-// portal's bind value before planning, and the gateway's session tracker is
+// a ParamRef. With the fix, the planner/executor path resolves portal bind
+// values for set_config and the gateway's session tracker is
 // updated alongside PG executing the call — visible via SHOW from a fresh
 // query on a possibly-rotated backend connection.
 //
@@ -672,7 +672,7 @@ func TestExtendedQueryProtocol_SetConfigBoundParam(t *testing.T) {
 
 	for _, target := range setup.GetComparisonTargets(t) {
 		t.Run(target.Name, func(t *testing.T) {
-			// Sub-test 1: text-format text value — the literal Storage shape.
+			// Sub-test 1: text-format text value.
 			// Parse declares the value parameter as TEXT (OID 25); psql's
 			// \bind emits this exact wire form.
 			t.Run("text value", func(t *testing.T) {

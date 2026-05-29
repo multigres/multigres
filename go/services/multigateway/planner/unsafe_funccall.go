@@ -75,13 +75,13 @@ var funcBlocklist = map[string]string{
 //
 // Two shapes:
 //   - all-literal: Name and Value carry the parsed strings, *Bind fields
-//     are nil, Bound is false. is_local was literal false (literal true
-//     short-circuits below and never produces a setConfigCall).
+//     are nil. is_local was literal false (literal true short-circuits
+//     below and never produces a setConfigCall).
 //   - any-bound: at least one of NameBind/ValueBind/IsLocalBind is non-nil
 //     and points at the parser-produced ParamRef for that slot. Name/Value
-//     hold the parsed string for any slot that was NOT bound. Bound is
-//     true — the planner emits the deferred-resolution primitive that
-//     decodes the bound slots from the portal at execute time.
+//     hold the parsed string for any slot that was NOT bound. The planner
+//     emits the deferred-resolution primitive that decodes the bound slots
+//     from the portal at execute time.
 //
 // `is_local=true` literals never produce a setConfigCall — validation
 // returns (nil, nil) early so the call goes to PG via Route only, with no
@@ -95,11 +95,10 @@ type setConfigCall struct {
 	NameBind    *ast.ParamRef
 	ValueBind   *ast.ParamRef
 	IsLocalBind *ast.ParamRef
+}
 
-	// Bound is true when at least one of *Bind is non-nil. Callers branch
-	// on this to choose ApplySessionStateSilent (literal) vs
-	// ApplySessionStateFromBind (deferred resolution).
-	Bound bool
+func (sc setConfigCall) hasBoundParams() bool {
+	return sc.NameBind != nil || sc.ValueBind != nil || sc.IsLocalBind != nil
 }
 
 // expressionCheckResult carries the output of inspectExpressionFuncCalls.
@@ -277,7 +276,6 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
 		sc.IsLocalBind = pr
-		sc.Bound = true
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {
 			return nil, nil
@@ -291,7 +289,6 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[0]).(*ast.ParamRef); isParam {
 		sc.NameBind = pr
-		sc.Bound = true
 	} else if name, ok := constStringArg(fc.Args.Items[0]); ok {
 		sc.Name = name
 	} else {
@@ -300,7 +297,6 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[1]).(*ast.ParamRef); isParam {
 		sc.ValueBind = pr
-		sc.Bound = true
 	} else if value, ok := constStringArg(fc.Args.Items[1]); ok {
 		sc.Value = value
 	} else {

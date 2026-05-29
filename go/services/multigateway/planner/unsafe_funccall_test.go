@@ -331,7 +331,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
 			sc := result.SetConfigs[0]
-			assert.True(t, sc.Bound, "expected Bound=true for any-slot ParamRef shape")
+			assert.True(t, sc.hasBoundParams(), "expected at least one bound slot for any-slot ParamRef shape")
 			assert.Equal(t, tt.wantNameBind, sc.NameBind != nil)
 			assert.Equal(t, tt.wantValueBind, sc.ValueBind != nil)
 			assert.Equal(t, tt.wantIsLocalBind, sc.IsLocalBind != nil)
