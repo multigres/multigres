@@ -1465,7 +1465,6 @@ func NewResetStmt(name string) *VariableSetStmt {
 	return NewVariableSetStmt(VAR_RESET, name, nil, false)
 }
 
-// SqlString returns the SQL representation of the SET statement
 // searchPathUsesSchemaForm reports whether a SET search_path can be rendered
 // with the idiomatic "SET SCHEMA <value>" syntax. That grammar production only
 // accepts a single string constant, so it applies only when there is exactly
@@ -1478,6 +1477,7 @@ func searchPathUsesSchemaForm(args *NodeList) bool {
 	return ok
 }
 
+// SqlString returns the SQL representation of the SET statement
 func (v *VariableSetStmt) SqlString() string {
 	var parts []string
 
