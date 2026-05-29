@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -316,7 +317,10 @@ func TestCopyStatement_CopyFailMessage(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "COPY failed: client aborted")
+	// Match PostgreSQL: a client CopyFail surfaces as query_canceled (57014)
+	// with "COPY from stdin failed: <msg>".
+	require.Contains(t, err.Error(), "COPY from stdin failed: client aborted")
+	require.Equal(t, mterrors.PgSSQueryCanceled, mterrors.ExtractSQLSTATE(err))
 	// CopyAbort should be called via defer
 	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
 }

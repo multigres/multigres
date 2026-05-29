@@ -31,6 +31,8 @@ ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
 PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
 SQLLOGICTEST_VERSION="${SQLLOGICTEST_VER:-v0.29.1}"
+# pgproto has no release binaries; PGPROTO_VERSION is a git commit SHA built from source.
+PGPROTO_VERSION="${PGPROTO_VER:-fa08c9c96df9ca514cd19aa7f587e27c7ac63160}"
 
 get_platform() {
   case $(uname) in
@@ -93,6 +95,9 @@ install_dep() {
     ;;
   "sqllogictest")
     install_sqllogictest "$version" "$dist"
+    ;;
+  "pgproto")
+    install_pgproto "$version" "$dist"
     ;;
   *)
     echo "ERROR: unknown dependency $name"
@@ -469,6 +474,64 @@ install_sqllogictest() {
   cd - >/dev/null
 }
 
+# Build pgproto (Tatsuo Ishii's wire-protocol conformance tool) from a pinned
+# source commit and symlink the resulting binary into $MTROOT/bin/pgproto.
+#
+# pgproto publishes no prebuilt binaries — it is C built against libpq — so we
+# fetch the GitHub source archive at the pinned commit (SHA-verified via
+# tool_checksums.sh) and run its committed autoconf `configure` + `make`. Only
+# a C compiler and libpq headers (located via pg_config) are required; no
+# autotools are needed because configure/Makefile.in are committed upstream.
+#
+# libpq is used only to open the connection and complete startup/auth — the
+# wire-protocol trace pgproto emits is produced by its own socket code — so any
+# libpq version works (per the upstream README).
+install_pgproto() {
+  local version="$1"
+  local dist="$2"
+
+  if ! command -v pg_config >/dev/null 2>&1; then
+    echo "ERROR: pg_config not found; pgproto needs libpq headers to build." >&2
+    echo "" >&2
+    echo "Install the PostgreSQL client/dev package, then re-run 'make tools':" >&2
+    echo "  Debian/Ubuntu: sudo apt-get install -y libpq-dev" >&2
+    echo "  RHEL/Fedora:   sudo dnf install -y libpq-devel" >&2
+    echo "  macOS:         brew install libpq && export PATH=\"\$(brew --prefix libpq)/bin:\$PATH\"" >&2
+    exit 1
+  fi
+
+  local sha256
+  sha256=$(get_sha256 "pgproto" "$version" "src" "src" "tar.gz")
+
+  local filename="pgproto-${version}.tar.gz"
+  # codeload serves the exact tree at a commit as a tarball; stable per commit.
+  local url="https://codeload.github.com/tatsuo-ishii/pgproto/tar.gz/${version}"
+
+  local startdir
+  startdir=$(pwd)
+  cd "$dist"
+  echo "Downloading ${url}..."
+  safe_download "${url}" "${filename}" "${sha256}"
+
+  echo "Extracting and building pgproto..."
+  tar xzf "$filename"
+  rm "$filename"
+
+  # GitHub archives extract to "<repo>-<commit>".
+  cd "$dist/pgproto-${version}"
+  ./configure -q
+  make -s
+
+  if [ ! -x "src/pgproto" ]; then
+    echo "ERROR: pgproto build did not produce src/pgproto" >&2
+    exit 1
+  fi
+
+  mkdir -p "$MTROOT/bin"
+  ln -snf "$dist/pgproto-${version}/src/pgproto" "$MTROOT/bin/pgproto"
+  cd "$startdir"
+}
+
 install_go_plugins() {
   # Reinstall protoc-gen-go and protoc-gen-go-grpc
   GOBIN=$MTROOT/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
@@ -499,6 +562,9 @@ install_all() {
 
   # Install sqllogictest-rs CLI (used by the differential SLT harness).
   install_dep "sqllogictest" "$SQLLOGICTEST_VERSION" "$MTROOT/dist/sqllogictest-$SQLLOGICTEST_VERSION"
+
+  # Build pgproto from source (used by the wire-protocol conformance harness).
+  install_dep "pgproto" "$PGPROTO_VERSION" "$MTROOT/dist/pgproto-$PGPROTO_VERSION"
 
   # Install Go dependencies
   install_go_plugins

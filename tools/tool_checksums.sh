@@ -90,6 +90,20 @@ get_sha256() {
       ;;
     esac
     ;;
+  "pgproto")
+    # pgproto is built from source (no prebuilt binaries), so the checksum is
+    # of the GitHub source archive at the pinned commit. It is platform- and
+    # arch-independent; only the commit SHA (passed as $version) selects it.
+    case "$version" in
+    "fa08c9c96df9ca514cd19aa7f587e27c7ac63160")
+      echo "b664ee78ffb5c255b7d92d65770c4caa9166ea2c32caa3b2e8f0ba1e3b69c68a"
+      ;;
+    *)
+      echo "ERROR: no SHA256 hash available for pgproto commit $version" >&2
+      exit 1
+      ;;
+    esac
+    ;;
   *)
     echo "ERROR: no SHA256 hashes for tool $tool" >&2
     exit 1

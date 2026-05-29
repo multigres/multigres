@@ -1,0 +1,41 @@
+#
+# Extended-query error recovery.
+#
+# The extended protocol's contract: once a message in a batch errors, the
+# server reports the ErrorResponse and then *ignores every subsequent message
+# until a Sync*, at which point it emits ReadyForQuery and resumes normal
+# processing. This is exactly the proxy-relevant behaviour pgproto can drive but
+# ordinary client libraries hide.
+#
+
+'Q'	"CREATE TABLE pgproto_err (id int)"
+'Y'
+
+# Parse of a syntactically invalid statement -> ErrorResponse at Sync.
+# The Bind/Execute that follow reference the never-created statement and must
+# be skipped by the server until the Sync.
+'P'	"bad"	"SELECT FROM WHERE"	0
+'B'	"p_bad"	"bad"	0	0	0
+'E'	"p_bad"	0
+'S'
+'Y'
+
+# After Sync the session is usable again: a valid prepared statement executes
+# normally, proving recovery.
+'P'	"good"	"INSERT INTO pgproto_err VALUES (1)"	0
+'B'	"p_good"	"good"	0	0	0
+'E'	"p_good"	0
+'S'
+'Y'
+
+# A runtime error (divide by zero) mid-batch, then recovery on the next Sync.
+'P'	"divzero"	"SELECT 1/0"	0
+'B'	"p_dz"	"divzero"	0	0	0
+'E'	"p_dz"	0
+'S'
+'Y'
+
+'Q'	"SELECT count(*) FROM pgproto_err"
+'Y'
+
+'X'

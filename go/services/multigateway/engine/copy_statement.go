@@ -129,8 +129,11 @@ func (c *CopyStatement) StreamExecute(
 			if err != nil {
 				return err
 			}
-			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
-				"COPY failed: "+errMsg, "")
+			// Match PostgreSQL's response to a client CopyFail: copyfromparse.c
+			// raises ERRCODE_QUERY_CANCELED (57014) with "COPY from stdin
+			// failed: <msg>".
+			return mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
+				"COPY from stdin failed: "+errMsg, "")
 
 		default:
 			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
