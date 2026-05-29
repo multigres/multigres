@@ -228,9 +228,11 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 ```text
 go/test/endtoend/pgregresstest/
 ├── README.md              # This file
-├── main_test.go          # TestMain, shared setup management
-├── postgres_builder.go   # PostgreSQL build and test execution
-└── pgregress_test.go     # Regression + isolation test implementation
+├── main_test.go           # TestMain, shared setup management
+├── postgres_builder.go    # PostgreSQL build and test execution
+├── pgregress_test.go      # Regression + isolation test implementation
+├── patch_verify.go        # Patch verification logic
+└── patch_verify_test.go   # Tests for patch verification
 ```
 
 <!-- markdownlint-enable MD013 -->
