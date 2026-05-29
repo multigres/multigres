@@ -351,7 +351,7 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 
 	for _, mod := range modules {
 		moduleDir := filepath.Join(pb.BuildDir, "contrib", mod)
-		if !fileExists(filepath.Join(moduleDir, "Makefile")) {
+		if !suiteutil.FileExists(filepath.Join(moduleDir, "Makefile")) {
 			t.Logf("contrib/%s: no Makefile in build tree, skipping", mod)
 			continue
 		}
@@ -441,7 +441,7 @@ func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, 
 		// manufactures diffs that aren't multigres behavior at all.
 		variants := expectedVariants(moduleSrcDir, test.Name)
 		actPath := filepath.Join(moduleBuildDir, "results", test.Name+".out")
-		if len(variants) == 0 || !fileExists(actPath) {
+		if len(variants) == 0 || !suiteutil.FileExists(actPath) {
 			// Test didn't run or expected missing; keep the TAP verdict.
 			test.FailReason = "expected or actual output missing; kept TAP verdict"
 			continue
@@ -488,12 +488,12 @@ func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, 
 func expectedVariants(regressDir, name string) []string {
 	var out []string
 	canonical := filepath.Join(regressDir, "expected", name+".out")
-	if fileExists(canonical) {
+	if suiteutil.FileExists(canonical) {
 		out = append(out, canonical)
 	}
 	for i := 1; i < 10; i++ {
 		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
-		if fileExists(p) {
+		if suiteutil.FileExists(p) {
 			out = append(out, p)
 		}
 	}

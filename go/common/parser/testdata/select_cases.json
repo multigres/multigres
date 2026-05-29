@@ -93,7 +93,7 @@
   {
     "comment": "Bounded bpchar cast still normalizes to CHAR(n)",
     "query": "SELECT 'ABA'::bpchar(5)",
-    "expected": "SELECT CAST('ABA' AS CHAR(5))"
+    "expected": "SELECT CAST('ABA' AS bpchar(5))"
   },
   {
     "comment": "Function no args",

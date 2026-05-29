@@ -19,7 +19,6 @@ ignore:
   # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated test-pgproto
   # workflow, never by the coverage-collecting CI.
   - "go/test/endtoend/queryserving/pgproto/**"
-<<<<<<< HEAD
   # sqllogictest differential suite — same story: gated behind
   # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated sqllogictest
   # workflow, never by the coverage-collecting CI.

@@ -969,7 +969,7 @@
   {
     "comment": "sqljson - Statement 200",
     "query": "CREATE DOMAIN sqljson_char2 AS char(2) CHECK (VALUE NOT IN ('12'))",
-    "expected": "CREATE DOMAIN sqljson_char2 AS CHAR(2) CHECK (value NOT IN ('12'))"
+    "expected": "CREATE DOMAIN sqljson_char2 AS bpchar(2) CHECK (value NOT IN ('12'))"
   },
   {
     "comment": "sqljson - Statement 201",

@@ -1045,7 +1045,7 @@
   {
     "comment": "stats - Statement 233",
     "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)",
-    "expected": "CREATE TABLE table_fillfactor (n CHAR(1000)) WITH (fillfactor = 10, autovacuum_enabled = off)"
+    "expected": "CREATE TABLE table_fillfactor (n bpchar(1000)) WITH (fillfactor = 10, autovacuum_enabled = off)"
   },
   {
     "comment": "stats - Statement 234",

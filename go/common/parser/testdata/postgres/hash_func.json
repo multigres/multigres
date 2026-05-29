@@ -32,7 +32,7 @@
   {
     "comment": "hash_func - Statement 7",
     "query": "SELECT v as value, hashchar(v)::bit(32) as standard, hashcharextended(v, 0)::bit(32) as extended0, hashcharextended(v, 1)::bit(32) as extended1 FROM   (VALUES (NULL::char), ('1'), ('x'), ('X'), ('p'), ('N')) x(v) WHERE  hashchar(v)::bit(32) != hashcharextended(v, 0)::bit(32) OR hashchar(v)::bit(32) = hashcharextended(v, 1)::bit(32)",
-    "expected": "SELECT v AS value, CAST(hashchar(v) AS bit(32)) AS standard, CAST(hashcharextended(v, 0) AS bit(32)) AS extended0, CAST(hashcharextended(v, 1) AS bit(32)) AS extended1 FROM (VALUES (CAST(NULL AS CHAR(1))), ('1'), ('x'), ('X'), ('p'), ('N')) AS x(v) WHERE CAST(hashchar(v) AS bit(32)) <> CAST(hashcharextended(v, 0) AS bit(32)) OR CAST(hashchar(v) AS bit(32)) = CAST(hashcharextended(v, 1) AS bit(32))"
+    "expected": "SELECT v AS value, CAST(hashchar(v) AS bit(32)) AS standard, CAST(hashcharextended(v, 0) AS bit(32)) AS extended0, CAST(hashcharextended(v, 1) AS bit(32)) AS extended1 FROM (VALUES (CAST(NULL AS bpchar(1))), ('1'), ('x'), ('X'), ('p'), ('N')) AS x(v) WHERE CAST(hashchar(v) AS bit(32)) <> CAST(hashcharextended(v, 0) AS bit(32)) OR CAST(hashchar(v) AS bit(32)) = CAST(hashcharextended(v, 1) AS bit(32))"
   },
   {
     "comment": "hash_func - Statement 8",
