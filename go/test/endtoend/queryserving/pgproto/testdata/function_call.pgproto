@@ -1,0 +1,24 @@
+#
+# Fast-path FunctionCall ('F') — a feature the multigateway does NOT support yet.
+#
+# The fast-path protocol invokes a function by OID without parsing SQL. libpq's
+# large-object API still uses it; a proxy that means to be a drop-in PostgreSQL
+# replacement has to relay it. PostgreSQL answers with FunctionCallResponse; the
+# multigateway has no case for the 'F' message type and rejects it, so this file
+# diverges from PostgreSQL today. The divergence is RECORDED as a patch
+# (testdata/patches/function_call.patch) rather than fixed — see that patch's
+# comment. When fast-path support lands, the gateway will start matching
+# PostgreSQL, the patch will stop applying, and the suite will flag it so the
+# patch can be deleted. The test is already here, waiting.
+#
+# Data-file field layout (tab-separated):
+#   'F'  <foid> <ncodes> <code...> <nparams> <plen> "val" ... <resultcode>
+#
+# int4pl(2, 3) — OID 177, a pure two-int function with no side effects and no
+# transaction requirement, so PostgreSQL's baseline is deterministic. One text
+# argument-format code (0) applies to both args; the result is requested in text
+# (0). PostgreSQL returns FunctionCallResponse (= 5) then ReadyForQuery.
+'F'	177	1	0	2	1	"2"	1	"3"	0
+'Y'
+
+'X'

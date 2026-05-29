@@ -1,0 +1,22 @@
+# Known divergence: fast-path FunctionCall is not supported by the multigateway.
+#
+# PostgreSQL answers a fast-path FunctionCall ('F') with FunctionCallResponse.
+# The multigateway has no handler for the 'F' message type — it falls through to
+# the default case in handleMessage (conn.go), which emits an internal-error
+# ErrorResponse (SQLSTATE MTD03) and tears the connection down. So PostgreSQL's
+# FunctionCallResponse becomes the gateway's ErrorResponse(MTD03) here. (The
+# trailing ReadyForQuery is the gateway's own teardown reply; pgproto still
+# reads it and the Terminate that follows, so the trace stays diffable.)
+#
+# This patch records the CURRENT (unsupported) behaviour so the corpus file can
+# ship before the feature exists. When fast-path FunctionCall is implemented the
+# gateway will return FunctionCallResponse and match PostgreSQL, this patch will
+# stop applying (a residual diff appears) and the suite will flag it — delete the
+# patch then.
+--- a
++++ b
+@@ -1,3 +1,3 @@
+-<= BE FunctionCallResponse
++<= BE ErrorResponse(C MTD03)
+ <= BE ReadyForQuery(I)
+ FE=> Terminate
