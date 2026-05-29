@@ -1,6 +1,7 @@
 # PostgreSQL Compatibility Tests
 
-This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against a multigres cluster.
+This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test
+suites against a multigres cluster.
 
 ## Overview
 
@@ -15,7 +16,9 @@ The test performs the following steps:
 7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
 8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
 
-**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
+**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the
+PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol
+compatibility issues.
 
 ## Requirements
 
@@ -146,7 +149,8 @@ as catalog entries move to `covered` and their suites run.
 - Sets up cluster using built PostgreSQL
 - Runs regression tests
 
-**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
+**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster
+iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
 
 ### Run Without Caching
 
@@ -270,7 +274,9 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 
 <!-- markdownlint-enable MD013 -->
 
-**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load shared libraries that must match the running PostgreSQL version.
+**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via
+pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load
+shared libraries that must match the running PostgreSQL version.
 
 ### File Structure
 
