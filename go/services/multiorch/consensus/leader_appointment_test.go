@@ -51,8 +51,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 
 	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 
-	fakeClient.ConsensusStatusResponses[poolerKey] = &consensusdatapb.StatusResponse{
-		Id: poolerID,
+	fakeClient.SetStatusResponse(poolerKey, &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: poolerID,
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -63,7 +62,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 				Rule: rule,
 			},
 		},
-	}
+	})
 
 	var consensusTerm *clustermetadatapb.TermRevocation
 	if term > 0 {

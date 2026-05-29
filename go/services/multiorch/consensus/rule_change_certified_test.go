@@ -30,8 +30,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // makeCertifiedRequest builds a fully-populated rule + cert suitable for
@@ -376,7 +376,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 	}
 
 	fc := rpcclient.NewFakeClient()
-	fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp1.Id)] = &consensusdatapb.StatusResponse{
+	fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -384,8 +384,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 				Lsn:  "0/100",
 			},
 		},
-	}
-	fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp2.Id)] = &consensusdatapb.StatusResponse{
+	})
+	fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -393,7 +393,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 				Lsn:  "0/200",
 			},
 		},
-	}
+	})
 
 	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"}
 
@@ -410,9 +410,9 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 
 	t.Run("unreachable pooler is absent, not an error", func(t *testing.T) {
 		fc := rpcclient.NewFakeClient()
-		fc.ConsensusStatusResponses[topoclient.MultiPoolerIDString(mp1.Id)] = &consensusdatapb.StatusResponse{
+		fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id},
-		}
+		})
 		// mp2 errors — it should silently drop out.
 		fc.Errors[topoclient.MultiPoolerIDString(mp2.Id)] = errors.New("network down")
 

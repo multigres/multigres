@@ -23,31 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// GetCurrentTerm returns the current consensus term from a node.
-// Use this instead of hardcoded term values for test isolation.
-func GetCurrentTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient) (int64, error) {
-	resp, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
-	if err != nil {
-		return 0, fmt.Errorf("failed to get consensus status: %w", err)
-	}
-	return resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), nil
-}
-
-// MustGetCurrentTerm returns the current term or fails the test.
-func MustGetCurrentTerm(t *testing.T, ctx context.Context, client consensuspb.MultiPoolerConsensusClient) int64 {
-	t.Helper()
-	term, err := GetCurrentTerm(ctx, client)
-	if err != nil {
-		t.Fatalf("failed to get current term: %v", err)
-	}
-	return term
-}
 
 // ValidatePoolerType checks that the pooler type in topology matches the expected value.
 // Follows the pattern from multipooler/setup_test.go:validatePoolerType.
@@ -70,10 +48,10 @@ func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPo
 
 // ValidateTerm checks that the consensus term matches the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateTerm.
-func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient, expectedTerm int64, nodeName string) error {
-	status, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
+func ValidateTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, expectedTerm int64, nodeName string) error {
+	status, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("%s failed to get consensus status: %w", nodeName, err)
+		return fmt.Errorf("%s failed to get status: %w", nodeName, err)
 	}
 
 	currentTerm := status.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()

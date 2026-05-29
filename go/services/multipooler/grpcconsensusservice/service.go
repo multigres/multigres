@@ -62,15 +62,6 @@ func (s *consensusService) Recruit(ctx context.Context, req *consensusdata.Recru
 	return resp, nil
 }
 
-// Status returns the current status of this node
-func (s *consensusService) Status(ctx context.Context, req *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
-	resp, err := s.manager.ConsensusStatus(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // UpdateConsensusRule applies a cohort-membership change on the primary.
 func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	err := s.manager.UpdateConsensusRule(ctx,

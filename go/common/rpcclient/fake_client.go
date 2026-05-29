@@ -57,10 +57,9 @@ type FakeClient struct {
 	mu sync.RWMutex
 
 	// Consensus service responses - keyed by pooler ID
-	RecruitResponses         map[string]*consensusdatapb.RecruitResponse
-	ProposeResponses         map[string]*consensusdatapb.ProposeResponse
-	SetTermPrimaryResponses  map[string]*consensusdatapb.SetTermPrimaryResponse
-	ConsensusStatusResponses map[string]*consensusdatapb.StatusResponse
+	RecruitResponses        map[string]*consensusdatapb.RecruitResponse
+	ProposeResponses        map[string]*consensusdatapb.ProposeResponse
+	SetTermPrimaryResponses map[string]*consensusdatapb.SetTermPrimaryResponse
 
 	// Manager service responses - keyed by pooler ID
 	WaitForLSNResponses          map[string]*multipoolermanagerdatapb.WaitForLSNResponse
@@ -99,7 +98,6 @@ func NewFakeClient() *FakeClient {
 		RecruitResponses:                    make(map[string]*consensusdatapb.RecruitResponse),
 		ProposeResponses:                    make(map[string]*consensusdatapb.ProposeResponse),
 		SetTermPrimaryResponses:             make(map[string]*consensusdatapb.SetTermPrimaryResponse),
-		ConsensusStatusResponses:            make(map[string]*consensusdatapb.StatusResponse),
 		WaitForLSNResponses:                 make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		StartReplicationResponses:           make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:            make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
@@ -257,22 +255,6 @@ func (f *FakeClient) SetTermPrimary(ctx context.Context, pooler *clustermetadata
 		return resp, nil
 	}
 	return &consensusdatapb.SetTermPrimaryResponse{}, nil
-}
-
-func (f *FakeClient) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("ConsensusStatus", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.ConsensusStatusResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &consensusdatapb.StatusResponse{}, nil
 }
 
 func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {

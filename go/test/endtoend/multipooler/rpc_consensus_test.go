@@ -27,92 +27,11 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
-	"github.com/multigres/multigres/go/common/consensus"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-func TestConsensus_Status(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	setupPoolerTest(t, setup, WithoutReplication())
-
-	// Create shared clients for all subtests
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	t.Run("Status_Primary", func(t *testing.T) {
-		t.Log("Testing Status on primary multipooler...")
-
-		req := &consensusdatapb.StatusRequest{}
-		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "Status should succeed on primary")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Verify node ID
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.GetId().GetName(), "PoolerId should match")
-
-		// Verify cell
-		assert.Equal(t, "test-cell", resp.GetId().GetCell(), "Cell should match")
-
-		// Verify term (should be 1 from setup)
-		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
-
-		// Verify this node is the consensus primary
-		assert.True(t, consensus.IsLeader(resp.GetConsensusStatus()), "Primary should be consensus primary")
-
-		// Verify WAL position is present
-		assert.NotEmpty(t, resp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "CurrentLsn should not be empty on primary")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "CurrentLsn should be in PostgreSQL format")
-
-		t.Logf("Primary node status verified: CurrentLSN=%s", resp.GetConsensusStatus().GetCurrentPosition().GetLsn())
-	})
-
-	t.Run("Status_Standby", func(t *testing.T) {
-		t.Log("Testing Status on standby multipooler...")
-
-		req := &consensusdatapb.StatusRequest{}
-		resp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "Status should succeed on standby")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Verify node ID
-		assert.Equal(t, setup.StandbyMultipooler.Name, resp.GetId().GetName(), "PoolerId should match")
-
-		// Verify cell
-		assert.Equal(t, "test-cell", resp.GetId().GetCell(), "Cell should match")
-
-		// Verify this node is not the consensus primary
-		assert.False(t, consensus.IsLeader(resp.GetConsensusStatus()), "Standby should not be consensus primary")
-
-		t.Logf("Standby node status verified")
-	})
-}
 
 // TestUpdateConsensusRule tests the UpdateConsensusRule API on the consensus service.
 // UpdateConsensusRule was previously UpdateConsensusRule on the manager service.
