@@ -395,12 +395,12 @@ func findRepoRoot() string {
 // numbered variants in order. Returns the empty string if none exist.
 func findExpectedFile(regressDir, name string) string {
 	canonical := filepath.Join(regressDir, "expected", name+".out")
-	if fileExists(canonical) {
+	if suiteutil.FileExists(canonical) {
 		return canonical
 	}
 	for i := 1; i < 10; i++ {
 		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
-		if fileExists(p) {
+		if suiteutil.FileExists(p) {
 			return p
 		}
 	}
@@ -459,7 +459,7 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 
 		expPath := findExpectedFile(sourceRegressDir, test.Name)
 		actPath := filepath.Join(buildRegressDir, "results", test.Name+".out")
-		if expPath == "" || !fileExists(actPath) {
+		if expPath == "" || !suiteutil.FileExists(actPath) {
 			// Infrastructure problem (test didn't run, expected missing).
 			// Preserve TAP verdict, count accordingly.
 			test.FailReason = "expected or actual output missing; kept TAP verdict"
