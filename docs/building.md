@@ -19,14 +19,17 @@ are organized in the other subdirectories of `go/`.
 
 ## Prerequisites
 
-You need to install:
+Multigres requires the following on your `$PATH` before running `multigres cluster start`:
 
 - Go (version 1.25 or later)
-- PostgreSQL (we have been working with version 17.6)
+- **PostgreSQL 17.x** — `postgres --version` must report `(PostgreSQL) 17.x`. PG 14, 15, 16, 18+ are rejected.
+- **pgBackRest ≥ 2.57** — `pgbackrest --version` must report `pgBackRest 2.57` or newer.
+- **etcd** — required for topology.
+
+`multigres cluster start` validates these before bootstrapping the cluster and fails fast with a clear error if anything is missing or wrong.
 
 Most other build dependencies (like protoc) are automatically installed by the
-make script, with the exception of PostgreSQL which needs to be installed
-separately on your system.
+make script.
 
 ## Setup
 
