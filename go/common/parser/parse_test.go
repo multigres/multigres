@@ -497,6 +497,11 @@ func (s *parseTestSuite) TestParseDeparseRoundtrip() {
 	// pganalyze/libpg_query (test/deparse_tests.c). It targets deparser
 	// edge cases across statement types.
 	s.roundtripFile("deparse_cases.json")
+	// deparse_complex_cases.json holds the complex/real-world query corpora
+	// imported from pganalyze/libpg_query 17-6.2.2 (test/sql/deparse and
+	// test/sql/deparse-depesz). They are pretty-printer fixtures upstream;
+	// here they exercise round-trip fidelity on large, realistic statements.
+	s.roundtripFile("deparse_complex_cases.json")
 
 	postgresDir := "testdata/postgres"
 	files, err := os.ReadDir(postgresDir)

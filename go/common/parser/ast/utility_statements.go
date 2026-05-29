@@ -1466,6 +1466,18 @@ func NewResetStmt(name string) *VariableSetStmt {
 }
 
 // SqlString returns the SQL representation of the SET statement
+// searchPathUsesSchemaForm reports whether a SET search_path can be rendered
+// with the idiomatic "SET SCHEMA <value>" syntax. That grammar production only
+// accepts a single string constant, so it applies only when there is exactly
+// one argument and it is a String node.
+func searchPathUsesSchemaForm(args *NodeList) bool {
+	if args == nil || args.Len() != 1 {
+		return false
+	}
+	_, ok := args.Items[0].(*String)
+	return ok
+}
+
 func (v *VariableSetStmt) SqlString() string {
 	var parts []string
 
@@ -1487,9 +1499,11 @@ func (v *VariableSetStmt) SqlString() string {
 		case "catalog":
 			parts = append(parts, "CATALOG")
 		case "search_path":
-			// For single schema, use SET SCHEMA syntax (more idiomatic)
-			// For multiple schemas, use SET search_path = syntax
-			if v.Args != nil && v.Args.Len() == 1 {
+			// For a single *string* schema, use the idiomatic SET SCHEMA syntax.
+			// SET SCHEMA requires a string constant, so a non-string single
+			// value (e.g. SET search_path TO 10000) and the multi-value form
+			// both fall back to the generic search_path syntax.
+			if searchPathUsesSchemaForm(v.Args) {
 				parts = append(parts, "SCHEMA")
 			} else {
 				parts = append(parts, "search_path")
@@ -1523,7 +1537,7 @@ func (v *VariableSetStmt) SqlString() string {
 				v.Name == "client_encoding" || v.Name == "role" ||
 				v.Name == "session_authorization" || v.Name == "transaction_snapshot" ||
 				v.Name == "transaction_isolation" ||
-				(v.Name == "search_path" && v.Args != nil && v.Args.Len() == 1) {
+				(v.Name == "search_path" && searchPathUsesSchemaForm(v.Args)) {
 				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC', SET SCHEMA 'public')
 				var values []string
 				for _, arg := range v.Args.Items {

@@ -1246,5 +1246,107 @@
   },
   {
     "query": "CREATE TABLE my_table (created_at int NOT NULL DEFAULT 1 + 2)"
+  },
+  {
+    "query": "SELECT (1 + 3)::int8"
+  },
+  {
+    "query": "ALTER TABLE a ALTER COLUMN b SET STATISTICS DEFAULT"
+  },
+  {
+    "query": "/* Comment 1 */ SELECT 1; /* Comment 2 */ SELECT 2"
+  },
+  {
+    "query": "SELECT memory_total_bytes, memory_swap_total_bytes - memory_swap_free_bytes AS swap, date_part($1, s.collected_at) AS collected_at FROM snapshots s JOIN system_snapshots ON snapshot_id = s.id WHERE s.database_id = $2 AND s.collected_at >= $3 AND s.collected_at <= $4 ORDER BY collected_at ASC"
+  },
+  {
+    "query": "SELECT 'a' INTERSECT SELECT 'b'"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[$1]"
+  },
+  {
+    "query": "SELECT proname, (SELECT regexp_split_to_array(proargtypes::text, ' ') )[idx] AS argtype, proargnames[idx] AS argname FROM pg_proc"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[$1][$2]"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ALL($1)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ANY($1)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = COALESCE(y, $1)"
+  },
+  {
+    "query": "SELECT $1::regclass"
+  },
+  {
+    "query": "SELECT 't'::boolean, 'f'::boolean"
+  },
+  {
+    "query": "UPDATE foo SET a = $1, b = $2"
+  },
+  {
+    "query": "SELECT a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))"
+  },
+  {
+    "query": "SELECT * FROM t0 JOIN t1 ON 1 JOIN t2 ON 1 JOIN t3 ON 1 JOIN t4 ON 1 JOIN t5 ON 1 JOIN t6 ON 1 JOIN t7 ON 1 JOIN t8 ON 1 JOIN t9 ON 1 JOIN t10 ON 1 JOIN t11 ON 1 JOIN t12 ON 1 JOIN t13 ON 1 JOIN t14 ON 1 JOIN t15 ON 1 JOIN t16 ON 1 JOIN t17 ON 1 JOIN t18 ON 1 JOIN t19 ON 1 JOIN t20 ON 1 JOIN t21 ON 1 JOIN t22 ON 1 JOIN t23 ON 1 JOIN t24 ON 1 JOIN t25 ON 1 JOIN t26 ON 1 JOIN t27 ON 1 JOIN t28 ON 1 JOIN t29 ON 1"
+  },
+  {
+    "query": "SELECT ARRAY[department, sub] AS row_cols, role, COUNT(id) FROM users GROUP BY department, role ORDER BY department, roleVALUES (admin::text), (ordinary::text)"
+  },
+  {
+    "query": "WITH moved AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) INSERT INTO employees_of_mary SELECT * FROM moved"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) UPDATE users SET archived = true WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' RETURNING user_id ) UPDATE users SET archived = true FROM archived WHERE archived.user_id = id RETURNING id"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) DELETE FROM users WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "CREATE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE RETURNS NULL ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo() RETURNS text AS $$ SELECT name FROM \"users\" LIMIT 1 $$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE UNLOGGED TABLE cities ( name text, population real, altitude double, identifier smallint, postal_code int, foreign_id bigint )"
+  },
+  {
+    "query": "CREATE TABLE IF NOT EXISTS distributors ( name varchar(40) DEFAULT 'Luso Films', len interval hour to second(3), name varchar(40) DEFAULT 'Luso Films', did int DEFAULT nextval('distributors_serial'), stamp timestamp DEFAULT now() NOT NULL, stamptz timestamp with time zone, \"time\" time NOT NULL, timetz time with time zone, CONSTRAINT name_len PRIMARY KEY (name, len) )"
+  },
+  {
+    "query": "CREATE TABLE types (a float(2), b float(49), c NUMERIC(2, 3), d character(4), e char(5), f varchar(6), g character varying(7))"
+  },
+  {
+    "query": "CREATE TABLE types (a geometry(point) not null)"
+  },
+  {
+    "query": "CREATE TABLE tablename ( colname int NOT NULL DEFAULT nextval('tablename_colname_seq') )"
+  },
+  {
+    "query": "CREATE TABLE capitals ( state char(2) ) INHERITS (cities)"
+  },
+  {
+    "query": "SET SESSION search_path TO 10000"
   }
 ]

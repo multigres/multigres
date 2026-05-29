@@ -1859,6 +1859,10 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "SET STATISTICS")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
+		} else {
+			// A nil value is the DEFAULT form (SET STATISTICS DEFAULT); the
+			// grammar's set_statistics_value maps DEFAULT to a nil node.
+			parts = append(parts, "DEFAULT")
 		}
 
 	case AT_SetExpression:
