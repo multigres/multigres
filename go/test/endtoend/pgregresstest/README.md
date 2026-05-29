@@ -1,6 +1,7 @@
 # PostgreSQL Compatibility Tests
 
-This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against a multigres cluster.
+This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test
+suites against a multigres cluster.
 
 ## Overview
 
@@ -15,7 +16,9 @@ The test performs the following steps:
 7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
 8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
 
-**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
+**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the
+PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol
+compatibility issues.
 
 ## Requirements
 
@@ -46,14 +49,17 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Three env vars enable it; setting more
+The test is **disabled by default**. Four env vars enable it; setting more
 than one is fine (the union runs):
 
-- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **both** regression and isolation.
-  This is what CI uses (matches the "Run Extended Query Serving Tests" PR label).
+- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
+  isolation, contrib). This is what CI uses (matches the "Run Extended Query
+  Serving Tests" PR label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
+- `RUN_PGCONTRIB=1` — runs the contrib extension suite only (see
+  "Contrib Extension Tests" below).
 
 ```bash
 # Run both suites (unified report) — same as CI
@@ -77,7 +83,55 @@ PGREGRESS_TESTS="boolean char" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test
 
 # Run specific isolation tests only
 PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific contrib modules only (directory names under contrib/)
+PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
+
+## Contrib Extension Tests
+
+The contrib suite runs the regression suites that core PostgreSQL extensions
+ship in their own `contrib/<module>/{sql,expected}/` directories, executed
+through multigateway. It validates that common PostgreSQL extensions work over
+the pooled query path. The default module set lives in `DefaultContribModules`
+(see `postgres_builder.go`).
+
+How it differs from the core regression suite:
+
+- **Build features**: two modules need optional `./configure` features, enabled
+  only when the contrib suite runs: `uuid-ossp` (`--with-uuid`, override the
+  implementation with `PG_UUID_LIB`, default `e2fs`) and `pgcrypto`
+  (`--with-ssl=openssl`; PG16+ pgcrypto has no built-in crypto). CI installs
+  `uuid-dev` and `libssl-dev` for these.
+- **Per-module isolation**: every module shares the single `postgres` database
+  (multigateway can't isolate per-DB), so the harness resets the `public`
+  schema on the primary between modules to clear leftover objects/extensions.
+- **Verification**: results go through the same patch pipeline as the core
+  suite (`PGREGRESS_PATCH_MODE`), which whitespace-normalizes output — so
+  error-cursor caret-position shifts caused by multigateway query rewriting are
+  not treated as diffs. Genuine multigres-specific output differences are
+  captured as per-module patches under
+  `testdata/pg17/patches/contrib/<module>/`.
+
+Some extensions are intentionally **excluded**: `dblink` and `postgres_fdw`
+(open outbound connections, which the pooler blocks by design),
+`pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
+rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
+
+### Coverage map
+
+`extensions.go` holds `ExtensionCatalog` — common PostgreSQL extensions, not
+the full `pg_available_extensions` list, with each one's kind (contrib /
+external) and coverage status (covered / pending / unsupported / external, each
+with a reason). `DefaultContribModules` is **derived** from it (the `covered`
+entries), so enrolling a new extension is a one-line catalog edit.
+
+Every compatibility report includes a generated **Extension Coverage** table
+(`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
+results: covered extensions expand to one row per sub-test with the live
+pass/fail, while pending/unsupported/external extensions show a single row with
+the reason. The table is the living coverage tracker — it updates automatically
+as catalog entries move to `covered` and their suites run.
 
 ### First Run vs Cached Runs
 
@@ -95,7 +149,8 @@ PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -
 - Sets up cluster using built PostgreSQL
 - Runs regression tests
 
-**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
+**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster
+iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
 
 ### Run Without Caching
 
@@ -219,7 +274,9 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 
 <!-- markdownlint-enable MD013 -->
 
-**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load shared libraries that must match the running PostgreSQL version.
+**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via
+pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load
+shared libraries that must match the running PostgreSQL version.
 
 ### File Structure
 

@@ -708,12 +708,12 @@
   {
     "comment": "foreign_data - Statement 165",
     "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) USING '0'",
-    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10) USING '0'"
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE bpchar(10) USING '0'"
   },
   {
     "comment": "foreign_data - Statement 166",
     "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)",
-    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10)"
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE bpchar(10)"
   },
   {
     "comment": "foreign_data - Statement 167",
@@ -864,7 +864,7 @@
   {
     "comment": "foreign_data - Statement 201",
     "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE char(10)",
-    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE CHAR(10)"
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE bpchar(10)"
   },
   {
     "comment": "foreign_data - Statement 202",
@@ -1302,12 +1302,12 @@
   {
     "comment": "foreign_data - Statement 303",
     "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10) USING '0'",
-    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE CHAR(10) USING '0'"
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE bpchar(10) USING '0'"
   },
   {
     "comment": "foreign_data - Statement 304",
     "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10)",
-    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE CHAR(10)"
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE bpchar(10)"
   },
   {
     "comment": "foreign_data - Statement 305",
@@ -1451,7 +1451,7 @@
   {
     "comment": "foreign_data - Statement 338",
     "query": "CREATE FOREIGN TABLE fd_pt2_1 ( c1 integer NOT NULL, c2 text, c3 date, c4 char ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
-    "expected": "CREATE FOREIGN TABLE fd_pt2_1 (c1 INT NOT NULL, c2 TEXT, c3 DATE, c4 CHAR(1)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "expected": "CREATE FOREIGN TABLE fd_pt2_1 (c1 INT NOT NULL, c2 TEXT, c3 DATE, c4 bpchar(1)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 339",

@@ -101,12 +101,12 @@
   {
     "comment": "expressions - Statement 21",
     "query": "create table bpchar_tbl (f1 character(16) unique, f2 char)",
-    "expected": "CREATE TABLE bpchar_tbl (f1 CHAR(16) UNIQUE, f2 CHAR(1))"
+    "expected": "CREATE TABLE bpchar_tbl (f1 bpchar(16) UNIQUE, f2 bpchar(1))"
   },
   {
     "comment": "expressions - Statement 22",
     "query": "create view bpchar_view as select f1, f1::character(14) as f114, f1::char as f1n, f2, f2::character(14) as f214, f2::char as f2n from bpchar_tbl",
-    "expected": "CREATE VIEW bpchar_view AS SELECT f1, CAST(f1 AS CHAR(14)) AS f114, CAST(f1 AS CHAR(1)) AS f1n, f2, CAST(f2 AS CHAR(14)) AS f214, CAST(f2 AS CHAR(1)) AS f2n FROM bpchar_tbl"
+    "expected": "CREATE VIEW bpchar_view AS SELECT f1, CAST(f1 AS bpchar(14)) AS f114, CAST(f1 AS bpchar(1)) AS f1n, f2, CAST(f2 AS bpchar(14)) AS f214, CAST(f2 AS bpchar(1)) AS f2n FROM bpchar_tbl"
   },
   {
     "comment": "expressions - Statement 23",

@@ -28,4 +28,5 @@ ignore:
   # pure-logic subset has unit tests, but the bulk only runs from the gated
   # extended suites above, so the cluster-driven lines would otherwise show
   # as missing patch coverage.
+  - "go/test/endtoend/pgbuilder/**"
   - "go/test/endtoend/suiteutil/**"

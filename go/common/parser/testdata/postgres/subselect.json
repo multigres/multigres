@@ -388,7 +388,7 @@
   {
     "comment": "subselect - Statement 82",
     "query": "create temp table shipped ( ttype       char(2), ordnum      int4, partnum     text, value       float8 )",
-    "expected": "CREATE TEMPORARY TABLE shipped (ttype CHAR(2), ordnum INT, partnum TEXT, value FLOAT8)"
+    "expected": "CREATE TEMPORARY TABLE shipped (ttype bpchar(2), ordnum INT, partnum TEXT, value FLOAT8)"
   },
   {
     "comment": "subselect - Statement 83",

@@ -50,7 +50,10 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev
+          # uuid-dev (libuuid / e2fs) is required for ./configure --with-uuid (uuid-ossp);
+          # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+).
+          # Both are enabled only when the contrib extension suite runs.
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev
 
       - name: Build
         run: make build

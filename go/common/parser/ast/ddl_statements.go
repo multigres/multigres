@@ -798,7 +798,7 @@ func normalizeSingleTypeName(typeName string) string {
 	case "bool", "boolean":
 		return "BOOLEAN"
 	case "bpchar":
-		return "CHAR"
+		return "bpchar"
 	case "char":
 		// pg_catalog."char" is a one-byte ad-hoc type distinct from bpchar/CHAR;
 		// preserve the quoting so it does not collapse to bpchar(1) on the wire.

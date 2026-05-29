@@ -103,7 +103,7 @@
   {
     "comment": "union - Statement 23",
     "query": "SELECT CAST(f1 AS char(4)) AS three FROM VARCHAR_TBL UNION SELECT f1 FROM CHAR_TBL ORDER BY 1",
-    "expected": "SELECT CAST(f1 AS CHAR(4)) AS three FROM varchar_tbl UNION SELECT f1 FROM char_tbl ORDER BY 1"
+    "expected": "SELECT CAST(f1 AS bpchar(4)) AS three FROM varchar_tbl UNION SELECT f1 FROM char_tbl ORDER BY 1"
   },
   {
     "comment": "union - Statement 24",

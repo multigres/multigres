@@ -2,7 +2,7 @@
   {
     "comment": "create_misc - Statement 1",
     "query": "CREATE TABLE a_star ( class\t\tchar, a \t\t\tint4 )",
-    "expected": "CREATE TABLE a_star (class CHAR(1), a INT)"
+    "expected": "CREATE TABLE a_star (class bpchar(1), a INT)"
   },
   {
     "comment": "create_misc - Statement 2",

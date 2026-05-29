@@ -612,7 +612,7 @@
   {
     "comment": "insert_conflict - Statement 123",
     "query": "create table capitals ( state\t\tchar(2) ) inherits (cities)",
-    "expected": "CREATE TABLE capitals (state CHAR(2)) INHERITS (cities)"
+    "expected": "CREATE TABLE capitals (state bpchar(2)) INHERITS (cities)"
   },
   {
     "comment": "insert_conflict - Statement 124",
@@ -881,7 +881,7 @@
   {
     "comment": "insert_conflict - Statement 178",
     "query": "create table parted_conflict_test (a int unique, b char) partition by list (a)",
-    "expected": "CREATE TABLE parted_conflict_test (a INT UNIQUE, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE parted_conflict_test (a INT UNIQUE, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "insert_conflict - Statement 179",
@@ -931,7 +931,7 @@
   {
     "comment": "insert_conflict - Statement 188",
     "query": "create table parted_conflict_test_2 (b char, a int unique)",
-    "expected": "CREATE TABLE parted_conflict_test_2 (b CHAR(1), a INT UNIQUE)"
+    "expected": "CREATE TABLE parted_conflict_test_2 (b bpchar(1), a INT UNIQUE)"
   },
   {
     "comment": "insert_conflict - Statement 189",
@@ -956,7 +956,7 @@
   {
     "comment": "insert_conflict - Statement 193",
     "query": "alter table parted_conflict_test drop b, add b char",
-    "expected": "ALTER TABLE parted_conflict_test DROP COLUMN b, ADD COLUMN b CHAR(1)"
+    "expected": "ALTER TABLE parted_conflict_test DROP COLUMN b, ADD COLUMN b bpchar(1)"
   },
   {
     "comment": "insert_conflict - Statement 194",

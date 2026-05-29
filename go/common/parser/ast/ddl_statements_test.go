@@ -615,6 +615,11 @@ func TestTypeName(t *testing.T) {
 		assert.Equal(t, []string{"public", "custom_type"}, typeName.GetNames())
 		assert.Contains(t, typeName.String(), "custom_type") // Should show the last part
 	})
+
+	t.Run("DistinctCharacterTypes", func(t *testing.T) {
+		assert.Equal(t, "bpchar", NewTypeName([]string{"bpchar"}).SqlString())
+		assert.Equal(t, `"char"`, NewTypeName([]string{"char"}).SqlString())
+	})
 }
 
 // TestCollateClause tests the CollateClause node.

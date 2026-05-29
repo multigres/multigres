@@ -114,12 +114,12 @@
   {
     "comment": "psql - Statement 25",
     "query": "CREATE TABLE tbl_heap_psql(f1 int, f2 char(100)) using heap_psql",
-    "expected": "CREATE TABLE tbl_heap_psql (f1 INT, f2 CHAR(100)) USING heap_psql"
+    "expected": "CREATE TABLE tbl_heap_psql (f1 INT, f2 bpchar(100)) USING heap_psql"
   },
   {
     "comment": "psql - Statement 26",
     "query": "CREATE TABLE tbl_heap(f1 int, f2 char(100)) using heap",
-    "expected": "CREATE TABLE tbl_heap (f1 INT, f2 CHAR(100)) USING heap"
+    "expected": "CREATE TABLE tbl_heap (f1 INT, f2 bpchar(100)) USING heap"
   },
   {
     "comment": "psql - Statement 27",
