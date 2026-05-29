@@ -568,22 +568,23 @@ func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err er
 		return 0, nil, fmt.Errorf("failed to read message body: %w", err)
 	}
 
+	return parseCopyResponseBody("CopyInResponse", body)
+}
+
+func parseCopyResponseBody(responseType string, body []byte) (format int16, columnFormats []int16, err error) {
 	if len(body) < 3 {
-		return 0, nil, fmt.Errorf("CopyInResponse body too short: %d bytes", len(body))
+		return 0, nil, fmt.Errorf("%s body too short: %d bytes", responseType, len(body))
 	}
 
-	// Read format (Int8, 1 byte) - 0=text, 1=binary
+	// Body layout: Int8(format) + Int16(numCols) + Int16[numCols].
 	format = int16(body[0])
-
-	// Read number of columns (Int16, 2 bytes, big-endian)
 	numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
 
-	// Read format codes for each column (Int16 each)
 	columnFormats = make([]int16, numCols)
 	offset := 3
 	for i := 0; i < int(numCols); i++ {
 		if offset+2 > len(body) {
-			return 0, nil, errors.New("CopyInResponse body too short for column formats")
+			return 0, nil, fmt.Errorf("%s body too short for column formats", responseType)
 		}
 		columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
 		offset += 2
@@ -626,29 +627,10 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 
 		switch msgType {
 		case protocol.MsgCopyInResponse:
-			// Parse CopyInResponse body using manual byte array indexing
-			// Format: Int8 (format) + Int16 (numCols) + Int16[numCols] (column formats)
-			if len(body) < 3 {
-				return 0, nil, notices, fmt.Errorf("CopyInResponse body too short: %d bytes", len(body))
+			format, columnFormats, err = parseCopyResponseBody("CopyInResponse", body)
+			if err != nil {
+				return 0, nil, notices, err
 			}
-
-			// Read format (Int8, 1 byte) - 0=text, 1=binary
-			format = int16(body[0])
-
-			// Read number of columns (Int16, 2 bytes, big-endian)
-			numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
-
-			// Read format codes for each column (Int16 each)
-			columnFormats = make([]int16, numCols)
-			offset := 3
-			for i := 0; i < int(numCols); i++ {
-				if offset+2 > len(body) {
-					return 0, nil, notices, errors.New("CopyInResponse body too short for column formats")
-				}
-				columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
-				offset += 2
-			}
-
 			return format, columnFormats, notices, nil
 
 		case protocol.MsgErrorResponse:
@@ -717,20 +699,9 @@ func (c *Conn) InitiateCopyToStdout(ctx context.Context, copyQuery string) (form
 
 		switch msgType {
 		case protocol.MsgCopyOutResponse:
-			// CopyOutResponse body: Int8(format) + Int16(numCols) + Int16[numCols]
-			if len(body) < 3 {
-				return 0, nil, notices, fmt.Errorf("CopyOutResponse body too short: %d bytes", len(body))
-			}
-			format = int16(body[0])
-			numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
-			columnFormats = make([]int16, numCols)
-			offset := 3
-			for i := 0; i < int(numCols); i++ {
-				if offset+2 > len(body) {
-					return 0, nil, notices, errors.New("CopyOutResponse body too short for column formats")
-				}
-				columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
-				offset += 2
+			format, columnFormats, err = parseCopyResponseBody("CopyOutResponse", body)
+			if err != nil {
+				return 0, nil, notices, err
 			}
 			return format, columnFormats, notices, nil
 
@@ -923,28 +894,7 @@ func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err e
 		return 0, nil, fmt.Errorf("failed to read message body: %w", err)
 	}
 
-	if len(body) < 3 {
-		return 0, nil, fmt.Errorf("CopyOutResponse body too short: %d bytes", len(body))
-	}
-
-	// Read format (Int8, 1 byte) - 0=text, 1=binary
-	format = int16(body[0])
-
-	// Read number of columns (Int16, 2 bytes, big-endian)
-	numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
-
-	// Read format codes for each column (Int16 each)
-	columnFormats = make([]int16, numCols)
-	offset := 3
-	for i := 0; i < int(numCols); i++ {
-		if offset+2 > len(body) {
-			return 0, nil, errors.New("CopyOutResponse body too short for column formats")
-		}
-		columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
-		offset += 2
-	}
-
-	return format, columnFormats, nil
+	return parseCopyResponseBody("CopyOutResponse", body)
 }
 
 // ReadCopyData reads a CopyData ('d') message from PostgreSQL.

@@ -353,7 +353,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 
 // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 // The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL  (for COPY FROM STDIN)
-// The gateway sends: INITIATE → FAIL?                        (for COPY TO STDOUT)
+// The gateway sends: INITIATE                                (for COPY TO STDOUT)
 // The pooler responds: READY → DATA (for COPY TO STDOUT) → RESULT/ERROR
 func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
 	ctx := stream.Context()
@@ -589,9 +589,9 @@ func noticesToProto(notices []*mterrors.PgDiagnostic) []*query.PgDiagnostic {
 // CopyDone, then CommandComplete + ReadyForQuery. We translate that into
 // the bidi protocol as READY → DATA* → RESULT.
 //
-// A FAIL message from the gateway during the data phase still aborts the
-// COPY (e.g. client disconnect mid-stream), but we don't expect DATA from
-// the gateway — receiving one is a protocol violation.
+// During this phase we do not call stream.Recv(); cleanup happens when
+// stream.Send starts failing (client gone) or the RPC context is canceled
+// by the caller returning up-stack.
 func (s *poolerService) copyBidiExecuteToStdout(
 	ctx context.Context,
 	stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer,

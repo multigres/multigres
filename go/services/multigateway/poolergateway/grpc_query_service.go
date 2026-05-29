@@ -882,10 +882,10 @@ func (g *grpcQueryService) CopyOutStream(
 						g.copyStreamsMu.Lock()
 						delete(g.copyStreams, options.ReservedConnectionId)
 						g.copyStreamsMu.Unlock()
-						// Close the send half so the multipooler's
-						// stream ctx cancels and its CopyOutStream
-						// pump exits via the abortCopyOut path. Mirrors
-						// the RESULT / ERROR terminal branches below.
+						// CloseSend half-closes the client send direction only.
+						// Server cleanup is driven by the caller returning this
+						// error up-stack (which cancels the query context) and by
+						// send failures in the pooler's data pump.
 						_ = stream.CloseSend()
 						return nil, nil, err
 					}

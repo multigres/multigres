@@ -30,6 +30,8 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
@@ -119,6 +121,44 @@ func (m *mockReservedConn) Release(reason reserved.ReleaseReason) {
 
 // Compile-time check.
 var _ reservedConnAPI = (*mockReservedConn)(nil)
+
+type stubPoolManager struct {
+	reservedConn   *reserved.Conn
+	reservedConnOK bool
+}
+
+func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
+func (m *stubPoolManager) Close()                                                  {}
+func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
+func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
+func (m *stubPoolManager) GetAdminConn(context.Context) (admin.PooledConn, error)  { return nil, nil }
+func (m *stubPoolManager) GetRegularConn(context.Context, string, []byte, []byte) (regular.PooledConn, error) {
+	return nil, nil
+}
+
+func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string]string, string, []byte, []byte) (regular.PooledConn, error) {
+	return nil, nil
+}
+
+func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	return nil, errors.New("not implemented in test stub")
+}
+
+func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) {
+	return m.reservedConn, m.reservedConnOK
+}
+
+func (m *stubPoolManager) ApplySettingsToConn(context.Context, *regular.Conn, map[string]string) error {
+	return nil
+}
+func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
+func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }
+func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats          { return connpoolmanager.ManagerStats{} }
+func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQueryRecorder {
+	return nil
+}
+
+var _ connpoolmanager.PoolManager = (*stubPoolManager)(nil)
 
 // newTestExecutor returns an Executor that has just enough wiring to exercise
 // streamExecuteOnReservedConn. The pool manager is left nil because the helper
@@ -634,5 +674,70 @@ func TestNewExecutor(t *testing.T) {
 		e := NewExecutor(logger, nil, poolerID, false)
 		require.NotNil(t, e)
 		assert.False(t, e.vpidStampEnabled)
+	})
+}
+
+func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
+	e := newTestExecutor()
+	e.poolManager = &stubPoolManager{}
+
+	_, _, _, _, err := e.CopyOutReady(
+		context.Background(),
+		&query.Target{TableGroup: "tg"},
+		"COPY t TO STDOUT",
+		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
+		nil,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserved connection 42 not found for user alice")
+}
+
+func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
+	e := newTestExecutor()
+
+	t.Run("missing reserved connection id", func(t *testing.T) {
+		_, _, err := e.CopyOutStream(
+			context.Background(),
+			&query.Target{TableGroup: "tg"},
+			&query.ExecuteOptions{},
+			func(client.CopyOutMessage) error { return nil },
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "options.ReservedConnectionId is required for CopyOutStream")
+	})
+
+	t.Run("reserved connection not found", func(t *testing.T) {
+		e.poolManager = &stubPoolManager{}
+		_, _, err := e.CopyOutStream(
+			context.Background(),
+			&query.Target{TableGroup: "tg"},
+			&query.ExecuteOptions{User: "alice", ReservedConnectionId: 99},
+			func(client.CopyOutMessage) error { return nil },
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reserved connection 99 not found for user alice")
+	})
+}
+
+func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
+	e := newTestExecutor()
+
+	t.Run("nil options is best-effort no-op", func(t *testing.T) {
+		state, err := e.CopyAbort(context.Background(), &query.Target{TableGroup: "tg"}, "abort", nil)
+		require.NoError(t, err)
+		require.Nil(t, state)
+	})
+
+	t.Run("missing reserved conn is best-effort no-op", func(t *testing.T) {
+		e.poolManager = &stubPoolManager{}
+
+		state, err := e.CopyAbort(
+			context.Background(),
+			&query.Target{TableGroup: "tg"},
+			"abort",
+			&query.ExecuteOptions{User: "postgres", ReservedConnectionId: 777},
+		)
+		require.NoError(t, err)
+		require.Nil(t, state)
 	})
 }

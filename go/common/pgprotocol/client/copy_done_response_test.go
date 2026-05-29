@@ -442,6 +442,44 @@ func TestInitiateCopyFromStdin(t *testing.T) {
 	})
 }
 
+func TestReadCopyResponse(t *testing.T) {
+	t.Run("ReadCopyInResponse success", func(t *testing.T) {
+		c := newTestReadOnlyConn(buildCopyInResponse(1, []int16{0, 1}))
+		format, columnFormats, err := c.ReadCopyInResponse()
+		require.NoError(t, err)
+		assert.Equal(t, int16(1), format)
+		assert.Equal(t, []int16{0, 1}, columnFormats)
+	})
+
+	t.Run("ReadCopyOutResponse success", func(t *testing.T) {
+		c := newTestReadOnlyConn(buildCopyOutResponse(0, []int16{1}))
+		format, columnFormats, err := c.ReadCopyOutResponse()
+		require.NoError(t, err)
+		assert.Equal(t, int16(0), format)
+		assert.Equal(t, []int16{1}, columnFormats)
+	})
+
+	t.Run("ReadCopyInResponse short column formats", func(t *testing.T) {
+		var input bytes.Buffer
+		writeRawMessage(&input, protocol.MsgCopyInResponse, []byte{0, 0, 1, 0})
+
+		c := newTestReadOnlyConn(input.Bytes())
+		_, _, err := c.ReadCopyInResponse()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "CopyInResponse body too short for column formats")
+	})
+
+	t.Run("ReadCopyOutResponse short body", func(t *testing.T) {
+		var input bytes.Buffer
+		writeRawMessage(&input, protocol.MsgCopyOutResponse, []byte{0, 0})
+
+		c := newTestReadOnlyConn(input.Bytes())
+		_, _, err := c.ReadCopyOutResponse()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "CopyOutResponse body too short: 2 bytes")
+	})
+}
+
 // TestReadCopyFailResponse_CapturesNotices verifies that NoticeResponse
 // diagnostics arriving between CopyFail and ReadyForQuery are returned to
 // the caller (rather than silently dropped) — symmetric with the notice
