@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -375,7 +376,7 @@ func (g *grpcQueryService) CopyReady(
 	// reserved connection; if no state was attached, the connection is gone
 	// and the gateway should clear its tracking.
 	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
-		return 0, nil, resp.GetReservedState(), fmt.Errorf("COPY initiation failed: %s", resp.Error)
+		return 0, nil, resp.GetReservedState(), copyErrorFromResp(resp)
 	}
 
 	// Validate READY response
@@ -499,7 +500,7 @@ func (g *grpcQueryService) CopyFinalize(
 	// because of another reason such as a transaction. Forward that state
 	// so the gateway keeps tracking the connection instead of clearing it.
 	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
-		return nil, resp.GetReservedState(), fmt.Errorf("COPY finalization failed: %s", resp.Error)
+		return nil, resp.GetReservedState(), copyErrorFromResp(resp)
 	}
 
 	// Validate RESULT response
@@ -508,6 +509,21 @@ func (g *grpcQueryService) CopyFinalize(
 	}
 
 	result := sqltypes.ResultFromProto(resp.Result)
+	if result == nil {
+		result = &sqltypes.Result{}
+	}
+	// Forward NoticeResponse diagnostics that arrived between CopyDone and
+	// CommandComplete (e.g. trigger RAISE NOTICE during COPY FROM STDIN).
+	// The bidi proto carries them in resp.Notices alongside the Result; the
+	// proto Result message itself has no Notices field by design — notices
+	// are streamed as separate frames in the StreamExecute path. For COPY
+	// we batch them onto the final Result so the gateway can re-emit them
+	// in order before CommandComplete via the per-result callback chain.
+	if len(resp.Notices) > 0 {
+		for _, pd := range resp.Notices {
+			result.Notices = append(result.Notices, mterrors.PgDiagnosticFromProto(pd))
+		}
+	}
 
 	// Build reserved state from response
 	reservedState := resp.GetReservedState()
@@ -729,6 +745,191 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	return nil
+}
+
+// copyErrorFromResp builds an error from a CopyBidiExecuteResponse_ERROR
+// frame. When the multipooler attached a structured PgDiagnostic (the common
+// case — PG ErrorResponse with full severity/SQLSTATE/DETAIL/HINT), return
+// the *mterrors.PgDiagnostic directly so the gateway re-emits a verbatim
+// ErrorResponse to the client. Otherwise fall back to the legacy text
+// message — used for infrastructure errors that never had a PG diagnostic
+// to begin with.
+func copyErrorFromResp(resp *multipoolerservice.CopyBidiExecuteResponse) error {
+	if diagProto := resp.GetErrorDiagnostic(); diagProto != nil {
+		return mterrors.PgDiagnosticFromProto(diagProto)
+	}
+	return errors.New(resp.GetError())
+}
+
+// CopyOutReady opens a bidi stream, sends INITIATE with direction=TO_STDOUT,
+// and reads the READY response. The stream is kept open for CopyOutStream
+// to pump DATA frames; ownership of the stream lives in copyStreams keyed
+// by the multipooler-assigned reserved connection ID, mirroring CopyReady.
+func (g *grpcQueryService) CopyOutReady(
+	ctx context.Context,
+	target *querypb.Target,
+	copyQuery string,
+	options *querypb.ExecuteOptions,
+	reservationOptions *querypb.ReservationOptions,
+) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+	g.logger.DebugContext(ctx, "initiating COPY TO STDOUT",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"query", copyQuery)
+
+	stream, err := g.client.CopyBidiExecute(ctx)
+	if err != nil {
+		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start bidirectional execute stream")
+	}
+
+	success := false
+	defer func() {
+		if !success {
+			_ = stream.CloseSend()
+			_, _ = stream.Recv()
+		}
+	}()
+
+	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
+		Phase:              multipoolerservice.CopyBidiExecuteRequest_INITIATE,
+		Direction:          multipoolerservice.CopyBidiExecuteRequest_TO_STDOUT,
+		Query:              copyQuery,
+		Target:             target,
+		Options:            options,
+		ReservationOptions: reservationOptions,
+	}
+	if err := stream.Send(initiateReq); err != nil {
+		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive READY response")
+	}
+
+	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
+		return 0, nil, nil, resp.GetReservedState(), copyErrorFromResp(resp)
+	}
+	if resp.Phase != multipoolerservice.CopyBidiExecuteResponse_READY {
+		return 0, nil, nil, nil, fmt.Errorf("expected READY, got %v", resp.Phase)
+	}
+
+	columnFormats := make([]int16, len(resp.ColumnFormats))
+	for i, f := range resp.ColumnFormats {
+		columnFormats[i] = int16(f)
+	}
+
+	notices := make([]*mterrors.PgDiagnostic, 0, len(resp.Notices))
+	for _, pd := range resp.Notices {
+		notices = append(notices, mterrors.PgDiagnosticFromProto(pd))
+	}
+
+	reservedState := resp.GetReservedState()
+
+	g.copyStreamsMu.Lock()
+	g.copyStreams[reservedState.GetReservedConnectionId()] = stream
+	success = true
+	g.copyStreamsMu.Unlock()
+
+	return int16(resp.Format), columnFormats, notices, reservedState, nil
+}
+
+// CopyOutStream pumps DATA / RESULT frames from the multipooler. For each
+// DATA frame the callback is invoked with either a CopyData chunk or a
+// NoticeResponse diagnostic — exactly one of the two is set. On RESULT,
+// the final *sqltypes.Result (CommandTag + RowsAffected + post-data
+// Notices) and authoritative ReservedState are returned. Caller is
+// responsible for handling the result.Notices (re-emit to the client
+// before CommandComplete).
+//
+// The bidi stream is removed from copyStreams on terminal frames (RESULT
+// or ERROR), so a stray CopyAbort after a clean completion is a safe
+// no-op.
+func (g *grpcQueryService) CopyOutStream(
+	ctx context.Context,
+	target *querypb.Target,
+	options *querypb.ExecuteOptions,
+	onMessage func(client.CopyOutMessage) error,
+) (*sqltypes.Result, *querypb.ReservedState, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, nil, errors.New("options.ReservedConnectionId is required for CopyOutStream")
+	}
+
+	g.copyStreamsMu.Lock()
+	stream, ok := g.copyStreams[options.ReservedConnectionId]
+	g.copyStreamsMu.Unlock()
+	if !ok {
+		return nil, nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			g.copyStreamsMu.Lock()
+			delete(g.copyStreams, options.ReservedConnectionId)
+			g.copyStreamsMu.Unlock()
+			return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive COPY frame")
+		}
+
+		switch resp.Phase {
+		case multipoolerservice.CopyBidiExecuteResponse_DATA:
+			// DATA frame: either a CopyData chunk or a Notice diagnostic
+			// (or both — in practice exactly one will be populated).
+			if len(resp.Notices) > 0 {
+				for _, pd := range resp.Notices {
+					if err := onMessage(client.CopyOutMessage{Notice: mterrors.PgDiagnosticFromProto(pd)}); err != nil {
+						g.copyStreamsMu.Lock()
+						delete(g.copyStreams, options.ReservedConnectionId)
+						g.copyStreamsMu.Unlock()
+						// CloseSend half-closes the client send direction only.
+						// Server cleanup is driven by the caller returning this
+						// error up-stack (which cancels the query context) and by
+						// send failures in the pooler's data pump.
+						_ = stream.CloseSend()
+						return nil, nil, err
+					}
+				}
+			}
+			if len(resp.Data) > 0 {
+				if err := onMessage(client.CopyOutMessage{Data: resp.Data}); err != nil {
+					g.copyStreamsMu.Lock()
+					delete(g.copyStreams, options.ReservedConnectionId)
+					g.copyStreamsMu.Unlock()
+					_ = stream.CloseSend()
+					return nil, nil, err
+				}
+			}
+
+		case multipoolerservice.CopyBidiExecuteResponse_RESULT:
+			g.copyStreamsMu.Lock()
+			delete(g.copyStreams, options.ReservedConnectionId)
+			g.copyStreamsMu.Unlock()
+			_ = stream.CloseSend()
+
+			result := sqltypes.ResultFromProto(resp.Result)
+			if result == nil {
+				result = &sqltypes.Result{}
+			}
+			for _, pd := range resp.Notices {
+				result.Notices = append(result.Notices, mterrors.PgDiagnosticFromProto(pd))
+			}
+			return result, resp.GetReservedState(), nil
+
+		case multipoolerservice.CopyBidiExecuteResponse_ERROR:
+			g.copyStreamsMu.Lock()
+			delete(g.copyStreams, options.ReservedConnectionId)
+			g.copyStreamsMu.Unlock()
+			_ = stream.CloseSend()
+			return nil, resp.GetReservedState(), copyErrorFromResp(resp)
+
+		default:
+			g.copyStreamsMu.Lock()
+			delete(g.copyStreams, options.ReservedConnectionId)
+			g.copyStreamsMu.Unlock()
+			return nil, nil, fmt.Errorf("unexpected phase in COPY TO STDOUT stream: %v", resp.Phase)
+		}
+	}
 }
 
 // Ensure grpcQueryService implements queryservice.QueryService

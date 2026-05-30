@@ -33,6 +33,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -767,6 +768,124 @@ func (sc *ScatterConn) DiscardTempTables(
 
 // --- COPY FROM STDIN methods ---
 
+// CopyOutInitiate initiates a COPY ... TO STDOUT operation using
+// bidirectional streaming. Stores reserved connection info in
+// state.ShardStates for the given tableGroup/shard. Returns format,
+// columnFormats, and any NoticeResponse diagnostics that arrived before
+// the CopyOutResponse (e.g. BEFORE STATEMENT trigger output). The caller
+// then drives the data stream with CopyOutStream.
+func (sc *ScatterConn) CopyOutInitiate(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	queryStr string,
+	state *handler.MultiGatewayConnectionState,
+) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_initiate",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	target := &querypb.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
+	}
+
+	execOptions := &querypb.ExecuteOptions{
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
+	}
+
+	// Reuse an existing reserved connection (e.g. one already held by a
+	// transaction or temp-table reservation) so the COPY runs on the same
+	// backend that owns the in-flight session state. Otherwise pass deferred
+	// BEGIN options so the new connection enters the transaction before
+	// starting COPY. Mirrors CopyInitiate (FROM STDIN).
+	var reservationOpts *querypb.ReservationOptions
+	ss := state.GetMatchingShardState(target)
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
+		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+	} else if conn.IsInTransaction() {
+		reservationOpts = protoutil.NewTransactionReservationOptions()
+		if state.HasTempTableReservation() {
+			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		}
+		if state.PendingBeginQuery != "" {
+			reservationOpts.BeginQuery = state.PendingBeginQuery
+			state.PendingBeginQuery = ""
+		}
+	}
+
+	format, columnFormats, notices, reservedState, err := sc.gateway.CopyOutReady(ctx, target, queryStr, execOptions, reservationOpts)
+	if err != nil {
+		sc.applyReservedState(conn, state, target, reservedState)
+		// Surface the PG error un-wrapped — see the comment on CopyInitiate
+		// below for the rationale.
+		return 0, nil, notices, err
+	}
+
+	sc.applyReservedState(conn, state, target, reservedState)
+	return format, columnFormats, notices, nil
+}
+
+// CopyOutStream drives the COPY ... TO STDOUT data stream, invoking
+// onMessage for each CopyData chunk / NoticeResponse pumped by the
+// multipooler. Returns the final Result (CommandTag, RowsAffected, plus any
+// trailing notices in result.Notices) and applies the authoritative
+// ReservedState to shard tracking on completion. PG ErrorResponse mid-stream
+// surfaces un-wrapped so the gateway re-emits a verbatim ErrorResponse.
+func (sc *ScatterConn) CopyOutStream(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
+	onMessage func(pgClient.CopyOutMessage) error,
+) (*sqltypes.Result, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_stream",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	target := &querypb.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
+	}
+
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || ss.ReservedState.GetReservedConnectionId() == 0 {
+		return nil, errors.New("no active COPY connection")
+	}
+
+	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
+		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
+		SessionSettings:      state.GetSessionSettings(),
+		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
+	}
+
+	result, reservedState, err := sc.gateway.CopyOutStream(ctx, target, copyOptions, onMessage)
+	sc.applyReservedState(conn, state, target, reservedState)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
 // Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
 // Returns: format, columnFormats, error
@@ -842,7 +961,11 @@ func (sc *ScatterConn) CopyInitiate(
 		// so we don't end up sending future statements to a connection that
 		// no longer exists.
 		sc.applyReservedState(conn, state, target, reservedState)
-		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
+		// Surface the PG error un-wrapped: the gateway re-emits a verbatim
+		// ErrorResponse to the client. Wrapping here with
+		// "failed to initiate COPY:" would diverge from upstream PG output
+		// that regression-test fixtures match against.
+		return 0, nil, err
 	}
 
 	// Use authoritative state from multipooler (reasons already include copy + transaction if applicable)
@@ -895,7 +1018,8 @@ func (sc *ScatterConn) CopySendData(
 
 	// Send data via gateway
 	if err := sc.gateway.CopySendData(ctx, target, data, copyOptions); err != nil {
-		return fmt.Errorf("failed to send COPY data: %w", err)
+		// Surface PG errors un-wrapped — see CopyInitiate comment above.
+		return err
 	}
 
 	sc.logger.DebugContext(ctx, "sent COPY data", "size", len(data))
@@ -961,7 +1085,8 @@ func (sc *ScatterConn) CopyFinalize(
 		// state has a non-zero conn ID, clear it and mark the transaction
 		// failed if not.
 		sc.applyReservedState(conn, state, target, reservedState)
-		return fmt.Errorf("failed to finalize COPY: %w", err)
+		// Surface PG errors un-wrapped — see CopyInitiate comment above.
+		return err
 	}
 
 	sc.logger.DebugContext(ctx, "COPY finalized successfully",

@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -127,6 +129,14 @@ func (m *mockGateway) CopyFinalize(_ context.Context, _ *querypb.Target, _ []byt
 
 func (m *mockGateway) CopyAbort(_ context.Context, _ *querypb.Target, _ string, _ *querypb.ExecuteOptions) (*querypb.ReservedState, error) {
 	return m.copyAbortReturnState, m.copyAbortErr
+}
+
+func (m *mockGateway) CopyOutReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+	return 0, nil, nil, nil, nil
+}
+
+func (m *mockGateway) CopyOutStream(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ func(pgClient.CopyOutMessage) error) (*sqltypes.Result, *querypb.ReservedState, error) {
+	return nil, nil, nil
 }
 
 func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target, *querypb.ExecuteOptions) error {

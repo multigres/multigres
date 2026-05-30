@@ -15,6 +15,7 @@
 package queryserving
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -277,13 +278,24 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 				tableName := "copy_unsupported"
 				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-				t.Run("COPY TO STDOUT fails", func(t *testing.T) {
-					if target.Name != "multigateway" {
-						t.Skip("COPY TO STDOUT rejection is multigateway-specific")
+				t.Run("COPY TO STDOUT streams rows", func(t *testing.T) {
+					// COPY TO STDOUT is now implemented in multigateway (CopyOutReady /
+					// CopyOutStream). Seed the table and assert the streamed text
+					// representation comes back row-for-row.
+					seed := [][]any{{1, "Alice"}, {2, "Bob"}, {3, "Carol"}}
+					executeCopyAndVerify(t, conn, ctx, tableName, []string{"id", "name"}, seed)
+
+					var buf bytes.Buffer
+					_, err := conn.PgConn().CopyTo(ctx, &buf, fmt.Sprintf("COPY %s TO STDOUT", tableName))
+					require.NoError(t, err, "COPY TO STDOUT should succeed")
+
+					// Default text format: one row per line, tab-separated columns.
+					gotLines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+					require.Len(t, gotLines, len(seed), "should stream one line per row")
+					for i, row := range seed {
+						want := fmt.Sprintf("%d\t%s", row[0], row[1])
+						assert.Equal(t, want, gotLines[i], "row %d mismatch", i)
 					}
-					_, err := conn.Exec(ctx, fmt.Sprintf("COPY %s TO STDOUT", tableName))
-					require.Error(t, err, "COPY TO STDOUT should fail")
-					assert.Contains(t, err.Error(), "not yet supported", "should mention not supported")
 				})
 
 				t.Run("COPY FROM file pass-through", func(t *testing.T) {

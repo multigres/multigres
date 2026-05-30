@@ -22,8 +22,8 @@ import (
 )
 
 // planCopyStmt plans COPY commands.
-// Supports COPY FROM STDIN (streaming), COPY FROM/TO file (pass-through).
-// Rejects COPY FROM/TO PROGRAM for security. COPY TO STDOUT not yet supported.
+// Supports COPY FROM STDIN and COPY TO STDOUT (streaming),
+// COPY FROM/TO file (pass-through). Rejects COPY FROM/TO PROGRAM for security.
 func (p *Planner) planCopyStmt(
 	sql string,
 	stmt *ast.CopyStmt,
@@ -62,26 +62,33 @@ func (p *Planner) planCopyStmt(
 			p.logger.Debug("created COPY FROM file plan (pass-through)", "plan", plan.String())
 			return plan, nil
 		}
-	} else {
-		// COPY TO ...
-		if stmt.Filename == "" {
-			// COPY TO STDOUT - not yet supported
-			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
-				"COPY TO STDOUT not yet supported", "")
-		} else {
-			// COPY TO file - simple Route (PostgreSQL writes server-side file)
-			// TODO(multigateway): Future enhancement - similar to FROM file,
-			// multigateway could intercept to support client downloads or
-			// distributed writes across shards.
-			p.logger.Debug("planning COPY TO file command (pass-through)",
-				"query", sql,
-				"file", stmt.Filename,
-				"tablegroup", p.defaultTableGroup)
-
-			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
-			plan := engine.NewPlan(sql, route)
-			p.logger.Debug("created COPY TO file plan (pass-through)", "plan", plan.String())
-			return plan, nil
-		}
 	}
+
+	// COPY TO ...
+	if stmt.Filename == "" {
+		// COPY TO STDOUT — streams CopyData frames back to the client. Uses
+		// the same CopyStatement primitive as FROM STDIN; the primitive
+		// dispatches on stmt.IsFrom internally.
+		p.logger.Debug("planning COPY TO STDOUT command",
+			"query", sql,
+			"tablegroup", p.defaultTableGroup)
+
+		copyPrimitive := engine.NewCopyStatement(p.defaultTableGroup, sql, stmt)
+		plan := engine.NewPlan(sql, copyPrimitive)
+		p.logger.Debug("created COPY TO STDOUT plan", "plan", plan.String())
+		return plan, nil
+	}
+	// COPY TO file - simple Route (PostgreSQL writes server-side file)
+	// TODO(multigateway): Future enhancement - similar to FROM file,
+	// multigateway could intercept to support client downloads or
+	// distributed writes across shards.
+	p.logger.Debug("planning COPY TO file command (pass-through)",
+		"query", sql,
+		"file", stmt.Filename,
+		"tablegroup", p.defaultTableGroup)
+
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil)
+	plan := engine.NewPlan(sql, route)
+	p.logger.Debug("created COPY TO file plan (pass-through)", "plan", plan.String())
+	return plan, nil
 }

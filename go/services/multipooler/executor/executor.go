@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -961,7 +962,12 @@ func (e *Executor) CopyReady(
 		// CopyDone/CopyFail, so this is the only window to tag the
 		// backend for lock-detection during long-running COPYs.
 		e.stampVpidOnReserved(ctx, reservedConn, options)
-		format, columnFormats, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
+		// InitiateCopyFromStdin may return NoticeResponse diagnostics that
+		// arrive before CopyInResponse (e.g. BEFORE STATEMENT triggers).
+		// They are uncommon and harmless to drop here; the gateway's main
+		// regression-test concern is trigger NOTICE output during the data
+		// phase, which surfaces via ReadCopyDoneResponse in CopyFinalize.
+		format, columnFormats, _, err = reservedConn.Conn().InitiateCopyFromStdin(ctx, copyQuery)
 		if err != nil {
 			// InitiateCopyFromStdin distinguishes two failure modes:
 			//   - Connection-level error (broken socket): conn is dead, release it.
@@ -973,11 +979,14 @@ func (e *Executor) CopyReady(
 			//     subsequent statement to fail with "reserved connection not
 			//     found". Return the current state alongside the error so the
 			//     gateway can keep tracking the conn.
+			// Surface PG errors un-wrapped so the gateway can re-emit a
+			// verbatim ErrorResponse — see ReadCopyDoneResponse error path
+			// in CopyFinalize for the same rationale.
 			if mterrors.IsConnectionError(err) {
 				reservedConn.Release(reserved.ReleaseError)
-				return 0, nil, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+				return 0, nil, nil, err
 			}
-			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+			return 0, nil, e.buildReservedState(reservedConn), err
 		}
 	} else {
 		// New reserved conn — wire BEGIN-if-needed and InitiateCopyFromStdin
@@ -1003,11 +1012,9 @@ func (e *Executor) CopyReady(
 			// promote to a *reserved.Conn, so the tag carries through.
 			e.stampVpidOnRegular(ctx, conn, options)
 			var initErr error
-			format, columnFormats, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
-			if initErr != nil {
-				return fmt.Errorf("failed to initiate COPY FROM STDIN: %w", initErr)
-			}
-			return nil
+			format, columnFormats, _, initErr = conn.InitiateCopyFromStdin(ctx, copyQuery)
+			// Surface PG errors un-wrapped — see comment above.
+			return initErr
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
@@ -1125,8 +1132,11 @@ func (e *Executor) CopyFinalize(
 		return nil, nil, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
-	// Read CommandComplete response from PostgreSQL
-	commandTag, rowsAffected, err := conn.ReadCopyDoneResponse(ctx)
+	// Read CommandComplete response from PostgreSQL. Notices from triggers /
+	// progress reporting that fired during the data phase arrive between
+	// CopyDone and CommandComplete; capture them so the gateway can forward
+	// them to the client as NoticeResponse frames.
+	commandTag, rowsAffected, notices, err := conn.ReadCopyDoneResponse(ctx)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 		// For a PG ErrorResponse (e.g., constraint violation, type mismatch,
@@ -1136,25 +1146,36 @@ func (e *Executor) CopyFinalize(
 		// so we mirror CopyAbort here: remove the COPY reason and release
 		// only if no other reasons remain. A connection-level failure (broken
 		// socket) still falls through to Release(ReleaseError).
+		//
+		// We deliberately do NOT wrap the PG error with "COPY operation
+		// failed:" — the gateway round-trips a structured PgDiagnostic over
+		// the bidi stream's error_diagnostic field and re-emits a verbatim
+		// ErrorResponse to the client. Adding a Go-style prefix here would
+		// cause regression-test fixtures comparing ERROR / CONTEXT lines to
+		// diverge from upstream PostgreSQL output.
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				reservedConn.Release(reserved.ReleasePortalComplete)
-				return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
+				return nil, nil, err
 			}
-			return nil, e.buildReservedState(reservedConn), fmt.Errorf("COPY operation failed: %w", err)
+			return nil, e.buildReservedState(reservedConn), err
 		}
 		reservedConn.Release(reserved.ReleaseError)
-		return nil, nil, fmt.Errorf("COPY operation failed: %w", err)
+		return nil, nil, err
 	}
 
 	e.logger.DebugContext(ctx, "COPY DONE successful",
 		"rows_affected", rowsAffected,
 		"command_tag", commandTag)
 
-	// Build result
+	// Build result. Attach any NoticeResponse diagnostics captured during
+	// CopyDone → CommandComplete; the gateway serializes them into the
+	// CopyBidiExecuteResponse.notices proto field and re-emits them as
+	// NoticeResponse frames to the client before CommandComplete.
 	result := &sqltypes.Result{
 		CommandTag:   commandTag,
 		RowsAffected: rowsAffected,
+		Notices:      notices,
 	}
 
 	// Remove the COPY reason. If other reasons remain (e.g., transaction),
@@ -1220,7 +1241,10 @@ func (e *Executor) CopyAbort(
 	// Read ErrorResponse + ReadyForQuery from PostgreSQL.
 	// After CopyFail, PostgreSQL responds with ErrorResponse then ReadyForQuery.
 	// ReadCopyFailResponse drains both, leaving the connection in a clean state.
-	readErr := conn.ReadCopyFailResponse(ctx)
+	// Any notices that arrived between CopyFail and ReadyForQuery are
+	// discarded here — the client has already initiated an abort, so the
+	// abort outcome is what matters, not pre-abort trigger output.
+	_, readErr := conn.ReadCopyFailResponse(ctx)
 	if readErr != nil {
 		e.logger.ErrorContext(ctx, "failed to read response after CopyFail", "error", readErr)
 	}
@@ -1243,6 +1267,212 @@ func (e *Executor) CopyAbort(
 	}
 
 	return e.buildReservedState(reservedConn), nil
+}
+
+// CopyOutReady initiates a COPY ... TO STDOUT operation and returns format
+// information plus any pre-CopyOutResponse notices. The caller (the
+// multipooler bidi gRPC handler) then calls CopyOutStream to pump CopyData
+// chunks back to the gateway, ending with the trailing CommandComplete +
+// ReadyForQuery.
+//
+// Structure mirrors CopyReady (FROM STDIN) so the reservation lifecycle is
+// identical: reuse an existing reserved conn when ReservedConnectionId is
+// set, or create a new one (with optional BEGIN-if-needed). The reservation
+// reason ReasonCopy is added on success; it must be removed by
+// CopyOutStream / CopyAbort.
+func (e *Executor) CopyOutReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
+) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = e.sessionSettingsForPool(options.SessionSettings)
+	}
+
+	e.logger.DebugContext(ctx, "initiating COPY TO STDOUT",
+		"query", copyQuery,
+		"user", user)
+
+	var (
+		reservedConn  *reserved.Conn
+		err           error
+		format        int16
+		columnFormats []int16
+		notices       []*mterrors.PgDiagnostic
+	)
+
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return 0, nil, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+		e.stampVpidOnReserved(ctx, reservedConn, options)
+		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
+		if err != nil {
+			// Same dual failure handling as CopyReady (FROM STDIN): a PG
+			// ErrorResponse leaves the conn at RFQ and reusable if other
+			// reservation reasons remain; a connection-level error means
+			// the socket is dead. Surface the PG error un-wrapped so the
+			// gateway can re-emit the verbatim ErrorResponse.
+			if mterrors.IsConnectionError(err) {
+				reservedConn.Release(reserved.ReleaseError)
+				return 0, nil, notices, nil, err
+			}
+			return 0, nil, notices, e.buildReservedState(reservedConn), err
+		}
+	} else {
+		requiresBegin := protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions))
+		beginQuery := "BEGIN"
+		if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+			beginQuery = reservationOptions.BeginQuery
+		}
+
+		validate := func(ctx context.Context, conn *regular.Conn) error {
+			if requiresBegin {
+				if _, err := conn.Query(ctx, beginQuery); err != nil {
+					return fmt.Errorf("failed to begin transaction for COPY: %w", err)
+				}
+			}
+			e.stampVpidOnRegular(ctx, conn, options)
+			var initErr error
+			format, columnFormats, notices, initErr = conn.InitiateCopyToStdout(ctx, copyQuery)
+			// Surface PG errors un-wrapped — see CopyOutReady comment above.
+			return initErr
+		}
+
+		clientKey, serverKey := scramKeysFromOptions(options)
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
+		if err != nil {
+			return 0, nil, notices, nil, err
+		}
+
+		if requiresBegin {
+			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
+		}
+	}
+
+	reservedConn.AddReservationReason(protoutil.ReasonCopy)
+
+	e.logger.DebugContext(ctx, "COPY OUT INITIATE successful",
+		"conn_id", reservedConn.ConnID(),
+		"format", format,
+		"num_columns", len(columnFormats))
+
+	return format, columnFormats, notices, e.buildReservedState(reservedConn), nil
+}
+
+// CopyOutStream pumps the COPY ... TO STDOUT response stream back to the
+// caller via onMessage callbacks. PG drives the stream: a series of
+// CopyData chunks interleaved with NoticeResponse diagnostics, terminated
+// by CopyDone followed by CommandComplete + ReadyForQuery. The callback
+// receives one CopyOutMessage per CopyData / NoticeResponse seen; a
+// CopyData chunk has Data set, a notice has Notice set. CopyDone is
+// consumed internally and signals end-of-stream.
+//
+// After the stream ends, the trailing CommandComplete + ReadyForQuery is
+// drained via FinishCopyToStdout and the resulting (*sqltypes.Result with
+// CommandTag + RowsAffected + post-data Notices) is returned. On a PG
+// ErrorResponse anywhere in the stream, the connection is left in a clean
+// state by the underlying client helpers and the ReasonCopy reservation
+// reason is dropped; the surviving ReservedState (or nil) is returned for
+// the gateway to apply.
+func (e *Executor) CopyOutStream(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	onMessage func(client.CopyOutMessage) error,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, nil, errors.New("options.ReservedConnectionId is required for CopyOutStream")
+	}
+
+	user := e.getUserFromOptions(options)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+	}
+
+	conn := reservedConn.Conn()
+
+	// abortCopyOut releases the reserved conn with ReleaseError, which
+	// destroys the backend socket. This is the correct cleanup during a
+	// COPY ... TO STDOUT abort because PG is in copy-out mode and is NOT
+	// reading from the frontend — writing CopyFail (the FROM STDIN abort
+	// message) would only buffer in the kernel and a subsequent
+	// ReadCopyFailResponse would receive CopyData where ErrorResponse is
+	// expected, fail, and fall through to the same ReleaseError. Skipping
+	// the wasted round-trip avoids that I/O. Destroying the socket makes
+	// PG see EOF and abort the COPY on its own — the protocol-correct
+	// way for a frontend to cancel an in-progress COPY OUT (there is no
+	// in-band cancel; pg_cancel_backend on a separate session is the only
+	// other PG-blessed option).
+	abortCopyOut := func(reason string) {
+		e.logger.DebugContext(ctx, "aborting COPY TO STDOUT via socket destroy",
+			"conn_id", options.ReservedConnectionId,
+			"reason", reason)
+		reservedConn.Release(reserved.ReleaseError)
+	}
+
+	// Pump CopyData / NoticeResponse to the gateway until CopyDone.
+	for {
+		if err := ctx.Err(); err != nil {
+			abortCopyOut("stream canceled: " + err.Error())
+			return nil, nil, err
+		}
+
+		msg, err := conn.ReadCopyOutMessage(ctx)
+		if err != nil {
+			// PG ErrorResponse path: the helper already drained RFQ.
+			// Mirror CopyFinalize's release semantics.
+			if !mterrors.IsConnectionError(err) {
+				if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+					reservedConn.Release(reserved.ReleasePortalComplete)
+					return nil, nil, err
+				}
+				return nil, e.buildReservedState(reservedConn), err
+			}
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, nil, err
+		}
+
+		if msg.Done {
+			break
+		}
+
+		if cbErr := onMessage(msg); cbErr != nil {
+			abortCopyOut("callback failed: " + cbErr.Error())
+			return nil, nil, cbErr
+		}
+	}
+
+	commandTag, rowsAffected, notices, err := conn.FinishCopyToStdout(ctx)
+	if err != nil {
+		if !mterrors.IsConnectionError(err) {
+			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+				reservedConn.Release(reserved.ReleasePortalComplete)
+				return nil, nil, err
+			}
+			return nil, e.buildReservedState(reservedConn), err
+		}
+		reservedConn.Release(reserved.ReleaseError)
+		return nil, nil, err
+	}
+
+	result := &sqltypes.Result{
+		CommandTag:   commandTag,
+		RowsAffected: rowsAffected,
+		Notices:      notices,
+	}
+
+	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+		reservedConn.Release(reserved.ReleasePortalComplete)
+		return result, nil, nil
+	}
+	return result, e.buildReservedState(reservedConn), nil
 }
 
 // getUserFromOptions extracts the user from ExecuteOptions.
@@ -1484,14 +1714,20 @@ func (e *Executor) ReleaseReservedConnection(
 	}
 
 	// Step 2: If there's a COPY reason, send CopyFail and read the response.
+	// After CopyFail PG sends ErrorResponse + ReadyForQuery (not
+	// CommandComplete), so use ReadCopyFailResponse — it expects that
+	// shape, leaves the conn in a clean RFQ state, and reports cleanup
+	// success without flipping cleanupFailed. ReadCopyDoneResponse would
+	// happen to drain the same bytes but treat the ErrorResponse as a
+	// failure, falsely marking the conn unrecyclable.
 	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
 		conn := reservedConn.Conn()
 		if err := conn.WriteCopyFail("connection closing"); err != nil {
 			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
-		} else if _, _, err := conn.ReadCopyDoneResponse(ctx); err != nil {
-			e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)",
+		} else if _, err := conn.ReadCopyFailResponse(ctx); err != nil {
+			e.logger.DebugContext(ctx, "error reading response after CopyFail",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
 		}
