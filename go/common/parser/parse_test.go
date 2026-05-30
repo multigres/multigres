@@ -35,6 +35,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
@@ -111,34 +112,37 @@ func (s *parseTestSuite) testFile(filename string) {
 				secondParsedOutput, secondErr = getParserOutput(parsedOutput)
 			}
 
-			t.Run(testName, func(t *testing.T) {
-				defer func() {
-					// Use the actual output to store the files.
-					if current.Query != parsedOutput {
-						current.Expected = parsedOutput
-					} else {
-						current.Expected = ""
+			// Assertions are made with assert (non-fatal) inside the single
+			// per-file subtest rather than a t.Run per statement: the corpora
+			// hold tens of thousands of statements, and one subtest each
+			// overwhelms the CI test reporter. Each message names the query so
+			// failures are still identifiable.
+			if tcase.Error != "" {
+				assert.ErrorContainsf(t, err, tcase.Error, "case: %s", testName)
+			} else {
+				// We expect a successful parse.
+				if assert.NoErrorf(t, err, "case: %s", testName) {
+					assert.EqualValuesf(t, expectedQuery, parsedOutput, "case: %s", testName)
+					if assert.NoErrorf(t, secondErr, "re-parse failed\ncase: %s\nquery: %s", testName, tcase.Query) {
+						assert.EqualValuesf(t, expectedQuery, secondParsedOutput, "re-parse mismatch\ncase: %s\nquery: %s", testName, tcase.Query)
 					}
-					if err != nil {
-						current.Error = err.Error()
-					}
-					expected = append(expected, current)
-					if t.Failed() {
-						failed = true
-					}
-				}()
-
-				// Check if we expect an error
-				if tcase.Error != "" {
-					require.ErrorContains(t, err, tcase.Error)
-				} else {
-					// We expect a successful parse
-					require.NoError(t, err)
-					require.EqualValues(t, expectedQuery, parsedOutput)
-					require.NoError(t, secondErr, tcase.Query)
-					require.EqualValues(t, expectedQuery, secondParsedOutput, tcase.Query)
 				}
-			})
+			}
+
+			// Record the actual output so a failing run can rewrite the
+			// expectation file.
+			if current.Query != parsedOutput {
+				current.Expected = parsedOutput
+			} else {
+				current.Expected = ""
+			}
+			if err != nil {
+				current.Error = err.Error()
+			}
+			expected = append(expected, current)
+			if t.Failed() {
+				failed = true
+			}
 		}
 
 		// Write updated test file if there were failures
@@ -448,6 +452,11 @@ func deparseStmts(stmts []ast.Stmt) string {
 // the comparison.
 func (s *parseTestSuite) roundtripFile(filename string) {
 	s.T().Run(filename, func(t *testing.T) {
+		// Assertions use assert (non-fatal) within this single per-file subtest
+		// rather than a t.Run per statement: the corpora hold tens of thousands
+		// of statements, and a subtest each overwhelms the CI test reporter.
+		// Each message carries the query and its deparse so failures remain
+		// identifiable.
 		for _, tcase := range readJSONTests(filename) {
 			if tcase.Query == "" {
 				continue
@@ -460,24 +469,19 @@ func (s *parseTestSuite) roundtripFile(filename string) {
 				continue
 			}
 
-			testName := tcase.Comment
-			if testName == "" {
-				testName = tcase.Query
+			deparsed := deparseStmts(firstStmts)
+			secondStmts, err := ParseSQL(deparsed)
+			if !assert.NoErrorf(t, err,
+				"re-parsing the deparsed query failed\nquery:    %s\ndeparsed: %s",
+				tcase.Query, deparsed) {
+				continue
 			}
 
-			t.Run(testName, func(t *testing.T) {
-				deparsed := deparseStmts(firstStmts)
-				secondStmts, err := ParseSQL(deparsed)
-				require.NoError(t, err,
-					"re-parsing the deparsed query failed\nquery:    %s\ndeparsed: %s",
-					tcase.Query, deparsed)
-
-				canonicalizeStmts(firstStmts)
-				canonicalizeStmts(secondStmts)
-				require.Equal(t, firstStmts, secondStmts,
-					"AST changed after round-trip\nquery:    %s\ndeparsed: %s",
-					tcase.Query, deparsed)
-			})
+			canonicalizeStmts(firstStmts)
+			canonicalizeStmts(secondStmts)
+			assert.Equalf(t, firstStmts, secondStmts,
+				"AST changed after round-trip\nquery:    %s\ndeparsed: %s",
+				tcase.Query, deparsed)
 		}
 	})
 }
@@ -493,6 +497,17 @@ func (s *parseTestSuite) TestParseDeparseRoundtrip() {
 	s.roundtripFile("ddl_cases.json")
 	s.roundtripFile("dml_cases.json")
 	s.roundtripFile("set_cases.json")
+	// deparse_cases.json is the curated deparse test corpus imported from
+	// pganalyze/libpg_query (test/deparse_tests.c). It targets deparser
+	// edge cases across statement types.
+	// See testdata/THIRD_PARTY_NOTICES.md for source and license attribution.
+	s.roundtripFile("deparse_cases.json")
+	// deparse_complex_cases.json holds the complex/real-world query corpora
+	// imported from pganalyze/libpg_query 17-6.2.2 (test/sql/deparse and
+	// test/sql/deparse-depesz). They are pretty-printer fixtures upstream;
+	// here they exercise round-trip fidelity on large, realistic statements.
+	// See testdata/THIRD_PARTY_NOTICES.md for source and license attribution.
+	s.roundtripFile("deparse_complex_cases.json")
 
 	postgresDir := "testdata/postgres"
 	files, err := os.ReadDir(postgresDir)
@@ -713,6 +728,11 @@ func (s *parseTestSuite) TestParseIdentifierRewriteRoundtrip() {
 // identifierRewriteFile runs the identifier-rewrite round-trip for one test file.
 func (s *parseTestSuite) identifierRewriteFile(filename string) {
 	s.T().Run(filename, func(t *testing.T) {
+		// Assertions use assert (non-fatal) within this single per-file subtest
+		// rather than a t.Run per statement: the corpora hold tens of thousands
+		// of statements, and a subtest each overwhelms the CI test reporter.
+		// Each message carries the query and its deparse so failures remain
+		// identifiable.
 		for _, tcase := range readJSONTests(filename) {
 			if tcase.Query == "" {
 				continue
@@ -725,30 +745,23 @@ func (s *parseTestSuite) identifierRewriteFile(filename string) {
 				continue
 			}
 
-			testName := tcase.Comment
-			if testName == "" {
-				testName = tcase.Query
+			rewritten := make([]ast.Stmt, len(stmts))
+			for i, stmt := range stmts {
+				rewritten[i] = rewriteIdentifiers(stmt)
 			}
 
-			t.Run(testName, func(t *testing.T) {
-				rewritten := make([]ast.Stmt, len(stmts))
-				for i, stmt := range stmts {
-					rewritten[i] = rewriteIdentifiers(stmt)
-				}
-
-				// We only assert that the deparsed SQL parses. We deliberately do
-				// not compare the re-parsed AST to the rewritten one: this test is
-				// about quoting identifiers in the right places, and the deparser is
-				// free to choose an equivalent spelling that re-parses to a slightly
-				// different (but valid) tree. AST round-trip fidelity is the job of
-				// TestParseDeparseRoundtrip. A parse error here means an identifier
-				// was emitted without the quoting its mangled form requires.
-				deparsed := deparseStmts(rewritten)
-				_, err := ParseSQL(deparsed)
-				require.NoError(t, err,
-					"re-parsing the identifier-mangled query failed — an identifier was deparsed without proper quoting\nquery:    %s\ndeparsed: %s",
-					tcase.Query, deparsed)
-			})
+			// We only assert that the deparsed SQL parses. We deliberately do
+			// not compare the re-parsed AST to the rewritten one: this test is
+			// about quoting identifiers in the right places, and the deparser is
+			// free to choose an equivalent spelling that re-parses to a slightly
+			// different (but valid) tree. AST round-trip fidelity is the job of
+			// TestParseDeparseRoundtrip. A parse error here means an identifier
+			// was emitted without the quoting its mangled form requires.
+			deparsed := deparseStmts(rewritten)
+			_, err = ParseSQL(deparsed)
+			assert.NoErrorf(t, err,
+				"re-parsing the identifier-mangled query failed — an identifier was deparsed without proper quoting\nquery:    %s\ndeparsed: %s",
+				tcase.Query, deparsed)
 		}
 	})
 }

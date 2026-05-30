@@ -1,0 +1,152 @@
+[
+  {
+    "comment": "plpgsql_array - Statement 1",
+    "query": "create type complex as (r float8, i float8)",
+    "expected": "CREATE TYPE complex AS (r FLOAT8, i FLOAT8)"
+  },
+  {
+    "comment": "plpgsql_array - Statement 2",
+    "query": "create type quadarray as (c1 complex[], c2 complex)",
+    "expected": "CREATE TYPE quadarray AS (c1 complex[], c2 complex)"
+  },
+  {
+    "comment": "plpgsql_array - Statement 3",
+    "query": "do $$ declare a int[]; begin a := array[1,2]; a[3] := 4; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := array[1,2]; a[3] := 4; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 4",
+    "query": "do $$ declare a int[]; begin a[3] := 4; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a[3] := 4; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 5",
+    "query": "do $$ declare a int[]; begin a[1][4] := 4; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a[1][4] := 4; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 6",
+    "query": "do $$ declare a int[]; begin a[1] := 23::text; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a[1] := 23::text; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 7",
+    "query": "do $$ declare a int[]; begin a := array[1,2]; a[2:3] := array[3,4]; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := array[1,2]; a[2:3] := array[3,4]; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 8",
+    "query": "do $$ declare a int[]; begin a := array[1,2]; a[2] := a[2] + 1; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := array[1,2]; a[2] := a[2] + 1; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 9",
+    "query": "do $$ declare a int[]; begin a[1:2] := array[3,4]; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a[1:2] := array[3,4]; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 10",
+    "query": "do $$ declare a int[]; begin a[1:2] := 4; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a[1:2] := 4; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 11",
+    "query": "do $$ declare a complex[]; begin a[1] := (1,2); a[1].i := 11; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a complex[]; begin a[1] := (1,2); a[1].i := 11; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 12",
+    "query": "do $$ declare a complex[]; begin a[1].i := 11; raise notice 'a = %, a[1].i = %', a, a[1].i; end$$",
+    "expected": "DO ' declare a complex[]; begin a[1].i := 11; raise notice ''a = %, a[1].i = %'', a, a[1].i; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 13",
+    "query": "do $$ declare a complex[]; begin a[1:2].i := array[11,12]; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a complex[]; begin a[1:2].i := array[11,12]; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 14",
+    "query": "do $$ declare a quadarray; begin a.c1[1].i := 11; raise notice 'a = %, a.c1[1].i = %', a, a.c1[1].i; end$$",
+    "expected": "DO ' declare a quadarray; begin a.c1[1].i := 11; raise notice ''a = %, a.c1[1].i = %'', a, a.c1[1].i; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 15",
+    "query": "do $$ declare a int[]; begin a := array_agg(x) from (values(1),(2),(3)) v(x); raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := array_agg(x) from (values(1),(2),(3)) v(x); raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 16",
+    "query": "create temp table onecol as select array[1,2] as f1",
+    "expected": "CREATE TEMP TABLE onecol AS SELECT ARRAY[1,2] AS f1"
+  },
+  {
+    "comment": "plpgsql_array - Statement 17",
+    "query": "do $$ declare a int[]; begin a := f1 from onecol; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := f1 from onecol; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 18",
+    "query": "do $$ declare a int[]; begin a := * from onecol for update; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := * from onecol for update; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 19",
+    "query": "do $$ declare a int[]; begin a := from onecol; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := from onecol; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 20",
+    "query": "do $$ declare a int[]; begin a := f1, f1 from onecol; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := f1, f1 from onecol; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 21",
+    "query": "insert into onecol values(array[11])",
+    "expected": "INSERT INTO onecol VALUES (ARRAY[11])"
+  },
+  {
+    "comment": "plpgsql_array - Statement 22",
+    "query": "do $$ declare a int[]; begin a := f1 from onecol limit 1; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a int[]; begin a := f1 from onecol limit 1; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 23",
+    "query": "do $$ declare a real; begin a[1] := 2; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a real; begin a[1] := 2; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 24",
+    "query": "do $$ declare a complex; begin a.r[1] := 2; raise notice 'a = %', a; end$$",
+    "expected": "DO ' declare a complex; begin a.r[1] := 2; raise notice ''a = %'', a; end'"
+  },
+  {
+    "comment": "plpgsql_array - Statement 25",
+    "query": "do $$ declare v int; v1 v%type; v2 v%type[]; v3 v%type[1]; v4 v%type[][]; v5 v%type[1][3]; v6 v%type array; v7 v%type array[]; v8 v%type array[1]; v9 v%type array[1][1]; v10 pg_catalog.pg_class%rowtype[]; begin raise notice '%', pg_typeof(v1); raise notice '%', pg_typeof(v2); raise notice '%', pg_typeof(v3); raise notice '%', pg_typeof(v4); raise notice '%', pg_typeof(v5); raise notice '%', pg_typeof(v6); raise notice '%', pg_typeof(v7); raise notice '%', pg_typeof(v8); raise notice '%', pg_typeof(v9); raise notice '%', pg_typeof(v10); end; $$",
+    "expected": "DO ' declare v int; v1 v%type; v2 v%type[]; v3 v%type[1]; v4 v%type[][]; v5 v%type[1][3]; v6 v%type array; v7 v%type array[]; v8 v%type array[1]; v9 v%type array[1][1]; v10 pg_catalog.pg_class%rowtype[]; begin raise notice ''%'', pg_typeof(v1); raise notice ''%'', pg_typeof(v2); raise notice ''%'', pg_typeof(v3); raise notice ''%'', pg_typeof(v4); raise notice ''%'', pg_typeof(v5); raise notice ''%'', pg_typeof(v6); raise notice ''%'', pg_typeof(v7); raise notice ''%'', pg_typeof(v8); raise notice ''%'', pg_typeof(v9); raise notice ''%'', pg_typeof(v10); end; '"
+  },
+  {
+    "comment": "plpgsql_array - Statement 26",
+    "query": "do $$ declare v pg_node_tree; v1 v%type[]; begin end; $$",
+    "expected": "DO ' declare v pg_node_tree; v1 v%type[]; begin end; '"
+  },
+  {
+    "comment": "plpgsql_array - Statement 27",
+    "query": "do $$ declare v1 int; v2 varchar; a1 v1%type[]; a2 v2%type[]; begin v1 := 10; v2 := 'Hi'; a1 := array[v1,v1]; a2 := array[v2,v2]; raise notice '% %', a1, a2; end; $$",
+    "expected": "DO ' declare v1 int; v2 varchar; a1 v1%type[]; a2 v2%type[]; begin v1 := 10; v2 := ''Hi''; a1 := array[v1,v1]; a2 := array[v2,v2]; raise notice ''% %'', a1, a2; end; '"
+  },
+  {
+    "comment": "plpgsql_array - Statement 28",
+    "query": "create table array_test_table(a int, b varchar)",
+    "expected": "CREATE TABLE array_test_table (a INT, b VARCHAR)"
+  },
+  {
+    "comment": "plpgsql_array - Statement 29",
+    "query": "insert into array_test_table values(1, 'first'), (2, 'second')",
+    "expected": "INSERT INTO array_test_table VALUES (1, 'first'), (2, 'second')"
+  },
+  {
+    "comment": "plpgsql_array - Statement 30",
+    "query": "do $$ declare tg array_test_table%rowtype[]; begin tg := array(select array_test_table from array_test_table); raise notice '%', tg; tg := array(select row(a,b) from array_test_table); raise notice '%', tg; end; $$",
+    "expected": "DO ' declare tg array_test_table%rowtype[]; begin tg := array(select array_test_table from array_test_table); raise notice ''%'', tg; tg := array(select row(a,b) from array_test_table); raise notice ''%'', tg; end; '"
+  }
+]
