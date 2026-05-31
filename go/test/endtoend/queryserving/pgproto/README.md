@@ -1,6 +1,6 @@
 # pgproto wire-protocol conformance suite
 
-Runs [Tatsuo Ishii's `pgproto`][pgproto] — a data-file-driven frontend/backend
+Runs [the pgpool-II project's `pgproto`][pgproto] — a data-file-driven frontend/backend
 protocol tester, written for exercising PostgreSQL proxies like pgpool-II —
 against two targets in the same Go test run, and records where the
 multigateway's response trace diverges from a real PostgreSQL's:
@@ -206,7 +206,7 @@ matches PostgreSQL exactly).
 ## Tool install
 
 `pgproto` publishes no prebuilt binaries — it is C built against `libpq` — so
-`make tools` fetches the GitHub source archive at a **pinned commit**
+`make tools` fetches the pgpool-II release source tarball
 (SHA256-verified in `tools/tool_checksums.sh`), runs its committed autoconf
 `configure` + `make`, and symlinks the binary into `bin/pgproto`. Bump
 `PGPROTO_VER` in the `Makefile` (and `PgprotoCommit` in `corpus.go`, plus the
@@ -318,4 +318,4 @@ infrastructure problem), and the per-file diff is in `results.json` /
 `compatibility-report.md` (uploaded as an artifact and written to the job
 summary).
 
-[pgproto]: https://github.com/tatsuo-ishii/pgproto
+[pgproto]: https://github.com/pgpool/pgpool2/tree/master/src/tools/pgproto
