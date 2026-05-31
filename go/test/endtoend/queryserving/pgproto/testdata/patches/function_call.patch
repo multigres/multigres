@@ -3,10 +3,13 @@
 # PostgreSQL answers a fast-path FunctionCall ('F') with FunctionCallResponse.
 # The multigateway has no handler for the 'F' message type — it falls through to
 # the default case in handleMessage (conn.go), which emits an internal-error
-# ErrorResponse (SQLSTATE MTD03) and tears the connection down. So PostgreSQL's
-# FunctionCallResponse becomes the gateway's ErrorResponse(MTD03) here. (The
-# trailing ReadyForQuery is the gateway's own teardown reply; pgproto still
-# reads it and the Terminate that follows, so the trace stays diffable.)
+# ErrorResponse (SQLSTATE MTD03) and closes the connection. So PostgreSQL's
+# FunctionCallResponse becomes the gateway's ErrorResponse(MTD03) here. The
+# trailing ReadyForQuery is the gateway's own teardown reply.
+#
+# function_call.pgproto deliberately omits the trailing Terminate ('X') because
+# the gateway has already closed the socket by then — see that file's NOTE — so
+# the trace ends at ReadyForQuery on both targets.
 #
 # This patch records the CURRENT (unsupported) behaviour so the corpus file can
 # ship before the feature exists. When fast-path FunctionCall is implemented the
@@ -15,8 +18,7 @@
 # patch then.
 --- a
 +++ b
-@@ -1,3 +1,3 @@
+@@ -1,2 +1,2 @@
 -<= BE FunctionCallResponse
 +<= BE ErrorResponse(C MTD03)
  <= BE ReadyForQuery(I)
- FE=> Terminate
