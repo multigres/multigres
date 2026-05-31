@@ -31,8 +31,10 @@ ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
 PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
 SQLLOGICTEST_VERSION="${SQLLOGICTEST_VER:-v0.29.1}"
-# pgproto has no release binaries; PGPROTO_VERSION is a git commit SHA built from source.
-PGPROTO_VERSION="${PGPROTO_VER:-fa08c9c96df9ca514cd19aa7f587e27c7ac63160}"
+# pgproto has no prebuilt binaries; it is built from the pgpool-II release
+# source tarball (pgproto lives in the pgpool2 tree under src/tools/pgproto).
+# PGPROTO_VERSION is the pgpool-II release version.
+PGPROTO_VERSION="${PGPROTO_VER:-4.6.6}"
 
 get_platform() {
   case $(uname) in
@@ -474,14 +476,16 @@ install_sqllogictest() {
   cd - >/dev/null
 }
 
-# Build pgproto (Tatsuo Ishii's wire-protocol conformance tool) from a pinned
-# source commit and symlink the resulting binary into $MTROOT/bin/pgproto.
+# Build pgproto (the PostgreSQL wire-protocol conformance tool, maintained in
+# the pgpool2 tree under src/tools/pgproto) from a pinned pgpool-II release and
+# symlink the resulting binary into $MTROOT/bin/pgproto.
 #
 # pgproto publishes no prebuilt binaries — it is C built against libpq — so we
-# fetch the GitHub source archive at the pinned commit (SHA-verified via
-# tool_checksums.sh) and run its committed autoconf `configure` + `make`. Only
-# a C compiler and libpq headers (located via pg_config) are required; no
-# autotools are needed because configure/Makefile.in are committed upstream.
+# fetch the pgpool-II release source tarball (SHA-verified via
+# tool_checksums.sh), run its shipped autoconf `configure`, then `make` only the
+# src/tools/pgproto subdirectory. Only a C compiler and libpq headers (located
+# via pg_config) are required; no autotools are needed because the release
+# tarball ships a generated configure/Makefile.in.
 #
 # libpq is used only to open the connection and complete startup/auth — the
 # wire-protocol trace pgproto emits is produced by its own socket code — so any
@@ -503,9 +507,9 @@ install_pgproto() {
   local sha256
   sha256=$(get_sha256 "pgproto" "$version" "src" "src" "tar.gz")
 
-  local filename="pgproto-${version}.tar.gz"
-  # codeload serves the exact tree at a commit as a tarball; stable per commit.
-  local url="https://codeload.github.com/tatsuo-ishii/pgproto/tar.gz/${version}"
+  local filename="pgpool-II-${version}.tar.gz"
+  # Official pgpool-II release source tarball; stable per release version.
+  local url="https://www.pgpool.net/source/pgpool-II-${version}.tar.gz"
 
   local startdir
   startdir=$(pwd)
@@ -517,18 +521,20 @@ install_pgproto() {
   tar xzf "$filename"
   rm "$filename"
 
-  # GitHub archives extract to "<repo>-<commit>".
-  cd "$dist/pgproto-${version}"
+  # The release tarball extracts to "pgpool-II-<version>" and ships a generated
+  # configure; pgproto lives under src/tools/pgproto and needs only libpq, so we
+  # configure the tree and build just that subdirectory.
+  cd "$dist/pgpool-II-${version}"
   ./configure -q
-  make -s
+  make -s -C src/tools/pgproto
 
-  if [ ! -x "src/pgproto" ]; then
-    echo "ERROR: pgproto build did not produce src/pgproto" >&2
+  if [ ! -x "src/tools/pgproto/pgproto" ]; then
+    echo "ERROR: pgproto build did not produce src/tools/pgproto/pgproto" >&2
     exit 1
   fi
 
   mkdir -p "$MTROOT/bin"
-  ln -snf "$dist/pgproto-${version}/src/pgproto" "$MTROOT/bin/pgproto"
+  ln -snf "$dist/pgpool-II-${version}/src/tools/pgproto/pgproto" "$MTROOT/bin/pgproto"
   cd "$startdir"
 }
 

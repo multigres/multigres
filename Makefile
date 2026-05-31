@@ -25,9 +25,10 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 SQLLOGICTEST_VER = v0.29.1
 export SQLLOGICTEST_VER
-# pgproto ships no release binaries; we build from a pinned source commit.
-# PGPROTO_VER is therefore a git commit SHA, not a semver tag.
-PGPROTO_VER = fa08c9c96df9ca514cd19aa7f587e27c7ac63160
+# pgproto is built from source from the pgpool-II release tarball (it lives in
+# the pgpool2 tree under src/tools/pgproto). PGPROTO_VER is the pgpool-II
+# release version.
+PGPROTO_VER = 4.6.6
 export PGPROTO_VER
 
 # List of all commands to build
