@@ -189,6 +189,19 @@ matches PostgreSQL exactly).
   PostgreSQL would require eager bind-time planning against the backend (an
   extra round-trip on the latency-sensitive path) for negligible client benefit,
   so the divergence is recorded rather than fixed.
+- **`copy.patch`** — the `COPY … TO STDOUT` block of `copy.pgproto` is **not
+  implemented yet**. The multigateway rejects it at plan time with SQLSTATE
+  `0A000` (feature_not_supported), so PostgreSQL's `CopyOutResponse`/`CopyData…`/
+  `CopyDone`/`CommandComplete` collapses to a single `ErrorResponse(0A000)`. The
+  rest of `copy.pgproto` (COPY FROM STDIN, CopyFail) matches PostgreSQL exactly;
+  the patch covers only the TO STDOUT lines. Unlike `error_recovery.patch`, this
+  records a divergence we intend to **fix**: when the feature lands the patch
+  stops applying and the suite flags it for deletion.
+- **`function_call.patch`** — fast-path **FunctionCall is not implemented yet**.
+  The multigateway has no `'F'` message handler, so PostgreSQL's
+  `FunctionCallResponse` becomes the gateway's `ErrorResponse(MTD03)`. Same
+  ship-the-test-early intent as `copy_out.patch`: delete when fast-path support
+  lands.
 
 ## Tool install
 
