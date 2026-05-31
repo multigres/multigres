@@ -1,4 +1,4 @@
-# Copyright 2025 Supabase, Inc.
+# Copyright 2026 Supabase, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Docker Build and Publish
+name: Docker Build and Publish (cluster)
 
 on:
   workflow_dispatch:
@@ -27,8 +27,8 @@ permissions:
   packages: write
 
 jobs:
-  docker:
-    name: Build and Push Docker Image
+  docker-cluster:
+    name: Build and Push cluster Docker Image
     runs-on: ubuntu-24.04
 
     steps:
@@ -51,22 +51,26 @@ jobs:
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/multigres
-          # PR event reference is explicitly three, as Docker build could take
-          # place for each PR updates in the future.
+          images: ghcr.io/${{ github.repository_owner }}/multigres-cluster
+          # latest tracks main (not the latest release tag), so disable the
+          # action's automatic latest and tag it explicitly on the default
+          # branch. Version tags (vX.Y.Z) produce the semver tags below.
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
-      - name: Build and push Docker image
+      - name: Build and push cluster Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.cluster
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
