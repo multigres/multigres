@@ -86,14 +86,16 @@ PostgreSQL JDBC driver (see "Output and normalization").
 - **No CancelRequest.** Query cancellation is a special out-of-band packet with
   no data-file directive, so it cannot be driven from a corpus file. Cancel
   behaviour is covered by the Go-native tests instead.
-- **Bound parameter values cannot be sent.** Only zero-parameter Binds work, so
-  embed literals in the query text instead of using `$1` placeholders. This is
-  not documented upstream — we found it by reading `src/extended_query.c` and
-  confirming empirically: in `process_bind`, the parameter-_value_ read is the
-  one field missing a `SKIP_TABS` before it, so the tab left by the preceding
-  length field makes `buffer_read_string` reject the value. The upstream README
-  only ever shows zero-parameter Binds (`'B' "" "S1" 0 0 0`), so the path is
-  never exercised there.
+- **Bound parameter values are supported** (since moving to the pgpool-II
+  `pgproto` build). A Bind with `nparams > 0` sends each parameter as
+  `<paramlen> "value"`, so data files can drive real `$1`/`$2` placeholders
+  instead of embedding literals — see `bind_text_params.pgproto`,
+  `bind_mixed_type_params.pgproto`, and `bind_param_rebind.pgproto`. The retired
+  tatsuo-ishii/pgproto could not do this: its `process_bind` was missing a
+  `SKIP_TABS` between a parameter's length and value, so the tab left by the
+  length field made `buffer_read_string` reject the value and only
+  zero-parameter Binds worked. That was the bug fixed in the pgpool-II tree
+  (`src/tools/pgproto/extended_query.c`) and the reason for the move.
 - **CopyData is text-only and cannot contain tabs or newlines** — an unescaped
   tab/newline terminates the data-file string, and `\t`/`\n` escapes emit the
   literal letter, not the control byte. Use single-column COPY targets and one
@@ -189,19 +191,9 @@ matches PostgreSQL exactly).
   PostgreSQL would require eager bind-time planning against the backend (an
   extra round-trip on the latency-sensitive path) for negligible client benefit,
   so the divergence is recorded rather than fixed.
-- **`copy.patch`** — the `COPY … TO STDOUT` block of `copy.pgproto` is **not
-  implemented yet**. The multigateway rejects it at plan time with SQLSTATE
-  `0A000` (feature_not_supported), so PostgreSQL's `CopyOutResponse`/`CopyData…`/
-  `CopyDone`/`CommandComplete` collapses to a single `ErrorResponse(0A000)`. The
-  rest of `copy.pgproto` (COPY FROM STDIN, CopyFail) matches PostgreSQL exactly;
-  the patch covers only the TO STDOUT lines. Unlike `error_recovery.patch`, this
-  records a divergence we intend to **fix**: when the feature lands the patch
-  stops applying and the suite flags it for deletion.
 - **`function_call.patch`** — fast-path **FunctionCall is not implemented yet**.
   The multigateway has no `'F'` message handler, so PostgreSQL's
-  `FunctionCallResponse` becomes the gateway's `ErrorResponse(MTD03)`. Same
-  ship-the-test-early intent as `copy_out.patch`: delete when fast-path support
-  lands.
+  `FunctionCallResponse` becomes the gateway's `ErrorResponse(MTD03)`.
 
 ## Tool install
 
