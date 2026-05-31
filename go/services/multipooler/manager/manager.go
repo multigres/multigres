@@ -1386,6 +1386,16 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Force a checkpoint in the background so pg_rewind can later identify the
+	// divergence point on this timeline. Run async to avoid extending the
+	// promotionInProgress suppression window by the checkpoint I/O duration.
+	go func() {
+		pm.logger.InfoContext(pm.ctx, "Forcing checkpoint after promotion")
+		if err := pm.exec(pm.ctx, "CHECKPOINT"); err != nil {
+			pm.logger.WarnContext(pm.ctx, "Failed to force checkpoint after promotion", "error", err)
+		}
+	}()
+
 	return nil
 }
 
