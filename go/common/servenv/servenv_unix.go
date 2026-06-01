@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/tools/netutil"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -77,16 +78,18 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		attrs = append(attrs, attribute.String("multigres.tablegroup", id.TableGroup))
 	}
 
-	// Tag every metric/span/log with the binary's VCS identity so callers
+	// Tag every metric/span/log with the binary's release tag so callers
 	// can distinguish builds in dashboards and trace mixed-version
-	// deployments. service.version and vcs.ref.head.revision are the
-	// canonical OTel semconv attributes for this.
-	build := readBuildSnapshot()
-	if build.revision != "" {
-		attrs = append(attrs,
-			semconv.ServiceVersion(build.revision),
-		)
+	// deployments. service.version is the canonical OTel semconv
+	// attribute, fall back to the VCS revision when the release tag
+	// isn't injected (local builds).
+	serviceVersion := version.Version
+	if serviceVersion == "dev" {
+		if snap := version.Read(); snap.Revision != "" {
+			serviceVersion = snap.Revision
+		}
 	}
+	attrs = append(attrs, semconv.ServiceVersion(serviceVersion))
 
 	// Initialize OpenTelemetry with service identity attributes
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {

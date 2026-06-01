@@ -10,6 +10,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin
@@ -25,6 +26,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin
@@ -40,6 +42,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin
@@ -55,6 +58,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin
@@ -70,6 +74,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin
@@ -85,6 +90,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/multigres/multigres/go/common/version.Version={{.Version}}
     goos:
       - linux
       - darwin

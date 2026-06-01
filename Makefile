@@ -34,7 +34,15 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgproto pgproto-update-patches proto tools parser help
+# Release tag injected at build time via -ldflags -X. Commit SHA and
+# commit time come from runtime/debug.BuildInfo (Go's -buildvcs), the
+# Makefile only supplies the release tag. Overridable from the
+# environment so release pipelines can pass a specific tag.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION_PKG := github.com/multigres/multigres/go/common/version
+LDFLAGS_VERSION := -X $(VERSION_PKG).Version=$(VERSION)
+
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
 
 ##@ General
 
@@ -90,7 +98,7 @@ build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
-		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+		go build -ldflags="$(LDFLAGS_VERSION)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries with coverage
@@ -98,7 +106,7 @@ build-coverage:
 	mkdir -p bin/cov/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (coverage)"; \
-		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
+		go build -cover -covermode=atomic -coverpkg=./... -ldflags="$(LDFLAGS_VERSION)" -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build Go binaries only (release, static, stripped)
@@ -106,7 +114,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
-		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
+		CGO_ENABLED=0 go build -ldflags="-w -s $(LDFLAGS_VERSION)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)
@@ -124,7 +132,7 @@ images:
 install: ## Install binaries to GOPATH/bin.
 	@for cmd in $(CMDS); do \
 		echo "Installing $$cmd"; \
-		go install ./go/cmd/$$cmd; \
+		go install -ldflags="$(LDFLAGS_VERSION)" ./go/cmd/$$cmd; \
 	done
 
 ##@ Testing

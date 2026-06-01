@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/services/multipooler"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -33,10 +34,11 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 	mp := multipooler.NewMultiPooler(telemetry)
 
 	cmd := &cobra.Command{
-		Use:   constants.ServiceMultipooler,
-		Short: "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-		Long:  "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
-		Args:  cobra.NoArgs,
+		Use:     constants.ServiceMultipooler,
+		Short:   "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Long:    "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Args:    cobra.NoArgs,
+		Version: version.String(constants.ServiceMultipooler),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return mp.CobraPreRunE(cmd)
 		},
@@ -44,6 +46,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 			return run(cmd, args, mp)
 		},
 	}
+	cmd.SetVersionTemplate("{{.Version}}\n")
 
 	mp.RegisterFlags(cmd.Flags())
 
