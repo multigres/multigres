@@ -100,10 +100,10 @@ type ShardAnalysis struct {
 	LeaderHasResigned bool
 
 	// PromotingPrimaryID is the ID of the topology primary that is currently running
-	// pg_promote() but has not yet transitioned to accepting connections. Nil when no
-	// promotion is in progress.
-	// Used by LeaderIsDeadAnalyzer to suppress spurious failover detection during the
-	// brief window (~5–10s) when the newly promoted node's postgres is not yet ready.
+	// pg_promote() or completing WAL replay but has not yet transitioned to accepting
+	// connections. Nil when no promotion is in progress.
+	// Used by LeaderIsDeadAnalyzer to suppress spurious failover detection while the
+	// newly promoted node's postgres is not yet ready.
 	PromotingPrimaryID *clustermetadatapb.ID
 }
 

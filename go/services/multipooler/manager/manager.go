@@ -1358,9 +1358,12 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.broadcastHealth()
 	}()
 
-	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to call pg_promote()", "error", err)
-		return mterrors.Wrap(err, "failed to promote standby")
+	pgPromoteCtx, pgPromoteSpan := telemetry.Tracer().Start(ctx, "multipooler/pg-promote")
+	pgPromoteErr := pm.exec(pgPromoteCtx, "SELECT pg_promote()")
+	pgPromoteSpan.End()
+	if pgPromoteErr != nil {
+		pm.logger.ErrorContext(ctx, "Failed to call pg_promote()", "error", pgPromoteErr)
+		return mterrors.Wrap(pgPromoteErr, "failed to promote standby")
 	}
 
 	// Wait for promotion to complete: pg_is_in_recovery()=false AND postgres_ready=true.
@@ -1393,37 +1396,55 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 // is accepting connections. Both conditions are required: pg_is_in_recovery()=false
 // confirms the WAL-level promotion, and postgres_ready=true confirms clients can
 // connect. Clearing promotionInProgress only when both are true ensures multiorch's
-// PrimaryIsDeadAnalyzer suppression window matches the full visibility gap.
+// LeaderIsDeadAnalyzer suppression window covers the full gap — including WAL replay
+// which can take several minutes on large databases.
+//
+// The caller's context controls the timeout; no inner deadline is imposed here.
 func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	promotionTimeout := 30 * time.Second
-	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
-	defer cancel()
-
-	promotedFromRecovery := false
+	// Phase A: wait for postgres to leave recovery mode (WAL replay).
+	walCtx, walSpan := telemetry.Tracer().Start(ctx, "multipooler/wal-replay")
 	for {
 		select {
-		case <-promotionCtx.Done():
-			pm.logger.ErrorContext(ctx, "Timeout waiting for promotion to complete")
+		case <-walCtx.Done():
+			walSpan.RecordError(walCtx.Err())
+			walSpan.End()
+			pm.logger.ErrorContext(ctx, "Context cancelled waiting for promotion to complete", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 
 		case <-ticker.C:
-			if !promotedFromRecovery {
-				isInRecovery, err := pm.isInRecovery(promotionCtx)
-				if err != nil {
-					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
-					return mterrors.Wrap(err, "failed to check recovery status")
-				}
-				if !isInRecovery {
-					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
-					promotedFromRecovery = true
-				}
+			isInRecovery, err := pm.isInRecovery(walCtx)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
+				walSpan.RecordError(err)
+				walSpan.End()
+				return mterrors.Wrap(err, "failed to check recovery status")
 			}
+			if !isInRecovery {
+				pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+				walSpan.End()
+				goto waitReady
+			}
+		}
+	}
 
-			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
+waitReady:
+	// Phase B: wait for postgres to accept connections.
+	readyCtx, readySpan := telemetry.Tracer().Start(ctx, "multipooler/postgres-ready")
+	defer readySpan.End()
+	for {
+		select {
+		case <-readyCtx.Done():
+			readySpan.RecordError(readyCtx.Err())
+			pm.logger.ErrorContext(ctx, "Context cancelled waiting for promotion to complete", "error", ctx.Err())
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
+
+		case <-ticker.C:
+			if pm.isPostgresReady(readyCtx) {
 				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
 				return nil
 			}
