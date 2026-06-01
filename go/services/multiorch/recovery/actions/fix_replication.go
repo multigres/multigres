@@ -236,8 +236,9 @@ func (a *FixReplicationAction) fixNotReplicating(
 			return mterrors.Wrap(rewindErr, "pg_rewind failed")
 		}
 		// Re-verify replication after rewind. RewindToSource restarts
-		// PostgreSQL as a standby, and primary_conninfo in
-		// postgresql.auto.conf is preserved (pg_rewind doesn't touch it).
+		// PostgreSQL as a standby and re-establishes primary_conninfo,
+		// which pg_rewind may have cleared by syncing postgresql.auto.conf
+		// from the source.
 		if verifyErr := a.verifyReplicationStarted(ctx, replica); verifyErr != nil {
 			return mterrors.Wrap(verifyErr, "replication did not start after pg_rewind")
 		}

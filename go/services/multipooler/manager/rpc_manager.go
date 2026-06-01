@@ -970,6 +970,17 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
 	}
 
+	// Re-establish primary_conninfo. pg_rewind syncs files from the source including
+	// postgresql.auto.conf, which does not have primary_conninfo set on the primary.
+	// Without this, the WAL receiver has no primary to connect to after restart.
+	pm.logger.InfoContext(ctx, "Re-establishing primary_conninfo after pg_rewind",
+		"source_host", source.Hostname,
+		"source_port", port)
+	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to re-establish primary_conninfo after pg_rewind", "error", err)
+		return nil, mterrors.Wrap(err, "failed to re-establish replication after pg_rewind")
+	}
+
 	// Rewind succeeded: allow the monitor to resume normal operation.
 	pm.rewindPending.Store(false)
 
