@@ -75,9 +75,13 @@ jobs:
       - name: Run PostgreSQL compatibility smoke test
         run: |
           set -euo pipefail
+          # Resolve the gateway port from the container's own env so the smoke
+          # test follows MULTIGRES_GATEWAY_PG_PORT wherever it's reconfigured.
+          gateway_port="$(docker compose exec -T multigres sh -c 'echo "${MULTIGRES_GATEWAY_PG_PORT:-15432}"' | tr -d '\r')"
+          echo "Using gateway port: ${gateway_port}"
           run_sql() {
             docker compose exec -T -e PGPASSWORD=postgres multigres \
-              psql -h 127.0.0.1 -p 15432 -U postgres -d postgres -v ON_ERROR_STOP=1 "$@"
+              psql -h 127.0.0.1 -p "${gateway_port}" -U postgres -d postgres -v ON_ERROR_STOP=1 "$@"
           }
           echo "== SELECT version() =="
           run_sql -c "SELECT version();"

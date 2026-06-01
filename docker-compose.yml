@@ -36,9 +36,11 @@ services:
       - "15100:15100" # multigateway HTTP (status/metrics)
       - "15000:15000" # multiadmin HTTP (status/metrics)
     healthcheck:
+      # Uses ${MULTIGRES_GATEWAY_PG_PORT} (defaulted to 15432 if unset) so the
+      # probe follows the gateway whenever the port is reconfigured above.
       test:
         - "CMD-SHELL"
-        - "PGPASSWORD=postgres psql -h 127.0.0.1 -p 15432 -U postgres -d postgres -tAc 'SELECT 1' || exit 1"
+        - 'PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc ''SELECT 1'' || exit 1'
       interval: 10s
       timeout: 5s
       retries: 12

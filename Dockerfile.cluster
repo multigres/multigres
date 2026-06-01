@@ -105,6 +105,10 @@ COPY --chmod=0755 docker/cluster-entrypoint.sh /usr/local/bin/cluster-entrypoint
 # Working directory for the cluster's config, data, logs, and sockets. Kept
 # short so the PostgreSQL Unix socket paths stay under the 104-char limit.
 ENV MULTIGRES_CONFIG_PATH=/multigres/cluster
+# Image-internal default for the gateway port. The entrypoint and the
+# HEALTHCHECK both read this env var, so overriding it (e.g. from compose)
+# keeps them in sync.
+ENV MULTIGRES_GATEWAY_PG_PORT=15432
 RUN mkdir -p "${MULTIGRES_CONFIG_PATH}" && \
     chown -R postgres:postgres /multigres
 
@@ -117,7 +121,7 @@ USER postgres
 WORKDIR /multigres/cluster
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
-    CMD PGPASSWORD=postgres psql -h 127.0.0.1 -p 15432 -U postgres -d postgres -tAc 'SELECT 1' || exit 1
+    CMD PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc 'SELECT 1' || exit 1
 
 # Reset the base image's CMD (["postgres"]) so it isn't passed to the entrypoint.
 ENTRYPOINT ["/usr/local/bin/cluster-entrypoint.sh"]
