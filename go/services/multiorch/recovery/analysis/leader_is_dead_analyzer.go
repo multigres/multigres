@@ -63,9 +63,10 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
-	// Suppress failover during a known pg_promote() window. The multipooler explicitly
-	// signals promotion is in progress via PromotingPrimaryID. The conditions:
-	//   - PromotingPrimaryID != nil: multipooler has flagged pg_promote() is running
+	// Suppress failover while pg_promote() is running or the new postgres is completing
+	// WAL replay. The multipooler holds POSTGRES_STATUS_PROMOTING until pg_isready
+	// succeeds, so PromotingPrimaryID stays set for the full window. The conditions:
+	//   - PromotingPrimaryID != nil: multipooler has flagged promotion is in progress
 	//   - LeaderPoolerReachable: stream is live, so the flag is current (not stale)
 	//   - LeaderPostgresRunning: postgres process is still alive
 	// If postgres crashes during promotion, LeaderPostgresRunning=false and we fall through.

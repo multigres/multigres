@@ -258,6 +258,25 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
+	t.Run("suppresses LeaderIsDead during WAL replay after pg_promote()", func(t *testing.T) {
+		// The bug scenario: pg_promote() has returned (PROMOTING cleared in old code)
+		// but postgres is still doing WAL replay and not accepting connections.
+		// With the fix, the multipooler holds POSTGRES_STATUS_PROMOTING until
+		// pg_isready succeeds, so PromotingPrimaryID stays set throughout replay.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true              // pooler reachable
+			sa.LeaderPostgresRunning = true              // process alive
+			sa.LeaderPostgresReady = false               // not accepting connections (WAL replay)
+			sa.LeaderLastPostgresReadyTime = time.Time{} // never been ready as primary
+			sa.PromotingPrimaryID = leaderID             // multipooler holds PROMOTING during WAL replay
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems,
+			"should suppress LeaderIsDead while postgres completes WAL replay after pg_promote()")
+	})
+
 	t.Run("does not suppress LeaderIsDead when multipooler unreachable during promotion", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false // stream disconnected (stale flag)
