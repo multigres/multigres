@@ -1864,7 +1864,13 @@ func (l *Lexer) HasErrors() bool {
 	return l.context.HasErrors()
 }
 
-// GetErrors returns all errors encountered
+// GetErrors returns all errors encountered.
+//
+// These are plain parser errors carrying no SQLSTATE: go/common/parser is a
+// standalone library and must not depend on the mterrors vocabulary (enforced
+// by the parser-isolation lint rule). Callers that serve PostgreSQL clients map
+// a parse failure to a 42601 syntax_error diagnostic via mterrors.NewParseError
+// at the point they invoke the parser.
 func (l *Lexer) GetErrors() []error {
 	errors := l.context.GetErrors()
 	result := make([]error, len(errors))

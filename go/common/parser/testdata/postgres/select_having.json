@@ -2,7 +2,7 @@
   {
     "comment": "select_having - Statement 1",
     "query": "CREATE TABLE test_having (a int, b int, c char(8), d char)",
-    "expected": "CREATE TABLE test_having (a INT, b INT, c CHAR(8), d CHAR(1))"
+    "expected": "CREATE TABLE test_having (a INT, b INT, c bpchar(8), d bpchar(1))"
   },
   {
     "comment": "select_having - Statement 2",

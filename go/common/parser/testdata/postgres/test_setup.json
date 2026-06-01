@@ -15,7 +15,7 @@
   {
     "comment": "test_setup - Statement 4",
     "query": "CREATE TABLE CHAR_TBL(f1 char(4))",
-    "expected": "CREATE TABLE char_tbl (f1 CHAR(4))"
+    "expected": "CREATE TABLE char_tbl (f1 bpchar(4))"
   },
   {
     "comment": "test_setup - Statement 5",

@@ -1,0 +1,47 @@
+#
+# COPY sub-protocol coverage.
+#
+# COPY ... FROM STDIN (CopyInResponse, CopyData, CopyDone) and a COPY FROM STDIN
+# aborted with CopyFail (ErrorResponse). Each block ends with 'Y' to drain to
+# ReadyForQuery.
+#
+# COPY ... TO STDOUT is covered too, but the multigateway does not support it
+# yet ("COPY TO STDOUT not yet supported", SQLSTATE 0A000), so that block
+# diverges from PostgreSQL and the divergence is recorded in
+# testdata/patches/copy.patch. The corpus exercise ships now so the test is
+# ready; when COPY TO STDOUT is implemented the patch stops applying and the
+# suite flags it for deletion. See that patch's comment.
+#
+# pgproto sends each 'd' (CopyData) string verbatim and cannot embed tab or
+# newline bytes in a data-file string (an unescaped tab/newline terminates the
+# string, and a backslash escape emits the literal following character). So
+# COPY tests use a single-column table and a single value per CopyData.
+#
+
+'Q'	"CREATE TABLE pgproto_copy (label text)"
+'Y'
+
+# COPY FROM STDIN: one row, then CopyDone -> CommandComplete(COPY 1).
+'Q'	"COPY pgproto_copy FROM STDIN"
+'d'	"hello"
+'c'
+'Y'
+
+# COPY FROM STDIN aborted with CopyFail -> ErrorResponse + ReadyForQuery.
+'Q'	"COPY pgproto_copy FROM STDIN"
+'d'	"world"
+'f'	"pgproto copy fail test"
+'Y'
+
+# The aborted COPY must not have committed its row: count stays 1.
+'Q'	"SELECT count(*) FROM pgproto_copy"
+'Y'
+
+# COPY ... TO STDOUT (the one committed "hello" row). PostgreSQL streams it as
+# CopyOutResponse, one CopyData, CopyDone, CommandComplete(COPY 1). The
+# multigateway rejects it at plan time -> ErrorResponse(0A000) (recorded via
+# testdata/patches/copy.patch until COPY TO STDOUT is supported).
+'Q'	"COPY pgproto_copy TO STDOUT"
+'Y'
+
+'X'

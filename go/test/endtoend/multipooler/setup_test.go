@@ -112,7 +112,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 // Deprecated: Use shardsetup.WaitForManagerReady directly.
 func waitForManagerReady(t *testing.T, _ *MultipoolerTestSetup, manager *ProcessInstance) {
 	t.Helper()
-	shardsetup.WaitForManagerReady(t, manager)
+	shardsetup.WaitForManagerReady(t, manager, nil)
 }
 
 // cleanupOption is a function that configures cleanup behavior.

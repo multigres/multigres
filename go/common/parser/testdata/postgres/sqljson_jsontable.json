@@ -87,12 +87,12 @@
   {
     "comment": "sqljson_jsontable - Statement 18",
     "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, \"int\" int PATH '$', \"text\" text PATH '$', \"char(4)\" char(4) PATH '$', \"bool\" bool PATH '$', \"numeric\" numeric PATH '$', \"domain\" jsonb_test_domain PATH '$', js json PATH '$', jb jsonb PATH '$' ) ) jt ON true",
-    "expected": "SELECT * FROM json_table_test AS vals LEFT OUTER JOIN JSON_TABLE(CAST(vals.js AS JSONB), 'lax $[*]' COLUMNS (id FOR ORDINALITY, int INT PATH '$', text TEXT PATH '$', \"char(4)\" CHAR(4) PATH '$', bool BOOLEAN PATH '$', numeric NUMERIC PATH '$', domain jsonb_test_domain PATH '$', js JSON PATH '$', jb JSONB PATH '$')) AS jt ON TRUE"
+    "expected": "SELECT * FROM json_table_test AS vals LEFT OUTER JOIN JSON_TABLE(CAST(vals.js AS JSONB), 'lax $[*]' COLUMNS (id FOR ORDINALITY, int INT PATH '$', text TEXT PATH '$', \"char(4)\" bpchar(4) PATH '$', bool BOOLEAN PATH '$', numeric NUMERIC PATH '$', domain jsonb_test_domain PATH '$', js JSON PATH '$', jb JSONB PATH '$')) AS jt ON TRUE"
   },
   {
     "comment": "sqljson_jsontable - Statement 19",
     "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, jst text    FORMAT JSON  PATH '$', jsc char(4) FORMAT JSON  PATH '$', jsv varchar(4) FORMAT JSON  PATH '$', jsb jsonb FORMAT JSON PATH '$', jsbq jsonb FORMAT JSON PATH '$' OMIT QUOTES ) ) jt ON true",
-    "expected": "SELECT * FROM json_table_test AS vals LEFT OUTER JOIN JSON_TABLE(CAST(vals.js AS JSONB), 'lax $[*]' COLUMNS (id FOR ORDINALITY, jst TEXT FORMAT JSON PATH '$', jsc CHAR(4) FORMAT JSON PATH '$', jsv VARCHAR(4) FORMAT JSON PATH '$', jsb JSONB FORMAT JSON PATH '$', jsbq JSONB FORMAT JSON PATH '$' OMIT QUOTES)) AS jt ON TRUE"
+    "expected": "SELECT * FROM json_table_test AS vals LEFT OUTER JOIN JSON_TABLE(CAST(vals.js AS JSONB), 'lax $[*]' COLUMNS (id FOR ORDINALITY, jst TEXT FORMAT JSON PATH '$', jsc bpchar(4) FORMAT JSON PATH '$', jsv VARCHAR(4) FORMAT JSON PATH '$', jsb JSONB FORMAT JSON PATH '$', jsbq JSONB FORMAT JSON PATH '$' OMIT QUOTES)) AS jt ON TRUE"
   },
   {
     "comment": "sqljson_jsontable - Statement 20",
@@ -132,12 +132,12 @@
   {
     "comment": "sqljson_jsontable - Statement 27",
     "query": "CREATE VIEW jsonb_table_view2 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( \"int\" int PATH '$', \"text\" text PATH '$', \"char(4)\" char(4) PATH '$', \"bool\" bool PATH '$', \"numeric\" numeric PATH '$', \"domain\" jsonb_test_domain PATH '$'))",
-    "expected": "CREATE VIEW jsonb_table_view2 AS SELECT * FROM JSON_TABLE(CAST('null' AS JSONB), 'lax $[*]' PASSING 1 + 2 AS a, CAST('\"foo\"' AS JSON) AS \"b c\" COLUMNS (int INT PATH '$', text TEXT PATH '$', \"char(4)\" CHAR(4) PATH '$', bool BOOLEAN PATH '$', numeric NUMERIC PATH '$', domain jsonb_test_domain PATH '$'))"
+    "expected": "CREATE VIEW jsonb_table_view2 AS SELECT * FROM JSON_TABLE(CAST('null' AS JSONB), 'lax $[*]' PASSING 1 + 2 AS a, CAST('\"foo\"' AS JSON) AS \"b c\" COLUMNS (int INT PATH '$', text TEXT PATH '$', \"char(4)\" bpchar(4) PATH '$', bool BOOLEAN PATH '$', numeric NUMERIC PATH '$', domain jsonb_test_domain PATH '$'))"
   },
   {
     "comment": "sqljson_jsontable - Statement 28",
     "query": "CREATE VIEW jsonb_table_view3 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( js json PATH '$', jb jsonb PATH '$', jst text    FORMAT JSON  PATH '$', jsc char(4) FORMAT JSON  PATH '$', jsv varchar(4) FORMAT JSON  PATH '$'))",
-    "expected": "CREATE VIEW jsonb_table_view3 AS SELECT * FROM JSON_TABLE(CAST('null' AS JSONB), 'lax $[*]' PASSING 1 + 2 AS a, CAST('\"foo\"' AS JSON) AS \"b c\" COLUMNS (js JSON PATH '$', jb JSONB PATH '$', jst TEXT FORMAT JSON PATH '$', jsc CHAR(4) FORMAT JSON PATH '$', jsv VARCHAR(4) FORMAT JSON PATH '$'))"
+    "expected": "CREATE VIEW jsonb_table_view3 AS SELECT * FROM JSON_TABLE(CAST('null' AS JSONB), 'lax $[*]' PASSING 1 + 2 AS a, CAST('\"foo\"' AS JSON) AS \"b c\" COLUMNS (js JSON PATH '$', jb JSONB PATH '$', jst TEXT FORMAT JSON PATH '$', jsc bpchar(4) FORMAT JSON PATH '$', jsv VARCHAR(4) FORMAT JSON PATH '$'))"
   },
   {
     "comment": "sqljson_jsontable - Statement 29",
@@ -286,17 +286,17 @@
   {
     "comment": "sqljson_jsontable - Statement 59",
     "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(3) EXISTS PATH '$.a'))",
-    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a CHAR(3) EXISTS PATH '$.a'))"
+    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a bpchar(3) EXISTS PATH '$.a'))"
   },
   {
     "comment": "sqljson_jsontable - Statement 60",
     "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(3) EXISTS PATH '$.a' ERROR ON ERROR))",
-    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a CHAR(3) EXISTS PATH '$.a' ERROR ON ERROR))"
+    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a bpchar(3) EXISTS PATH '$.a' ERROR ON ERROR))"
   },
   {
     "comment": "sqljson_jsontable - Statement 61",
     "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(5) EXISTS PATH '$.a' ERROR ON ERROR))",
-    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a CHAR(5) EXISTS PATH '$.a' ERROR ON ERROR))"
+    "expected": "SELECT * FROM JSON_TABLE(CAST('\"a\"' AS JSONB), '$' COLUMNS (a bpchar(5) EXISTS PATH '$.a' ERROR ON ERROR))"
   },
   {
     "comment": "sqljson_jsontable - Statement 62",

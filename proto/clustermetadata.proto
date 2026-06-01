@@ -178,6 +178,13 @@ message MultiPooler {
   // PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
   // Used by multiadmin to compute the primary's data directory for pgBackRest.
   string pg_data_dir = 11;
+
+  // LifecycleStatus is where the pooler is in its process lifecycle.
+  //
+  // Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
+  // readiness). Recorded in topology so the orchestrator can observe terminal
+  // lifecycle states even on cold start, not only over the health stream.
+  PoolerLifecycle lifecycle_status = 12;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -276,6 +283,54 @@ enum PoolerType {
 
   // DRAINED is used for poolers that are temporarily removed from serving traffic
   DRAINED = 3;
+}
+
+// PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
+// Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
+// readiness). The pooler advances through these states as it boots, serves,
+// and exits. The value is operator-visible via the MultiPooler topology
+// entry; the orchestrator's pooler watcher observes the
+// LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
+// stream.
+enum PoolerLifecycleStatus {
+  // LIFECYCLE_UNKNOWN is the default for older recordings that predate
+  // this field.
+  LIFECYCLE_UNKNOWN = 0;
+
+  // LIFECYCLE_STARTING is set while the pooler is initialising (loading
+  // topology, opening pools) and has not yet begun serving.
+  LIFECYCLE_STARTING = 1;
+
+  // LIFECYCLE_ACTIVE is the normal steady-state — postgres is responding.
+  LIFECYCLE_ACTIVE = 2;
+
+  // LIFECYCLE_STOPPING announces that the pooler has been told to shut
+  // down. Written at the top of GracefulShutdown so operators see the
+  // state immediately, before the shutdown sequence runs (~5–15 s).
+  LIFECYCLE_STOPPING = 3;
+
+  // LIFECYCLE_SHUTDOWN is set after the OnClose chain has run: the pooler
+  // is durably down (not just announcing it via STOPPING). Written from
+  // unregisterFunc alongside Type=DRAINED. The topology entry is left in
+  // place so the orchestrator's 4 h unseen-instance bookkeeping handles
+  // eventual eviction, but the orchestrator's pooler watcher observes
+  // the transition and stops the per-pooler health stream immediately.
+  LIFECYCLE_SHUTDOWN = 4;
+}
+
+// PoolerLifecycle pairs a PoolerLifecycleStatus with operator-readable
+// context (reason) and a write timestamp (updated). Every caller that
+// produces a PoolerLifecycle value sets all three fields together;
+// readers use `updated` to compute "how long has this pooler been in
+// state X" for diagnostics.
+message PoolerLifecycle {
+  PoolerLifecycleStatus status = 1;
+
+  // Optional reason for the current lifecycle stage.
+  string reason = 2;
+
+  // Wall-clock time at which this lifecycle entry was written.
+  google.protobuf.Timestamp updated = 3;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.

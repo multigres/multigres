@@ -263,22 +263,22 @@
   {
     "comment": "btree_index - Statement 54",
     "query": "explain (costs off) select * from btree_bpchar where f1::char like 'foo'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM btree_bpchar WHERE CAST(f1 AS CHAR(1)) LIKE 'foo'"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM btree_bpchar WHERE CAST(f1 AS bpchar(1)) LIKE 'foo'"
   },
   {
     "comment": "btree_index - Statement 55",
     "query": "select * from btree_bpchar where f1::char like 'foo'",
-    "expected": "SELECT * FROM btree_bpchar WHERE CAST(f1 AS CHAR(1)) LIKE 'foo'"
+    "expected": "SELECT * FROM btree_bpchar WHERE CAST(f1 AS bpchar(1)) LIKE 'foo'"
   },
   {
     "comment": "btree_index - Statement 56",
     "query": "explain (costs off) select * from btree_bpchar where f1::char like 'foo%'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM btree_bpchar WHERE CAST(f1 AS CHAR(1)) LIKE 'foo%'"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM btree_bpchar WHERE CAST(f1 AS bpchar(1)) LIKE 'foo%'"
   },
   {
     "comment": "btree_index - Statement 57",
     "query": "select * from btree_bpchar where f1::char like 'foo%'",
-    "expected": "SELECT * FROM btree_bpchar WHERE CAST(f1 AS CHAR(1)) LIKE 'foo%'"
+    "expected": "SELECT * FROM btree_bpchar WHERE CAST(f1 AS bpchar(1)) LIKE 'foo%'"
   },
   {
     "comment": "btree_index - Statement 58",

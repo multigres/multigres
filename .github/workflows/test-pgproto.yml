@@ -1,0 +1,129 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: pgproto Wire-Protocol Conformance Suite
+
+# The suite gates on zero *unpatched* divergences: known divergences are
+# recorded as patches (testdata/patches/), so the Go test fails on anything
+# left. There is no baseline/regression tracking — the expected state is simply
+# "no unpatched divergences". Runs on the "Run Extended Query Serving Tests" PR
+# label (so a PR that introduces a divergence goes red) and once daily on cron
+# (which Slack-alerts on any failure).
+on: # yamllint disable-line rule:truthy
+  schedule:
+    - cron: "30 9 * * *" # Daily 09:30 UTC
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test-pgproto:
+    name: Run pgproto conformance suite
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
+    runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # libpq-dev provides pg_config + libpq headers needed to build pgproto.
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev libpq-dev
+
+      - name: Install tools (builds pgproto from pinned source)
+        run: make tools
+
+      - name: Build
+        run: make build
+
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
+      - name: Run pgproto suite
+        # The test fails on any unpatched divergence; pipefail propagates that
+        # exit code through tparse so the step (and job) fail.
+        env:
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          PGPROTO_PATCH_MODE: verify
+          TEST_PRINT_LOGS: "1"
+        run: |
+          set -o pipefail
+          go test -json -v -run TestPgProtoConformance \
+            ./go/test/endtoend/queryserving/pgproto/... \
+            -timeout 50m | tee pgproto-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        if: always()
+        run: kill "$PORT_POOL_PID" || true
+
+      - name: Upload pgproto results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: pgproto-results
+          path: |
+            /tmp/multigres_pg_cache/results/**/*
+            pgproto-results.jsonl
+          if-no-files-found: warn
+
+      - name: Notify Slack on failure
+        # Daily-cron health check: alert on any failure (unpatched divergence or
+        # infrastructure). PR runs surface failures as a red check instead.
+        if: >-
+          failure() &&
+          github.event_name == 'schedule'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload=$(jq -n \
+            --arg url "$run_url" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: ":rotating_light: pgproto conformance suite failed"}},
+                {type: "section", text: {type: "mrkdwn", text: "The daily pgproto run failed — an unpatched wire-protocol divergence from PostgreSQL, or a test-infrastructure failure. Check the run, then either fix the gateway or record the divergence with `make pgproto-update-patches`."}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      # The Go test writes a per-file summary (shields.io badge + any divergence
+      # diffs) to GITHUB_STEP_SUMMARY via report.go; full output is in the
+      # uploaded artifact.

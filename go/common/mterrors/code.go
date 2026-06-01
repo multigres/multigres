@@ -202,6 +202,15 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	}
 }
 
+// NewParseError returns a *PgDiagnostic for a SQL parse/syntax failure, carrying
+// SQLSTATE 42601 (syntax_error) — PostgreSQL's class for parse-stage errors. The
+// parser produces these so a malformed statement surfaces to clients with the
+// same SQLSTATE PostgreSQL itself would send, rather than an opaque internal
+// error. This is the single source of truth for the parse-error SQLSTATE.
+func NewParseError(message string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError, message, "")
+}
+
 // NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
 // ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
 // (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a

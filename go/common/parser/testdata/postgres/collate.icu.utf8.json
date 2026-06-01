@@ -1309,17 +1309,17 @@
   {
     "comment": "collate.icu.utf8 - Statement 303",
     "query": "CREATE TABLE test1bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test1bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test1bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 304",
     "query": "CREATE TABLE test2bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test2bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test2bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 305",
     "query": "CREATE TABLE test3bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test3bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test3bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 306",
@@ -1422,12 +1422,12 @@
   {
     "comment": "collate.icu.utf8 - Statement 329",
     "query": "SELECT string_to_array('ABC,DEF,GHI'::char(11) COLLATE case_insensitive, ',', 'abc')",
-    "expected": "SELECT string_to_array(CAST('ABC,DEF,GHI' AS CHAR(11)) COLLATE case_insensitive, ',', 'abc')"
+    "expected": "SELECT string_to_array(CAST('ABC,DEF,GHI' AS bpchar(11)) COLLATE case_insensitive, ',', 'abc')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 330",
     "query": "SELECT string_to_array('ABCDEFGHI'::char(9) COLLATE case_insensitive, NULL, 'b')",
-    "expected": "SELECT string_to_array(CAST('ABCDEFGHI' AS CHAR(9)) COLLATE case_insensitive, NULL, 'b')"
+    "expected": "SELECT string_to_array(CAST('ABCDEFGHI' AS bpchar(9)) COLLATE case_insensitive, NULL, 'b')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 331",
@@ -1781,7 +1781,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 410",
     "query": "CREATE TABLE test30 (a int, b char(3) COLLATE case_insensitive) PARTITION BY LIST (b)",
-    "expected": "CREATE TABLE test30 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY list (b)"
+    "expected": "CREATE TABLE test30 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY list (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 411",
@@ -1802,7 +1802,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 415",
     "query": "CREATE TABLE test31 (a int, b char(3) COLLATE case_insensitive) PARTITION BY RANGE (b)",
-    "expected": "CREATE TABLE test31 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY range (b)"
+    "expected": "CREATE TABLE test31 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY range (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 416",
@@ -1823,7 +1823,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 420",
     "query": "CREATE TABLE test32 (a int, b char(3) COLLATE case_sensitive) PARTITION BY HASH (b)",
-    "expected": "CREATE TABLE test32 (a INT, b CHAR(3) COLLATE case_sensitive) PARTITION BY hash (b)"
+    "expected": "CREATE TABLE test32 (a INT, b bpchar(3) COLLATE case_sensitive) PARTITION BY hash (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 421",
@@ -1851,7 +1851,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 426",
     "query": "CREATE TABLE test33 (a int, b char(3) COLLATE case_insensitive) PARTITION BY HASH (b)",
-    "expected": "CREATE TABLE test33 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY hash (b)"
+    "expected": "CREATE TABLE test33 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY hash (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 427",

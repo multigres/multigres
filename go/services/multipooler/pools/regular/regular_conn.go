@@ -630,9 +630,17 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 // --- COPY FROM STDIN operations ---
 
 // InitiateCopyFromStdin sends a COPY FROM STDIN command and reads the CopyInResponse.
-// Returns the COPY format and column formats.
-func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
+// Returns the COPY format, column formats, and any NoticeResponse diagnostics
+// received before the CopyInResponse.
+func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
 	return c.conn.InitiateCopyFromStdin(ctx, copyQuery)
+}
+
+// InitiateCopyToStdout sends a COPY TO STDOUT command and reads the CopyOutResponse.
+// Returns the COPY format, column formats, and any NoticeResponse diagnostics
+// received before the CopyOutResponse.
+func (c *Conn) InitiateCopyToStdout(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
+	return c.conn.InitiateCopyToStdout(ctx, copyQuery)
 }
 
 // WriteCopyData writes a CopyData message to PostgreSQL.
@@ -646,14 +654,28 @@ func (c *Conn) WriteCopyDone() error {
 }
 
 // ReadCopyDoneResponse reads the CommandComplete and ReadyForQuery after CopyDone.
-// Returns the command tag and rows affected.
-func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
+// Returns the command tag, rows affected, and any NoticeResponse diagnostics
+// received between CopyDone and ReadyForQuery (e.g. trigger output).
+func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
 	return c.conn.ReadCopyDoneResponse(ctx)
+}
+
+// ReadCopyOutMessage reads the next message in a COPY TO STDOUT response
+// stream: a CopyData chunk, a NoticeResponse diagnostic, or CopyDone.
+func (c *Conn) ReadCopyOutMessage(ctx context.Context) (client.CopyOutMessage, error) {
+	return c.conn.ReadCopyOutMessage(ctx)
+}
+
+// FinishCopyToStdout consumes the trailing CommandComplete + ReadyForQuery
+// that PG sends after CopyDone in a COPY TO STDOUT flow.
+func (c *Conn) FinishCopyToStdout(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
+	return c.conn.FinishCopyToStdout(ctx)
 }
 
 // ReadCopyFailResponse reads the expected ErrorResponse + ReadyForQuery
 // sequence after sending CopyFail, leaving the connection in a clean state.
-func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
+// Returns any NoticeResponse diagnostics seen before the trailing RFQ.
+func (c *Conn) ReadCopyFailResponse(ctx context.Context) ([]*mterrors.PgDiagnostic, error) {
 	return c.conn.ReadCopyFailResponse(ctx)
 }
 

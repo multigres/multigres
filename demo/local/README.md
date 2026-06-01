@@ -2,11 +2,33 @@
 
 Scripts and configuration for running Multigres locally.
 
+## Prerequisites
+
+- `multigres` binary built (`make build` from repo root) and on `PATH`, e.g.
+  `export PATH="$PWD/bin:$PATH"`
+- PostgreSQL 17.x installed locally (multigres invokes the system `postgres`)
+- Docker (only for the optional observability stack)
+- `psql` client (for connecting to the cluster)
+- `pgbench` (only for the traffic-generation example)
+
 ## Quick Start
 
+By default the cluster config lives in `./multigres_local` (relative to the
+directory you run the command from). Use `--config-path <dir>` to override, or
+set `MTDATAROOT`.
+
 ```bash
-# From repository root
-multigres cluster start --config-path /path/to/multigres_local
+# 1. Create the cluster config (one-time setup).
+multigres cluster init
+
+# 2. Start the cluster.
+multigres cluster start
+
+# 3. Connect.
+PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d postgres
+
+# 4. Stop the cluster when done.
+multigres cluster stop
 ```
 
 ## Observability (Optional)
@@ -20,7 +42,7 @@ For development with metrics, traces, and logs visualization.
 demo/local/run-observability.sh
 
 # 2. Start cluster with OTel export (separate terminal)
-demo/local/multigres-with-otel.sh cluster start --config-path /path/to/multigres_local
+demo/local/multigres-with-otel.sh cluster start
 
 # 3. Generate traffic (optional — pgbench with progress every 5s)
 PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -i postgres
@@ -41,7 +63,7 @@ Stop in this order to avoid OTel export errors at shutdown:
 
 ```bash
 # 1. Stop the cluster
-./bin/multigres cluster stop --config-path /path/to/multigres_local
+./bin/multigres cluster stop
 
 # 2. Stop the observability stack (Ctrl-C in run-observability.sh terminal, or:)
 docker rm -f multigres-observability
@@ -51,12 +73,12 @@ docker rm -f multigres-observability
 
 ```bash
 # 1. Stop everything
-./bin/multigres cluster stop --config-path /path/to/multigres_local
+./bin/multigres cluster stop
 docker rm -f multigres-observability
 
 # 2. Start everything
 demo/local/run-observability.sh          # terminal 1
-demo/local/multigres-with-otel.sh cluster start --config-path /path/to/multigres_local  # terminal 2
+demo/local/multigres-with-otel.sh cluster start  # terminal 2
 ```
 
 ### Ports

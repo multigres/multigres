@@ -1046,7 +1046,7 @@
   {
     "comment": "json - Statement 215",
     "query": "CREATE TYPE jsrec AS ( i\tint, ia\t_int4, ia1\tint[], ia2\tint[][], ia3\tint[][][], ia1d\tjs_int_array_1d, ia2d\tjs_int_array_2d, t\ttext, ta\ttext[], c\tchar(10), ca\tchar(10)[], ts\ttimestamp, js\tjson, jsb\tjsonb, jsa\tjson[], rec\tjpop, reca\tjpop[] )",
-    "expected": "CREATE TYPE jsrec AS (i INT, ia _int4, ia1 INT[], ia2 INT[][], ia3 INT[][][], ia1d js_int_array_1d, ia2d js_int_array_2d, t TEXT, ta TEXT[], c CHAR(10), ca CHAR(10)[], ts TIMESTAMP, js JSON, jsb JSONB, jsa JSON[], rec jpop, reca jpop[])"
+    "expected": "CREATE TYPE jsrec AS (i INT, ia _int4, ia1 INT[], ia2 INT[][], ia3 INT[][][], ia1d js_int_array_1d, ia2d js_int_array_2d, t TEXT, ta TEXT[], c bpchar(10), ca bpchar(10)[], ts TIMESTAMP, js JSON, jsb JSONB, jsa JSON[], rec jpop, reca jpop[])"
   },
   {
     "comment": "json - Statement 216",
@@ -1892,7 +1892,7 @@
   {
     "comment": "json - Statement 389",
     "query": "select *, c is null as c_is_null from json_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::json) as t(a int, b json, c text, x int, ca char(5)[], ia int[][], r jpop)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT, ca CHAR(5)[], ia INT[][], r jpop)"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM json_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSON)) AS t (a INT, b JSON, c TEXT, x INT, ca bpchar(5)[], ia INT[][], r jpop)"
   },
   {
     "comment": "json - Statement 390",

@@ -7,7 +7,7 @@
   {
     "comment": "partition_prune - Statement 2",
     "query": "create table lp (a char) partition by list (a)",
-    "expected": "CREATE TABLE lp (a CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE lp (a bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "partition_prune - Statement 3",
