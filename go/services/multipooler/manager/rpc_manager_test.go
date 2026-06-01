@@ -39,6 +39,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // setTermForTest writes the consensus term file directly for testing.
@@ -962,6 +963,124 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		defer manager.mu.Unlock()
 		return manager.isOpen
 	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
+}
+
+// TestRewindToSource_RestoresPrimaryConnInfo is a regression test for the bug where
+// RewindToSource did not call setPrimaryConnInfoLocked after pg_rewind. When actual
+// pg_rewind runs it syncs postgresql.auto.conf from the source (which has no
+// primary_conninfo), wiping the value set by the earlier SetTermPrimary call and
+// leaving the WAL receiver with no primary to connect to.
+func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.Background()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:        serviceID,
+		PoolerDir: poolerDir,
+		Type:      clustermetadatapb.PoolerType_REPLICA,
+		PortMap: map[string]int32{
+			"postgres": 5432,
+		},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+
+	// Mock pgctld: dry-run reports divergence so actual pg_rewind runs; all else succeeds.
+	mockPgctld := &testutil.MockPgCtldService{
+		PgRewindResponse: &pgctldpb.PgRewindResponse{
+			Message: "pg_rewind completed",
+			Output:  "servers diverged at WAL location 0/5000000 on timeline 1",
+		},
+	}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	// Track whether primary_conninfo was set with the expected value.
+	var primaryConnInfoSet string
+
+	mockQueryService := mock.NewQueryService()
+	// SELECT 1 for waitForDatabaseConnection
+	mockQueryService.AddQueryPattern("SELECT 1",
+		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
+	// pg_is_in_recovery check inside setPrimaryConnInfoLocked
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	// Record that ALTER SYSTEM SET primary_conninfo was called
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(query string) { primaryConnInfoSet = query },
+	)
+	// pg_conf_load_time before reload (consumed once)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	// pg_reload_conf
+	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
+		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	// pg_conf_load_time after reload (different value signals reload completed)
+	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, multipooler, config)
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	createPgDataDir(t, poolerDir)
+	require.NoError(t, manager.setInitialized())
+
+	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+
+	manager.mu.Lock()
+	manager.isOpen = true
+	manager.state = ManagerStateReady
+	manager.ctx, manager.cancel = context.WithCancel(ctx)
+	manager.mu.Unlock()
+
+	source := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "source-pooler",
+		},
+		Hostname: "source-host",
+		PortMap:  map[string]int32{"postgres": 5433},
+	}
+
+	resp, err := manager.RewindToSource(ctx, source)
+	require.NoError(t, err)
+	assert.True(t, resp.RewindPerformed, "actual pg_rewind should have run (divergence detected)")
+
+	// Verify both actual rewind calls were made (dry-run + actual).
+	rewindCalls := mockPgctld.PgRewindCalls
+	require.Len(t, rewindCalls, 2, "expected dry-run and actual pg_rewind calls")
+	assert.True(t, rewindCalls[0].DryRun, "first call should be dry-run")
+	assert.False(t, rewindCalls[1].DryRun, "second call should be actual rewind")
+
+	// REGRESSION TEST: primary_conninfo must be set after pg_rewind so the WAL
+	// receiver can connect to the primary. Before the fix, this was never called
+	// and the WAL receiver had no primary_conninfo to use.
+	assert.NotEmpty(t, primaryConnInfoSet, "primary_conninfo must be set after pg_rewind")
+	assert.Contains(t, primaryConnInfoSet, "source-host", "primary_conninfo must reference the source host")
+	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
 }
 
 func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
