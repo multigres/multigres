@@ -309,6 +309,26 @@ fi
 exit 0
 `)
 
+	// Mock pg_rewind
+	MockBinary(t, binDir, "pg_rewind", `
+# Parse flags
+DRY_RUN=false
+for arg in "$@"; do
+    case $arg in
+        --dry-run)
+            DRY_RUN=true
+            ;;
+    esac
+done
+
+if [ "$DRY_RUN" = "true" ]; then
+    echo "servers diverged at WAL location 0/5000000 on timeline 1"
+else
+    echo "pg_rewind: done"
+fi
+exit 0
+`)
+
 	// Mock psql
 	MockBinary(t, binDir, "psql", `
 if [[ "$*" == *"SELECT version()"* ]]; then
