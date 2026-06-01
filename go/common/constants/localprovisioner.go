@@ -32,4 +32,13 @@ const (
 	// (a `SELECT 1` through multigateway) so a hung connection cannot
 	// stall the wait loop.
 	LocalGatewayBootstrapProbeTimeout = 5 * time.Second
+
+	// MinPgBackrestVersion is the minimum supported pgBackRest version, in
+	// semver form (with a leading "v") so it can be compared directly with
+	// golang.org/x/mod/semver. Keep in sync with docs/building.md.
+	MinPgBackrestVersion = "v2.57.0"
+
+	// RequiredPostgresMajor is the only supported PostgreSQL major version.
+	// Keep in sync with docs/building.md.
+	RequiredPostgresMajor = 17
 )

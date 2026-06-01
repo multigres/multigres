@@ -310,13 +310,17 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 	return nil
 }
 
-// minPgBackrestVersion is the minimum supported pgBackRest version.
-// Updates here should be paired with docs/building.md.
-const minPgBackrestVersion = "v2.57.0"
+// pgbackrestVersionRe extracts the version from `pgbackrest --version` output,
+// e.g. "pgBackRest 2.57.0".
+var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+(\d+\.\d+(?:\.\d+)?)`)
 
-var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+v?(\d+\.\d+(?:\.\d+)?)`)
+// minPgBackrestVersionDisplay returns constants.MinPgBackrestVersion without
+// the semver "v" prefix, for use in user-facing messages.
+func minPgBackrestVersionDisplay() string {
+	return strings.TrimPrefix(constants.MinPgBackrestVersion, "v")
+}
 
-// checkPgBackrestVersion verifies that the pgbackrest binary is >= minPgBackrestVersion.
+// checkPgBackrestVersion verifies that the pgbackrest binary is >= constants.MinPgBackrestVersion.
 func (p *localProvisioner) checkPgBackrestVersion(binaryPath string) error {
 	cmd := exec.Command(binaryPath, "--version")
 	output, err := cmd.Output()
@@ -334,22 +338,19 @@ func (p *localProvisioner) checkPgBackrestVersionFromOutput(versionStr string) e
 		return fmt.Errorf("could not parse pgbackrest version from output: %q", strings.TrimSpace(versionStr))
 	}
 	actual := semver.Canonical("v" + matches[1])
-	if semver.Compare(actual, minPgBackrestVersion) < 0 {
+	if semver.Compare(actual, constants.MinPgBackrestVersion) < 0 {
 		return fmt.Errorf("pgbackrest %s is too old; need >= %s",
-			strings.TrimPrefix(actual, "v"),
-			strings.TrimPrefix(minPgBackrestVersion, "v"))
+			matches[1], minPgBackrestVersionDisplay())
 	}
-	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n",
-		strings.TrimPrefix(actual, "v"))
+	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n", matches[1])
 	return nil
 }
 
-// requiredPostgresMajor is the only supported PostgreSQL major version.
-const requiredPostgresMajor = 17
-
+// postgresVersionRe extracts the major (and optional minor) version from
+// `postgres --version` output, e.g. "postgres (PostgreSQL) 17.2".
 var postgresVersionRe = regexp.MustCompile(`(?m)^postgres\s+\(PostgreSQL\)\s+(\d+)(?:\.(\d+))?`)
 
-// checkPostgresVersion verifies that the postgres binary is major version requiredPostgresMajor.
+// checkPostgresVersion verifies that the postgres binary is major version constants.RequiredPostgresMajor.
 func (p *localProvisioner) checkPostgresVersion(binaryPath string) error {
 	cmd := exec.Command(binaryPath, "--version")
 	output, err := cmd.Output()
@@ -370,8 +371,8 @@ func (p *localProvisioner) checkPostgresVersionFromOutput(versionStr string) err
 	if err != nil {
 		return fmt.Errorf("could not parse postgres major version %q: %w", matches[1], err)
 	}
-	if major != requiredPostgresMajor {
-		return fmt.Errorf("postgres major version %d is unsupported; need %d.x", major, requiredPostgresMajor)
+	if major != constants.RequiredPostgresMajor {
+		return fmt.Errorf("postgres major version %d is unsupported; need %d.x", major, constants.RequiredPostgresMajor)
 	}
 	display := matches[1]
 	if len(matches) > 2 && matches[2] != "" {
@@ -2130,10 +2131,10 @@ func (p *localProvisioner) validateSystemBinaries() error {
 	if len(missingBinaries) > 0 {
 		return fmt.Errorf("required system binaries not found in PATH: %s\n\n"+
 			"Please ensure PostgreSQL, etcd, and pgBackRest are installed and available in your PATH.\n"+
-			"For PostgreSQL: Install PostgreSQL 17.x client tools (pg_ctl, postgres, pg_isready)\n"+
+			"For PostgreSQL: Install PostgreSQL %d.x client tools (pg_ctl, postgres, pg_isready)\n"+
 			"For etcd: Install etcd client binary\n"+
-			"For pgBackRest: Install pgBackRest >= 2.57",
-			strings.Join(missingBinaries, ", "))
+			"For pgBackRest: Install pgBackRest >= %s",
+			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, minPgBackrestVersionDisplay())
 	}
 
 	return nil
