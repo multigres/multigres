@@ -31,6 +31,12 @@ jobs:
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
+    # contents: write is needed to push the live badge endpoints to the
+    # gh-pages branch (see "Publish badge endpoints to GitHub Pages"). The push
+    # only happens on scheduled/manual runs; on pull_request (label) runs the
+    # publish step is gated off, and GITHUB_TOKEN is read-only for fork PRs.
+    permissions:
+      contents: write
     environment:
       name: ci
       deployment: false
@@ -88,6 +94,10 @@ jobs:
           results_file=$(find /tmp/multigres_pg_cache/results -name results.json -type f 2>/dev/null | head -1)
           if [[ -n "$results_file" ]]; then
             echo "path=$results_file" >> "$GITHUB_OUTPUT"
+            # The Go test writes shields.io endpoint JSON into a sibling badges/
+            # dir next to results.json (see WriteBadgeEndpoints). Publish this dir
+            # to GitHub Pages so the README/blog badges show the live pass count.
+            echo "badges=$(dirname "$results_file")/badges" >> "$GITHUB_OUTPUT"
             echo "Found results at: $results_file"
           else
             echo "No results.json found"
@@ -122,6 +132,25 @@ jobs:
           name: postgres-compatibility-results
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
+
+      # Publish the shields.io endpoint JSON to the gh-pages branch so the
+      # README/blog badges render the live pass count (e.g. 160/222). Republishing
+      # the JSON updates every badge that points at it — no markdown edits needed.
+      # keep_files: true preserves anything else already on gh-pages. Only runs on
+      # scheduled/manual runs (not PR-label runs) using the built-in GITHUB_TOKEN.
+      - name: Publish badge endpoints to GitHub Pages
+        if: >-
+          !cancelled() &&
+          steps.results.outputs.badges != '' &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ steps.results.outputs.badges }}
+          publish_branch: gh-pages
+          destination_dir: pgregress
+          keep_files: true
+          commit_message: "chore(pgregress): update live badge endpoints"
 
       # On failure, surface the per-process logs from the shardsetup tempdir
       # (multipooler.log, pgctld.log, multigateway.log, multiorch.log). The
@@ -278,5 +307,6 @@ jobs:
           key: pgregress-baseline-${{ github.run_id }}
 
       # Note: the Go test writes the pass/fail summary (including shields.io badge)
-      # directly to GITHUB_STEP_SUMMARY via postgres_builder.go.
+      # directly to GITHUB_STEP_SUMMARY via postgres_builder.go, and the live
+      # badge endpoint JSON into results/badges/ (published to gh-pages above).
       # Full diffs are in the uploaded artifact (regression.diffs).

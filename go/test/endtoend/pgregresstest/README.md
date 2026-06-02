@@ -230,6 +230,41 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 2. Free up space (source ~200MB, builds ~500MB)
 3. Use custom cache location: `export MULTIGRES_PG_CACHE_DIR=~/multigres_cache`
 
+## Live Results & Badges
+
+The nightly CI run publishes the current pass count to GitHub Pages as
+[shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON, so the
+README badges (and any blog post or doc that embeds them) render the live number
+and update automatically after each run — no markdown edits.
+
+Each suite gets a stable JSON URL under `https://multigres.github.io/multigres/pgregress/`:
+
+<!-- markdownlint-disable MD013 -->
+
+| Suite             | JSON endpoint                                                            | Badge markdown                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Overall           | `https://multigres.github.io/multigres/pgregress/overall.json`           | `![Overall](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/overall.json)`                     |
+| Regression        | `https://multigres.github.io/multigres/pgregress/regression.json`        | `![Regression](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/regression.json)`               |
+| Isolation         | `https://multigres.github.io/multigres/pgregress/isolation.json`         | `![Isolation](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/isolation.json)`                 |
+| Contrib Extension | `https://multigres.github.io/multigres/pgregress/contrib-extension.json` | `![Contrib Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/contrib-extension.json)` |
+
+<!-- markdownlint-enable MD013 -->
+
+The Go test writes these files (`WriteBadgeEndpoints` in `postgres_builder.go`)
+into a `badges/` directory next to `results.json`, and the `test-pgregress.yml`
+workflow pushes that directory to the `gh-pages` branch under `pgregress/` on
+scheduled/manual runs.
+
+### One-time setup
+
+GitHub Pages must be enabled once for the badges to resolve:
+
+1. **Settings → Pages → Build and deployment → Source: _Deploy from a branch_**,
+   branch `gh-pages`, folder `/ (root)`.
+2. Trigger the workflow once (**Actions → PostgreSQL Compatibility Tests → Run
+   workflow**) so the first JSON files are published. Until then the badges show
+   shields.io's "endpoint not found" placeholder.
+
 ## Architecture
 
 ### Component Flow
