@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -508,6 +509,137 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 			require.Equal(t, defaultByteaOutput, byteaOut,
 				"iteration %d: bytea_output not restored after RESET ALL", i)
 		}
+	})
+}
+
+// TestMultiGateway_SessionSettingsSQLInjection is the end-to-end regression test
+// for https://github.com/multigres/multigres/issues/587.
+//
+// Session variable values flow client → multigateway → multipooler → PostgreSQL.
+// When a pooled connection is checked out, the multipooler applies the tracked
+// settings by building a SQL string from Settings.ApplyQuery() (see
+// go/services/multipooler/connstate/connection_state.go). That string embeds the
+// value inside a pg_catalog.set_config('name', 'value', false) literal.
+//
+// If the value's single quotes were not escaped by doubling them, a crafted value
+// could close the literal and the set_config() call, then append arbitrary
+// statements that run on the shared, pooled backend connection — affecting later
+// requests routed to the same connection.
+//
+// The fix (PR #693) escapes single quotes in both the GUC name and value. This
+// test proves the whole stack neutralizes the injection: a malicious value is
+// stored verbatim as an opaque string and the injected statement never executes.
+func TestMultiGateway_SessionSettingsSQLInjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SQL injection test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SQL injection tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err, "failed to open database connection")
+	defer db.Close()
+
+	// Pin to a single backing connection so the SET and the follow-up SHOW are
+	// guaranteed to hit the same gateway session (and therefore the same tracked
+	// settings) rather than racing across database/sql's idle pool.
+	db.SetMaxOpenConns(1)
+
+	ctx := utils.WithTimeout(t, 120*time.Second)
+
+	err = db.PingContext(ctx)
+	require.NoError(t, err, "failed to ping database - multigateway may not be ready")
+
+	// A custom (dotted) GUC acts as a placeholder that stores an arbitrary string
+	// verbatim, so we can read the exact bytes back with SHOW. The injected
+	// payload, if it were not escaped, would break out of the set_config() literal
+	// and call set_config() again to define the sentinel GUC below.
+	const payloadVar = "mtinject.payload"
+	const sentinelVar = "mtinject.sentinel"
+
+	// Crafted to escape the apply query if quotes are not doubled. With broken
+	// escaping the multipooler would emit:
+	//
+	//   SELECT pg_catalog.set_config('mtinject.payload', 'pwned', false);
+	//   SELECT set_config('mtinject.sentinel', 'compromised', false); --', false)
+	//
+	// i.e. the sentinel GUC would get set as a side effect. With correct escaping
+	// the whole thing is one opaque string literal.
+	payload := `pwned', false); SELECT set_config('` + sentinelVar + `', 'compromised', false); --`
+
+	// Escape the value for the SET command we send to the gateway (client-side
+	// quoting), so the gateway receives `payload` as the intended literal value.
+	setSQL := fmt.Sprintf("SET %s = '%s'", payloadVar, strings.ReplaceAll(payload, "'", "''"))
+
+	t.Run("malicious value is stored verbatim and injection does not execute", func(t *testing.T) {
+		// SET is tracked locally by the gateway and is not validated yet.
+		_, err := db.ExecContext(ctx, setSQL)
+		require.NoError(t, err, "SET with malicious value should succeed locally")
+
+		// The first query after SET forces the pool to apply the tracked setting
+		// to the backend via ApplyQuery(). If escaping were broken this would
+		// either error (malformed SQL / wrong set_config arity) or silently run
+		// the injected statement. With the fix it succeeds and round-trips.
+		var got string
+		err = db.QueryRowContext(ctx, "SHOW "+payloadVar).Scan(&got)
+		require.NoError(t, err, "applying a setting with single quotes must not break the apply query")
+		require.Equal(t, payload, got, "malicious value must be stored verbatim, not interpreted as SQL")
+
+		// The injected statement, if it had executed, would have defined the
+		// sentinel placeholder GUC on the backend. It must remain undefined, which
+		// PostgreSQL surfaces as an "unrecognized configuration parameter" error.
+		var sentinel string
+		err = db.QueryRowContext(ctx, "SHOW "+sentinelVar).Scan(&sentinel)
+		require.Error(t, err, "injected set_config() must not have run; sentinel GUC should be undefined")
+		require.Contains(t, strings.ToLower(err.Error()), "unrecognized configuration parameter",
+			"unexpected error for sentinel SHOW: %v", err)
+	})
+
+	t.Run("pooled connection remains healthy after malicious setting", func(t *testing.T) {
+		// Re-apply the malicious value, then hammer the pool: every checkout must
+		// re-apply the setting cleanly and the backend must stay usable. This
+		// guards against a partial breakout corrupting the shared connection.
+		_, err := db.ExecContext(ctx, setSQL)
+		require.NoError(t, err, "re-SET with malicious value should succeed")
+
+		for i := range 50 {
+			var got string
+			err = db.QueryRowContext(ctx, "SHOW "+payloadVar).Scan(&got)
+			require.NoError(t, err, "iteration %d: SHOW after malicious SET should succeed", i)
+			require.Equal(t, payload, got, "iteration %d: value must remain verbatim", i)
+
+			var one int
+			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+			require.NoError(t, err, "iteration %d: connection should stay usable", i)
+			require.Equal(t, 1, one)
+		}
+	})
+
+	t.Run("connection survives a single quote in the variable name", func(t *testing.T) {
+		// The GUC name is also embedded in the apply query literal, so it is
+		// escaped too (covered deterministically by the unit test
+		// TestSettingsApplyQuerySingleQuoteInName). Such a custom name is not a
+		// valid GUC, so applying it fails — but it must fail as a clean PostgreSQL
+		// error and leave the pooled connection usable, never as a broken-out
+		// multi-statement apply query.
+		_, err := db.ExecContext(ctx, `SET "mtinject.it's" = 'value'`)
+		require.NoError(t, err, "SET with quote in name should be accepted locally")
+
+		var got string
+		_ = db.QueryRowContext(ctx, `SHOW "mtinject.it's"`).Scan(&got)
+
+		_, err = db.ExecContext(ctx, `RESET "mtinject.it's"`)
+		require.NoError(t, err, "RESET should recover the connection")
+
+		var one int
+		err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		require.NoError(t, err, "connection should be usable after recovery")
+		require.Equal(t, 1, one)
 	})
 }
 
