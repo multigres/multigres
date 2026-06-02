@@ -26,8 +26,6 @@ jobs:
   test-integration:
     name: Run full integration test suite
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     environment:
       name: ci
       deployment: false

@@ -26,8 +26,6 @@ jobs:
   test-short:
     name: Short Tests
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     environment:
       name: ci
       deployment: false

@@ -25,8 +25,6 @@ jobs:
   test-integration-supabase:
     name: Run integration tests against Supabase Postgres
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     environment:
       name: ci
       deployment: false
