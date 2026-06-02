@@ -65,10 +65,9 @@ jobs:
         if: ${{ !cancelled() }}
         uses: ./.github/actions/upload-test-results
         with:
-          junit-file: race-test-results.xml
-          variant: race
+          junit-paths: race-test-results.xml
           previous-step-outcome: ${{ steps.race-tests.outcome }}
-          quarantine: "true"
+          allow-quarantine: "true"
 
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

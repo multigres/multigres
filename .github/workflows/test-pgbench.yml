@@ -97,7 +97,6 @@ jobs:
         uses: ./.github/actions/upload-test-results
         with:
           json-file: pgbench-test-results.jsonl
-          variant: pgbench
           previous-step-outcome: ${{ steps.pgbench.outcome }}
 
       - name: Find results.json

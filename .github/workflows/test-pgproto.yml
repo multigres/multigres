@@ -99,7 +99,6 @@ jobs:
         uses: ./.github/actions/upload-test-results
         with:
           json-file: pgproto-results.jsonl
-          variant: pgproto
           previous-step-outcome: ${{ steps.pgproto.outcome }}
 
       - name: Upload pgproto results

@@ -21,24 +21,20 @@ description: >-
   JUnit XML when an existing JUnit file is not supplied.
 
 inputs:
-  junit-file:
+  junit-paths:
     description: >-
-      Path to an existing JUnit XML file. Takes precedence over json-file when
+      Comma-separated list of glob paths to existing JUnit XML files (forwarded
+      to the Trunk uploader's junit-paths). Takes precedence over json-file when
       both are set.
     required: false
     default: ""
   json-file:
     description: >-
-      Path to a `go test -json` JSONL file (as produced by gotestsum
+      Path to a single `go test -json` JSONL file (as produced by gotestsum
       --jsonfile or `go test -json | tee`). Converted to JUnit XML when
-      junit-file is not set.
+      junit-paths is not set.
     required: false
     default: ""
-  variant:
-    description: >-
-      Suite label so Trunk can keep separate test suites distinct (e.g.
-      unit-short, integration, race, pgproto).
-    required: true
   previous-step-outcome:
     description: >-
       Outcome of the test step, i.e. ${{ steps.<id>.outcome }}. In quarantine
@@ -46,11 +42,12 @@ inputs:
       (e.g. a stale step id) is treated as 'failure' so the gate fails closed
       rather than silently passing.
     required: true
-  quarantine:
+  allow-quarantine:
     description: >-
-      Whether to allow quarantining of failing tests. When 'true', the uploader
-      step exits non-zero only if there are non-quarantined failures, so it can
-      gate the job in place of the (continue-on-error) test step.
+      Whether to allow Trunk to quarantine failing tests. When 'true', the
+      uploader step exits non-zero only if there are non-quarantined failures,
+      so it can gate the job in place of the (continue-on-error) test step. The
+      quarantine decision itself is Trunk's; this only permits it.
     required: false
     default: "false"
   org-slug:
@@ -71,7 +68,7 @@ runs:
       id: prepare
       shell: bash
       env:
-        JUNIT_FILE: ${{ inputs.junit-file }}
+        JUNIT_PATHS: ${{ inputs.junit-paths }}
         JSON_FILE: ${{ inputs.json-file }}
         PREV_OUTCOME: ${{ inputs.previous-step-outcome }}
       run: |
@@ -80,10 +77,11 @@ runs:
         # must not silently disable quarantine gating. Treat it as a failure so
         # the uploader still gates on it.
         echo "previous-step-outcome=${PREV_OUTCOME:-failure}" >> "$GITHUB_OUTPUT"
-        if [[ -n "$JUNIT_FILE" ]]; then
-          out="$JUNIT_FILE"
+        if [[ -n "$JUNIT_PATHS" ]]; then
+          # Forward the user's glob/list straight through to the uploader.
+          out="$JUNIT_PATHS"
         elif [[ -z "$JSON_FILE" ]]; then
-          echo "::error::upload-test-results requires either junit-file or json-file"
+          echo "::error::upload-test-results requires either junit-paths or json-file"
           exit 1
         elif [[ -f "$JSON_FILE" ]]; then
           # go-junit-report converts the `go test -json` event stream into JUnit
@@ -98,14 +96,13 @@ runs:
           echo "::warning::json-file '$JSON_FILE' not found; nothing to convert"
           out="${JSON_FILE%.*}.trunk-junit.xml"
         fi
-        echo "junit-path=$out" >> "$GITHUB_OUTPUT"
+        echo "junit-paths=$out" >> "$GITHUB_OUTPUT"
 
     - name: Upload to Trunk
       uses: trunk-io/analytics-uploader@58d9d52d4a8ed29fefca0afb568293f2047826b3 # v2.1.0
       with:
-        junit-paths: ${{ steps.prepare.outputs.junit-path }}
+        junit-paths: ${{ steps.prepare.outputs.junit-paths }}
         org-slug: ${{ inputs.org-slug }}
         public-repo-id: ${{ inputs.public-repo-id }}
-        quarantine: ${{ inputs.quarantine }}
-        variant: ${{ inputs.variant }}
+        quarantine: ${{ inputs.allow-quarantine }}
         previous-step-outcome: ${{ steps.prepare.outputs.previous-step-outcome }}

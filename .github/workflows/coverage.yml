@@ -82,17 +82,15 @@ jobs:
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
-      # Upload-only: results overlap test-short/test-integration, so this is
-      # tagged with a distinct variant and continue-on-error keeps a Trunk-side
-      # exit from changing the job result. Only the direct-coverage job uploads;
-      # the subprocess job re-runs the same tests.
+      # Upload-only: continue-on-error keeps a Trunk-side exit from changing the
+      # job result. Only the direct-coverage job uploads; the subprocess job
+      # re-runs the same tests.
       - name: Upload test results to Trunk
         if: ${{ !cancelled() }}
         continue-on-error: true
         uses: ./.github/actions/upload-test-results
         with:
           json-file: coverage-direct-test-results.jsonl
-          variant: coverage
           previous-step-outcome: ${{ steps.coverage-direct.outcome }}
       - name: Upload direct coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

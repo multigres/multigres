@@ -88,7 +88,6 @@ jobs:
         uses: ./.github/actions/upload-test-results
         with:
           json-file: sqllogictest-results.jsonl
-          variant: sqllogictest
           previous-step-outcome: ${{ steps.sqllogictest.outcome }}
 
       - name: Find results.json

@@ -92,7 +92,6 @@ jobs:
         uses: ./.github/actions/upload-test-results
         with:
           json-file: pgregress-test-results.jsonl
-          variant: pgregress
           previous-step-outcome: ${{ steps.pgregress.outcome }}
 
       - name: Find results.json

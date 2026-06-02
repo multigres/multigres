@@ -84,10 +84,9 @@ jobs:
         if: ${{ !cancelled() }}
         uses: ./.github/actions/upload-test-results
         with:
-          junit-file: integration-test-results.xml
-          variant: integration
+          junit-paths: integration-test-results.xml
           previous-step-outcome: ${{ steps.integration-tests.outcome }}
-          quarantine: "true"
+          allow-quarantine: "true"
 
       - name: Write startup timing to summary
         if: ${{ !cancelled() }}
