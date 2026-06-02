@@ -16,7 +16,8 @@ name: SQLLogicTest Differential Suite
 
 on: # yamllint disable-line rule:truthy
   schedule:
-    - cron: "30 9 * * 1" # Weekly: Monday 9:30 AM UTC
+    # Weekly Mon 10:00 UTC — staggered off pgproto's daily 09:30 slot.
+    - cron: "0 10 * * 1"
   pull_request:
     types: [labeled]
   workflow_dispatch:
