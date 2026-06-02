@@ -31,6 +31,8 @@ jobs:
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     environment:
       name: ci
       deployment: false
@@ -73,6 +75,7 @@ jobs:
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
       - name: Run PostgreSQL compatibility tests
+        id: pgregress
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
@@ -80,6 +83,17 @@ jobs:
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
+
+      # Upload-only: this differential suite has its own regression detection,
+      # so continue-on-error keeps a Trunk-side exit from changing the job result.
+      - name: Upload test results to Trunk
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: ./.github/actions/upload-test-results
+        with:
+          json-file: pgregress-test-results.jsonl
+          variant: pgregress
+          previous-step-outcome: ${{ steps.pgregress.outcome }}
 
       - name: Find results.json
         id: results
