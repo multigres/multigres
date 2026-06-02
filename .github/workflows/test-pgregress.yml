@@ -16,8 +16,9 @@ name: PostgreSQL Compatibility Tests
 
 on:
   schedule:
-    - cron: "0 3 * * *" # Nightly at 3:00 AM UTC
-    - cron: "0 9 * * 1" # Weekly summary: Monday 9:00 AM UTC
+    # Runs 3x/week. Monday's run also drives the weekly Slack summary.
+    - cron: "0 3 * * 1" # Monday 3:00 AM UTC (regression check + weekly summary)
+    - cron: "0 3 * * 3,5" # Wed/Fri 3:00 AM UTC (regression check only)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -29,7 +30,8 @@ jobs:
     name: Run PostgreSQL compatibility tests
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
+      contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
     runs-on: ubuntu-24.04
     environment:
       name: ci
@@ -171,7 +173,7 @@ jobs:
       - name: Notify Slack weekly summary
         if: >-
           !cancelled() &&
-          (github.event.schedule == '0 9 * * 1' || github.event_name == 'workflow_dispatch') &&
+          (github.event.schedule == '0 3 * * 1' || github.event_name == 'workflow_dispatch') &&
           steps.results.outputs.path != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PGREGRESS_WEBHOOK_URL }}
