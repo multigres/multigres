@@ -17,7 +17,9 @@ package regular
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -666,6 +668,88 @@ func TestHandleContextCancellation_CancelErrors_ClosesConnection(t *testing.T) {
 	conn.handleContextCancellation()
 
 	assert.True(t, conn.IsClosed(), "connection should be closed when admin pool fails")
+}
+
+// TestHungQuery_ContextTimeoutNotRespected_AfterSuccessfulCancel guards against
+// a bug where a hung statement (e.g. an UPDATE / SELECT ... FOR UPDATE that
+// blocks on a row lock once NOWAIT is dropped) does not respect the context
+// timeout, so it cannot be cancelled and holds the connection, blocking
+// subsequent attempts.
+//
+// Root cause: when the context deadline fires, execWithContextCancel calls
+// handleContextCancellation, which runs pg_cancel_backend via the admin pool.
+// pg_cancel_backend is best-effort — it returns true when the cancel signal is
+// *delivered*, not when the query actually stops (PostgreSQL only acts on it at
+// CHECK_FOR_INTERRUPTS points, and cancel requests can be lost or race). The
+// original code, on a successful cancel, left the connection open and blocked on
+// `<-ch` waiting for the op goroutine to return; if the backend never aborted
+// the statement that wait was unbounded, so the call hung forever despite the
+// expired context. drainOpAfterCancel now force-closes the connection if the op
+// does not drain within postCancelDrainGrace, guaranteeing the call returns.
+//
+// This test sends a query that blocks while pg_cancel_backend reports success
+// without unblocking it, and asserts conn.Query returns ~at the deadline with
+// context.DeadlineExceeded rather than hanging until the watchdog fires.
+func TestHungQuery_ContextTimeoutNotRespected_AfterSuccessfulCancel(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+
+	// The UPDATE blocks until released, standing in for a backend stuck waiting
+	// on a row lock.
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
+	server.AddQueryPatternWithCallback(
+		`UPDATE .*`,
+		fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
+		func(string) {
+			startOnce.Do(func() { close(started) })
+			<-release
+		},
+	)
+
+	// pg_cancel_backend "succeeds" (signal delivered) but does NOT unblock the
+	// hung UPDATE — faithfully modelling a best-effort cancel that misses.
+	server.AddQueryPattern(`SELECT pg_cancel_backend\(\d+\)`, fakepgserver.MakeResult(
+		[]string{"pg_cancel_backend"},
+		[][]any{{"t"}},
+	))
+
+	adminPool := newTestAdminPool(t, server)
+	conn := newTestDirectConnWithAdmin(t, server, adminPool)
+
+	// Registered last → runs first (LIFO), before pool/server teardown: unblock
+	// the hung op so its goroutine drains, then close the client connection so
+	// the fake server's handler sees EOF and exits cleanly.
+	t.Cleanup(func() {
+		close(release)
+		conn.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// done is buffered so the goroutine never blocks on send, even if the test
+	// has already moved on (or failed) by the time the query finally unwinds.
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Query(ctx, "UPDATE foo SET x = 1 WHERE id = 1")
+		done <- err
+	}()
+
+	// Make sure the query is actually in flight before we start waiting.
+	<-started
+
+	select {
+	case err := <-done:
+		// Correct behavior: the call returns at ~the deadline.
+		require.ErrorIs(t, err, context.DeadlineExceeded,
+			"hung query should be abandoned with the context deadline error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("BUG: conn.Query did not return ~200ms after the context deadline. " +
+			"execWithContextCancel blocks on <-ch after a successful pg_cancel_backend, " +
+			"so a hung statement ignores the context timeout and holds the connection.")
+	}
 }
 
 // TestPool_ClosedConnectionRecycled_CapacityPreserved verifies that when
