@@ -295,10 +295,12 @@ PGPASSWORD=<pw> bin/pgproto -h 127.0.0.1 -p <port> -u <user> -d <db> \
 
 `.github/workflows/test-pgproto.yml` runs the suite on:
 
-- **PRs labeled `Run Extended Query Serving Tests`** — opt-in per-PR (the same
-  label also triggers `sqllogictest` and `pgregresstest`). A PR that introduces
-  an unpatched divergence turns the check red, so you must either fix the gateway
-  or record the divergence with `make pgproto-update-patches`.
+- **PRs labeled `Run Extended Query Serving Tests` or `Run all Query Serving Tests`**
+  — opt-in per-PR. Both labels also trigger `pgregresstest`; only the broader
+  `Run all Query Serving Tests` additionally triggers the (much heavier)
+  `sqllogictest` suite. A PR that introduces an unpatched divergence turns the
+  check red, so you must either fix the gateway or record the divergence with
+  `make pgproto-update-patches`.
 - **Daily cron** (09:30 UTC) — a health check that Slack-alerts on any failure.
 - **`workflow_dispatch`** — manual kick.
 

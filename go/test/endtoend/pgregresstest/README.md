@@ -54,7 +54,8 @@ than one is fine (the union runs):
 
 - `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
   isolation, contrib). This is what CI uses (matches the "Run Extended Query
-  Serving Tests" PR label).
+  Serving Tests" PR label, and also the broader "Run all Query Serving Tests"
+  label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
