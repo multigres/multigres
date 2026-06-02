@@ -111,6 +111,9 @@ jobs:
           - image: multiadmin-web
             context: web/multiadmin/
             file: web/multiadmin/Dockerfile
+          - image: multigres-cluster
+            context: .
+            file: ./Dockerfile.cluster
 
     steps:
       - name: Check out code
