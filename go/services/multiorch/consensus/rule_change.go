@@ -251,7 +251,7 @@ func (r *coordinatorLedRuleChange) recruit(
 	p *multiorchdatapb.PoolerHealthState,
 	revocation *clustermetadatapb.TermRevocation,
 ) *clustermetadatapb.ConsensusStatus {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
@@ -286,7 +286,7 @@ func (r *coordinatorLedRuleChange) propose(
 	req *consensusdatapb.ProposeRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	if isLeader {
 		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
