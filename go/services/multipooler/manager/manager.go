@@ -357,6 +357,15 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 	return pm.qsc.InternalQueryService()
 }
 
+// DoUpdateRule applies a rule update to the manager's rule store and returns
+// the new position. This is used by the gRPC handler to implement rule updates
+// via the API.
+func (pm *MultiPoolerManager) DoUpdateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+	ruleWriteCtx, ruleWriteSpan := telemetry.Tracer().Start(ctx, "consensus/rule-write")
+	defer ruleWriteSpan.End()
+	return pm.rules.updateRule(ruleWriteCtx, update)
+}
+
 // query executes a query using the internal query service and returns the result.
 // This is a convenience method for internal manager operations.
 func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*sqltypes.Result, error) {
@@ -1346,6 +1355,9 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping")
 		return nil
 	}
+
+	ctx, span := telemetry.Tracer().Start(ctx, "consensus/pg-promote")
+	defer span.End()
 
 	// Call pg_promote() to promote standby to primary
 	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed")

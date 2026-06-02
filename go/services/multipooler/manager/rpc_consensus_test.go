@@ -369,7 +369,7 @@ func TestRecruit(t *testing.T) {
 				// No further mocks — emergencyDemoteLocked fails on its first query.
 			},
 			expectError:                true,
-			expectErrContains:          "failed to demote primary during recruit",
+			expectErrContains:          "failed to stop replication during recruit",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},

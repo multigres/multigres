@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -116,7 +117,7 @@ func TestShardInitAction_Metadata(t *testing.T) {
 	m := action.Metadata()
 	assert.Equal(t, "ShardInit", m.Name)
 	assert.True(t, m.Retryable)
-	assert.Equal(t, 60*time.Second, m.Timeout)
+	assert.Equal(t, 2*timeouts.RuleWriteTimeout+5*time.Second, m.Timeout)
 }
 
 func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
