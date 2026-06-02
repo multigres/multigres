@@ -300,6 +300,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 		if _, err := builder.WriteJSONResults(t, suites); err != nil {
 			t.Logf("Warning: Failed to write JSON results: %v", err)
 		}
+		if err := builder.WriteBadgeEndpoints(t, suites); err != nil {
+			t.Logf("Warning: Failed to write badge endpoints: %v", err)
+		}
 	}
 }
 

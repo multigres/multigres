@@ -968,6 +968,42 @@ func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) 
 	return resultsPath, nil
 }
 
+// WriteBadgeEndpoints writes one shields.io endpoint JSON per suite plus a
+// combined "overall.json" into pb.OutputDir/badges. CI publishes this directory
+// to GitHub Pages so the README and blog badges render the live pass count
+// (republishing the JSON updates the badge with no markdown edits).
+//
+// Filenames are the suite label slug: regression.json, isolation.json,
+// contrib-extension.json, and overall.json. These names are part of the public
+// badge URL, so keep them stable.
+func (pb *PostgresBuilder) WriteBadgeEndpoints(t *testing.T, suites []SuiteResult) error {
+	t.Helper()
+
+	badgeDir := filepath.Join(pb.OutputDir, "badges")
+
+	var totalPassed, totalTests, totalExpected int
+	var anyTimedOut bool
+	for _, s := range suites {
+		label := strings.TrimSuffix(s.Name, " Tests")
+		endpoint := suiteutil.NewBadgeEndpoint(label, s.Results.PassedTests, s.Results.TotalTests, s.ExpectedTests, s.Results.TimedOut)
+		if _, err := suiteutil.WriteJSON(badgeDir, suiteutil.BadgeSlug(label)+".json", endpoint); err != nil {
+			return err
+		}
+		totalPassed += s.Results.PassedTests
+		totalTests += s.Results.TotalTests
+		totalExpected += s.ExpectedTests
+		anyTimedOut = anyTimedOut || s.Results.TimedOut
+	}
+
+	overall := suiteutil.NewBadgeEndpoint("Overall", totalPassed, totalTests, totalExpected, anyTimedOut)
+	if _, err := suiteutil.WriteJSON(badgeDir, "overall.json", overall); err != nil {
+		return err
+	}
+
+	t.Logf("Badge endpoints written to: %s", badgeDir)
+	return nil
+}
+
 // patchIsolationtester rewrites two pieces of
 // src/test/isolation/isolationtester.c so the harness works against
 // multigateway:
