@@ -107,23 +107,23 @@
   {
     "comment": "money - Statement 24",
     "query": "SELECT m != '$124.00' FROM money_data",
-    "expected": "SELECT m \u003c\u003e '$124.00' FROM money_data"
+    "expected": "SELECT m <> '$124.00' FROM money_data"
   },
   {
     "comment": "money - Statement 25",
-    "query": "SELECT m \u003c= '$123.00' FROM money_data"
+    "query": "SELECT m <= '$123.00' FROM money_data"
   },
   {
     "comment": "money - Statement 26",
-    "query": "SELECT m \u003e= '$123.00' FROM money_data"
+    "query": "SELECT m >= '$123.00' FROM money_data"
   },
   {
     "comment": "money - Statement 27",
-    "query": "SELECT m \u003c '$124.00' FROM money_data"
+    "query": "SELECT m < '$124.00' FROM money_data"
   },
   {
     "comment": "money - Statement 28",
-    "query": "SELECT m \u003e '$122.00' FROM money_data"
+    "query": "SELECT m > '$122.00' FROM money_data"
   },
   {
     "comment": "money - Statement 29",
@@ -132,23 +132,23 @@
   {
     "comment": "money - Statement 30",
     "query": "SELECT m != '$123.00' FROM money_data",
-    "expected": "SELECT m \u003c\u003e '$123.00' FROM money_data"
+    "expected": "SELECT m <> '$123.00' FROM money_data"
   },
   {
     "comment": "money - Statement 31",
-    "query": "SELECT m \u003c= '$122.99' FROM money_data"
+    "query": "SELECT m <= '$122.99' FROM money_data"
   },
   {
     "comment": "money - Statement 32",
-    "query": "SELECT m \u003e= '$123.01' FROM money_data"
+    "query": "SELECT m >= '$123.01' FROM money_data"
   },
   {
     "comment": "money - Statement 33",
-    "query": "SELECT m \u003e '$124.00' FROM money_data"
+    "query": "SELECT m > '$124.00' FROM money_data"
   },
   {
     "comment": "money - Statement 34",
-    "query": "SELECT m \u003c '$122.00' FROM money_data"
+    "query": "SELECT m < '$122.00' FROM money_data"
   },
   {
     "comment": "money - Statement 35",

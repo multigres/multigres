@@ -21,11 +21,17 @@ type NodeJoin struct{ NodeName string }
 func (NodeJoin) EventType() string       { return "node.join" }
 func (e NodeJoin) LogAttrs() []slog.Attr { return []slog.Attr{slog.String("node_name", e.NodeName)} }
 
-type PrimaryPromotion struct{ NewPrimary string }
+type PrimaryPromotion struct {
+	NewPrimary string
+	Reason     string // why the promotion was initiated, e.g. "ShardInit" or a failover trigger
+}
 
 func (PrimaryPromotion) EventType() string { return "primary.promotion" }
 func (e PrimaryPromotion) LogAttrs() []slog.Attr {
-	return []slog.Attr{slog.String("new_primary", e.NewPrimary)}
+	return []slog.Attr{
+		slog.String("new_primary", e.NewPrimary),
+		slog.String("reason", e.Reason),
+	}
 }
 
 type BackupAttempt struct{ BackupName string }

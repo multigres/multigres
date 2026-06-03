@@ -1,37 +1,37 @@
 [
   {
     "comment": "select - Statement 1",
-    "query": "SELECT * FROM onek WHERE onek.unique1 \u003c 10 ORDER BY onek.unique1"
+    "query": "SELECT * FROM onek WHERE onek.unique1 < 10 ORDER BY onek.unique1"
   },
   {
     "comment": "select - Statement 2",
-    "query": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 using \u003e",
-    "expected": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 USING \u003e"
+    "query": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 using >",
+    "expected": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 USING >"
   },
   {
     "comment": "select - Statement 3",
-    "query": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY stringu1 using \u003c",
-    "expected": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY stringu1 USING \u003c"
+    "query": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 > 980 ORDER BY stringu1 using <",
+    "expected": "SELECT onek.unique1, onek.stringu1 FROM onek WHERE onek.unique1 > 980 ORDER BY stringu1 USING <"
   },
   {
     "comment": "select - Statement 4",
-    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY string4 using \u003c, unique1 using \u003e",
-    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY string4 USING \u003c, unique1 USING \u003e"
+    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 > 980 ORDER BY string4 using <, unique1 using >",
+    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 > 980 ORDER BY string4 USING <, unique1 USING >"
   },
   {
     "comment": "select - Statement 5",
-    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY string4 using \u003e, unique1 using \u003c",
-    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003e 980 ORDER BY string4 USING \u003e, unique1 USING \u003c"
+    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 > 980 ORDER BY string4 using >, unique1 using <",
+    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 > 980 ORDER BY string4 USING >, unique1 USING <"
   },
   {
     "comment": "select - Statement 6",
-    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 using \u003e, string4 using \u003c",
-    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 USING \u003e, string4 USING \u003c"
+    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 using >, string4 using <",
+    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 USING >, string4 USING <"
   },
   {
     "comment": "select - Statement 7",
-    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 using \u003c, string4 using \u003e",
-    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 \u003c 20 ORDER BY unique1 USING \u003c, string4 USING \u003e"
+    "query": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 using <, string4 using >",
+    "expected": "SELECT onek.unique1, onek.string4 FROM onek WHERE onek.unique1 < 20 ORDER BY unique1 USING <, string4 USING >"
   },
   {
     "comment": "select - Statement 8",
@@ -54,16 +54,16 @@
   },
   {
     "comment": "select - Statement 12",
-    "query": "SELECT onek2.* FROM onek2 WHERE onek2.unique1 \u003c 10"
+    "query": "SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10"
   },
   {
     "comment": "select - Statement 13",
-    "query": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 \u003c 20 ORDER BY unique1 using \u003e",
-    "expected": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 \u003c 20 ORDER BY unique1 USING \u003e"
+    "query": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 < 20 ORDER BY unique1 using >",
+    "expected": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 < 20 ORDER BY unique1 USING >"
   },
   {
     "comment": "select - Statement 14",
-    "query": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 \u003e 980"
+    "query": "SELECT onek2.unique1, onek2.stringu1 FROM onek2 WHERE onek2.unique1 > 980"
   },
   {
     "comment": "select - Statement 15",
@@ -84,8 +84,8 @@
   },
   {
     "comment": "select - Statement 19",
-    "query": "SELECT p.name, p.age FROM person* p ORDER BY age using \u003e, name",
-    "expected": "SELECT p.name, p.age FROM person AS p ORDER BY age USING \u003e, name"
+    "query": "SELECT p.name, p.age FROM person* p ORDER BY age using >, name",
+    "expected": "SELECT p.name, p.age FROM person AS p ORDER BY age USING >, name"
   },
   {
     "comment": "select - Statement 20",
@@ -221,43 +221,43 @@
   },
   {
     "comment": "select - Statement 48",
-    "query": "explain (costs off) select * from onek2 where unique2 = 11 and stringu1 \u003c 'B'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B'"
+    "query": "explain (costs off) select * from onek2 where unique2 = 11 and stringu1 < 'B'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 49",
-    "query": "select * from onek2 where unique2 = 11 and stringu1 \u003c 'B'",
-    "expected": "SELECT * FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B'"
+    "query": "select * from onek2 where unique2 = 11 and stringu1 < 'B'",
+    "expected": "SELECT * FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 50",
-    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'B'",
-    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B'"
+    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 < 'B'",
+    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 51",
-    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'B'",
-    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B'"
+    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 < 'B'",
+    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 52",
-    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'B' for update",
-    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B' FOR UPDATE"
+    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 < 'B' for update",
+    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B' FOR UPDATE"
   },
   {
     "comment": "select - Statement 53",
-    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'B' for update",
-    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'B' FOR UPDATE"
+    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 < 'B' for update",
+    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'B' FOR UPDATE"
   },
   {
     "comment": "select - Statement 54",
-    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'C'",
-    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'C'"
+    "query": "explain (costs off) select unique2 from onek2 where unique2 = 11 and stringu1 < 'C'",
+    "expected": "EXPLAIN (COSTS false) SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'C'"
   },
   {
     "comment": "select - Statement 55",
-    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 \u003c 'C'",
-    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 \u003c 'C'"
+    "query": "select unique2 from onek2 where unique2 = 11 and stringu1 < 'C'",
+    "expected": "SELECT unique2 FROM onek2 WHERE unique2 = 11 AND stringu1 < 'C'"
   },
   {
     "comment": "select - Statement 56",
@@ -270,23 +270,23 @@
   },
   {
     "comment": "select - Statement 58",
-    "query": "explain (costs off) select unique1, unique2 from onek2 where (unique2 = 11 or unique1 = 0) and stringu1 \u003c 'B'",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 OR unique1 = 0) AND stringu1 \u003c 'B'"
+    "query": "explain (costs off) select unique1, unique2 from onek2 where (unique2 = 11 or unique1 = 0) and stringu1 < 'B'",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 OR unique1 = 0) AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 59",
-    "query": "select unique1, unique2 from onek2 where (unique2 = 11 or unique1 = 0) and stringu1 \u003c 'B'",
-    "expected": "SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 OR unique1 = 0) AND stringu1 \u003c 'B'"
+    "query": "select unique1, unique2 from onek2 where (unique2 = 11 or unique1 = 0) and stringu1 < 'B'",
+    "expected": "SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 OR unique1 = 0) AND stringu1 < 'B'"
   },
   {
     "comment": "select - Statement 60",
-    "query": "explain (costs off) select unique1, unique2 from onek2 where (unique2 = 11 and stringu1 \u003c 'B') or unique1 = 0",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 AND stringu1 \u003c 'B') OR unique1 = 0"
+    "query": "explain (costs off) select unique1, unique2 from onek2 where (unique2 = 11 and stringu1 < 'B') or unique1 = 0",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 AND stringu1 < 'B') OR unique1 = 0"
   },
   {
     "comment": "select - Statement 61",
-    "query": "select unique1, unique2 from onek2 where (unique2 = 11 and stringu1 \u003c 'B') or unique1 = 0",
-    "expected": "SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 AND stringu1 \u003c 'B') OR unique1 = 0"
+    "query": "select unique1, unique2 from onek2 where (unique2 = 11 and stringu1 < 'B') or unique1 = 0",
+    "expected": "SELECT unique1, unique2 FROM onek2 WHERE (unique2 = 11 AND stringu1 < 'B') OR unique1 = 0"
   },
   {
     "comment": "select - Statement 62",

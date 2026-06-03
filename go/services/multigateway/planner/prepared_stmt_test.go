@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -86,6 +87,14 @@ func (m *mockIExecute) CopyFinalize(context.Context, *server.Conn, string, strin
 
 func (m *mockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	return 0, nil, nil, nil
+}
+
+func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
 }
 
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {

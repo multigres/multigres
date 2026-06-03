@@ -65,6 +65,12 @@ MultiOrch's primary responsibility is to manage failovers.
 
 MultiOrch also orchestrates the initial bootstrap of a cluster.
 
+### MultiAdmin
+
+MultiAdmin's primary responsibility is to expose administrative endpoints for cluster management. It serves both HTTP and gRPC APIs used by the `multiadmin` web UI and by operators.
+
+MultiAdmin does not have any secondary responsibilities.
+
 ### Operator
 
 The Operator is a Kubernetes Operator. Its primary responsibility is to provision resources for a cluster and bring up all the required Multigres components.

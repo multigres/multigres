@@ -74,8 +74,8 @@
   },
   {
     "comment": "hash_index - Statement 17",
-    "query": "create unique index hash_f8_index_3 on hash_f8_heap(random) where seqno \u003e 1000",
-    "expected": "CREATE UNIQUE INDEX hash_f8_index_3 ON hash_f8_heap USING btree ( random ) WHERE seqno \u003e 1000"
+    "query": "create unique index hash_f8_index_3 on hash_f8_heap(random) where seqno > 1000",
+    "expected": "CREATE UNIQUE INDEX hash_f8_index_3 ON hash_f8_heap USING btree ( random ) WHERE seqno > 1000"
   },
   {
     "comment": "hash_index - Statement 18",

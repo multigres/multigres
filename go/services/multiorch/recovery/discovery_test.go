@@ -136,14 +136,20 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler4"))
 	require.True(t, ok, "pooler4 in new shard should be discovered")
 
-	// Remove a pooler from topology
+	// Remove a pooler from topology. Under the new contract, NoNode is a
+	// log-only no-op on the orchestrator side: the cache entry survives
+	// (so the running pooler's stream isn't torn down by an accidental
+	// external deletion). The lifecycle-SHUTDOWN path, exercised in
+	// TestPoolerWatcher_PoolerEntersShutdownLifecycle, is what evicts the
+	// cache on a clean graceful shutdown.
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2",
 	}))
 
-	// Fourth watch event - removed pooler still in store (bookkeeping removes it later)
 	require.NoError(t, engine.poolerWatcher.Sync(ctx))
-	require.Equal(t, 4, engine.poolerStore.Len(), "store should still contain all poolers, bookkeeping handles removal")
+	require.Equal(t, 4, engine.poolerStore.Len(), "NoNode is a no-op; the cache entry must survive")
+	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler2"))
+	require.True(t, ok, "deleted pooler should remain cached")
 }
 
 func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
@@ -575,7 +581,7 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	onNewPooler := func(id *clustermetadata.ID) { discovered <- id }
 
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, onNewPooler, slog.Default())
+	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, onNewPooler, nil /* onPoolerStopped */, nil /* onPoolerDeleted */, slog.Default())
 	startWatcher(t, poolerWatcher)
 
 	poolerStoreAtLeast := func(val int) func() bool {

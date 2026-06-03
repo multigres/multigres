@@ -493,12 +493,12 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	assert.False(t, sa.LeaderReachable, "primary should NOT be reachable when postgres is down")
 }
 
-// TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke covers the scenario where a primary is
-// demoted via BeginTerm REVOKE and restarted as a standby (emergencyDemoteLocked behavior).
+// TestPopulatePrimaryInfo_DemotedViaRecruit covers the scenario where a primary is
+// demoted via Recruit and restarted as a standby (emergencyDemoteLocked behavior).
 // After restart, PoolerType=REPLICA in the health snapshot and primary_term stays > 0
-// (only DemoteStalePrimary clears it). PrimaryReachable must be false so PrimaryIsDead
+// (only SetTermPrimary clears it). PrimaryReachable must be false so PrimaryIsDead
 // triggers and a new primary can be elected.
-func TestPopulatePrimaryInfo_DemotedViaBeginTermRevoke(t *testing.T) {
+func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 	replica := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -1890,7 +1890,7 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 	return setupMultiplePrimariesStoreWithReachability(t, configs)
 }
 
-func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
+func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
 	for _, p := range primaries {

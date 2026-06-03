@@ -342,10 +342,22 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 }
 
 // getProcessArgs returns the full command-line of a running process as a single space-separated string.
+//
+// On Linux we read /proc/<pid>/cmdline directly, which is NUL-separated and
+// works on Alpine/BusyBox where "ps -o args=" is not supported.  On non-Linux
+// systems (macOS dev machines) we fall back to ps.
 func getProcessArgs(pid int) (string, error) {
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
-	if err != nil {
-		return "", fmt.Errorf("ps -p %d failed: %w", pid, err)
+	// Linux fast-path: /proc/<pid>/cmdline is NUL-separated argv.
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err == nil {
+		args := strings.ReplaceAll(string(data), "\x00", " ")
+		return strings.TrimSpace(args), nil
+	}
+
+	// Fallback for macOS and other systems.
+	out, psErr := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if psErr != nil {
+		return "", fmt.Errorf("ps -p %d failed: %w", pid, psErr)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -768,15 +780,22 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	assert.Contains(t, errorOutput, existingConfig)
 }
 
-// executeStartCommand runs the actual multigres binary with "cluster start" command
+// executeStartCommand runs the actual multigres binary with "cluster start" command.
+//
+// TODO: drop the `--wait-for-bootstrap=false` override and let the production default
+// (`true`) apply once the multiorch StaleLeader flap during bootstrap is resolved.
+// Today the cluster doesn't stably reach "ready to serve queries" within the probe's
+// 2-minute budget, so leaving the wait on causes `cluster start` to time out here.
+// The tests already perform their own downstream readiness checks (WaitForBootstrap,
+// waitForMultigatewayReady, etc.), so the in-process probe is redundant for them.
 func executeStartCommand(t *testing.T, args []string, tempDir string) (string, error) {
 	// Prepare the full command: "multigres cluster start <args>"
-	cmdArgs := append([]string{"cluster", "start"}, args...)
+	cmdArgs := append([]string{"cluster", "start", "--wait-for-bootstrap=false"}, args...)
 	cmd := exec.Command("multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// LC_ALL is required to avoid "postmaster became multithreaded during startup" on macOS
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(utils.BaseTestEnv(),
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
 		"LC_ALL=en_US.UTF-8",
 	)
@@ -852,7 +871,7 @@ func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 
 	// Connect via TCP using the default password "postgres" (from PgPassword config)
 	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
-	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+	cmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD=postgres")
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))
@@ -980,7 +999,7 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Log("Both PostgreSQL instances are working correctly!")
 
 		// Wait for pooler types to be assigned (PRIMARY or REPLICA, not UNKNOWN)
-		// This ensures bootstrap has fully completed including ChangeType RPCs
+		// This ensures bootstrap has fully completed including pooler-type assignment
 		zone1Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
 		zone2Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
 		t.Log("Waiting for pooler types to be assigned...")

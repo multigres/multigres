@@ -462,7 +462,7 @@ func (gs *GrantStmt) SqlString() string {
 					var colNames []string
 					for _, col := range priv.Cols.Items {
 						if colStr, ok := col.(*String); ok {
-							colNames = append(colNames, colStr.SVal)
+							colNames = append(colNames, QuoteIdentifier(colStr.SVal))
 						}
 					}
 					if len(colNames) > 0 {
@@ -509,8 +509,22 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "PROCEDURE")
 		case OBJECT_TYPE:
 			parts = append(parts, "TYPE")
+		case OBJECT_DOMAIN:
+			parts = append(parts, "DOMAIN")
 		case OBJECT_LARGEOBJECT:
 			parts = append(parts, "LARGE", "OBJECT")
+		case OBJECT_LANGUAGE:
+			parts = append(parts, "LANGUAGE")
+		case OBJECT_ROUTINE:
+			parts = append(parts, "ROUTINE")
+		case OBJECT_TABLESPACE:
+			parts = append(parts, "TABLESPACE")
+		case OBJECT_FDW:
+			parts = append(parts, "FOREIGN", "DATA", "WRAPPER")
+		case OBJECT_FOREIGN_SERVER:
+			parts = append(parts, "FOREIGN", "SERVER")
+		case OBJECT_PARAMETER_ACL:
+			parts = append(parts, "PARAMETER")
 		case OBJECT_TABLE:
 			// TABLE is optional, but we can add it for clarity in certain contexts
 			// parts = append(parts, "TABLE")
@@ -524,7 +538,7 @@ func (gs *GrantStmt) SqlString() string {
 			if rangeVar, ok := obj.(*RangeVar); ok {
 				objNames = append(objNames, FormatFullyQualifiedName(rangeVar.CatalogName, rangeVar.SchemaName, rangeVar.RelName))
 			} else if str, ok := obj.(*String); ok {
-				objNames = append(objNames, str.SVal)
+				objNames = append(objNames, QuoteIdentifier(str.SVal))
 			} else if integer, ok := obj.(*Integer); ok {
 				// For large objects and other numeric identifiers
 				objNames = append(objNames, strconv.Itoa(integer.IVal))
@@ -533,11 +547,13 @@ func (gs *GrantStmt) SqlString() string {
 				objNames = append(objNames, objWithArgs.SqlString())
 			} else if nodeList, ok := obj.(*NodeList); ok {
 				// For types and other complex objects, extract names from the NodeList
+				var qualParts []string
 				for _, item := range nodeList.Items {
 					if str, ok := item.(*String); ok {
-						objNames = append(objNames, str.SVal)
+						qualParts = append(qualParts, QuoteIdentifier(str.SVal))
 					}
 				}
+				objNames = append(objNames, strings.Join(qualParts, "."))
 			}
 		}
 		parts = append(parts, strings.Join(objNames, ", "))
@@ -634,12 +650,15 @@ func (grs *GrantRoleStmt) SqlString() string {
 				optStr := strings.ToUpper(defElem.Defname)
 				if defElem.Arg != nil {
 					if boolVal, ok := defElem.Arg.(*Boolean); ok {
-						// For admin, set, and inherit options, use "OPTION" suffix for both GRANT and REVOKE
-						if defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit" {
+						isMembershipOpt := defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit"
+						switch {
+						case isMembershipOpt && !grs.IsGrant:
+							// REVOKE [ADMIN|INHERIT|SET] OPTION FOR <role> ...
 							optStr += " OPTION"
-						} else if boolVal.BoolVal {
+						case boolVal.BoolVal:
+							// GRANT ... WITH { ADMIN | INHERIT | SET } TRUE
 							optStr += " TRUE"
-						} else {
+						default:
 							optStr += " FALSE"
 						}
 					} else {
@@ -786,7 +805,7 @@ func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
 						var schemaNames []string
 						for _, schema := range nodeList.Items {
 							if str, ok := schema.(*String); ok {
-								schemaNames = append(schemaNames, str.SVal)
+								schemaNames = append(schemaNames, QuoteIdentifier(str.SVal))
 							}
 						}
 						parts = append(parts, strings.Join(schemaNames, ", "))
@@ -823,7 +842,7 @@ func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
 						var colNames []string
 						for _, col := range priv.Cols.Items {
 							if str, ok := col.(*String); ok {
-								colNames = append(colNames, str.SVal)
+								colNames = append(colNames, QuoteIdentifier(str.SVal))
 							}
 						}
 						privStr += " (" + strings.Join(colNames, ", ") + ")"
@@ -1446,6 +1465,18 @@ func NewResetStmt(name string) *VariableSetStmt {
 	return NewVariableSetStmt(VAR_RESET, name, nil, false)
 }
 
+// searchPathUsesSchemaForm reports whether a SET search_path can be rendered
+// with the idiomatic "SET SCHEMA <value>" syntax. That grammar production only
+// accepts a single string constant, so it applies only when there is exactly
+// one argument and it is a String node.
+func searchPathUsesSchemaForm(args *NodeList) bool {
+	if args == nil || args.Len() != 1 {
+		return false
+	}
+	_, ok := args.Items[0].(*String)
+	return ok
+}
+
 // SqlString returns the SQL representation of the SET statement
 func (v *VariableSetStmt) SqlString() string {
 	var parts []string
@@ -1468,9 +1499,11 @@ func (v *VariableSetStmt) SqlString() string {
 		case "catalog":
 			parts = append(parts, "CATALOG")
 		case "search_path":
-			// For single schema, use SET SCHEMA syntax (more idiomatic)
-			// For multiple schemas, use SET search_path = syntax
-			if v.Args != nil && v.Args.Len() == 1 {
+			// For a single *string* schema, use the idiomatic SET SCHEMA syntax.
+			// SET SCHEMA requires a string constant, so a non-string single
+			// value (e.g. SET search_path TO 10000) and the multi-value form
+			// both fall back to the generic search_path syntax.
+			if searchPathUsesSchemaForm(v.Args) {
 				parts = append(parts, "SCHEMA")
 			} else {
 				parts = append(parts, "search_path")
@@ -1504,7 +1537,7 @@ func (v *VariableSetStmt) SqlString() string {
 				v.Name == "client_encoding" || v.Name == "role" ||
 				v.Name == "session_authorization" || v.Name == "transaction_snapshot" ||
 				v.Name == "transaction_isolation" ||
-				(v.Name == "search_path" && v.Args != nil && v.Args.Len() == 1) {
+				(v.Name == "search_path" && searchPathUsesSchemaForm(v.Args)) {
 				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC', SET SCHEMA 'public')
 				var values []string
 				for _, arg := range v.Args.Items {
@@ -2294,6 +2327,11 @@ func (cs *CopyStmt) SqlString() string {
 		}
 	}
 
+	// Add WHERE clause (COPY FROM ... WHERE condition)
+	if cs.WhereClause != nil {
+		parts = append(parts, "WHERE", cs.WhereClause.SqlString())
+	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -2331,11 +2369,11 @@ func formatCopyOption(option *DefElem) string {
 	case *A_Star:
 		return optionName + " *"
 	case *NodeList:
-		// Handle lists like force_quote (col1, col2)
+		// Handle column-name lists like force_quote (col1, col2)
 		var listItems []string
 		for _, item := range arg.Items {
 			if str, ok := item.(*String); ok {
-				listItems = append(listItems, str.SVal)
+				listItems = append(listItems, QuoteIdentifier(str.SVal))
 			}
 		}
 		if len(listItems) > 0 {

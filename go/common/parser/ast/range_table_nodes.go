@@ -314,12 +314,38 @@ func (r *RangeFunction) SqlString() string {
 		result.WriteString(" WITH ORDINALITY")
 	}
 
+	// A RECORD-returning function carries a column-definition list, written as
+	// `... AS alias (col type, ...)` or, when unaliased, `... AS (col type, ...)`.
 	if r.Alias != nil {
 		result.WriteString(" ")
 		result.WriteString(r.Alias.SqlString())
+		if r.ColDefList != nil && r.ColDefList.Len() > 0 {
+			result.WriteString(" ")
+			result.WriteString(renderColDefList(r.ColDefList))
+		}
+	} else if r.ColDefList != nil && r.ColDefList.Len() > 0 {
+		result.WriteString(" AS ")
+		result.WriteString(renderColDefList(r.ColDefList))
 	}
 
 	return result.String()
+}
+
+// renderColDefList renders a parenthesized list of column definitions used by
+// RECORD-returning functions, e.g. "(a int, b text)".
+func renderColDefList(list *NodeList) string {
+	var b strings.Builder
+	b.WriteString("(")
+	for i, item := range list.Items {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if item != nil {
+			b.WriteString(item.SqlString())
+		}
+	}
+	b.WriteString(")")
+	return b.String()
 }
 
 // RangeTableFunc represents raw form of "table functions" such as XMLTABLE.
@@ -374,6 +400,28 @@ func (r *RangeTableFunc) SqlString() string {
 
 	// For now, we assume this is XMLTABLE since that's what we're implementing
 	result.WriteString("XMLTABLE(")
+
+	// Optional XMLNAMESPACES(...) clause comes first. Each namespace is a
+	// ResTarget: `uri AS name`, or `DEFAULT uri` when unnamed.
+	if r.Namespaces != nil && r.Namespaces.Len() > 0 {
+		result.WriteString("XMLNAMESPACES(")
+		for i, item := range r.Namespaces.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if rt, ok := item.(*ResTarget); ok {
+				if rt.Name == "" {
+					result.WriteString("DEFAULT ")
+					if rt.Val != nil {
+						result.WriteString(rt.Val.SqlString())
+					}
+				} else {
+					result.WriteString(rt.SqlString())
+				}
+			}
+		}
+		result.WriteString("), ")
+	}
 
 	// XMLTABLE syntax: XMLTABLE(xpath_expression PASSING document_expression COLUMNS ...)
 	// RowExpr is the XPath expression, DocExpr is the document

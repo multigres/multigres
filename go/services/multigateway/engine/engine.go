@@ -20,7 +20,9 @@ package engine
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -222,6 +224,32 @@ type IExecute interface {
 		shard string,
 		state *handler.MultiGatewayConnectionState,
 	) error
+
+	// CopyOutInitiate initiates a COPY ... TO STDOUT operation. Returns
+	// format and column formats from CopyOutResponse plus any NoticeResponse
+	// diagnostics received before CopyOutResponse. Stores the reserved
+	// connection state in state.ShardStates so CopyOutStream can find it.
+	CopyOutInitiate(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		queryStr string,
+		state *handler.MultiGatewayConnectionState,
+	) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error)
+
+	// CopyOutStream drives the COPY ... TO STDOUT data stream, invoking
+	// onMessage for each CopyData chunk / NoticeResponse pumped by the
+	// multipooler. Returns the final Result with CommandTag, RowsAffected,
+	// and any trailing notices in result.Notices.
+	CopyOutStream(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
+		onMessage func(pgClient.CopyOutMessage) error,
+	) (*sqltypes.Result, error)
 }
 
 // Primitive is the building block of the query execution plan.

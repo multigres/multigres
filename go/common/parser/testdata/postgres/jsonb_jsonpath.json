@@ -106,8 +106,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 22",
-    "query": "select jsonb_path_query('[1]', 'strict $[1]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1]', 'strict $[1]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1]', 'strict $[1]', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1]', 'strict $[1]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 23",
@@ -161,28 +161,28 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 33",
-    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,5]}' @? '$ ? (@.a[*] \u003e  @.b[*])'",
-    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,5]}' AS JSONB) @? '$ ? (@.a[*] \u003e  @.b[*])'"
+    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,5]}' @? '$ ? (@.a[*] >  @.b[*])'",
+    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,5]}' AS JSONB) @? '$ ? (@.a[*] >  @.b[*])'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 34",
-    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,5]}' @? '$ ? (@.a[*] \u003e= @.b[*])'",
-    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,5]}' AS JSONB) @? '$ ? (@.a[*] \u003e= @.b[*])'"
+    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,5]}' @? '$ ? (@.a[*] >= @.b[*])'",
+    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,5]}' AS JSONB) @? '$ ? (@.a[*] >= @.b[*])'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 35",
-    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' @? '$ ? (@.a[*] \u003e= @.b[*])'",
-    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' AS JSONB) @? '$ ? (@.a[*] \u003e= @.b[*])'"
+    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' @? '$ ? (@.a[*] >= @.b[*])'",
+    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' AS JSONB) @? '$ ? (@.a[*] >= @.b[*])'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 36",
-    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' @? 'strict $ ? (@.a[*] \u003e= @.b[*])'",
-    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' AS JSONB) @? 'strict $ ? (@.a[*] \u003e= @.b[*])'"
+    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' @? 'strict $ ? (@.a[*] >= @.b[*])'",
+    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,\"5\"]}' AS JSONB) @? 'strict $ ? (@.a[*] >= @.b[*])'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 37",
-    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,null]}' @? '$ ? (@.a[*] \u003e= @.b[*])'",
-    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,null]}' AS JSONB) @? '$ ? (@.a[*] \u003e= @.b[*])'"
+    "query": "select jsonb '{\"a\": [1,2,3], \"b\": [3,4,null]}' @? '$ ? (@.a[*] >= @.b[*])'",
+    "expected": "SELECT CAST('{\"a\": [1,2,3], \"b\": [3,4,null]}' AS JSONB) @? '$ ? (@.a[*] >= @.b[*])'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 38",
@@ -196,28 +196,28 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 40",
-    "query": "select jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[0 to 1] ? (@.a \u003e 1)'",
-    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[0 to 1] ? (@.a \u003e 1)'"
+    "query": "select jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[0 to 1] ? (@.a > 1)'",
+    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[0 to 1] ? (@.a > 1)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 41",
-    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent =\u003e FALSE)"
+    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent => false)",
+    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 42",
-    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent => true)",
+    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax $[*].a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 43",
-    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent =\u003e FALSE)"
+    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent => false)",
+    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 44",
-    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent => true)",
+    "expected": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict $[*].a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 45",
@@ -236,13 +236,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 48",
-    "query": "select jsonb_path_query('1', 'strict $.a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('1', 'strict $.a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('1', 'strict $.a', silent => true)",
+    "expected": "SELECT jsonb_path_query('1', 'strict $.a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 49",
-    "query": "select jsonb_path_query('1', 'strict $.*', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('1', 'strict $.*', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('1', 'strict $.*', silent => true)",
+    "expected": "SELECT jsonb_path_query('1', 'strict $.*', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 50",
@@ -256,8 +256,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 52",
-    "query": "select jsonb_path_query('[]', 'strict $.a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.a', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 53",
@@ -271,8 +271,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 55",
-    "query": "select jsonb_path_query('{}', 'strict $.a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', 'strict $.a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', 'strict $.a', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', 'strict $.a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 56",
@@ -296,23 +296,23 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 60",
-    "query": "select jsonb_path_query('1', 'strict $[1]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('1', 'strict $[1]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('1', 'strict $[1]', silent => true)",
+    "expected": "SELECT jsonb_path_query('1', 'strict $[1]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 61",
-    "query": "select jsonb_path_query('1', 'strict $[*]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('1', 'strict $[*]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('1', 'strict $[*]', silent => true)",
+    "expected": "SELECT jsonb_path_query('1', 'strict $[*]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 62",
-    "query": "select jsonb_path_query('[]', 'strict $[1]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $[1]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $[1]', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $[1]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 63",
-    "query": "select jsonb_path_query('[]', 'strict $[\"a\"]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $[\"a\"]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $[\"a\"]', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $[\"a\"]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 64",
@@ -411,8 +411,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 83",
-    "query": "select jsonb_path_query('[1,2,3]', 'strict $[*].a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1,2,3]', 'strict $[*].a', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1,2,3]', 'strict $[*].a', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1,2,3]', 'strict $[*].a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 84",
@@ -431,8 +431,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 87",
-    "query": "select jsonb_path_query('[]', 'strict $[last]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $[last]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $[last]', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $[last]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 88",
@@ -461,8 +461,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 93",
-    "query": "select jsonb_path_query('[1,2,3]', '$[last ? (@.type() == \"string\")]', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1,2,3]', '$[last ? (@.type() == \"string\")]', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1,2,3]', '$[last ? (@.type() == \"string\")]', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1,2,3]', '$[last ? (@.type() == \"string\")]', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 94",
@@ -471,48 +471,48 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 95",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 96",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '1')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '1')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '1')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '1')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 97",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '[{\"value\" : 13}]')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '[{\"value\" : 13}]')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '[{\"value\" : 13}]')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '[{\"value\" : 13}]')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 98",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '{\"value\" : 13}')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '{\"value\" : 13}')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '{\"value\" : 13}')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '{\"value\" : 13}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 99",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '{\"value\" : 8}')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a \u003c $value)', '{\"value\" : 8}')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '{\"value\" : 8}')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$ ? (@.a < $value)', '{\"value\" : 8}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 100",
-    "query": "select * from jsonb_path_query('{\"a\": 10}', '$.a ? (@ \u003c $value)', '{\"value\" : 13}')",
-    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$.a ? (@ \u003c $value)', '{\"value\" : 13}')"
+    "query": "select * from jsonb_path_query('{\"a\": 10}', '$.a ? (@ < $value)', '{\"value\" : 13}')",
+    "expected": "SELECT * FROM jsonb_path_query('{\"a\": 10}', '$.a ? (@ < $value)', '{\"value\" : 13}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 101",
-    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[*] ? (@ \u003c $value)', '{\"value\" : 13}')",
-    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[*] ? (@ \u003c $value)', '{\"value\" : 13}')"
+    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[*] ? (@ < $value)', '{\"value\" : 13}')",
+    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[*] ? (@ < $value)', '{\"value\" : 13}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 102",
-    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[0,1] ? (@ \u003c $x.value)', '{\"x\": {\"value\" : 13}}')",
-    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[0,1] ? (@ \u003c $x.value)', '{\"x\": {\"value\" : 13}}')"
+    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[0,1] ? (@ < $x.value)', '{\"x\": {\"value\" : 13}}')",
+    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[0,1] ? (@ < $x.value)', '{\"x\": {\"value\" : 13}}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 103",
-    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[0 to 2] ? (@ \u003c $value)', '{\"value\" : 15}')",
-    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[0 to 2] ? (@ \u003c $value)', '{\"value\" : 15}')"
+    "query": "select * from jsonb_path_query('[10,11,12,13,14,15]', '$[0 to 2] ? (@ < $value)', '{\"value\" : 15}')",
+    "expected": "SELECT * FROM jsonb_path_query('[10,11,12,13,14,15]', '$[0 to 2] ? (@ < $value)', '{\"value\" : 15}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 104",
@@ -596,133 +596,133 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 120",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 121",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 122",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 123",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0 to last}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0 to last}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0 to last}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{0 to last}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 124",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to last}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to last}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to last}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to last}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 125",
-    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to 2}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to 2}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to 2}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"b\": 1}}', 'lax $.**{1 to 2}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 126",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 127",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 128",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 129",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0 to last}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0 to last}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0 to last}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{0 to last}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 130",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to last}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to last}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to last}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to last}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 131",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to 2}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to 2}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to 2}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{1 to 2}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 132",
-    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{2 to 3}.b ? (@ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{2 to 3}.b ? (@ \u003e 0)')"
+    "query": "select jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{2 to 3}.b ? (@ > 0)')",
+    "expected": "SELECT jsonb_path_query('{\"a\": {\"c\": {\"b\": 1}}}', 'lax $.**{2 to 3}.b ? (@ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 133",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 134",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{0}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{0}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{0}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{0}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 135",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 136",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{0 to last}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{0 to last}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{0 to last}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{0 to last}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 137",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1 to last}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1 to last}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1 to last}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1 to last}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 138",
-    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1 to 2}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1 to 2}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"b\": 1}}' @? '$.**{1 to 2}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"b\": 1}}' AS JSONB) @? '$.**{1 to 2}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 139",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 140",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{0}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{0}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{0}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{0}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 141",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 142",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{0 to last}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{0 to last}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{0 to last}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{0 to last}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 143",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1 to last}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1 to last}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1 to last}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1 to last}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 144",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1 to 2}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1 to 2}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{1 to 2}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{1 to 2}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 145",
-    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{2 to 3}.b ? ( @ \u003e 0)'",
-    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{2 to 3}.b ? ( @ \u003e 0)'"
+    "query": "select jsonb '{\"a\": {\"c\": {\"b\": 1}}}' @? '$.**{2 to 3}.b ? ( @ > 0)'",
+    "expected": "SELECT CAST('{\"a\": {\"c\": {\"b\": 1}}}' AS JSONB) @? '$.**{2 to 3}.b ? ( @ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 146",
@@ -736,8 +736,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 148",
-    "query": "select jsonb_path_query('{\"g\": {\"x\": 2}}', '$.g ? (exists (@.x ? (@ \u003e= 2) ))')",
-    "expected": "SELECT jsonb_path_query('{\"g\": {\"x\": 2}}', '$.g ? (exists (@.x ? (@ \u003e= 2) ))')"
+    "query": "select jsonb_path_query('{\"g\": {\"x\": 2}}', '$.g ? (exists (@.x ? (@ >= 2) ))')",
+    "expected": "SELECT jsonb_path_query('{\"g\": {\"x\": 2}}', '$.g ? (exists (@.x ? (@ >= 2) ))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 149",
@@ -776,13 +776,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 156",
-    "query": "select x, y, jsonb_path_query( '[true, false, null]', '$[*] ? (@ == true  \u0026\u0026  ($x == true \u0026\u0026 $y == true) || @ == false \u0026\u0026 !($x == true \u0026\u0026 $y == true) || @ == null  \u0026\u0026  ($x == true \u0026\u0026 $y == true) is unknown)', jsonb_build_object('x', x, 'y', y) ) as \"x \u0026\u0026 y\" from (values (jsonb 'true'), ('false'), ('\"null\"')) x(x), (values (jsonb 'true'), ('false'), ('\"null\"')) y(y)",
-    "expected": "SELECT x, y, jsonb_path_query('[true, false, null]', '$[*] ? (@ == true  \u0026\u0026  ($x == true \u0026\u0026 $y == true) || @ == false \u0026\u0026 !($x == true \u0026\u0026 $y == true) || @ == null  \u0026\u0026  ($x == true \u0026\u0026 $y == true) is unknown)', jsonb_build_object('x', x, 'y', y)) AS \"x \u0026\u0026 y\" FROM (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS x(x), (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS y(y)"
+    "query": "select x, y, jsonb_path_query( '[true, false, null]', '$[*] ? (@ == true  &&  ($x == true && $y == true) || @ == false && !($x == true && $y == true) || @ == null  &&  ($x == true && $y == true) is unknown)', jsonb_build_object('x', x, 'y', y) ) as \"x && y\" from (values (jsonb 'true'), ('false'), ('\"null\"')) x(x), (values (jsonb 'true'), ('false'), ('\"null\"')) y(y)",
+    "expected": "SELECT x, y, jsonb_path_query('[true, false, null]', '$[*] ? (@ == true  &&  ($x == true && $y == true) || @ == false && !($x == true && $y == true) || @ == null  &&  ($x == true && $y == true) is unknown)', jsonb_build_object('x', x, 'y', y)) AS \"x && y\" FROM (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS x(x), (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS y(y)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 157",
-    "query": "select x, y, jsonb_path_query( '[true, false, null]', '$[*] ? (@ == true  \u0026\u0026  ($x == true || $y == true) || @ == false \u0026\u0026 !($x == true || $y == true) || @ == null  \u0026\u0026  ($x == true || $y == true) is unknown)', jsonb_build_object('x', x, 'y', y) ) as \"x || y\" from (values (jsonb 'true'), ('false'), ('\"null\"')) x(x), (values (jsonb 'true'), ('false'), ('\"null\"')) y(y)",
-    "expected": "SELECT x, y, jsonb_path_query('[true, false, null]', '$[*] ? (@ == true  \u0026\u0026  ($x == true || $y == true) || @ == false \u0026\u0026 !($x == true || $y == true) || @ == null  \u0026\u0026  ($x == true || $y == true) is unknown)', jsonb_build_object('x', x, 'y', y)) AS \"x || y\" FROM (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS x(x), (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS y(y)"
+    "query": "select x, y, jsonb_path_query( '[true, false, null]', '$[*] ? (@ == true  &&  ($x == true || $y == true) || @ == false && !($x == true || $y == true) || @ == null  &&  ($x == true || $y == true) is unknown)', jsonb_build_object('x', x, 'y', y) ) as \"x || y\" from (values (jsonb 'true'), ('false'), ('\"null\"')) x(x), (values (jsonb 'true'), ('false'), ('\"null\"')) y(y)",
+    "expected": "SELECT x, y, jsonb_path_query('[true, false, null]', '$[*] ? (@ == true  &&  ($x == true || $y == true) || @ == false && !($x == true || $y == true) || @ == null  &&  ($x == true || $y == true) is unknown)', jsonb_build_object('x', x, 'y', y)) AS \"x || y\" FROM (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS x(x), (VALUES (CAST('true' AS JSONB)), ('false'), ('\"null\"')) AS y(y)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 158",
@@ -876,38 +876,38 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 176",
-    "query": "select jsonb '[1,2,3]' @? '$ ? (+@[*] \u003e +2)'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (+@[*] \u003e +2)'"
+    "query": "select jsonb '[1,2,3]' @? '$ ? (+@[*] > +2)'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (+@[*] > +2)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 177",
-    "query": "select jsonb '[1,2,3]' @? '$ ? (+@[*] \u003e +3)'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (+@[*] \u003e +3)'"
+    "query": "select jsonb '[1,2,3]' @? '$ ? (+@[*] > +3)'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (+@[*] > +3)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 178",
-    "query": "select jsonb '[1,2,3]' @? '$ ? (-@[*] \u003c -2)'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (-@[*] \u003c -2)'"
+    "query": "select jsonb '[1,2,3]' @? '$ ? (-@[*] < -2)'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (-@[*] < -2)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 179",
-    "query": "select jsonb '[1,2,3]' @? '$ ? (-@[*] \u003c -3)'",
-    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (-@[*] \u003c -3)'"
+    "query": "select jsonb '[1,2,3]' @? '$ ? (-@[*] < -3)'",
+    "expected": "SELECT CAST('[1,2,3]' AS JSONB) @? '$ ? (-@[*] < -3)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 180",
-    "query": "select jsonb '1' @? '$ ? ($ \u003e 0)'",
-    "expected": "SELECT CAST('1' AS JSONB) @? '$ ? ($ \u003e 0)'"
+    "query": "select jsonb '1' @? '$ ? ($ > 0)'",
+    "expected": "SELECT CAST('1' AS JSONB) @? '$ ? ($ > 0)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 181",
-    "query": "select jsonb_path_query('[1,2,0,3]', '$[*] ? (2 / @ \u003e 0)')",
-    "expected": "SELECT jsonb_path_query('[1,2,0,3]', '$[*] ? (2 / @ \u003e 0)')"
+    "query": "select jsonb_path_query('[1,2,0,3]', '$[*] ? (2 / @ > 0)')",
+    "expected": "SELECT jsonb_path_query('[1,2,0,3]', '$[*] ? (2 / @ > 0)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 182",
-    "query": "select jsonb_path_query('[1,2,0,3]', '$[*] ? ((2 / @ \u003e 0) is unknown)')",
-    "expected": "SELECT jsonb_path_query('[1,2,0,3]', '$[*] ? ((2 / @ \u003e 0) is unknown)')"
+    "query": "select jsonb_path_query('[1,2,0,3]', '$[*] ? ((2 / @ > 0) is unknown)')",
+    "expected": "SELECT jsonb_path_query('[1,2,0,3]', '$[*] ? ((2 / @ > 0) is unknown)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 183",
@@ -946,23 +946,23 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 190",
-    "query": "select jsonb_path_query('1', '$ + \"2\"', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('1', '$ + \"2\"', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('1', '$ + \"2\"', silent => true)",
+    "expected": "SELECT jsonb_path_query('1', '$ + \"2\"', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 191",
-    "query": "select jsonb_path_query('[1, 2]', '3 * $', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1, 2]', '3 * $', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1, 2]', '3 * $', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1, 2]', '3 * $', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 192",
-    "query": "select jsonb_path_query('\"a\"', '-$', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"a\"', '-$', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"a\"', '-$', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"a\"', '-$', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 193",
-    "query": "select jsonb_path_query('[1,\"2\",3]', '+$', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1,\"2\",3]', '+$', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1,\"2\",3]', '+$', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1,\"2\",3]', '+$', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 194",
@@ -1006,18 +1006,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 202",
-    "query": "select jsonb_path_query('{\"a\": [1, 2]}', 'lax $.a * 3', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{\"a\": [1, 2]}', 'lax $.a * 3', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{\"a\": [1, 2]}', 'lax $.a * 3', silent => true)",
+    "expected": "SELECT jsonb_path_query('{\"a\": [1, 2]}', 'lax $.a * 3', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 203",
-    "query": "select jsonb_path_query('2', '$ \u003e 1')",
-    "expected": "SELECT jsonb_path_query('2', '$ \u003e 1')"
+    "query": "select jsonb_path_query('2', '$ > 1')",
+    "expected": "SELECT jsonb_path_query('2', '$ > 1')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 204",
-    "query": "select jsonb_path_query('2', '$ \u003c= 1')",
-    "expected": "SELECT jsonb_path_query('2', '$ \u003c= 1')"
+    "query": "select jsonb_path_query('2', '$ <= 1')",
+    "expected": "SELECT jsonb_path_query('2', '$ <= 1')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 205",
@@ -1031,13 +1031,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 207",
-    "query": "select jsonb '2' @@ '$ \u003e 1'",
-    "expected": "SELECT CAST('2' AS JSONB) @@ '$ \u003e 1'"
+    "query": "select jsonb '2' @@ '$ > 1'",
+    "expected": "SELECT CAST('2' AS JSONB) @@ '$ > 1'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 208",
-    "query": "select jsonb '2' @@ '$ \u003c= 1'",
-    "expected": "SELECT CAST('2' AS JSONB) @@ '$ \u003c= 1'"
+    "query": "select jsonb '2' @@ '$ <= 1'",
+    "expected": "SELECT CAST('2' AS JSONB) @@ '$ <= 1'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 209",
@@ -1071,33 +1071,33 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 215",
-    "query": "select jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] \u003e $x) [1]', '{\"x\": 1}')",
-    "expected": "SELECT jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] \u003e $x) [1]', '{\"x\": 1}')"
+    "query": "select jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] > $x) [1]', '{\"x\": 1}')",
+    "expected": "SELECT jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] > $x) [1]', '{\"x\": 1}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 216",
-    "query": "select jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] \u003c $x) [1]', '{\"x\": 2}')",
-    "expected": "SELECT jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] \u003c $x) [1]', '{\"x\": 2}')"
+    "query": "select jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] < $x) [1]', '{\"x\": 2}')",
+    "expected": "SELECT jsonb_path_match('[[1, true], [2, false]]', 'strict $[*] ? (@[0] < $x) [1]', '{\"x\": 2}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 217",
-    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent =\u003e FALSE)"
+    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent => false)",
+    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 218",
-    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent =\u003e TRUE)"
+    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent => true)",
+    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'lax exists($[*].a)', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 219",
-    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent =\u003e FALSE)"
+    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent => false)",
+    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 220",
-    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent =\u003e TRUE)"
+    "query": "select jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent => true)",
+    "expected": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}, 3]', 'strict exists($[*].a)', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 221",
@@ -1146,23 +1146,23 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 230",
-    "query": "select jsonb_path_query('[1, 2, 3]', '($[*] \u003e 2) ? (@ == true)')",
-    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*] \u003e 2) ? (@ == true)')"
+    "query": "select jsonb_path_query('[1, 2, 3]', '($[*] > 2) ? (@ == true)')",
+    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*] > 2) ? (@ == true)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 231",
-    "query": "select jsonb_path_query('[1, 2, 3]', '($[*] \u003e 3).type()')",
-    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*] \u003e 3).type()')"
+    "query": "select jsonb_path_query('[1, 2, 3]', '($[*] > 3).type()')",
+    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*] > 3).type()')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 232",
-    "query": "select jsonb_path_query('[1, 2, 3]', '($[*].a \u003e 3).type()')",
-    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*].a \u003e 3).type()')"
+    "query": "select jsonb_path_query('[1, 2, 3]', '($[*].a > 3).type()')",
+    "expected": "SELECT jsonb_path_query('[1, 2, 3]', '($[*].a > 3).type()')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 233",
-    "query": "select jsonb_path_query('[1, 2, 3]', 'strict ($[*].a \u003e 3).type()')",
-    "expected": "SELECT jsonb_path_query('[1, 2, 3]', 'strict ($[*].a \u003e 3).type()')"
+    "query": "select jsonb_path_query('[1, 2, 3]', 'strict ($[*].a > 3).type()')",
+    "expected": "SELECT jsonb_path_query('[1, 2, 3]', 'strict ($[*].a > 3).type()')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 234",
@@ -1171,8 +1171,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 235",
-    "query": "select jsonb_path_query('[1,null,true,\"11\",[],[1],[1,2,3],{},{\"a\":1,\"b\":2}]', 'strict $[*].size()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[1,null,true,\"11\",[],[1],[1,2,3],{},{\"a\":1,\"b\":2}]', 'strict $[*].size()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[1,null,true,\"11\",[],[1],[1,2,3],{},{\"a\":1,\"b\":2}]', 'strict $[*].size()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[1,null,true,\"11\",[],[1],[1,2,3],{},{\"a\":1,\"b\":2}]', 'strict $[*].size()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 236",
@@ -1211,8 +1211,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 243",
-    "query": "select jsonb_path_query('[{},1]', '$[*].keyvalue()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[{},1]', '$[*].keyvalue()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[{},1]', '$[*].keyvalue()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[{},1]', '$[*].keyvalue()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 244",
@@ -1266,13 +1266,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 254",
-    "query": "select jsonb_path_query('null', '$.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 255",
-    "query": "select jsonb_path_query('true', '$.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 256",
@@ -1291,13 +1291,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 259",
-    "query": "select jsonb_path_query('[]', 'strict $.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 260",
-    "query": "select jsonb_path_query('{}', '$.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 261",
@@ -1336,13 +1336,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 268",
-    "query": "select jsonb_path_query('\"inf\"', '$.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 269",
-    "query": "select jsonb_path_query('\"-inf\"', '$.double()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.double()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.double()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.double()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 270",
@@ -1361,18 +1361,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 273",
-    "query": "select jsonb_path_query('{}', '$.abs()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.abs()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.abs()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.abs()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 274",
-    "query": "select jsonb_path_query('true', '$.floor()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.floor()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.floor()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.floor()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 275",
-    "query": "select jsonb_path_query('\"1.2\"', '$.ceiling()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"1.2\"', '$.ceiling()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"1.2\"', '$.ceiling()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"1.2\"', '$.ceiling()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 276",
@@ -1571,13 +1571,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 315",
-    "query": "select jsonb_path_query('null', '$.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 316",
-    "query": "select jsonb_path_query('true', '$.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 317",
@@ -1596,13 +1596,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 320",
-    "query": "select jsonb_path_query('[]', 'strict $.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 321",
-    "query": "select jsonb_path_query('{}', '$.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 322",
@@ -1636,13 +1636,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 328",
-    "query": "select jsonb_path_query('\"inf\"', '$.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 329",
-    "query": "select jsonb_path_query('\"-inf\"', '$.bigint()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.bigint()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.bigint()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.bigint()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 330",
@@ -1711,8 +1711,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 343",
-    "query": "select jsonb_path_query('null', '$.boolean()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.boolean()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.boolean()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.boolean()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 344",
@@ -1731,13 +1731,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 347",
-    "query": "select jsonb_path_query('[]', 'strict $.boolean()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.boolean()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.boolean()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.boolean()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 348",
-    "query": "select jsonb_path_query('{}', '$.boolean()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.boolean()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.boolean()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.boolean()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 349",
@@ -1776,13 +1776,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 356",
-    "query": "select jsonb_path_query('\"inf\"', '$.boolean()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.boolean()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.boolean()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.boolean()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 357",
-    "query": "select jsonb_path_query('\"-inf\"', '$.boolean()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.boolean()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.boolean()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.boolean()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 358",
@@ -1981,13 +1981,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 397",
-    "query": "select jsonb_path_query('null', '$.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 398",
-    "query": "select jsonb_path_query('true', '$.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 399",
@@ -2006,13 +2006,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 402",
-    "query": "select jsonb_path_query('[]', 'strict $.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 403",
-    "query": "select jsonb_path_query('{}', '$.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 404",
@@ -2051,13 +2051,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 411",
-    "query": "select jsonb_path_query('\"inf\"', '$.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 412",
-    "query": "select jsonb_path_query('\"-inf\"', '$.decimal()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.decimal()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.decimal()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.decimal()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 413",
@@ -2196,13 +2196,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 440",
-    "query": "select jsonb_path_query('null', '$.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 441",
-    "query": "select jsonb_path_query('true', '$.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 442",
@@ -2221,13 +2221,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 445",
-    "query": "select jsonb_path_query('[]', 'strict $.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 446",
-    "query": "select jsonb_path_query('{}', '$.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 447",
@@ -2261,13 +2261,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 453",
-    "query": "select jsonb_path_query('\"inf\"', '$.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 454",
-    "query": "select jsonb_path_query('\"-inf\"', '$.integer()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.integer()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.integer()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.integer()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 455",
@@ -2331,13 +2331,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 467",
-    "query": "select jsonb_path_query('null', '$.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 468",
-    "query": "select jsonb_path_query('true', '$.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('true', '$.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('true', '$.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('true', '$.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 469",
@@ -2356,13 +2356,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 472",
-    "query": "select jsonb_path_query('[]', 'strict $.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 473",
-    "query": "select jsonb_path_query('{}', '$.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 474",
@@ -2401,13 +2401,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 481",
-    "query": "select jsonb_path_query('\"inf\"', '$.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"inf\"', '$.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"inf\"', '$.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"inf\"', '$.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 482",
-    "query": "select jsonb_path_query('\"-inf\"', '$.number()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.number()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('\"-inf\"', '$.number()', silent => true)",
+    "expected": "SELECT jsonb_path_query('\"-inf\"', '$.number()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 483",
@@ -2456,8 +2456,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 492",
-    "query": "select jsonb_path_query('null', '$.string()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('null', '$.string()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('null', '$.string()', silent => true)",
+    "expected": "SELECT jsonb_path_query('null', '$.string()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 493",
@@ -2476,13 +2476,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 496",
-    "query": "select jsonb_path_query('[]', 'strict $.string()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('[]', 'strict $.string()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('[]', 'strict $.string()', silent => true)",
+    "expected": "SELECT jsonb_path_query('[]', 'strict $.string()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 497",
-    "query": "select jsonb_path_query('{}', '$.string()', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query('{}', '$.string()', silent =\u003e TRUE)"
+    "query": "select jsonb_path_query('{}', '$.string()', silent => true)",
+    "expected": "SELECT jsonb_path_query('{}', '$.string()', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 498",
@@ -3251,13 +3251,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 651",
-    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 652",
-    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 653",
@@ -3266,13 +3266,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 654",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 655",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"12:34:56\", \"01:02:03+04\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"10.03.2017\".datetime(\"dd.mm.yyyy\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 656",
@@ -3281,13 +3281,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 657",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ >= \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 658",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ \u003c  \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].datetime() ? (@ <  \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 659",
@@ -3296,13 +3296,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 660",
-    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003e= \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003e= \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ >= \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ >= \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 661",
-    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003c  \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003c  \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ <  \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ <  \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 662",
@@ -3311,13 +3311,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 663",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003e= \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003e= \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ >= \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ >= \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 664",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003c  \"2017-03-10\".date())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ \u003c  \"2017-03-10\".date())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ <  \"2017-03-10\".date())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10\", \"2017-03-11\", \"2017-03-09\", \"2017-03-10 00:00:00\", \"2017-03-10 12:34:56\", \"2017-03-10 01:02:03+04\", \"2017-03-10 03:00:00+03\"]', '$[*].date() ? (@ <  \"2017-03-10\".date())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 665",
@@ -3326,13 +3326,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 666",
-    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35\".datetime(\"HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35\".datetime(\"HH24:MI\"))')"
+    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35\".datetime(\"HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35\".datetime(\"HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 667",
-    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35\".datetime(\"HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35\".datetime(\"HH24:MI\"))')"
+    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35\".datetime(\"HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35\".datetime(\"HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 668",
@@ -3341,13 +3341,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 669",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35\".datetime(\"HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35\".datetime(\"HH24:MI\"))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35\".datetime(\"HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35\".datetime(\"HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 670",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35\".datetime(\"HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35\".datetime(\"HH24:MI\"))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35\".datetime(\"HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35\".datetime(\"HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 671",
@@ -3356,13 +3356,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 672",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003e= \"12:35:00\".time())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ >= \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 673",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ \u003c  \"12:35:00\".time())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].datetime() ? (@ <  \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 674",
@@ -3371,18 +3371,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 675",
-    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003e= \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003e= \"12:35:00\".time())')"
+    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ >= \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ >= \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 676",
-    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003c  \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003c  \"12:35:00\".time())')"
+    "query": "select jsonb_path_query( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ <  \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ <  \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 677",
-    "query": "select jsonb_path_query( '[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ \u003e= \"12:35:00.123\".time(2))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ \u003e= \"12:35:00.123\".time(2))')"
+    "query": "select jsonb_path_query( '[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ >= \"12:35:00.123\".time(2))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ >= \"12:35:00.123\".time(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 678",
@@ -3391,18 +3391,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 679",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003e= \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003e= \"12:35:00\".time())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ >= \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ >= \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 680",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003c  \"12:35:00\".time())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ \u003c  \"12:35:00\".time())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ <  \"12:35:00\".time())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00\", \"12:35:00\", \"12:36:00\", \"12:35:00+00\", \"12:35:00+01\", \"13:35:00+01\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00+01\"]', '$[*].time() ? (@ <  \"12:35:00\".time())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 681",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ \u003e= \"12:35:00.123\".time(2))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ \u003e= \"12:35:00.123\".time(2))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ >= \"12:35:00.123\".time(2))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00.123\", \"12:35:00.123\", \"12:36:00.1123\", \"12:35:00.1123+00\", \"12:35:00.123+01\", \"13:35:00.123+01\", \"2017-03-10 12:35:00.1\", \"2017-03-10 12:35:00.123+01\"]', '$[*].time(2) ? (@ >= \"12:35:00.123\".time(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 682",
@@ -3411,13 +3411,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 683",
-    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 684",
-    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 685",
@@ -3426,13 +3426,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 686",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 687",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10\", \"2017-03-10 12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35 +1\".datetime(\"HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 688",
@@ -3441,13 +3441,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 689",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003e= \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ >= \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 690",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ \u003c  \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].datetime() ? (@ <  \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 691",
@@ -3456,18 +3456,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 692",
-    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003e= \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003e= \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ >= \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ >= \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 693",
-    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003c  \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003c  \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ <  \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ <  \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 694",
-    "query": "select jsonb_path_query( '[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ \u003e= \"12:35:00.123 +1\".time_tz(2))')",
-    "expected": "SELECT jsonb_path_query('[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ \u003e= \"12:35:00.123 +1\".time_tz(2))')"
+    "query": "select jsonb_path_query( '[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ >= \"12:35:00.123 +1\".time_tz(2))')",
+    "expected": "SELECT jsonb_path_query('[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ >= \"12:35:00.123 +1\".time_tz(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 695",
@@ -3476,18 +3476,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 696",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003e= \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003e= \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ >= \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ >= \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 697",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003c  \"12:35:00 +1\".time_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ \u003c  \"12:35:00 +1\".time_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ <  \"12:35:00 +1\".time_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00+01\", \"12:35:00+01\", \"12:36:00+01\", \"12:35:00+02\", \"12:35:00-02\", \"10:35:00\", \"11:35:00\", \"12:35:00\", \"2017-03-10 12:35:00 +1\"]', '$[*].time_tz() ? (@ <  \"12:35:00 +1\".time_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 698",
-    "query": "select jsonb_path_query_tz( '[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ \u003e= \"12:35:00.123 +1\".time_tz(2))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ \u003e= \"12:35:00.123 +1\".time_tz(2))')"
+    "query": "select jsonb_path_query_tz( '[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ >= \"12:35:00.123 +1\".time_tz(2))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"12:34:00.123+01\", \"12:35:00.123+01\", \"12:36:00.1123+01\", \"12:35:00.1123+02\", \"12:35:00.123-02\", \"10:35:00.123\", \"11:35:00.1\", \"12:35:00.123\", \"2017-03-10 12:35:00.123 +1\"]', '$[*].time_tz(2) ? (@ >= \"12:35:00.123 +1\".time_tz(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 699",
@@ -3496,13 +3496,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 700",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 701",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 702",
@@ -3511,13 +3511,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 703",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 704",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35\".datetime(\"dd.mm.yyyy HH24:MI\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 705",
@@ -3526,13 +3526,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 706",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 707",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ < \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ < \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 708",
@@ -3541,18 +3541,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 709",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 710",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ < \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ < \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 711",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ \u003e= \"2017-03-10 12:35:00.123\".timestamp(2))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ \u003e= \"2017-03-10 12:35:00.123\".timestamp(2))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ >= \"2017-03-10 12:35:00.123\".timestamp(2))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ >= \"2017-03-10 12:35:00.123\".timestamp(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 712",
@@ -3561,18 +3561,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 713",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003e= \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ >= \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 714",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ \u003c \"2017-03-10 12:35:00\".timestamp())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ < \"2017-03-10 12:35:00\".timestamp())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00\", \"2017-03-10 12:35:00\", \"2017-03-10 12:36:00\", \"2017-03-10 12:35:00+01\", \"2017-03-10 13:35:00+01\", \"2017-03-10 12:35:00-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp() ? (@ < \"2017-03-10 12:35:00\".timestamp())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 715",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ \u003e= \"2017-03-10 12:35:00.123\".timestamp(2))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ \u003e= \"2017-03-10 12:35:00.123\".timestamp(2))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ >= \"2017-03-10 12:35:00.123\".timestamp(2))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00.123\", \"2017-03-10 12:35:00.123\", \"2017-03-10 12:36:00.1123\", \"2017-03-10 12:35:00.1123+01\", \"2017-03-10 13:35:00.123+01\", \"2017-03-10 12:35:00.1-01\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp(2) ? (@ >= \"2017-03-10 12:35:00.123\".timestamp(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 716",
@@ -3581,13 +3581,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 717",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 718",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 719",
@@ -3596,13 +3596,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 720",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003e= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ >= \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 721",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ \u003c \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\", \"12:34:56\", \"12:34:56+01\"]', '$[*].datetime() ? (@ < \"10.03.2017 12:35 +1\".datetime(\"dd.mm.yyyy HH24:MI TZH\"))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 722",
@@ -3611,13 +3611,13 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 723",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 724",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].datetime() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 725",
@@ -3626,18 +3626,18 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 726",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 727",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 728",
-    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ \u003e= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')",
-    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ \u003e= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')"
+    "query": "select jsonb_path_query( '[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ >= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')",
+    "expected": "SELECT jsonb_path_query('[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ >= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 729",
@@ -3646,23 +3646,23 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 730",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003e= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ >= \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 731",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ \u003c \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00+01\", \"2017-03-10 12:35:00+01\", \"2017-03-10 12:36:00+01\", \"2017-03-10 12:35:00+02\", \"2017-03-10 12:35:00-02\", \"2017-03-10 10:35:00\", \"2017-03-10 11:35:00\", \"2017-03-10 12:35:00\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz() ? (@ < \"2017-03-10 12:35:00 +1\".timestamp_tz())')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 732",
-    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ \u003e= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')",
-    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ \u003e= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')"
+    "query": "select jsonb_path_query_tz( '[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ >= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')",
+    "expected": "SELECT jsonb_path_query_tz('[\"2017-03-10 12:34:00.123+01\", \"2017-03-10 12:35:00.123+01\", \"2017-03-10 12:36:00.1123+01\", \"2017-03-10 12:35:00.1123+02\", \"2017-03-10 12:35:00.123-02\", \"2017-03-10 10:35:00.123\", \"2017-03-10 11:35:00.1\", \"2017-03-10 12:35:00.123\", \"2017-03-10\", \"2017-03-11\"]', '$[*].timestamp_tz(2) ? (@ >= \"2017-03-10 12:35:00.123 +1\".timestamp_tz(2))')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 733",
-    "query": "select jsonb_path_query('\"1000000-01-01\"', '$.datetime() \u003e \"2020-01-01 12:00:00\".datetime()'::jsonpath)",
-    "expected": "SELECT jsonb_path_query('\"1000000-01-01\"', CAST('$.datetime() \u003e \"2020-01-01 12:00:00\".datetime()' AS jsonpath))"
+    "query": "select jsonb_path_query('\"1000000-01-01\"', '$.datetime() > \"2020-01-01 12:00:00\".datetime()'::jsonpath)",
+    "expected": "SELECT jsonb_path_query('\"1000000-01-01\"', CAST('$.datetime() > \"2020-01-01 12:00:00\".datetime()' AS jsonpath))"
   },
   {
     "comment": "jsonb_jsonpath - Statement 734",
@@ -3670,7 +3670,7 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 735",
-    "query": "SELECT jsonb_path_query('[{\"a\": 1}, {\"a\": 2}]', '$[*] ? (@.a \u003e 10)')"
+    "query": "SELECT jsonb_path_query('[{\"a\": 1}, {\"a\": 2}]', '$[*] ? (@.a > 10)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 736",
@@ -3694,15 +3694,15 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 741",
-    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ \u003e 10)')"
+    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ > 10)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 742",
-    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ \u003e $min \u0026\u0026 @ \u003c $max)', vars =\u003e '{\"min\": 1, \"max\": 4}')"
+    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{\"min\": 1, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 743",
-    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ \u003e $min \u0026\u0026 @ \u003c $max)', vars =\u003e '{\"min\": 3, \"max\": 4}')"
+    "query": "SELECT jsonb_path_query_array('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{\"min\": 3, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 744",
@@ -3710,8 +3710,8 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 745",
-    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {}]', 'strict $[*].a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {}]', 'strict $[*].a', silent =\u003e TRUE)"
+    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {}]', 'strict $[*].a', silent => true)",
+    "expected": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {}]', 'strict $[*].a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 746",
@@ -3723,15 +3723,15 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 748",
-    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ \u003e 10)')"
+    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ > 10)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 749",
-    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ \u003e $min \u0026\u0026 @ \u003c $max)', vars =\u003e '{\"min\": 1, \"max\": 4}')"
+    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{\"min\": 1, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 750",
-    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ \u003e $min \u0026\u0026 @ \u003c $max)', vars =\u003e '{\"min\": 3, \"max\": 4}')"
+    "query": "SELECT jsonb_path_query_first('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*].a ? (@ > $min && @ < $max)', vars => '{\"min\": 3, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 751",
@@ -3743,25 +3743,25 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 753",
-    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[*].a ? (@ \u003e 1)'",
-    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[*].a ? (@ \u003e 1)'"
+    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[*].a ? (@ > 1)'",
+    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[*].a ? (@ > 1)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 754",
-    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[*] ? (@.a \u003e 2)'",
-    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[*] ? (@.a \u003e 2)'"
+    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @? '$[*] ? (@.a > 2)'",
+    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @? '$[*] ? (@.a > 2)'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 755",
-    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ \u003e 1)')"
+    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}]', '$[*].a ? (@ > 1)')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 756",
-    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*] ? (@.a \u003e $min \u0026\u0026 @.a \u003c $max)', vars =\u003e '{\"min\": 1, \"max\": 4}')"
+    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*] ? (@.a > $min && @.a < $max)', vars => '{\"min\": 1, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 757",
-    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*] ? (@.a \u003e $min \u0026\u0026 @.a \u003c $max)', vars =\u003e '{\"min\": 3, \"max\": 4}')"
+    "query": "SELECT jsonb_path_exists('[{\"a\": 1}, {\"a\": 2}, {\"a\": 3}, {\"a\": 5}]', '$[*] ? (@.a > $min && @.a < $max)', vars => '{\"min\": 3, \"max\": 4}')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 758",
@@ -3773,77 +3773,77 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 760",
-    "query": "SELECT jsonb_path_match('true', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('true', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('true', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('true', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 761",
-    "query": "SELECT jsonb_path_match('false', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('false', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('false', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('false', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 762",
-    "query": "SELECT jsonb_path_match('null', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('null', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('null', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('null', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 763",
-    "query": "SELECT jsonb_path_match('1', '$', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_match('1', '$', silent =\u003e TRUE)"
+    "query": "SELECT jsonb_path_match('1', '$', silent => true)",
+    "expected": "SELECT jsonb_path_match('1', '$', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 764",
-    "query": "SELECT jsonb_path_match('1', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('1', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('1', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('1', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 765",
-    "query": "SELECT jsonb_path_match('\"a\"', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('\"a\"', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('\"a\"', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('\"a\"', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 766",
-    "query": "SELECT jsonb_path_match('{}', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('{}', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('{}', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('{}', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 767",
-    "query": "SELECT jsonb_path_match('[true]', '$', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('[true]', '$', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('[true]', '$', silent => false)",
+    "expected": "SELECT jsonb_path_match('[true]', '$', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 768",
-    "query": "SELECT jsonb_path_match('{}', 'lax $.a', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('{}', 'lax $.a', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('{}', 'lax $.a', silent => false)",
+    "expected": "SELECT jsonb_path_match('{}', 'lax $.a', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 769",
-    "query": "SELECT jsonb_path_match('{}', 'strict $.a', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('{}', 'strict $.a', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('{}', 'strict $.a', silent => false)",
+    "expected": "SELECT jsonb_path_match('{}', 'strict $.a', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 770",
-    "query": "SELECT jsonb_path_match('{}', 'strict $.a', silent =\u003e true)",
-    "expected": "SELECT jsonb_path_match('{}', 'strict $.a', silent =\u003e TRUE)"
+    "query": "SELECT jsonb_path_match('{}', 'strict $.a', silent => true)",
+    "expected": "SELECT jsonb_path_match('{}', 'strict $.a', silent => TRUE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 771",
-    "query": "SELECT jsonb_path_match('[true, true]', '$[*]', silent =\u003e false)",
-    "expected": "SELECT jsonb_path_match('[true, true]', '$[*]', silent =\u003e FALSE)"
+    "query": "SELECT jsonb_path_match('[true, true]', '$[*]', silent => false)",
+    "expected": "SELECT jsonb_path_match('[true, true]', '$[*]', silent => FALSE)"
   },
   {
     "comment": "jsonb_jsonpath - Statement 772",
-    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @@ '$[*].a \u003e 1'",
-    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @@ '$[*].a \u003e 1'"
+    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @@ '$[*].a > 1'",
+    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @@ '$[*].a > 1'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 773",
-    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @@ '$[*].a \u003e 2'",
-    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @@ '$[*].a \u003e 2'"
+    "query": "SELECT jsonb '[{\"a\": 1}, {\"a\": 2}]' @@ '$[*].a > 2'",
+    "expected": "SELECT CAST('[{\"a\": 1}, {\"a\": 2}]' AS JSONB) @@ '$[*].a > 2'"
   },
   {
     "comment": "jsonb_jsonpath - Statement 774",
-    "query": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}]', '$[*].a \u003e 1')"
+    "query": "SELECT jsonb_path_match('[{\"a\": 1}, {\"a\": 2}]', '$[*].a > 1')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 775",
@@ -3855,7 +3855,7 @@
   },
   {
     "comment": "jsonb_jsonpath - Statement 777",
-    "query": "WITH str(j, num) AS ( SELECT jsonb_build_object('s', s), num FROM unnest('{\"\", \"a\", \"ab\", \"abc\", \"abcd\", \"b\", \"A\", \"AB\", \"ABC\", \"ABc\", \"ABcD\", \"B\"}'::text[]) WITH ORDINALITY AS a(s, num) ) SELECT s1.j, s2.j, jsonb_path_query_first(s1.j, '$.s \u003c $s', vars =\u003e s2.j) lt, jsonb_path_query_first(s1.j, '$.s \u003c= $s', vars =\u003e s2.j) le, jsonb_path_query_first(s1.j, '$.s == $s', vars =\u003e s2.j) eq, jsonb_path_query_first(s1.j, '$.s \u003e= $s', vars =\u003e s2.j) ge, jsonb_path_query_first(s1.j, '$.s \u003e $s', vars =\u003e s2.j) gt FROM str s1, str s2 ORDER BY s1.num, s2.num",
-    "expected": "WITH str(j, num) AS (SELECT jsonb_build_object('s', s), num FROM unnest(CAST('{\"\", \"a\", \"ab\", \"abc\", \"abcd\", \"b\", \"A\", \"AB\", \"ABC\", \"ABc\", \"ABcD\", \"B\"}' AS TEXT[])) WITH ORDINALITY AS a(s, num)) SELECT s1.j, s2.j, jsonb_path_query_first(s1.j, '$.s \u003c $s', vars =\u003e s2.j) AS lt, jsonb_path_query_first(s1.j, '$.s \u003c= $s', vars =\u003e s2.j) AS le, jsonb_path_query_first(s1.j, '$.s == $s', vars =\u003e s2.j) AS eq, jsonb_path_query_first(s1.j, '$.s \u003e= $s', vars =\u003e s2.j) AS ge, jsonb_path_query_first(s1.j, '$.s \u003e $s', vars =\u003e s2.j) AS gt FROM str AS s1, str AS s2 ORDER BY s1.num, s2.num"
+    "query": "WITH str(j, num) AS ( SELECT jsonb_build_object('s', s), num FROM unnest('{\"\", \"a\", \"ab\", \"abc\", \"abcd\", \"b\", \"A\", \"AB\", \"ABC\", \"ABc\", \"ABcD\", \"B\"}'::text[]) WITH ORDINALITY AS a(s, num) ) SELECT s1.j, s2.j, jsonb_path_query_first(s1.j, '$.s < $s', vars => s2.j) lt, jsonb_path_query_first(s1.j, '$.s <= $s', vars => s2.j) le, jsonb_path_query_first(s1.j, '$.s == $s', vars => s2.j) eq, jsonb_path_query_first(s1.j, '$.s >= $s', vars => s2.j) ge, jsonb_path_query_first(s1.j, '$.s > $s', vars => s2.j) gt FROM str s1, str s2 ORDER BY s1.num, s2.num",
+    "expected": "WITH str(j, num) AS (SELECT jsonb_build_object('s', s), num FROM unnest(CAST('{\"\", \"a\", \"ab\", \"abc\", \"abcd\", \"b\", \"A\", \"AB\", \"ABC\", \"ABc\", \"ABcD\", \"B\"}' AS TEXT[])) WITH ORDINALITY AS a(s, num)) SELECT s1.j, s2.j, jsonb_path_query_first(s1.j, '$.s < $s', vars => s2.j) AS lt, jsonb_path_query_first(s1.j, '$.s <= $s', vars => s2.j) AS le, jsonb_path_query_first(s1.j, '$.s == $s', vars => s2.j) AS eq, jsonb_path_query_first(s1.j, '$.s >= $s', vars => s2.j) AS ge, jsonb_path_query_first(s1.j, '$.s > $s', vars => s2.j) AS gt FROM str AS s1, str AS s2 ORDER BY s1.num, s2.num"
   }
 ]

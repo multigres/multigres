@@ -1,0 +1,28 @@
+#
+# Extended-query: Describe of objects that do not exist.
+#
+# Describe('S', name) on an unknown prepared statement fails with SQLSTATE 26000
+# (invalid_sql_statement_name); Describe('P', name) on an unknown portal fails
+# with 34000 (invalid_cursor_name). Each is exercised in its own Sync-delimited
+# batch so the SQLSTATEs do not mask one another, and a valid Describe follows
+# to show the session recovers.
+#
+
+# Describe an unknown prepared statement -> ErrorResponse(26000).
+'D'	'S'	"no_such_stmt"
+'S'
+'Y'
+
+# Describe an unknown portal -> ErrorResponse(34000).
+'D'	'P'	"no_such_portal"
+'S'
+'Y'
+
+# A valid Describe('S') after a real Parse returns ParameterDescription +
+# RowDescription, proving the session recovered from the two errors above.
+'P'	"real"	"SELECT 1 AS one"	0
+'D'	'S'	"real"
+'S'
+'Y'
+
+'X'

@@ -59,10 +59,10 @@ func TestEmit(t *testing.T) {
 		{
 			name:          "event with fields",
 			outcome:       Success,
-			event:         PrimaryPromotion{NewPrimary: "pg-1"},
+			event:         PrimaryPromotion{NewPrimary: "pg-1", Reason: "ShardInit"},
 			wantLevel:     slog.LevelInfo,
 			wantEventType: "primary.promotion",
-			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1"},
+			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1", "reason": "ShardInit"},
 		},
 	}
 

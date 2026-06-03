@@ -88,18 +88,18 @@
   },
   {
     "comment": "create_index - Statement 19",
-    "query": "CREATE INDEX onek2_u1_prtl ON onek2 USING btree(unique1 int4_ops) where unique1 \u003c 20 or unique1 \u003e 980",
-    "expected": "CREATE INDEX onek2_u1_prtl ON onek2 USING btree ( unique1 int4_ops ) WHERE unique1 \u003c 20 OR unique1 \u003e 980"
+    "query": "CREATE INDEX onek2_u1_prtl ON onek2 USING btree(unique1 int4_ops) where unique1 < 20 or unique1 > 980",
+    "expected": "CREATE INDEX onek2_u1_prtl ON onek2 USING btree ( unique1 int4_ops ) WHERE unique1 < 20 OR unique1 > 980"
   },
   {
     "comment": "create_index - Statement 20",
-    "query": "CREATE INDEX onek2_u2_prtl ON onek2 USING btree(unique2 int4_ops) where stringu1 \u003c 'B'",
-    "expected": "CREATE INDEX onek2_u2_prtl ON onek2 USING btree ( unique2 int4_ops ) WHERE stringu1 \u003c 'B'"
+    "query": "CREATE INDEX onek2_u2_prtl ON onek2 USING btree(unique2 int4_ops) where stringu1 < 'B'",
+    "expected": "CREATE INDEX onek2_u2_prtl ON onek2 USING btree ( unique2 int4_ops ) WHERE stringu1 < 'B'"
   },
   {
     "comment": "create_index - Statement 21",
-    "query": "CREATE INDEX onek2_stu1_prtl ON onek2 USING btree(stringu1 name_ops) where onek2.stringu1 \u003e= 'J' and onek2.stringu1 \u003c 'K'",
-    "expected": "CREATE INDEX onek2_stu1_prtl ON onek2 USING btree ( stringu1 name_ops ) WHERE onek2.stringu1 \u003e= 'J' AND onek2.stringu1 \u003c 'K'"
+    "query": "CREATE INDEX onek2_stu1_prtl ON onek2 USING btree(stringu1 name_ops) where onek2.stringu1 >= 'J' and onek2.stringu1 < 'K'",
+    "expected": "CREATE INDEX onek2_stu1_prtl ON onek2 USING btree ( stringu1 name_ops ) WHERE onek2.stringu1 >= 'J' AND onek2.stringu1 < 'K'"
   },
   {
     "comment": "create_index - Statement 22",
@@ -187,13 +187,13 @@
   },
   {
     "comment": "create_index - Statement 40",
-    "query": "SELECT * FROM fast_emp4000 WHERE home_base \u003c@ '(200,200),(2000,1000)'::box ORDER BY (home_base[0])[0]",
-    "expected": "SELECT * FROM fast_emp4000 WHERE home_base \u003c@ CAST('(200,200),(2000,1000)' AS box) ORDER BY (home_base[0])[0]"
+    "query": "SELECT * FROM fast_emp4000 WHERE home_base <@ '(200,200),(2000,1000)'::box ORDER BY (home_base[0])[0]",
+    "expected": "SELECT * FROM fast_emp4000 WHERE home_base <@ CAST('(200,200),(2000,1000)' AS box) ORDER BY (home_base[0])[0]"
   },
   {
     "comment": "create_index - Statement 41",
-    "query": "SELECT count(*) FROM fast_emp4000 WHERE home_base \u0026\u0026 '(1000,1000,0,0)'::box",
-    "expected": "SELECT COUNT(*) FROM fast_emp4000 WHERE home_base \u0026\u0026 CAST('(1000,1000,0,0)' AS box)"
+    "query": "SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box",
+    "expected": "SELECT COUNT(*) FROM fast_emp4000 WHERE home_base && CAST('(1000,1000,0,0)' AS box)"
   },
   {
     "comment": "create_index - Statement 42",
@@ -202,53 +202,53 @@
   },
   {
     "comment": "create_index - Statement 43",
-    "query": "SELECT count(*) FROM gpolygon_tbl WHERE f1 \u0026\u0026 '(1000,1000,0,0)'::polygon",
-    "expected": "SELECT COUNT(*) FROM gpolygon_tbl WHERE f1 \u0026\u0026 CAST('(1000,1000,0,0)' AS polygon)"
+    "query": "SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon",
+    "expected": "SELECT COUNT(*) FROM gpolygon_tbl WHERE f1 && CAST('(1000,1000,0,0)' AS polygon)"
   },
   {
     "comment": "create_index - Statement 44",
-    "query": "SELECT count(*) FROM gcircle_tbl WHERE f1 \u0026\u0026 '\u003c(500,500),500\u003e'::circle",
-    "expected": "SELECT COUNT(*) FROM gcircle_tbl WHERE f1 \u0026\u0026 CAST('\u003c(500,500),500\u003e' AS circle)"
+    "query": "SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle",
+    "expected": "SELECT COUNT(*) FROM gcircle_tbl WHERE f1 && CAST('<(500,500),500>' AS circle)"
   },
   {
     "comment": "create_index - Statement 45",
-    "query": "SELECT count(*) FROM point_tbl WHERE f1 \u003c@ box '(0,0,100,100)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('(0,0,100,100)' AS box)"
+    "query": "SELECT count(*) FROM point_tbl WHERE f1 <@ box '(0,0,100,100)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('(0,0,100,100)' AS box)"
   },
   {
     "comment": "create_index - Statement 46",
-    "query": "SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @\u003e f1",
-    "expected": "SELECT COUNT(*) FROM point_tbl WHERE CAST('(0,0,100,100)' AS box) @\u003e f1"
+    "query": "SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @> f1",
+    "expected": "SELECT COUNT(*) FROM point_tbl WHERE CAST('(0,0,100,100)' AS box) @> f1"
   },
   {
     "comment": "create_index - Statement 47",
-    "query": "SELECT count(*) FROM point_tbl WHERE f1 \u003c@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)' AS polygon)"
+    "query": "SELECT count(*) FROM point_tbl WHERE f1 <@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)' AS polygon)"
   },
   {
     "comment": "create_index - Statement 48",
-    "query": "SELECT count(*) FROM point_tbl WHERE f1 \u003c@ circle '\u003c(50,50),50\u003e'",
-    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('\u003c(50,50),50\u003e' AS circle)"
+    "query": "SELECT count(*) FROM point_tbl WHERE f1 <@ circle '<(50,50),50>'",
+    "expected": "SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('<(50,50),50>' AS circle)"
   },
   {
     "comment": "create_index - Statement 49",
-    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 \u003c\u003c '(0.0, 0.0)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003c\u003c '(0.0, 0.0)'"
+    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 << '(0.0, 0.0)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 << '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 50",
-    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 \u003e\u003e '(0.0, 0.0)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003e\u003e '(0.0, 0.0)'"
+    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 >> '(0.0, 0.0)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 >> '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 51",
-    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 \u003c\u003c| '(0.0, 0.0)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003c\u003c| '(0.0, 0.0)'"
+    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 <<| '(0.0, 0.0)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 <<| '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 52",
-    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 |\u003e\u003e '(0.0, 0.0)'",
-    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 |\u003e\u003e '(0.0, 0.0)'"
+    "query": "SELECT count(*) FROM point_tbl p WHERE p.f1 |>> '(0.0, 0.0)'",
+    "expected": "SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 |>> '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 53",
@@ -257,7 +257,7 @@
   },
   {
     "comment": "create_index - Statement 54",
-    "query": "SELECT * FROM point_tbl ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "SELECT * FROM point_tbl ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 55",
@@ -265,22 +265,22 @@
   },
   {
     "comment": "create_index - Statement 56",
-    "query": "SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 57",
-    "query": "SELECT * FROM point_tbl WHERE f1 \u003c@ '(-10,-10),(10,10)':: box ORDER BY f1 \u003c-\u003e '0,1'",
-    "expected": "SELECT * FROM point_tbl WHERE f1 \u003c@ CAST('(-10,-10),(10,10)' AS box) ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "SELECT * FROM point_tbl WHERE f1 <@ '(-10,-10),(10,10)':: box ORDER BY f1 <-> '0,1'",
+    "expected": "SELECT * FROM point_tbl WHERE f1 <@ CAST('(-10,-10),(10,10)' AS box) ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 58",
-    "query": "SELECT * FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e '(0,0)'::point LIMIT 10",
-    "expected": "SELECT * FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e CAST('(0,0)' AS point) LIMIT 10"
+    "query": "SELECT * FROM gpolygon_tbl ORDER BY f1 <-> '(0,0)'::point LIMIT 10",
+    "expected": "SELECT * FROM gpolygon_tbl ORDER BY f1 <-> CAST('(0,0)' AS point) LIMIT 10"
   },
   {
     "comment": "create_index - Statement 59",
-    "query": "SELECT circle_center(f1), round(radius(f1)) as radius FROM gcircle_tbl ORDER BY f1 \u003c-\u003e '(200,300)'::point LIMIT 10",
-    "expected": "SELECT circle_center(f1), round(radius(f1)) AS radius FROM gcircle_tbl ORDER BY f1 \u003c-\u003e CAST('(200,300)' AS point) LIMIT 10"
+    "query": "SELECT circle_center(f1), round(radius(f1)) as radius FROM gcircle_tbl ORDER BY f1 <-> '(200,300)'::point LIMIT 10",
+    "expected": "SELECT circle_center(f1), round(radius(f1)) AS radius FROM gcircle_tbl ORDER BY f1 <-> CAST('(200,300)' AS point) LIMIT 10"
   },
   {
     "comment": "create_index - Statement 60",
@@ -294,13 +294,13 @@
   },
   {
     "comment": "create_index - Statement 62",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM fast_emp4000 WHERE home_base \u003c@ '(200,200),(2000,1000)'::box ORDER BY (home_base[0])[0]",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM fast_emp4000 WHERE home_base \u003c@ CAST('(200,200),(2000,1000)' AS box) ORDER BY (home_base[0])[0]"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM fast_emp4000 WHERE home_base <@ '(200,200),(2000,1000)'::box ORDER BY (home_base[0])[0]",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM fast_emp4000 WHERE home_base <@ CAST('(200,200),(2000,1000)' AS box) ORDER BY (home_base[0])[0]"
   },
   {
     "comment": "create_index - Statement 63",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM fast_emp4000 WHERE home_base \u0026\u0026 '(1000,1000,0,0)'::box",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM fast_emp4000 WHERE home_base \u0026\u0026 CAST('(1000,1000,0,0)' AS box)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM fast_emp4000 WHERE home_base && '(1000,1000,0,0)'::box",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM fast_emp4000 WHERE home_base && CAST('(1000,1000,0,0)' AS box)"
   },
   {
     "comment": "create_index - Statement 64",
@@ -309,53 +309,53 @@
   },
   {
     "comment": "create_index - Statement 65",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM gpolygon_tbl WHERE f1 \u0026\u0026 '(1000,1000,0,0)'::polygon",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gpolygon_tbl WHERE f1 \u0026\u0026 CAST('(1000,1000,0,0)' AS polygon)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM gpolygon_tbl WHERE f1 && '(1000,1000,0,0)'::polygon",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gpolygon_tbl WHERE f1 && CAST('(1000,1000,0,0)' AS polygon)"
   },
   {
     "comment": "create_index - Statement 66",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM gcircle_tbl WHERE f1 \u0026\u0026 '\u003c(500,500),500\u003e'::circle",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gcircle_tbl WHERE f1 \u0026\u0026 CAST('\u003c(500,500),500\u003e' AS circle)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM gcircle_tbl WHERE f1 && '<(500,500),500>'::circle",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gcircle_tbl WHERE f1 && CAST('<(500,500),500>' AS circle)"
   },
   {
     "comment": "create_index - Statement 67",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 \u003c@ box '(0,0,100,100)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('(0,0,100,100)' AS box)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 <@ box '(0,0,100,100)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('(0,0,100,100)' AS box)"
   },
   {
     "comment": "create_index - Statement 68",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @\u003e f1",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE CAST('(0,0,100,100)' AS box) @\u003e f1"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE box '(0,0,100,100)' @> f1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE CAST('(0,0,100,100)' AS box) @> f1"
   },
   {
     "comment": "create_index - Statement 69",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 \u003c@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)' AS polygon)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 <@ polygon '(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('(0,0),(0,100),(100,100),(50,50),(100,0),(0,0)' AS polygon)"
   },
   {
     "comment": "create_index - Statement 70",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 \u003c@ circle '\u003c(50,50),50\u003e'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 \u003c@ CAST('\u003c(50,50),50\u003e' AS circle)"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl WHERE f1 <@ circle '<(50,50),50>'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl WHERE f1 <@ CAST('<(50,50),50>' AS circle)"
   },
   {
     "comment": "create_index - Statement 71",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 \u003c\u003c '(0.0, 0.0)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003c\u003c '(0.0, 0.0)'"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 << '(0.0, 0.0)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 << '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 72",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 \u003e\u003e '(0.0, 0.0)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003e\u003e '(0.0, 0.0)'"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 >> '(0.0, 0.0)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 >> '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 73",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 \u003c\u003c| '(0.0, 0.0)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 \u003c\u003c| '(0.0, 0.0)'"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 <<| '(0.0, 0.0)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 <<| '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 74",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 |\u003e\u003e '(0.0, 0.0)'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 |\u003e\u003e '(0.0, 0.0)'"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM point_tbl p WHERE p.f1 |>> '(0.0, 0.0)'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM point_tbl AS p WHERE p.f1 |>> '(0.0, 0.0)'"
   },
   {
     "comment": "create_index - Statement 75",
@@ -364,8 +364,8 @@
   },
   {
     "comment": "create_index - Statement 76",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl ORDER BY f1 \u003c-\u003e '0,1'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl ORDER BY f1 <-> '0,1'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 77",
@@ -374,33 +374,33 @@
   },
   {
     "comment": "create_index - Statement 78",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 \u003c-\u003e '0,1'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 <-> '0,1'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl WHERE f1 IS NOT NULL ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 79",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl WHERE f1 \u003c@ '(-10,-10),(10,10)':: box ORDER BY f1 \u003c-\u003e '0,1'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl WHERE f1 \u003c@ CAST('(-10,-10),(10,10)' AS box) ORDER BY f1 \u003c-\u003e '0,1'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM point_tbl WHERE f1 <@ '(-10,-10),(10,10)':: box ORDER BY f1 <-> '0,1'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM point_tbl WHERE f1 <@ CAST('(-10,-10),(10,10)' AS box) ORDER BY f1 <-> '0,1'"
   },
   {
     "comment": "create_index - Statement 80",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e '(0,0)'::point LIMIT 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e CAST('(0,0)' AS point) LIMIT 10"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gpolygon_tbl ORDER BY f1 <-> '(0,0)'::point LIMIT 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gpolygon_tbl ORDER BY f1 <-> CAST('(0,0)' AS point) LIMIT 10"
   },
   {
     "comment": "create_index - Statement 81",
-    "query": "EXPLAIN (COSTS OFF) SELECT circle_center(f1), round(radius(f1)) as radius FROM gcircle_tbl ORDER BY f1 \u003c-\u003e '(200,300)'::point LIMIT 10",
-    "expected": "EXPLAIN (COSTS false) SELECT circle_center(f1), round(radius(f1)) AS radius FROM gcircle_tbl ORDER BY f1 \u003c-\u003e CAST('(200,300)' AS point) LIMIT 10"
+    "query": "EXPLAIN (COSTS OFF) SELECT circle_center(f1), round(radius(f1)) as radius FROM gcircle_tbl ORDER BY f1 <-> '(200,300)'::point LIMIT 10",
+    "expected": "EXPLAIN (COSTS false) SELECT circle_center(f1), round(radius(f1)) AS radius FROM gcircle_tbl ORDER BY f1 <-> CAST('(200,300)' AS point) LIMIT 10"
   },
   {
     "comment": "create_index - Statement 82",
-    "query": "EXPLAIN (COSTS OFF) SELECT point(x,x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e point(x,x) LIMIT 1) as c FROM generate_series(0,10,1) x",
-    "expected": "EXPLAIN (COSTS false) SELECT point(x, x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e point(x, x) LIMIT 1) AS c FROM generate_series(0, 10, 1) AS x"
+    "query": "EXPLAIN (COSTS OFF) SELECT point(x,x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 <-> point(x,x) LIMIT 1) as c FROM generate_series(0,10,1) x",
+    "expected": "EXPLAIN (COSTS false) SELECT point(x, x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 <-> point(x, x) LIMIT 1) AS c FROM generate_series(0, 10, 1) AS x"
   },
   {
     "comment": "create_index - Statement 83",
-    "query": "SELECT point(x,x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e point(x,x) LIMIT 1) as c FROM generate_series(0,10,1) x",
-    "expected": "SELECT point(x, x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 \u003c-\u003e point(x, x) LIMIT 1) AS c FROM generate_series(0, 10, 1) AS x"
+    "query": "SELECT point(x,x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 <-> point(x,x) LIMIT 1) as c FROM generate_series(0,10,1) x",
+    "expected": "SELECT point(x, x), (SELECT f1 FROM gpolygon_tbl ORDER BY f1 <-> point(x, x) LIMIT 1) AS c FROM generate_series(0, 10, 1) AS x"
   },
   {
     "comment": "create_index - Statement 84",
@@ -434,15 +434,15 @@
   },
   {
     "comment": "create_index - Statement 91",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 92",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 93",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u003c@ '{NULL}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i <@ '{NULL}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 94",
@@ -451,36 +451,36 @@
   },
   {
     "comment": "create_index - Statement 95",
-    "query": "explain (costs off) SELECT * FROM array_index_op_test WHERE i @\u003e '{32}' ORDER BY seqno",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM array_index_op_test WHERE i @\u003e '{32}' ORDER BY seqno"
+    "query": "explain (costs off) SELECT * FROM array_index_op_test WHERE i @> '{32}' ORDER BY seqno",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM array_index_op_test WHERE i @> '{32}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 96",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{32}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{32}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 97",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{32}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{32}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 98",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{17}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 99",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{17}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 100",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{32,17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{32,17}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 101",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{32,17}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{32,17}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 102",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u003c@ '{38,34,32,89}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i <@ '{38,34,32,89}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 103",
@@ -492,15 +492,15 @@
   },
   {
     "comment": "create_index - Statement 105",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 106",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 107",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u003c@ '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i <@ '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 108",
@@ -509,36 +509,36 @@
   },
   {
     "comment": "create_index - Statement 109",
-    "query": "explain (costs off) SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAAA72908}' ORDER BY seqno",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAAA72908}' ORDER BY seqno"
+    "query": "explain (costs off) SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 110",
-    "query": "SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAAA72908}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 111",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u0026\u0026 '{AAAAAAAA72908}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t && '{AAAAAAAA72908}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 112",
-    "query": "SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 113",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u0026\u0026 '{AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t && '{AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 114",
-    "query": "SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 115",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u0026\u0026 '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t && '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 116",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u003c@ '{AAAAAAAA72908,AAAAAAAAAAAAAAAAAAA17075,AA88409,AAAAAAAAAAAAAAAAAA36842,AAAAAAA48038,AAAAAAAAAAAAAA10611}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t <@ '{AAAAAAAA72908,AAAAAAAAAAAAAAAAAAA17075,AA88409,AAAAAAAAAAAAAAAAAA36842,AAAAAAA48038,AAAAAAAAAAAAAA10611}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 117",
@@ -550,15 +550,15 @@
   },
   {
     "comment": "create_index - Statement 119",
-    "query": "SELECT * FROM array_index_op_test WHERE t @\u003e '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t @> '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 120",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u0026\u0026 '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t && '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 121",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u003c@ '{}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t <@ '{}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 122",
@@ -571,19 +571,19 @@
   },
   {
     "comment": "create_index - Statement 124",
-    "query": "SELECT * FROM array_index_op_test WHERE t @\u003e '{AAAAAAA80240}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t @> '{AAAAAAA80240}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 125",
-    "query": "SELECT * FROM array_index_op_test WHERE t \u0026\u0026 '{AAAAAAA80240}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE t && '{AAAAAAA80240}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 126",
-    "query": "SELECT * FROM array_index_op_test WHERE i @\u003e '{32}' AND t \u0026\u0026 '{AAAAAAA80240}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i @> '{32}' AND t && '{AAAAAAA80240}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 127",
-    "query": "SELECT * FROM array_index_op_test WHERE i \u0026\u0026 '{32}' AND t @\u003e '{AAAAAAA80240}' ORDER BY seqno"
+    "query": "SELECT * FROM array_index_op_test WHERE i && '{32}' AND t @> '{AAAAAAA80240}' ORDER BY seqno"
   },
   {
     "comment": "create_index - Statement 128",
@@ -602,7 +602,7 @@
   },
   {
     "comment": "create_index - Statement 131",
-    "query": "SELECT COUNT(*) FROM array_gin_test WHERE a @\u003e '{2}'"
+    "query": "SELECT COUNT(*) FROM array_gin_test WHERE a @> '{2}'"
   },
   {
     "comment": "create_index - Statement 132",
@@ -985,7 +985,7 @@
   {
     "comment": "create_index - Statement 215",
     "query": "CREATE TABLE cwi_test( a int , b varchar(10), c char)",
-    "expected": "CREATE TABLE cwi_test (a INT, b VARCHAR(10), c CHAR(1))"
+    "expected": "CREATE TABLE cwi_test (a INT, b VARCHAR(10), c bpchar(1))"
   },
   {
     "comment": "create_index - Statement 216",
@@ -1068,13 +1068,13 @@
   },
   {
     "comment": "create_index - Statement 233",
-    "query": "CREATE INDEX ON syscol_table ((ctid \u003e= '(1000,0)'))",
-    "expected": "CREATE INDEX ON syscol_table USING btree ( (ctid \u003e= '(1000,0)') )"
+    "query": "CREATE INDEX ON syscol_table ((ctid >= '(1000,0)'))",
+    "expected": "CREATE INDEX ON syscol_table USING btree ( (ctid >= '(1000,0)') )"
   },
   {
     "comment": "create_index - Statement 234",
-    "query": "CREATE INDEX ON syscol_table (a) WHERE ctid \u003e= '(1000,0)'",
-    "expected": "CREATE INDEX ON syscol_table USING btree ( a ) WHERE ctid \u003e= '(1000,0)'"
+    "query": "CREATE INDEX ON syscol_table (a) WHERE ctid >= '(1000,0)'",
+    "expected": "CREATE INDEX ON syscol_table USING btree ( a ) WHERE ctid >= '(1000,0)'"
   },
   {
     "comment": "create_index - Statement 235",
@@ -1116,13 +1116,13 @@
   },
   {
     "comment": "create_index - Statement 243",
-    "query": "SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL AND unique1 \u003e 500",
-    "expected": "SELECT COUNT(*) FROM onek_with_null WHERE unique1 IS NOT NULL AND unique1 \u003e 500"
+    "query": "SELECT count(*) FROM onek_with_null WHERE unique1 IS NOT NULL AND unique1 > 500",
+    "expected": "SELECT COUNT(*) FROM onek_with_null WHERE unique1 IS NOT NULL AND unique1 > 500"
   },
   {
     "comment": "create_index - Statement 244",
-    "query": "SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique1 \u003e 500",
-    "expected": "SELECT COUNT(*) FROM onek_with_null WHERE unique1 IS NULL AND unique1 \u003e 500"
+    "query": "SELECT count(*) FROM onek_with_null WHERE unique1 IS NULL AND unique1 > 500",
+    "expected": "SELECT COUNT(*) FROM onek_with_null WHERE unique1 IS NULL AND unique1 > 500"
   },
   {
     "comment": "create_index - Statement 245",
@@ -1159,11 +1159,11 @@
   },
   {
     "comment": "create_index - Statement 252",
-    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 \u003e= -1 ORDER BY unique2 LIMIT 2"
+    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 >= -1 ORDER BY unique2 LIMIT 2"
   },
   {
     "comment": "create_index - Statement 253",
-    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 \u003e= 0 ORDER BY unique2 LIMIT 2"
+    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 >= 0 ORDER BY unique2 LIMIT 2"
   },
   {
     "comment": "create_index - Statement 254",
@@ -1171,11 +1171,11 @@
   },
   {
     "comment": "create_index - Statement 255",
-    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 \u003e= -1 ORDER BY unique2 DESC LIMIT 2"
+    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 >= -1 ORDER BY unique2 DESC LIMIT 2"
   },
   {
     "comment": "create_index - Statement 256",
-    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 \u003c 999 ORDER BY unique2 DESC LIMIT 2"
+    "query": "SELECT unique1, unique2 FROM onek_with_null WHERE unique2 < 999 ORDER BY unique2 DESC LIMIT 2"
   },
   {
     "comment": "create_index - Statement 257",
@@ -1216,13 +1216,13 @@
   },
   {
     "comment": "create_index - Statement 265",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id \u003c 1000 and f1 ~\u003c~ 'YX'",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' AND id \u003c 1000 AND f1 ~\u003c~ 'YX'"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' AND id < 1000 AND f1 ~<~ 'YX'"
   },
   {
     "comment": "create_index - Statement 266",
-    "query": "SELECT count(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id \u003c 1000 and f1 ~\u003c~ 'YX'",
-    "expected": "SELECT COUNT(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' AND id \u003c 1000 AND f1 ~\u003c~ 'YX'"
+    "query": "SELECT count(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' and id < 1000 and f1 ~<~ 'YX'",
+    "expected": "SELECT COUNT(*) FROM dupindexcols WHERE f1 BETWEEN 'WA' AND 'ZZZ' AND id < 1000 AND f1 ~<~ 'YX'"
   },
   {
     "comment": "create_index - Statement 267",
@@ -1236,23 +1236,23 @@
   },
   {
     "comment": "create_index - Statement 269",
-    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001,3000) ORDER BY thousand",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001, 3000) ORDER BY thousand"
+    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001,3000) ORDER BY thousand",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001, 3000) ORDER BY thousand"
   },
   {
     "comment": "create_index - Statement 270",
-    "query": "SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001,3000) ORDER BY thousand",
-    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001, 3000) ORDER BY thousand"
+    "query": "SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001,3000) ORDER BY thousand",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001, 3000) ORDER BY thousand"
   },
   {
     "comment": "create_index - Statement 271",
-    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001,3000) ORDER BY thousand DESC, tenthous DESC",
-    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001, 3000) ORDER BY thousand DESC, tenthous DESC"
+    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001,3000) ORDER BY thousand DESC, tenthous DESC",
+    "expected": "EXPLAIN (COSTS false) SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001, 3000) ORDER BY thousand DESC, tenthous DESC"
   },
   {
     "comment": "create_index - Statement 272",
-    "query": "SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001,3000) ORDER BY thousand DESC, tenthous DESC",
-    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE thousand \u003c 2 AND tenthous IN (1001, 3000) ORDER BY thousand DESC, tenthous DESC"
+    "query": "SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001,3000) ORDER BY thousand DESC, tenthous DESC",
+    "expected": "SELECT thousand, tenthous FROM tenk1 WHERE thousand < 2 AND tenthous IN (1001, 3000) ORDER BY thousand DESC, tenthous DESC"
   },
   {
     "comment": "create_index - Statement 273",
@@ -1296,63 +1296,63 @@
   },
   {
     "comment": "create_index - Statement 281",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003e= 42",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003e= 42"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 >= 42",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 >= 42"
   },
   {
     "comment": "create_index - Statement 282",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003e= 42",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003e= 42"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 >= 42",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 >= 42"
   },
   {
     "comment": "create_index - Statement 283",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003e 42",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003e 42"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 > 42",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 > 42"
   },
   {
     "comment": "create_index - Statement 284",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003e 42",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003e 42"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 > 42",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 > 42"
   },
   {
     "comment": "create_index - Statement 285",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 \u003e 9996 and unique1 \u003e= 9999",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 \u003e 9996 AND unique1 \u003e= 9999"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 > 9996 and unique1 >= 9999",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 > 9996 AND unique1 >= 9999"
   },
   {
     "comment": "create_index - Statement 286",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 \u003e 9996 and unique1 \u003e= 9999",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 \u003e 9996 AND unique1 \u003e= 9999"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 > 9996 and unique1 >= 9999",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 > 9996 AND unique1 >= 9999"
   },
   {
     "comment": "create_index - Statement 287",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 and unique1 \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 AND unique1 \u003c= 3"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 < 3 AND unique1 <= 3"
   },
   {
     "comment": "create_index - Statement 288",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 and unique1 \u003c= 3",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 AND unique1 \u003c= 3"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 <= 3",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 < 3 AND unique1 <= 3"
   },
   {
     "comment": "create_index - Statement 289",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 and unique1 \u003c (-1)::bigint",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 AND unique1 \u003c CAST((-1) AS BIGINT)"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 < (-1)::bigint",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 < 3 AND unique1 < CAST((-1) AS BIGINT)"
   },
   {
     "comment": "create_index - Statement 290",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 and unique1 \u003c (-1)::bigint",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 \u003c 3 AND unique1 \u003c CAST((-1) AS BIGINT)"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 < 3 and unique1 < (-1)::bigint",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 < 3 AND unique1 < CAST((-1) AS BIGINT)"
   },
   {
     "comment": "create_index - Statement 291",
-    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003c (-1)::bigint",
-    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003c CAST((-1) AS BIGINT)"
+    "query": "explain (costs off) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 < (-1)::bigint",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 < CAST((-1) AS BIGINT)"
   },
   {
     "comment": "create_index - Statement 292",
-    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 \u003c (-1)::bigint",
-    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 \u003c CAST((-1) AS BIGINT)"
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) and unique1 < (-1)::bigint",
+    "expected": "SELECT unique1 FROM tenk1 WHERE unique1 IN (1, 42, 7) AND unique1 < CAST((-1) AS BIGINT)"
   },
   {
     "comment": "create_index - Statement 293",
@@ -1459,8 +1459,8 @@
   },
   {
     "comment": "create_index - Statement 314",
-    "query": "CREATE TABLE concur_reindex_tab3 (c1 int, c2 int4range, EXCLUDE USING gist (c2 WITH \u0026\u0026))",
-    "expected": "CREATE TABLE concur_reindex_tab3 (c1 INT, c2 int4range, EXCLUDE USING gist (c2 WITH \u0026\u0026))"
+    "query": "CREATE TABLE concur_reindex_tab3 (c1 int, c2 int4range, EXCLUDE USING gist (c2 WITH &&))",
+    "expected": "CREATE TABLE concur_reindex_tab3 (c1 INT, c2 int4range, EXCLUDE USING gist (c2 WITH &&))"
   },
   {
     "comment": "create_index - Statement 315",
@@ -1864,13 +1864,13 @@
   },
   {
     "comment": "create_index - Statement 407",
-    "query": "CREATE UNIQUE INDEX concur_exprs_index_pred ON concur_exprs_tab (c1) WHERE (c1::text \u003e 500000000::text COLLATE \"C\")",
-    "expected": "CREATE UNIQUE INDEX concur_exprs_index_pred ON concur_exprs_tab USING btree ( c1 ) WHERE (CAST(c1 AS TEXT) \u003e CAST(500000000 AS TEXT) COLLATE \"C\")"
+    "query": "CREATE UNIQUE INDEX concur_exprs_index_pred ON concur_exprs_tab (c1) WHERE (c1::text > 500000000::text COLLATE \"C\")",
+    "expected": "CREATE UNIQUE INDEX concur_exprs_index_pred ON concur_exprs_tab USING btree ( c1 ) WHERE (CAST(c1 AS TEXT) > CAST(500000000 AS TEXT) COLLATE \"C\")"
   },
   {
     "comment": "create_index - Statement 408",
-    "query": "CREATE UNIQUE INDEX concur_exprs_index_pred_2 ON concur_exprs_tab ((1 / c1)) WHERE ('-H') \u003e= (c2::TEXT) COLLATE \"C\"",
-    "expected": "CREATE UNIQUE INDEX concur_exprs_index_pred_2 ON concur_exprs_tab USING btree ( (1 / c1) ) WHERE ('-H') \u003e= (CAST(c2 AS TEXT)) COLLATE \"C\""
+    "query": "CREATE UNIQUE INDEX concur_exprs_index_pred_2 ON concur_exprs_tab ((1 / c1)) WHERE ('-H') >= (c2::TEXT) COLLATE \"C\"",
+    "expected": "CREATE UNIQUE INDEX concur_exprs_index_pred_2 ON concur_exprs_tab USING btree ( (1 / c1) ) WHERE ('-H') >= (CAST(c2 AS TEXT)) COLLATE \"C\""
   },
   {
     "comment": "create_index - Statement 409",
@@ -2057,13 +2057,13 @@
   },
   {
     "comment": "create_index - Statement 449",
-    "query": "INSERT INTO reindex_before SELECT oid, 'pg_toast_TABLE', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid \u003e 0)",
-    "expected": "INSERT INTO reindex_before (SELECT oid, 'pg_toast_TABLE', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid \u003e 0))"
+    "query": "INSERT INTO reindex_before SELECT oid, 'pg_toast_TABLE', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid > 0)",
+    "expected": "INSERT INTO reindex_before (SELECT oid, 'pg_toast_TABLE', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid > 0))"
   },
   {
     "comment": "create_index - Statement 450",
-    "query": "INSERT INTO reindex_before SELECT oid, 'pg_toast_TABLE_index', relfilenode, relkind, reltoastrelid FROM pg_class where oid in (select indexrelid from pg_index where indrelid in (select reltoastrelid from reindex_before where reltoastrelid \u003e 0))",
-    "expected": "INSERT INTO reindex_before (SELECT oid, 'pg_toast_TABLE_index', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT indexrelid FROM pg_index WHERE indrelid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid \u003e 0)))"
+    "query": "INSERT INTO reindex_before SELECT oid, 'pg_toast_TABLE_index', relfilenode, relkind, reltoastrelid FROM pg_class where oid in (select indexrelid from pg_index where indrelid in (select reltoastrelid from reindex_before where reltoastrelid > 0))",
+    "expected": "INSERT INTO reindex_before (SELECT oid, 'pg_toast_TABLE_index', relfilenode, relkind, reltoastrelid FROM pg_class WHERE oid IN (SELECT indexrelid FROM pg_index WHERE indrelid IN (SELECT reltoastrelid FROM reindex_before WHERE reltoastrelid > 0)))"
   },
   {
     "comment": "create_index - Statement 451",

@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
@@ -398,40 +399,48 @@ func (c *Conn) WriteCopyFail(errorMsg string) error {
 	return c.flush()
 }
 
-// ReadCopyDoneResponse reads the CommandComplete response after WriteCopyDone()
-// Returns the command tag (e.g., "COPY 100") and rows affected
-// Note: In simple query protocol, PostgreSQL sends CommandComplete followed by ReadyForQuery
-// We need to consume both messages to clear the buffer
-func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
+// ReadCopyDoneResponse reads the CommandComplete response after WriteCopyDone().
+// Returns the command tag (e.g., "COPY 100"), rows affected, and any
+// NoticeResponse / InfoResponse diagnostics received between CopyDone and
+// ReadyForQuery. Notices come from BEFORE/AFTER row triggers that fire during
+// COPY FROM STDIN (e.g. RAISE NOTICE) and from COPY progress reporting; the
+// gateway forwards them to the client as NoticeResponse frames before the
+// final CommandComplete so client-side test fixtures see the expected
+// NOTICE / INFO lines.
+//
+// Note: In simple query protocol, PostgreSQL sends CommandComplete followed
+// by ReadyForQuery — both messages must be consumed to clear the buffer.
+func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
 	var commandTag string
 	var rowsAffected uint64
+	var notices []*mterrors.PgDiagnostic
 	gotCommandComplete := false
 
 	// Read messages until we get both CommandComplete and ReadyForQuery
 	for {
 		msgType, err := c.readMessageType()
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to read message type: %w", err)
+			return "", 0, notices, fmt.Errorf("failed to read message type: %w", err)
 		}
 
 		length, err := c.readMessageLength()
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to read message length: %w", err)
+			return "", 0, notices, fmt.Errorf("failed to read message length: %w", err)
 		}
 
 		body, err := c.readMessageBody(length)
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to read message body: %w", err)
+			return "", 0, notices, fmt.Errorf("failed to read message body: %w", err)
 		}
 
 		switch msgType {
 		case protocol.MsgCommandComplete:
 			// Parse command tag
 			if len(body) == 0 {
-				return "", 0, errors.New("empty CommandComplete body")
+				return "", 0, notices, errors.New("empty CommandComplete body")
 			}
 			// Command tag is null-terminated string
 			tag := string(body)
@@ -460,23 +469,25 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 			// finalization fails inside a transaction.
 			pgErr := c.parseError(body)
 			_ = c.waitForReadyForQuery(ctx)
-			return "", 0, pgErr
+			return "", 0, notices, pgErr
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices
-			continue
+			// Collect notices for forwarding. Trigger RAISE NOTICE output and
+			// INFO progress events arrive here between CopyDone and the final
+			// CommandComplete.
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgReadyForQuery:
 			// End of response - if we got CommandComplete, return success
 			if gotCommandComplete {
 				c.txnStatus = protocol.TransactionStatus(body[0])
-				return commandTag, rowsAffected, nil
+				return commandTag, rowsAffected, notices, nil
 			}
 			// Otherwise, we got ReadyForQuery without CommandComplete (error case)
-			return "", 0, errors.New("received ReadyForQuery without CommandComplete")
+			return "", 0, notices, errors.New("received ReadyForQuery without CommandComplete")
 
 		default:
-			return "", 0, fmt.Errorf("unexpected message type after CopyDone: '%c'", msgType)
+			return "", 0, notices, fmt.Errorf("unexpected message type after CopyDone: '%c'", msgType)
 		}
 	}
 }
@@ -484,27 +495,30 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 // ReadCopyFailResponse reads the expected ErrorResponse + ReadyForQuery sequence
 // after sending CopyFail. Unlike ReadCopyDoneResponse, this treats ErrorResponse
 // as the expected (normal) response and continues reading until ReadyForQuery,
-// leaving the connection in a clean protocol state.
-func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
+// leaving the connection in a clean protocol state. Notices received in this
+// window are collected and returned so callers can forward trigger output
+// that fired before the abort.
+func (c *Conn) ReadCopyFailResponse(ctx context.Context) ([]*mterrors.PgDiagnostic, error) {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
+	var notices []*mterrors.PgDiagnostic
 	gotError := false
 
 	for {
 		msgType, err := c.readMessageType()
 		if err != nil {
-			return fmt.Errorf("failed to read message type: %w", err)
+			return notices, fmt.Errorf("failed to read message type: %w", err)
 		}
 
 		length, err := c.readMessageLength()
 		if err != nil {
-			return fmt.Errorf("failed to read message length: %w", err)
+			return notices, fmt.Errorf("failed to read message length: %w", err)
 		}
 
 		body, err := c.readMessageBody(length)
 		if err != nil {
-			return fmt.Errorf("failed to read message body: %w", err)
+			return notices, fmt.Errorf("failed to read message body: %w", err)
 		}
 
 		switch msgType {
@@ -514,16 +528,17 @@ func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
 			gotError = true
 
 		case protocol.MsgNoticeResponse:
-			continue
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgReadyForQuery:
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if gotError {
-				return nil // clean abort: ErrorResponse + ReadyForQuery consumed
+				return notices, nil // clean abort: ErrorResponse + ReadyForQuery consumed
 			}
-			return errors.New("received ReadyForQuery without ErrorResponse after CopyFail")
+			return notices, errors.New("received ReadyForQuery without ErrorResponse after CopyFail")
 
 		default:
-			return fmt.Errorf("unexpected message type after CopyFail: '%c'", msgType)
+			return notices, fmt.Errorf("unexpected message type after CopyFail: '%c'", msgType)
 		}
 	}
 }
@@ -553,22 +568,23 @@ func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err er
 		return 0, nil, fmt.Errorf("failed to read message body: %w", err)
 	}
 
+	return parseCopyResponseBody("CopyInResponse", body)
+}
+
+func parseCopyResponseBody(responseType string, body []byte) (format int16, columnFormats []int16, err error) {
 	if len(body) < 3 {
-		return 0, nil, fmt.Errorf("CopyInResponse body too short: %d bytes", len(body))
+		return 0, nil, fmt.Errorf("%s body too short: %d bytes", responseType, len(body))
 	}
 
-	// Read format (Int8, 1 byte) - 0=text, 1=binary
+	// Body layout: Int8(format) + Int16(numCols) + Int16[numCols].
 	format = int16(body[0])
-
-	// Read number of columns (Int16, 2 bytes, big-endian)
 	numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
 
-	// Read format codes for each column (Int16 each)
 	columnFormats = make([]int16, numCols)
 	offset := 3
 	for i := 0; i < int(numCols); i++ {
 		if offset+2 > len(body) {
-			return 0, nil, errors.New("CopyInResponse body too short for column formats")
+			return 0, nil, fmt.Errorf("%s body too short for column formats", responseType)
 		}
 		columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
 		offset += 2
@@ -579,61 +595,43 @@ func (c *Conn) ReadCopyInResponse() (format int16, columnFormats []int16, err er
 
 // InitiateCopyFromStdin sends a COPY FROM STDIN query and reads the CopyInResponse.
 // This is a special operation that doesn't follow the normal query flow.
-// Returns the COPY format and column formats from the CopyInResponse.
-func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
+// Returns the COPY format, column formats from the CopyInResponse, and any
+// NoticeResponse diagnostics received before the CopyInResponse (e.g. notices
+// from BEFORE STATEMENT triggers that fire at COPY initiation).
+func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
 	// Send the COPY query (simple-protocol Q message + flush).
 	if err := c.writeQueryMessage(copyQuery); err != nil {
-		return 0, nil, fmt.Errorf("failed to send COPY query: %w", err)
+		return 0, nil, notices, fmt.Errorf("failed to send COPY query: %w", err)
 	}
 
-	// Loop through messages until we get CopyInResponse or an error
-	// We need to skip NoticeResponse and ParameterStatus messages
-	// This is similar to processQueryResponses but simplified for COPY initiation
+	// Loop through messages until we get CopyInResponse or an error.
+	// Notices and ParameterStatus updates may interleave.
 	for {
 		msgType, err := c.readMessageType()
 		if err != nil {
-			return 0, nil, fmt.Errorf("failed to read message type: %w", err)
+			return 0, nil, notices, fmt.Errorf("failed to read message type: %w", err)
 		}
 
 		bodyLen, err := c.readMessageLength()
 		if err != nil {
-			return 0, nil, fmt.Errorf("failed to read message length: %w", err)
+			return 0, nil, notices, fmt.Errorf("failed to read message length: %w", err)
 		}
 
 		body, err := c.readMessageBody(bodyLen)
 		if err != nil {
-			return 0, nil, fmt.Errorf("failed to read message body: %w", err)
+			return 0, nil, notices, fmt.Errorf("failed to read message body: %w", err)
 		}
 
 		switch msgType {
 		case protocol.MsgCopyInResponse:
-			// Parse CopyInResponse body using manual byte array indexing
-			// Format: Int8 (format) + Int16 (numCols) + Int16[numCols] (column formats)
-			if len(body) < 3 {
-				return 0, nil, fmt.Errorf("CopyInResponse body too short: %d bytes", len(body))
+			format, columnFormats, err = parseCopyResponseBody("CopyInResponse", body)
+			if err != nil {
+				return 0, nil, notices, err
 			}
-
-			// Read format (Int8, 1 byte) - 0=text, 1=binary
-			format = int16(body[0])
-
-			// Read number of columns (Int16, 2 bytes, big-endian)
-			numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
-
-			// Read format codes for each column (Int16 each)
-			columnFormats = make([]int16, numCols)
-			offset := 3
-			for i := 0; i < int(numCols); i++ {
-				if offset+2 > len(body) {
-					return 0, nil, errors.New("CopyInResponse body too short for column formats")
-				}
-				columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
-				offset += 2
-			}
-
-			return format, columnFormats, nil
+			return format, columnFormats, notices, nil
 
 		case protocol.MsgErrorResponse:
 			// Parse the error, then drain the trailing ReadyForQuery so
@@ -645,11 +643,10 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 			// payload, which we want even on the error path.
 			pgErr := c.parseError(body)
 			_ = c.waitForReadyForQuery(ctx)
-			return 0, nil, pgErr
+			return 0, nil, notices, pgErr
 
 		case protocol.MsgNoticeResponse:
-			// Skip notices (PostgreSQL might send notices before CopyInResponse)
-			continue
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgParameterStatus:
 			// Handle parameter status updates, ignore errors
@@ -659,10 +656,215 @@ func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (for
 		case protocol.MsgReadyForQuery:
 			// If we get ReadyForQuery before CopyInResponse, the query failed
 			// but we didn't get an ErrorResponse (which shouldn't happen)
-			return 0, nil, errors.New("received ReadyForQuery before CopyInResponse - query may have failed without error")
+			return 0, nil, notices, errors.New("received ReadyForQuery before CopyInResponse - query may have failed without error")
 
 		default:
-			return 0, nil, fmt.Errorf("unexpected message type during COPY initiation: '%c' (0x%02x)", msgType, msgType)
+			return 0, nil, notices, fmt.Errorf("unexpected message type during COPY initiation: '%c' (0x%02x)", msgType, msgType)
+		}
+	}
+}
+
+// InitiateCopyToStdout sends a COPY ... TO STDOUT query and reads the
+// CopyOutResponse. The caller is then expected to drive the response stream
+// with ReadCopyOutMessage until io.EOF (CopyDone), followed by
+// FinishCopyToStdout to consume the trailing CommandComplete + ReadyForQuery.
+// Returns the COPY format, per-column formats from the CopyOutResponse, and
+// any NoticeResponse diagnostics seen before the CopyOutResponse arrived.
+//
+// Modeled after InitiateCopyFromStdin — same Q-then-flush, same notice /
+// ParameterStatus / ErrorResponse handling.
+func (c *Conn) InitiateCopyToStdout(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if err := c.writeQueryMessage(copyQuery); err != nil {
+		return 0, nil, notices, fmt.Errorf("failed to send COPY query: %w", err)
+	}
+
+	for {
+		msgType, err := c.readMessageType()
+		if err != nil {
+			return 0, nil, notices, fmt.Errorf("failed to read message type: %w", err)
+		}
+
+		bodyLen, err := c.readMessageLength()
+		if err != nil {
+			return 0, nil, notices, fmt.Errorf("failed to read message length: %w", err)
+		}
+
+		body, err := c.readMessageBody(bodyLen)
+		if err != nil {
+			return 0, nil, notices, fmt.Errorf("failed to read message body: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgCopyOutResponse:
+			format, columnFormats, err = parseCopyResponseBody("CopyOutResponse", body)
+			if err != nil {
+				return 0, nil, notices, err
+			}
+			return format, columnFormats, notices, nil
+
+		case protocol.MsgErrorResponse:
+			pgErr := c.parseError(body)
+			_ = c.waitForReadyForQuery(ctx)
+			return 0, nil, notices, pgErr
+
+		case protocol.MsgNoticeResponse:
+			notices = append(notices, c.parseNotice(body))
+
+		case protocol.MsgParameterStatus:
+			_ = c.handleParameterStatus(body)
+
+		case protocol.MsgReadyForQuery:
+			return 0, nil, notices, errors.New("received ReadyForQuery before CopyOutResponse - query may have failed without error")
+
+		default:
+			return 0, nil, notices, fmt.Errorf("unexpected message type during COPY TO initiation: '%c' (0x%02x)", msgType, msgType)
+		}
+	}
+}
+
+// CopyOutMessage represents a single message read from the COPY TO STDOUT
+// response stream. Exactly one of Data or Notice is set; Done is true when
+// PG sent CopyDone (Data and Notice will both be nil in that case).
+type CopyOutMessage struct {
+	Data   []byte
+	Notice *mterrors.PgDiagnostic
+	Done   bool
+}
+
+// ReadCopyOutMessage reads the next message in the COPY TO STDOUT stream.
+// Returns a CopyOutMessage containing a CopyData chunk, a NoticeResponse
+// diagnostic, or Done=true on CopyDone. CommandComplete/ReadyForQuery are
+// not consumed here — call FinishCopyToStdout once Done is observed.
+//
+// Distinct from ReadCopyData (which only reads CopyData / CopyDone) because
+// trigger output and INFO progress messages can be interleaved with data
+// rows during a COPY ... TO STDOUT.
+//
+// ctx is used only on the ErrorResponse path to drain the trailing
+// ReadyForQuery; reads themselves are framed at the wire layer and don't
+// take a context.
+func (c *Conn) ReadCopyOutMessage(ctx context.Context) (CopyOutMessage, error) {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	for {
+		msgType, err := c.readMessageType()
+		if err != nil {
+			return CopyOutMessage{}, fmt.Errorf("failed to read message type: %w", err)
+		}
+
+		length, err := c.readMessageLength()
+		if err != nil {
+			return CopyOutMessage{}, fmt.Errorf("failed to read message length: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgCopyData:
+			data, err := c.readMessageBody(length)
+			if err != nil {
+				return CopyOutMessage{}, fmt.Errorf("failed to read CopyData body: %w", err)
+			}
+			return CopyOutMessage{Data: data}, nil
+
+		case protocol.MsgCopyDone:
+			if length != 0 {
+				return CopyOutMessage{}, fmt.Errorf("invalid CopyDone length: %d (expected 0)", length)
+			}
+			return CopyOutMessage{Done: true}, nil
+
+		case protocol.MsgNoticeResponse:
+			body, err := c.readMessageBody(length)
+			if err != nil {
+				return CopyOutMessage{}, fmt.Errorf("failed to read NoticeResponse body: %w", err)
+			}
+			return CopyOutMessage{Notice: c.parseNotice(body)}, nil
+
+		case protocol.MsgErrorResponse:
+			body, err := c.readMessageBody(length)
+			if err != nil {
+				return CopyOutMessage{}, fmt.Errorf("failed to read ErrorResponse body: %w", err)
+			}
+			pgErr := c.parseError(body)
+			_ = c.waitForReadyForQuery(ctx)
+			return CopyOutMessage{}, pgErr
+
+		default:
+			// Drain unexpected body bytes before returning the error to keep
+			// the protocol position valid for callers that recover.
+			_, _ = c.readMessageBody(length)
+			return CopyOutMessage{}, fmt.Errorf("unexpected message type during COPY TO stream: '%c' (0x%02x)", msgType, msgType)
+		}
+	}
+}
+
+// FinishCopyToStdout reads the trailing CommandComplete + ReadyForQuery that
+// PG sends after CopyDone in the COPY TO STDOUT flow. Returns the command
+// tag (e.g. "COPY 5"), rows affected, and any NoticeResponse diagnostics
+// that arrived between CopyDone and the final ReadyForQuery — same flow as
+// ReadCopyDoneResponse, but the COPY-out caller has already consumed
+// CopyDone via ReadCopyOutMessage.
+func (c *Conn) FinishCopyToStdout(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	var commandTag string
+	var rowsAffected uint64
+	var notices []*mterrors.PgDiagnostic
+	gotCommandComplete := false
+
+	for {
+		msgType, err := c.readMessageType()
+		if err != nil {
+			return "", 0, notices, fmt.Errorf("failed to read message type: %w", err)
+		}
+
+		length, err := c.readMessageLength()
+		if err != nil {
+			return "", 0, notices, fmt.Errorf("failed to read message length: %w", err)
+		}
+
+		body, err := c.readMessageBody(length)
+		if err != nil {
+			return "", 0, notices, fmt.Errorf("failed to read message body: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgCommandComplete:
+			if len(body) == 0 {
+				return "", 0, notices, errors.New("empty CommandComplete body")
+			}
+			tag := string(body)
+			if len(tag) > 0 && tag[len(tag)-1] == 0 {
+				tag = tag[:len(tag)-1]
+			}
+			var rows uint64
+			if len(tag) > 5 && tag[:4] == "COPY" {
+				_, _ = fmt.Sscanf(tag[5:], "%d", &rows)
+			}
+			commandTag = tag
+			rowsAffected = rows
+			gotCommandComplete = true
+
+		case protocol.MsgErrorResponse:
+			pgErr := c.parseError(body)
+			_ = c.waitForReadyForQuery(ctx)
+			return "", 0, notices, pgErr
+
+		case protocol.MsgNoticeResponse:
+			notices = append(notices, c.parseNotice(body))
+
+		case protocol.MsgReadyForQuery:
+			c.txnStatus = protocol.TransactionStatus(body[0])
+			if gotCommandComplete {
+				return commandTag, rowsAffected, notices, nil
+			}
+			return "", 0, notices, errors.New("received ReadyForQuery without CommandComplete")
+
+		default:
+			return "", 0, notices, fmt.Errorf("unexpected message type after CopyDone in COPY TO STDOUT: '%c'", msgType)
 		}
 	}
 }
@@ -692,28 +894,7 @@ func (c *Conn) ReadCopyOutResponse() (format int16, columnFormats []int16, err e
 		return 0, nil, fmt.Errorf("failed to read message body: %w", err)
 	}
 
-	if len(body) < 3 {
-		return 0, nil, fmt.Errorf("CopyOutResponse body too short: %d bytes", len(body))
-	}
-
-	// Read format (Int8, 1 byte) - 0=text, 1=binary
-	format = int16(body[0])
-
-	// Read number of columns (Int16, 2 bytes, big-endian)
-	numCols := int16(uint16(body[1])<<8 | uint16(body[2]))
-
-	// Read format codes for each column (Int16 each)
-	columnFormats = make([]int16, numCols)
-	offset := 3
-	for i := 0; i < int(numCols); i++ {
-		if offset+2 > len(body) {
-			return 0, nil, errors.New("CopyOutResponse body too short for column formats")
-		}
-		columnFormats[i] = int16(uint16(body[offset])<<8 | uint16(body[offset+1]))
-		offset += 2
-	}
-
-	return format, columnFormats, nil
+	return parseCopyResponseBody("CopyOutResponse", body)
 }
 
 // ReadCopyData reads a CopyData ('d') message from PostgreSQL.

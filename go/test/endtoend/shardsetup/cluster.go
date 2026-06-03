@@ -113,6 +113,11 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
+
+	// Timings records elapsed durations for timeout-bounded setup operations.
+	// Reported at test teardown so you can see which operations are approaching
+	// their limits on slow runners.
+	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.
@@ -180,8 +185,26 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 	return s.GetMultipoolerInstance(s.PrimaryName)
 }
 
-// RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
+// RefreshPrimary queries all multipoolers to find the current primary and
+// updates PrimaryName. Fatals if no primary is found. Inside polling loops
+// (assert.Never / assert.Eventually) use TryFindPrimary instead — a
+// transient miss in a poll should not fatal the test.
 func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+	inst, ok := s.TryFindPrimary(t)
+	if !ok {
+		t.Fatal("RefreshPrimary: no primary found in cluster")
+	}
+	return inst
+}
+
+// TryFindPrimary is the single-shot, non-fatal probe used by RefreshPrimary.
+// Returns (instance, true) on success, (nil, false) when no pooler currently
+// reports IsInitialized + PoolerType=PRIMARY. Suitable for poll callbacks
+// (e.g. assert.Never) where a single miss should retry, not fail the test —
+// the Status RPC for a given pooler can transiently time out while multiorch
+// is reconciling sync_standby_names.
+func (s *ShardSetup) TryFindPrimary(t *testing.T) (*MultipoolerInstance, bool) {
 	t.Helper()
 
 	for name, inst := range s.Multipoolers {
@@ -201,13 +224,12 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 
 		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 			s.PrimaryName = name
-			t.Logf("RefreshPrimary: current primary is %s", name)
-			return inst
+			t.Logf("TryFindPrimary: current primary is %s", name)
+			return inst, true
 		}
 	}
 
-	t.Fatal("RefreshPrimary: no primary found in cluster")
-	return nil
+	return nil, false
 }
 
 // GetStandbys returns all multipooler instances that are not the primary.
@@ -300,7 +322,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 
@@ -330,7 +352,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
 		SocketFile:  socketFile,
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
+		Environment: append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler

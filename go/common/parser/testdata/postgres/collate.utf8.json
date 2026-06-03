@@ -1,8 +1,8 @@
 [
   {
     "comment": "collate.utf8 - Statement 1",
-    "query": "/* * This test is for collations and character operations when using the * builtin provider with the C.UTF-8 locale. */ /* skip test if not UTF8 server encoding */ SELECT getdatabaseencoding() \u003c\u003e 'UTF8' AS skip_test",
-    "expected": "SELECT getdatabaseencoding() \u003c\u003e 'UTF8' AS skip_test"
+    "query": "/* * This test is for collations and character operations when using the * builtin provider with the C.UTF-8 locale. */ /* skip test if not UTF8 server encoding */ SELECT getdatabaseencoding() <> 'UTF8' AS skip_test",
+    "expected": "SELECT getdatabaseencoding() <> 'UTF8' AS skip_test"
   },
   {
     "comment": "collate.utf8 - Statement 2",

@@ -86,33 +86,33 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 18",
-    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ \u003e $x)' PASSING 1 AS x)",
-    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ \u003e $x)' PASSING 1 AS x)"
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING 1 AS x)",
+    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ > $x)' PASSING 1 AS x)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 19",
-    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ \u003e $x)' PASSING '1' AS x)",
-    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ \u003e $x)' PASSING '1' AS x)"
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING '1' AS x)",
+    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ > $x)' PASSING '1' AS x)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 20",
-    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ \u003e $x \u0026\u0026 @ \u003c $y)' PASSING 0 AS x, 2 AS y)",
-    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ \u003e $x \u0026\u0026 @ \u003c $y)' PASSING 0 AS x, 2 AS y)"
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 2 AS y)",
+    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 2 AS y)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 21",
-    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ \u003e $x \u0026\u0026 @ \u003c $y)' PASSING 0 AS x, 1 AS y)",
-    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ \u003e $x \u0026\u0026 @ \u003c $y)' PASSING 0 AS x, 1 AS y)"
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 1 AS y)",
+    "expected": "SELECT JSON_EXISTS(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 1 AS y)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 22",
-    "query": "SELECT JSON_EXISTS(jsonb '1', '$ \u003e 2')",
-    "expected": "SELECT JSON_EXISTS(CAST('1' AS JSONB), '$ \u003e 2')"
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$ > 2')",
+    "expected": "SELECT JSON_EXISTS(CAST('1' AS JSONB), '$ > 2')"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 23",
-    "query": "SELECT JSON_EXISTS(jsonb '1', '$.a \u003e 2' ERROR ON ERROR)",
-    "expected": "SELECT JSON_EXISTS(CAST('1' AS JSONB), '$.a \u003e 2' ERROR ON ERROR)"
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$.a > 2' ERROR ON ERROR)",
+    "expected": "SELECT JSON_EXISTS(CAST('1' AS JSONB), '$.a > 2' ERROR ON ERROR)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 24",
@@ -192,22 +192,22 @@
   {
     "comment": "sqljson_queryfuncs - Statement 39",
     "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(5))",
-    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(5))"
+    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(5))"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 40",
     "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(2) ERROR ON ERROR)",
-    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(2) ERROR ON ERROR)"
+    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(2) ERROR ON ERROR)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 41",
     "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(2))",
-    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(2))"
+    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(2))"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 42",
     "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(3) ERROR ON ERROR)",
-    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(3) ERROR ON ERROR)"
+    "expected": "SELECT JSON_VALUE(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(3) ERROR ON ERROR)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 43",
@@ -425,8 +425,8 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 86",
-    "query": "SELECT x, JSON_VALUE( jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ \u003e $x)' PASSING x AS x RETURNING int DEFAULT -1 ON EMPTY DEFAULT -2 ON ERROR ) y FROM generate_series(0, 2) x",
-    "expected": "SELECT x, JSON_VALUE(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ \u003e $x)' PASSING x AS x RETURNING INT DEFAULT -1 ON EMPTY DEFAULT -2 ON ERROR) AS y FROM generate_series(0, 2) AS x"
+    "query": "SELECT x, JSON_VALUE( jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING x AS x RETURNING int DEFAULT -1 ON EMPTY DEFAULT -2 ON ERROR ) y FROM generate_series(0, 2) x",
+    "expected": "SELECT x, JSON_VALUE(CAST('{\"a\": 1, \"b\": 2}' AS JSONB), '$.* ? (@ > $x)' PASSING x AS x RETURNING INT DEFAULT -1 ON EMPTY DEFAULT -2 ON ERROR) AS y FROM generate_series(0, 2) AS x"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 87",
@@ -551,27 +551,27 @@
   {
     "comment": "sqljson_queryfuncs - Statement 111",
     "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3) ERROR ON ERROR)",
-    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(3) ERROR ON ERROR)"
+    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(3) ERROR ON ERROR)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 112",
     "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3))",
-    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(3))"
+    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(3))"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 113",
     "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3) OMIT QUOTES ERROR ON ERROR)",
-    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING CHAR(3) OMIT QUOTES ERROR ON ERROR)"
+    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$' RETURNING bpchar(3) OMIT QUOTES ERROR ON ERROR)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 114",
     "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$.a' RETURNING char(2) OMIT QUOTES DEFAULT 'bb' ON EMPTY)",
-    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$.a' RETURNING CHAR(2) OMIT QUOTES DEFAULT 'bb' ON EMPTY)"
+    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$.a' RETURNING bpchar(2) OMIT QUOTES DEFAULT 'bb' ON EMPTY)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 115",
     "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$.a' RETURNING char(2) OMIT QUOTES DEFAULT '\"bb\"'::jsonb ON EMPTY)",
-    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$.a' RETURNING CHAR(2) OMIT QUOTES DEFAULT CAST('\"bb\"' AS JSONB) ON EMPTY)"
+    "expected": "SELECT JSON_QUERY(CAST('\"aaa\"' AS JSONB), '$.a' RETURNING bpchar(2) OMIT QUOTES DEFAULT CAST('\"bb\"' AS JSONB) ON EMPTY)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 116",
@@ -641,7 +641,7 @@
   {
     "comment": "sqljson_queryfuncs - Statement 129",
     "query": "CREATE DOMAIN qf_char_domain AS char(1)",
-    "expected": "CREATE DOMAIN qf_char_domain AS CHAR(1)"
+    "expected": "CREATE DOMAIN qf_char_domain AS bpchar(1)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 130",
@@ -760,7 +760,7 @@
   {
     "comment": "sqljson_queryfuncs - Statement 153",
     "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING char(10))",
-    "expected": "SELECT JSON_QUERY(CAST('[1,2]' AS JSONB), '$' RETURNING CHAR(10))"
+    "expected": "SELECT JSON_QUERY(CAST('[1,2]' AS JSONB), '$' RETURNING bpchar(10))"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 154",
@@ -859,8 +859,8 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 173",
-    "query": "SELECT x, y, JSON_QUERY( jsonb '[1,2,3,4,5,null]', '$[*] ? (@ \u003e= $x \u0026\u0026 @ \u003c= $y)' PASSING x AS x, y AS y WITH CONDITIONAL WRAPPER EMPTY ARRAY ON EMPTY ) list FROM generate_series(0, 4) x, generate_series(0, 4) y",
-    "expected": "SELECT x, y, JSON_QUERY(CAST('[1,2,3,4,5,null]' AS JSONB), '$[*] ? (@ \u003e= $x \u0026\u0026 @ \u003c= $y)' PASSING x AS x, y AS y WITH CONDITIONAL ARRAY WRAPPER EMPTY ARRAY ON EMPTY) AS list FROM generate_series(0, 4) AS x, generate_series(0, 4) AS y"
+    "query": "SELECT x, y, JSON_QUERY( jsonb '[1,2,3,4,5,null]', '$[*] ? (@ >= $x && @ <= $y)' PASSING x AS x, y AS y WITH CONDITIONAL WRAPPER EMPTY ARRAY ON EMPTY ) list FROM generate_series(0, 4) x, generate_series(0, 4) y",
+    "expected": "SELECT x, y, JSON_QUERY(CAST('[1,2,3,4,5,null]' AS JSONB), '$[*] ? (@ >= $x && @ <= $y)' PASSING x AS x, y AS y WITH CONDITIONAL ARRAY WRAPPER EMPTY ARRAY ON EMPTY) AS list FROM generate_series(0, 4) AS x, generate_series(0, 4) AS y"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 174",
@@ -982,8 +982,8 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 198",
-    "query": "CREATE TABLE test_jsonb_constraints ( js text, i int, x jsonb DEFAULT JSON_QUERY(jsonb '[1,2]', '$[*]' WITH WRAPPER) CONSTRAINT test_jsonb_constraint1 CHECK (js IS JSON) CONSTRAINT test_jsonb_constraint2 CHECK (JSON_EXISTS(js::jsonb, '$.a' PASSING i + 5 AS int, i::text AS \"TXT\", array[1,2,3] as arr)) CONSTRAINT test_jsonb_constraint3 CHECK (JSON_VALUE(js::jsonb, '$.a' RETURNING int DEFAULT '12' ON EMPTY ERROR ON ERROR) \u003e i) CONSTRAINT test_jsonb_constraint4 CHECK (JSON_QUERY(js::jsonb, '$.a' WITH CONDITIONAL WRAPPER EMPTY OBJECT ON ERROR) = jsonb '[10]') CONSTRAINT test_jsonb_constraint5 CHECK (JSON_QUERY(js::jsonb, '$.a' RETURNING char(5) OMIT QUOTES EMPTY ARRAY ON EMPTY) \u003e  'a' COLLATE \"C\") )",
-    "expected": "CREATE TABLE test_jsonb_constraints (js TEXT, i INT, x JSONB DEFAULT JSON_QUERY(CAST('[1,2]' AS JSONB), '$[*]' WITH UNCONDITIONAL ARRAY WRAPPER) CONSTRAINT test_jsonb_constraint1 CHECK (js IS JSON) CONSTRAINT test_jsonb_constraint2 CHECK (JSON_EXISTS(CAST(js AS JSONB), '$.a' PASSING i + 5 AS int, CAST(i AS TEXT) AS \"TXT\", ARRAY[1,2,3] AS arr)) CONSTRAINT test_jsonb_constraint3 CHECK (JSON_VALUE(CAST(js AS JSONB), '$.a' RETURNING INT DEFAULT '12' ON EMPTY ERROR ON ERROR) \u003e i) CONSTRAINT test_jsonb_constraint4 CHECK (JSON_QUERY(CAST(js AS JSONB), '$.a' WITH CONDITIONAL ARRAY WRAPPER EMPTY OBJECT ON ERROR) = CAST('[10]' AS JSONB)) CONSTRAINT test_jsonb_constraint5 CHECK (JSON_QUERY(CAST(js AS JSONB), '$.a' RETURNING CHAR(5) OMIT QUOTES EMPTY ARRAY ON EMPTY) \u003e 'a' COLLATE \"C\"))"
+    "query": "CREATE TABLE test_jsonb_constraints ( js text, i int, x jsonb DEFAULT JSON_QUERY(jsonb '[1,2]', '$[*]' WITH WRAPPER) CONSTRAINT test_jsonb_constraint1 CHECK (js IS JSON) CONSTRAINT test_jsonb_constraint2 CHECK (JSON_EXISTS(js::jsonb, '$.a' PASSING i + 5 AS int, i::text AS \"TXT\", array[1,2,3] as arr)) CONSTRAINT test_jsonb_constraint3 CHECK (JSON_VALUE(js::jsonb, '$.a' RETURNING int DEFAULT '12' ON EMPTY ERROR ON ERROR) > i) CONSTRAINT test_jsonb_constraint4 CHECK (JSON_QUERY(js::jsonb, '$.a' WITH CONDITIONAL WRAPPER EMPTY OBJECT ON ERROR) = jsonb '[10]') CONSTRAINT test_jsonb_constraint5 CHECK (JSON_QUERY(js::jsonb, '$.a' RETURNING char(5) OMIT QUOTES EMPTY ARRAY ON EMPTY) >  'a' COLLATE \"C\") )",
+    "expected": "CREATE TABLE test_jsonb_constraints (js TEXT, i INT, x JSONB DEFAULT JSON_QUERY(CAST('[1,2]' AS JSONB), '$[*]' WITH UNCONDITIONAL ARRAY WRAPPER) CONSTRAINT test_jsonb_constraint1 CHECK (js IS JSON) CONSTRAINT test_jsonb_constraint2 CHECK (JSON_EXISTS(CAST(js AS JSONB), '$.a' PASSING i + 5 AS int, CAST(i AS TEXT) AS \"TXT\", ARRAY[1,2,3] AS arr)) CONSTRAINT test_jsonb_constraint3 CHECK (JSON_VALUE(CAST(js AS JSONB), '$.a' RETURNING INT DEFAULT '12' ON EMPTY ERROR ON ERROR) > i) CONSTRAINT test_jsonb_constraint4 CHECK (JSON_QUERY(CAST(js AS JSONB), '$.a' WITH CONDITIONAL ARRAY WRAPPER EMPTY OBJECT ON ERROR) = CAST('[10]' AS JSONB)) CONSTRAINT test_jsonb_constraint5 CHECK (JSON_QUERY(CAST(js AS JSONB), '$.a' RETURNING bpchar(5) OMIT QUOTES EMPTY ARRAY ON EMPTY) > 'a' COLLATE \"C\"))"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 199",
@@ -1060,78 +1060,78 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 215",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() \u003c $.time_tz())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() \u003c $.time_tz())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.time_tz())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() < $.time_tz())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 216",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() \u003c $.time())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() \u003c $.time())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.time())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() < $.time())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 217",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() \u003c $.time())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() \u003c $.time())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.time())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() < $.time())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 218",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() \u003c $.time_tz())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() \u003c $.time_tz())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.time_tz())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() < $.time_tz())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 219",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.timestamp_tz())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.timestamp_tz())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.timestamp_tz())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() < $.timestamp_tz())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 220",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.timestamp_tz())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.timestamp_tz())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.timestamp_tz())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.timestamp_tz())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 221",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.time() < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 222",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.date() < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 223",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 224",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.datetime(\"HH:MI\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() \u003c $.datetime(\"HH:MI\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 225",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 226",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.datetime(\"HH:MI\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() \u003c $.datetime(\"HH:MI\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 227",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() \u003c $x' PASSING '12:34'::timetz AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.date() \u003c $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() < $x' PASSING '12:34'::timetz AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.date() < $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 228",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() \u003c $x' PASSING '1234'::int AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.date() \u003c $x' PASSING CAST('1234' AS INT) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() < $x' PASSING '1234'::int AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.date() < $x' PASSING CAST('1234' AS INT) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 229",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp(2) \u003c $.timestamp(3))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp(2) \u003c $.timestamp(3))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp(2) < $.timestamp(3))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.timestamp(2) < $.timestamp(3))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 230",
@@ -1140,53 +1140,53 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 231",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@ \u003c $.datetime())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@ \u003c $.datetime())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@ < $.datetime())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@ < $.datetime())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 232",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() \u003c $.datetime())'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime() \u003c $.datetime())')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime())'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime())')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 233",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime() \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 234",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") \u003c $.datetime(\"HH:MI TZH\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") \u003c $.datetime(\"HH:MI TZH\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"HH:MI TZH\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"HH:MI TZH\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 235",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI\") \u003c $.datetime(\"YY-MM-DD HH:MI\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI\") \u003c $.datetime(\"YY-MM-DD HH:MI\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI\") < $.datetime(\"YY-MM-DD HH:MI\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI\") < $.datetime(\"YY-MM-DD HH:MI\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 236",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") \u003c $.datetime(\"YY-MM-DD HH:MI\"))'))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") \u003c $.datetime(\"YY-MM-DD HH:MI\"))')) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"YY-MM-DD HH:MI\"))'))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"YY-MM-DD HH:MI\"))')) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 237",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") \u003c $x' PASSING '12:34'::timetz AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") \u003c $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $x' PASSING '12:34'::timetz AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 238",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") \u003c $y' PASSING '12:34'::timetz AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") \u003c $y' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $y' PASSING '12:34'::timetz AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $y' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 239",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() \u003c $x' PASSING '12:34'::timetz AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime() \u003c $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() < $x' PASSING '12:34'::timetz AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime() < $x' PASSING CAST('12:34' AS TIMETZ) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 240",
-    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() \u003c $x' PASSING '1234'::int AS x))",
-    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime() \u003c $x' PASSING CAST('1234' AS INT) AS x)) )"
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() < $x' PASSING '1234'::int AS x))",
+    "expected": "CREATE INDEX ON test_jsonb_mutability USING btree ( (JSON_QUERY(js, '$.datetime() < $x' PASSING CAST('1234' AS INT) AS x)) )"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 241",
@@ -1220,7 +1220,7 @@
   },
   {
     "comment": "sqljson_queryfuncs - Statement 247",
-    "query": "CREATE OR REPLACE FUNCTION ret_setint() RETURNS SETOF integer AS $$ BEGIN RETURN QUERY EXECUTE 'select 1 union all select 1'; END; $$ LANGUAGE plpgsql IMMUTABLE; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT ret_setint() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT b + 1 ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT sum(1) over() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT (SELECT 1) ON ERROR) FROM test_jsonb_mutability; DROP TABLE test_jsonb_mutability; DROP FUNCTION ret_setint;  CREATE DOMAIN queryfuncs_test_domain AS text CHECK (value \u003c\u003e 'foo'); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo'::queryfuncs_test_domain ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT '\"foo1\"'::jsonb::text ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"foo\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY);      SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT '\"1\"')::jsonb ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a' RETURNING queryfuncs_test_domain DEFAULT (select '\"1\"')::queryfuncs_test_domain ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT 1)::oid::int ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::oid[]::int[] ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::text COLLATE \"C\" ON ERROR);  CREATE TABLE someparent (a int); CREATE TABLE somechild () INHERITS (someparent); SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING someparent DEFAULT (SELECT '(1)')::somechild::someparent ON ERROR);  DROP DOMAIN queryfuncs_test_domain; DROP TABLE someparent, somechild;   SELECT JSON_EXISTS(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'b' DEFAULT 'foo' ON EMPTY); SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a' WITH WRAPPER);  SELECT JSON_QUERY(jsonb '{\"a\": 123}', 'error' || ' ' || 'error');   SELECT JSON_EXISTS(json '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_QUERY(NULL FORMAT JSON, '$');   CREATE TEMP TABLE jsonpaths (path) AS SELECT '$'; SELECT json_value('\"aaa\"', path RETURNING json) FROM jsonpaths;   SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xy); SELECT JSON_QUERY(jsonb 'null', '$xy' PASSING 1 AS xyz); SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(jsonb 'null', '$Xyz' PASSING 1 AS Xyz); SELECT JSON_QUERY(jsonb 'null', '$Xyz' PASSING 1 AS \"Xyz\"); SELECT JSON_QUERY(jsonb 'null', '$\"Xyz\"' PASSING 1 AS \"Xyz\");   SELECT JSON_EXISTS(jsonb '1', '$' DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '1', '$' EMPTY ON ERROR); SELECT JSON_QUERY(jsonb '1', '$' TRUE ON ERROR);    CREATE DOMAIN queryfuncs_char2 AS char(2); CREATE DOMAIN queryfuncs_char2_chk AS char(2) CHECK (VALUE NOT IN ('12')); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT '1' ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT '1' ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT 1 ON ERROR); DROP DOMAIN queryfuncs_char2, queryfuncs_char2_chk;     CREATE DOMAIN queryfuncs_d_varbit3 AS varbit(3) CHECK (VALUE \u003c\u003e '01'); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '111111' ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '010' ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '01' ON ERROR); SELECT JSON_VALUE(jsonb '\"111\"', '$'  RETURNING bit(2) ERROR ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1::bit(3) ON ERROR); SELECT JSON_VALUE(jsonb '\"111\"', '$.a'  RETURNING bit(3) DEFAULT '1111' ON EMPTY); DROP DOMAIN queryfuncs_d_varbit3",
-    "expected": "CREATE OR REPLACE FUNCTION ret_setint () RETURNS SETOF INT AS $$ BEGIN RETURN QUERY EXECUTE 'select 1 union all select 1'; END; $$ LANGUAGE plpgsql IMMUTABLE; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT ret_setint() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT b + 1 ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT SUM(1) OVER () ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT (SELECT 1) ON ERROR) FROM test_jsonb_mutability; DROP TABLE test_jsonb_mutability; DROP FUNCTION ret_setint; CREATE DOMAIN queryfuncs_test_domain AS TEXT CHECK (value \u003c\u003e 'foo'); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo1' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST(CAST('\"foo1\"' AS JSONB) AS TEXT) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"foo\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo1' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT DEFAULT CAST((SELECT '\"1\"') AS JSONB) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING queryfuncs_test_domain DEFAULT CAST((SELECT '\"1\"') AS queryfuncs_test_domain) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT DEFAULT CAST(CAST((SELECT 1) AS oid) AS INT) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT[] DEFAULT CAST(CAST((SELECT '{1}') AS oid[]) AS INT[]) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT[] DEFAULT CAST((SELECT '{1}') AS TEXT) COLLATE \"C\" ON ERROR); CREATE TABLE someparent (a INT); CREATE TABLE somechild () INHERITS (someparent); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING someparent DEFAULT CAST(CAST((SELECT '(1)') AS somechild) AS someparent) ON ERROR); DROP DOMAIN queryfuncs_test_domain; DROP TABLE someparent, somechild; SELECT JSON_EXISTS(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_VALUE(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_VALUE(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'b' DEFAULT 'foo' ON EMPTY); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a' WITH UNCONDITIONAL ARRAY WRAPPER); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), 'error' || ' ' || 'error'); SELECT JSON_EXISTS(CAST('{\"a\": 123}' AS JSON), '$' || '.' || 'a'); SELECT JSON_QUERY(NULL FORMAT JSON, '$'); CREATE TEMP TABLE jsonpaths (path) AS SELECT '$'; SELECT JSON_VALUE('\"aaa\"', path RETURNING JSON) FROM jsonpaths; SELECT JSON_QUERY(CAST('null' AS JSONB), '$xyz' PASSING 1 AS xy); SELECT JSON_QUERY(CAST('null' AS JSONB), '$xy' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$Xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$Xyz' PASSING 1 AS \"Xyz\"); SELECT JSON_QUERY(CAST('null' AS JSONB), '$\"Xyz\"' PASSING 1 AS \"Xyz\"); SELECT JSON_EXISTS(CAST('1' AS JSONB), '$' DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('1' AS JSONB), '$' EMPTY ON ERROR); SELECT JSON_QUERY(CAST('1' AS JSONB), '$' TRUE ON ERROR); CREATE DOMAIN queryfuncs_char2 AS CHAR(2); CREATE DOMAIN queryfuncs_char2_chk AS CHAR(2) CHECK (value NOT IN ('12')); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 DEFAULT '1' ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk DEFAULT '1' ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk DEFAULT 1 ON ERROR); DROP DOMAIN queryfuncs_char2, queryfuncs_char2_chk; CREATE DOMAIN queryfuncs_d_varbit3 AS varbit(3) CHECK (value \u003c\u003e '01'); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '111111' ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '010' ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '01' ON ERROR); SELECT JSON_VALUE(CAST('\"111\"' AS JSONB), '$' RETURNING bit(2) ERROR ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING bit(3) DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING bit(3) DEFAULT CAST(1 AS bit(3)) ON ERROR); SELECT JSON_VALUE(CAST('\"111\"' AS JSONB), '$.a' RETURNING bit(3) DEFAULT '1111' ON EMPTY); DROP DOMAIN queryfuncs_d_varbit3"
+    "query": "CREATE OR REPLACE FUNCTION ret_setint() RETURNS SETOF integer AS $$ BEGIN RETURN QUERY EXECUTE 'select 1 union all select 1'; END; $$ LANGUAGE plpgsql IMMUTABLE; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT ret_setint() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT b + 1 ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT sum(1) over() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT (SELECT 1) ON ERROR) FROM test_jsonb_mutability; DROP TABLE test_jsonb_mutability; DROP FUNCTION ret_setint;  CREATE DOMAIN queryfuncs_test_domain AS text CHECK (value <> 'foo'); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo'::queryfuncs_test_domain ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT '\"foo1\"'::jsonb::text ON EMPTY); SELECT JSON_VALUE(jsonb '{\"d1\": \"foo\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY);      SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT '\"1\"')::jsonb ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a' RETURNING queryfuncs_test_domain DEFAULT (select '\"1\"')::queryfuncs_test_domain ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT 1)::oid::int ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::oid[]::int[] ON ERROR);  SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::text COLLATE \"C\" ON ERROR);  CREATE TABLE someparent (a int); CREATE TABLE somechild () INHERITS (someparent); SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING someparent DEFAULT (SELECT '(1)')::somechild::someparent ON ERROR);  DROP DOMAIN queryfuncs_test_domain; DROP TABLE someparent, somechild;   SELECT JSON_EXISTS(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'b' DEFAULT 'foo' ON EMPTY); SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a' WITH WRAPPER);  SELECT JSON_QUERY(jsonb '{\"a\": 123}', 'error' || ' ' || 'error');   SELECT JSON_EXISTS(json '{\"a\": 123}', '$' || '.' || 'a'); SELECT JSON_QUERY(NULL FORMAT JSON, '$');   CREATE TEMP TABLE jsonpaths (path) AS SELECT '$'; SELECT json_value('\"aaa\"', path RETURNING json) FROM jsonpaths;   SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xy); SELECT JSON_QUERY(jsonb 'null', '$xy' PASSING 1 AS xyz); SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(jsonb 'null', '$Xyz' PASSING 1 AS Xyz); SELECT JSON_QUERY(jsonb 'null', '$Xyz' PASSING 1 AS \"Xyz\"); SELECT JSON_QUERY(jsonb 'null', '$\"Xyz\"' PASSING 1 AS \"Xyz\");   SELECT JSON_EXISTS(jsonb '1', '$' DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '1', '$' EMPTY ON ERROR); SELECT JSON_QUERY(jsonb '1', '$' TRUE ON ERROR);    CREATE DOMAIN queryfuncs_char2 AS char(2); CREATE DOMAIN queryfuncs_char2_chk AS char(2) CHECK (VALUE NOT IN ('12')); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT '1' ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT '1' ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT 1 ON ERROR); DROP DOMAIN queryfuncs_char2, queryfuncs_char2_chk;     CREATE DOMAIN queryfuncs_d_varbit3 AS varbit(3) CHECK (VALUE <> '01'); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '111111' ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '010' ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '01' ON ERROR); SELECT JSON_VALUE(jsonb '\"111\"', '$'  RETURNING bit(2) ERROR ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1 ON ERROR); SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1::bit(3) ON ERROR); SELECT JSON_VALUE(jsonb '\"111\"', '$.a'  RETURNING bit(3) DEFAULT '1111' ON EMPTY); DROP DOMAIN queryfuncs_d_varbit3",
+    "expected": "CREATE OR REPLACE FUNCTION ret_setint () RETURNS SETOF INT AS $$ BEGIN RETURN QUERY EXECUTE 'select 1 union all select 1'; END; $$ LANGUAGE plpgsql IMMUTABLE; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT ret_setint() ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT b + 1 ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT SUM(1) OVER () ON ERROR) FROM test_jsonb_mutability; SELECT JSON_QUERY(js, '$' RETURNING INT DEFAULT (SELECT 1) ON ERROR) FROM test_jsonb_mutability; DROP TABLE test_jsonb_mutability; DROP FUNCTION ret_setint; CREATE DOMAIN queryfuncs_test_domain AS TEXT CHECK (value <> 'foo'); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo1' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"H\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST(CAST('\"foo1\"' AS JSONB) AS TEXT) ON EMPTY); SELECT JSON_VALUE(CAST('{\"d1\": \"foo\"}' AS JSONB), '$.a2' RETURNING queryfuncs_test_domain DEFAULT CAST('foo1' AS queryfuncs_test_domain) ON EMPTY); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT DEFAULT CAST((SELECT '\"1\"') AS JSONB) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING queryfuncs_test_domain DEFAULT CAST((SELECT '\"1\"') AS queryfuncs_test_domain) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT DEFAULT CAST(CAST((SELECT 1) AS oid) AS INT) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT[] DEFAULT CAST(CAST((SELECT '{1}') AS oid[]) AS INT[]) ON ERROR); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING INT[] DEFAULT CAST((SELECT '{1}') AS TEXT) COLLATE \"C\" ON ERROR); CREATE TABLE someparent (a INT); CREATE TABLE somechild () INHERITS (someparent); SELECT JSON_QUERY('\"a\"', '$.a' RETURNING someparent DEFAULT CAST(CAST((SELECT '(1)') AS somechild) AS someparent) ON ERROR); DROP DOMAIN queryfuncs_test_domain; DROP TABLE someparent, somechild; SELECT JSON_EXISTS(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_VALUE(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_VALUE(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'b' DEFAULT 'foo' ON EMPTY); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a'); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), '$' || '.' || 'a' WITH UNCONDITIONAL ARRAY WRAPPER); SELECT JSON_QUERY(CAST('{\"a\": 123}' AS JSONB), 'error' || ' ' || 'error'); SELECT JSON_EXISTS(CAST('{\"a\": 123}' AS JSON), '$' || '.' || 'a'); SELECT JSON_QUERY(NULL FORMAT JSON, '$'); CREATE TEMP TABLE jsonpaths (path) AS SELECT '$'; SELECT JSON_VALUE('\"aaa\"', path RETURNING JSON) FROM jsonpaths; SELECT JSON_QUERY(CAST('null' AS JSONB), '$xyz' PASSING 1 AS xy); SELECT JSON_QUERY(CAST('null' AS JSONB), '$xy' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$Xyz' PASSING 1 AS xyz); SELECT JSON_QUERY(CAST('null' AS JSONB), '$Xyz' PASSING 1 AS \"Xyz\"); SELECT JSON_QUERY(CAST('null' AS JSONB), '$\"Xyz\"' PASSING 1 AS \"Xyz\"); SELECT JSON_EXISTS(CAST('1' AS JSONB), '$' DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('1' AS JSONB), '$' EMPTY ON ERROR); SELECT JSON_QUERY(CAST('1' AS JSONB), '$' TRUE ON ERROR); CREATE DOMAIN queryfuncs_char2 AS bpchar(2); CREATE DOMAIN queryfuncs_char2_chk AS bpchar(2) CHECK (value NOT IN ('12')); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 DEFAULT '1' ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_QUERY(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk DEFAULT '1' ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 ERROR ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2 DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR); SELECT JSON_VALUE(CAST('123' AS JSONB), '$' RETURNING queryfuncs_char2_chk DEFAULT 1 ON ERROR); DROP DOMAIN queryfuncs_char2, queryfuncs_char2_chk; CREATE DOMAIN queryfuncs_d_varbit3 AS varbit(3) CHECK (value <> '01'); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '111111' ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '010' ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING queryfuncs_d_varbit3 DEFAULT '01' ON ERROR); SELECT JSON_VALUE(CAST('\"111\"' AS JSONB), '$' RETURNING bit(2) ERROR ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING bit(3) DEFAULT 1 ON ERROR); SELECT JSON_VALUE(CAST('1234' AS JSONB), '$' RETURNING bit(3) DEFAULT CAST(1 AS bit(3)) ON ERROR); SELECT JSON_VALUE(CAST('\"111\"' AS JSONB), '$.a' RETURNING bit(3) DEFAULT '1111' ON EMPTY); DROP DOMAIN queryfuncs_d_varbit3"
   }
 ]

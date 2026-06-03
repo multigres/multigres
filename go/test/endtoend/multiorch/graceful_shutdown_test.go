@@ -30,10 +30,9 @@ import (
 
 // terminateMultipoolerGracefully sends SIGTERM to the multipooler binary (NOT
 // pgctld) and waits for it to exit. This drives the OnTermSync GracefulShutdown
-// hook end-to-end: pgctld.Stop (smart → fast → immediate escalation), and, for
-// the current leader, a LEADERSHIP_SIGNAL_REQUESTING_DEMOTION announcement on
-// the health stream. The OnClose chain that follows updates the topology entry
-// to PoolerType_DRAINED.
+// hook end-to-end: a COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE announcement on the
+// health stream and pgctld.Stop (fast → immediate escalation). The OnClose
+// chain that follows updates the topology entry to PoolerType_DRAINED.
 func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.MultipoolerInstance, timeout time.Duration) {
 	t.Helper()
 	require.NotNil(t, instance.Multipooler)
@@ -59,11 +58,12 @@ func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.Multipool
 
 // TestPrimaryGracefulShutdownTriggersFailover verifies the end-to-end
 // graceful-shutdown contract on the primary side: SIGTERM on the primary
-// produces an explicit REQUESTING_DEMOTION signal on the health stream, the
-// LeaderResignedAnalyzer fires, multiorch promotes a surviving standby, and
-// the terminated pooler's topology entry ends up as PoolerType_DRAINED. The
-// failover must happen quickly because resignation is an unambiguous signal —
-// no follower-disconnect grace period.
+// produces an explicit COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE signal on the
+// health stream, the LeaderResignedAnalyzer fires (via LeaderNeedsReplacement
+// treating INELIGIBLE as a resignation), multiorch promotes a surviving
+// standby, and the terminated pooler's topology entry ends up as
+// PoolerType_DRAINED. The failover must happen quickly because resignation
+// is an unambiguous signal — no follower-disconnect grace period.
 func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -86,10 +86,9 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// actually establish health streams to every pooler. The
 	// RequireRecovery-only gate is satisfied by topology state alone — it
 	// can return before the orchestrator has subscribed to the
-	// ManagerHealthStream, in which case the REQUESTING_DEMOTION snapshot
-	// our SIGTERM produces never reaches multiorch and failover falls back
-	// to the slow LeaderIsDeadAnalyzer path. The streams check closes that
-	// window.
+	// ManagerHealthStream, in which case the INELIGIBLE snapshot our SIGTERM
+	// produces never reaches multiorch and failover falls back to the slow
+	// LeaderIsDeadAnalyzer path. The streams check closes that window.
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
@@ -116,10 +115,10 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	}()
 
 	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
-	// fires as soon as it sees REQUESTING_DEMOTION, then AppointLeaderAction
-	// (BeginTerm + Promote) runs on the surviving cohort — concurrently with
-	// the old primary's pgctld.Stop, because appointLeaderWithTerm excludes
-	// the resigned pooler from preVote and recruit.
+	// fires as soon as it sees INELIGIBLE on the leader, then
+	// AppointLeaderAction (Recruit + Propose) runs on the surviving cohort
+	// — concurrently with the old primary's pgctld.Stop, because runFailover
+	// excludes the resigned pooler from the cohort before recruit.
 	t.Logf("Waiting for multiorch to elect a new primary...")
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
 	elapsed := time.Since(start)
@@ -131,11 +130,11 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// Lock in a tight upper bound on orch-side failover latency: SIGTERM
 	// delivery → REQUESTING_DEMOTION broadcast → orch detects →
 	// LeaderResignedAnalyzer fires → AppointLeader completes → new primary
-	// visible. Regressions in any of those (e.g. recruitNodes still waiting
-	// on the resigned pooler) would blow past 5s.
+	// visible. Regressions in any of those (e.g. Recruit still waiting on
+	// the resigned pooler) would blow past 5s.
 	require.Less(t, elapsed, 5*time.Second,
 		"graceful primary replacement took %s (expected well under 5s); "+
-			"likely a regression in REQUESTING_DEMOTION delivery, LeaderResignedAnalyzer firing, "+
+			"likely a regression in INELIGIBLE delivery, LeaderResignedAnalyzer firing, "+
 			"or the appointment cohort still containing the resigned pooler", elapsed)
 
 	// Confirm the dying primary actually exited cleanly. Generous bound
@@ -171,11 +170,11 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 // a standby pooler does NOT cause spurious failover: the existing primary
 // stays primary, and the surviving standbys keep replicating from it.
 //
-// This is the role-symmetry property: the same shutdown sequence runs on
-// the standby (pgctld.Stop + exit), but because REQUESTING_DEMOTION is only
-// emitted by the current leader, the orchestrator's reaction is limited to
-// "stop trying to reconnect to the terminated standby" — no leader
-// appointment.
+// Even though the standby's GracefulShutdown advertises INELIGIBLE just like
+// the primary's does, INELIGIBLE on a non-leader doesn't trigger the
+// LeaderResignedAnalyzer (LeaderNeedsReplacement only fires for the current
+// leader). The orchestrator's reaction is limited to removing the terminated
+// standby from the cohort via ReconcileCohortAction — no leader appointment.
 func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -220,8 +219,11 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	// the assertion fails the instant the primary changes, not just at the
 	// end.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 10*time.Second, 500*time.Millisecond,
 		"primary must remain unchanged after standby graceful shutdown")
 	t.Logf("Primary %s unchanged after standby %s graceful shutdown", primaryName, standbyName)
@@ -306,8 +308,11 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	// Primary must stay the same throughout the window — fails immediately
 	// if a spurious failover occurs.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 10*time.Second, 500*time.Millisecond,
 		"primary must remain unchanged after standby graceful shutdown")
 
@@ -347,6 +352,95 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	require.NotNil(t, resp.Status.PrimaryStatus)
 	t.Logf("Primary %s remains healthy with %d connected followers",
 		primaryName, len(resp.Status.PrimaryStatus.ConnectedFollowers))
+}
+
+// TestStandbyGracefulShutdownLifecycleShutdown verifies the end-to-end
+// shutdown path of a standby:
+//
+//   - The standby's topology entry stays in place but its
+//     LifecycleStatus.Status transitions to LIFECYCLE_SHUTDOWN (with
+//     Type=DRAINED and ServingStatus=NOT_SERVING) once the OnClose
+//     unregisterFunc has run. This is the signal the orchestrator's
+//     pooler watcher reacts to in order to tear down the per-pooler
+//     health stream; the durable entry itself is left for the 4 h
+//     unseen-instance bookkeeping to evict.
+//
+//   - No spurious failover: the primary stays the same. A standby
+//     transitioning to LIFECYCLE_SHUTDOWN is not the same as resigning
+//     leadership; the existing LeaderResigned path remains the only
+//     trigger for failover.
+func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping integration test (no postgres binaries)")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
+
+	setup.StartMultiOrchs(t.Context(), t)
+	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
+
+	primaryName := setup.PrimaryName
+	require.NotEmpty(t, primaryName)
+	t.Logf("Initial primary: %s", primaryName)
+
+	// Pick a standby to terminate.
+	var terminatedStandby string
+	for name := range setup.Multipoolers {
+		if name != primaryName {
+			terminatedStandby = name
+			break
+		}
+	}
+	require.NotEmpty(t, terminatedStandby)
+
+	standbyID := setup.GetMultipoolerID(terminatedStandby)
+	require.NotNil(t, standbyID, "expected to resolve standby ID")
+
+	// Sanity check: before SIGTERM, the standby's lifecycle should NOT be
+	// SHUTDOWN — the assertion below would be trivially vacuous otherwise.
+	pre, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+	require.NoError(t, err)
+	require.NotEqual(t,
+		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		pre.GetLifecycleStatus().GetStatus(),
+		"precondition: standby %s should not already be SHUTDOWN before SIGTERM (was %v)",
+		terminatedStandby, pre.GetLifecycleStatus().GetStatus())
+
+	t.Logf("Terminating standby %s", terminatedStandby)
+	terminateMultipoolerGracefully(t, setup.Multipoolers[terminatedStandby], 90*time.Second)
+
+	// The unregisterFunc runs after GracefulShutdown returns. Within a few
+	// seconds the topology entry must read LIFECYCLE_SHUTDOWN + DRAINED;
+	// 30 s is a generous bound that catches regressions in the unregister
+	// path while still leaving headroom for slower-responsive GitHub Actions
+	// runners.
+	require.Eventually(t, func() bool {
+		mp, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+		if err != nil {
+			return false
+		}
+		return mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN &&
+			mp.Type == clustermetadatapb.PoolerType_DRAINED
+	}, 30*time.Second, 500*time.Millisecond,
+		"standby %s should have lifecycle=SHUTDOWN and type=DRAINED in topology after graceful shutdown",
+		terminatedStandby)
+	t.Logf("Standby %s lifecycle is SHUTDOWN + DRAINED in topology", terminatedStandby)
+
+	// No spurious failover.
+	current := setup.RefreshPrimary(t)
+	require.NotNil(t, current)
+	require.Equal(t, primaryName, current.Name,
+		"primary must remain unchanged after standby graceful shutdown")
 }
 
 // TestSequentialGracefulShutdowns verifies that the graceful-shutdown sequence
@@ -410,8 +504,11 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 
 	// Primary must not flip after the standby is terminated.
 	assert.Never(t, func() bool {
-		current := setup.RefreshPrimary(t)
-		return current != nil && current.Name != primaryName
+		current, ok := setup.TryFindPrimary(t)
+		// A transient miss (e.g. Status RPC timeout while multiorch
+		// reconciles sync_standby_names) is not a spurious failover —
+		// only treat an observed *different* primary as the bad state.
+		return ok && current.Name != primaryName
 	}, 5*time.Second, 500*time.Millisecond,
 		"primary must be unchanged after standby %s shutdown", firstStandby)
 	t.Logf("Step 1 verified: primary %s unchanged", primaryName)

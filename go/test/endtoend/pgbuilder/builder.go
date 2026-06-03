@@ -59,6 +59,11 @@ type Builder struct {
 	// OutputDir is a persistent per-invocation directory for caller-written artifacts
 	// (reports, diffs, etc.). pgbuilder itself does not write here.
 	OutputDir string
+	// ConfigureArgs are extra flags appended to ./configure. Callers set this
+	// before Build to enable optional features that some contrib extensions
+	// require (e.g. --with-uuid for uuid-ossp). Empty by default so existing
+	// callers (regression/isolation, sqllogictest) build unchanged.
+	ConfigureArgs []string
 }
 
 // New returns a Builder with unique per-invocation build and install directories
@@ -164,12 +169,14 @@ func (b *Builder) Build(t *testing.T, ctx context.Context) error {
 	}
 
 	t.Logf("Configuring PostgreSQL with ./configure...")
-	configureCmd := executil.Command(ctx, filepath.Join(b.SourceDir, "configure"),
-		"--prefix="+b.InstallDir,
+	configureArgs := []string{
+		"--prefix=" + b.InstallDir,
 		"--enable-cassert=no",
 		"--enable-tap-tests=no",
 		"--without-icu",
-	)
+	}
+	configureArgs = append(configureArgs, b.ConfigureArgs...)
+	configureCmd := executil.Command(ctx, filepath.Join(b.SourceDir, "configure"), configureArgs...)
 	configureCmd.Dir = b.BuildDir
 	configureCmd.Stdout = os.Stdout
 	configureCmd.Stderr = os.Stderr
@@ -196,6 +203,32 @@ func (b *Builder) Build(t *testing.T, ctx context.Context) error {
 	}
 
 	t.Logf("PostgreSQL build completed successfully")
+	return nil
+}
+
+// InstallContrib builds and installs all configured contrib modules into
+// b.InstallDir. Must be called after Build().
+//
+// The top-level `make install` run by Build installs only the core server;
+// contrib extensions (citext, hstore, cube, ...) ship their own
+// .so/.control/.sql and must be installed separately before CREATE EXTENSION
+// can load them. contrib/Makefile already skips modules whose optional
+// dependencies (libxml, openssl, ...) were not enabled at configure time, so
+// this installs only what the --without-icu configure produced.
+func (b *Builder) InstallContrib(t *testing.T, ctx context.Context) error {
+	t.Helper()
+
+	contribDir := filepath.Join(b.BuildDir, "contrib")
+	t.Logf("Building and installing contrib modules from %s...", contribDir)
+
+	cmd := executil.Command(ctx, "make", "-C", contribDir, "-j", "4", "install")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("make -C contrib install failed: %w", err)
+	}
+
+	t.Logf("contrib modules installed to %s", b.InstallDir)
 	return nil
 }
 

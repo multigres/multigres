@@ -74,7 +74,7 @@
   {
     "comment": "temp - Statement 17",
     "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
-    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TEMP TABLE temptest (col) ON COMMIT DELETE ROWS AS SELECT 1"
   },
   {
     "comment": "temp - Statement 18",
@@ -84,12 +84,12 @@
   {
     "comment": "temp - Statement 19",
     "query": "CREATE TEMP TABLE temptest(col) ON COMMIT DROP AS SELECT 1",
-    "expected": "CREATE TEMP TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TEMP TABLE temptest (col) ON COMMIT DROP AS SELECT 1"
   },
   {
     "comment": "temp - Statement 20",
-    "query": "do $$ begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col \u003c %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || ':' || random()::text, '|') FROM generate_series(1, 100) g(i))); end$$",
-    "expected": "DO ' begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col \u003c %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || '':'' || random()::text, ''|'') FROM generate_series(1, 100) g(i))); end'"
+    "query": "do $$ begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || ':' || random()::text, '|') FROM generate_series(1, 100) g(i))); end$$",
+    "expected": "DO ' begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || '':'' || random()::text, ''|'') FROM generate_series(1, 100) g(i))); end'"
   },
   {
     "comment": "temp - Statement 21",
@@ -99,7 +99,7 @@
   {
     "comment": "temp - Statement 22",
     "query": "CREATE TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1",
-    "expected": "CREATE TABLE temptest (col) AS SELECT 1"
+    "expected": "CREATE TABLE temptest (col) ON COMMIT DELETE ROWS AS SELECT 1"
   },
   {
     "comment": "temp - Statement 23",
@@ -199,8 +199,8 @@
   },
   {
     "comment": "temp - Statement 43",
-    "query": "create domain pg_temp.nonempty as text check (value \u003c\u003e '')",
-    "expected": "CREATE DOMAIN pg_temp.nonempty AS TEXT CHECK (value \u003c\u003e '')"
+    "query": "create domain pg_temp.nonempty as text check (value <> '')",
+    "expected": "CREATE DOMAIN pg_temp.nonempty AS TEXT CHECK (value <> '')"
   },
   {
     "comment": "temp - Statement 44",
@@ -429,7 +429,8 @@
   },
   {
     "comment": "temp - Statement 89",
-    "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema"
+    "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema",
+    "expected": "SELECT \"current_schema\"() ~ 'pg_temp' AS is_temp_schema"
   },
   {
     "comment": "temp - Statement 90",

@@ -65,6 +65,10 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 	}
 }
 
+// testInitiatedAt is a fixed timestamp used by test helpers that need to
+// supply CoordinatorInitiatedAt without varying it per test run.
+var testInitiatedAt = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+
 // newTestRevocation builds a TermRevocation suitable for rule_change.Run from
 // the given cohort. Tests that don't care about specific revocation contents
 // (term, outgoing_rule, etc.) use this to satisfy Run's "revocation is required"
@@ -77,7 +81,7 @@ func newTestRevocation(t *testing.T, coord *Coordinator, cohort []*multiorchdata
 			statuses = append(statuses, cs)
 		}
 	}
-	rev, err := commonconsensus.NewTermRevocation(statuses, coord.coordinatorID)
+	rev, err := commonconsensus.NewTermRevocation(statuses, coord.coordinatorID, testInitiatedAt)
 	require.NoError(t, err)
 	return rev
 }
@@ -107,7 +111,7 @@ func newRuleChangeCoordinator(t *testing.T, fc *rpcclient.FakeClient) *Coordinat
 		Cell:      "zone1",
 		Name:      "coord-1",
 	}
-	return NewCoordinator(coordID, ts, fc, logger, false)
+	return NewCoordinator(coordID, ts, fc, logger)
 }
 
 // fixedProposal builds a trivial tryBuildProposal callback that returns a pre-built

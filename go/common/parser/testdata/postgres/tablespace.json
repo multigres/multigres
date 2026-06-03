@@ -293,8 +293,7 @@
   },
   {
     "comment": "tablespace - Statement 67",
-    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1",
-    "expected": "CREATE TABLE testschema.asselect AS SELECT 1"
+    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1"
   },
   {
     "comment": "tablespace - Statement 68",
@@ -309,7 +308,7 @@
   {
     "comment": "tablespace - Statement 70",
     "query": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource(2)",
-    "expected": "CREATE TABLE testschema.asexecute AS EXECUTE selectsource ( 2 )"
+    "expected": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource ( 2 )"
   },
   {
     "comment": "tablespace - Statement 71",
@@ -475,8 +474,7 @@
   },
   {
     "comment": "tablespace - Statement 106",
-    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace",
-    "expected": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id)"
+    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 107",
@@ -517,8 +515,7 @@
   },
   {
     "comment": "tablespace - Statement 115",
-    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace",
-    "expected": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id)"
+    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
   },
   {
     "comment": "tablespace - Statement 116",
@@ -644,8 +641,7 @@
   },
   {
     "comment": "tablespace - Statement 144",
-    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC",
-    "expected": "GRANT ALL ON regress_tblspace TO PUBLIC"
+    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC"
   },
   {
     "comment": "tablespace - Statement 145",

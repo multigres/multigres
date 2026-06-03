@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -43,27 +44,22 @@ var pgctldStopModes = []struct {
 	{"immediate", 5 * time.Second},
 }
 
-// GracefulShutdown publishes REQUESTING_DEMOTION on the health stream (for a
-// current leader) and then stops Postgres. Registered as a servenv OnTermSync
+// GracefulShutdown drains traffic, publishes COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the
+// health stream and then stops Postgres. Registered as a servenv OnTermSync
 // hook so it runs on SIGTERM bounded by --onterm-timeout.
-//
-// The announcement is sequenced before pgctld.Stop because reading the
-// primary term requires querying postgres for the current rule position;
-// doing it post-stop would silently no-op and force the coordinator to wait
-// for stream EOF + LeaderIsDead grace period instead of firing
-// LeaderResignedAnalyzer immediately.
 //
 // The topology Type=DRAINED transition happens after this returns via the
 // existing OnClose -> mp.Shutdown -> tr.Unregister chain registered in
 // services/multipooler/init.go.
 //
-// The action lock is held for the whole sequence: pgctld.Stop is gated behind
-// the protectedPgctldClient action-lock check, and announcing the resignation
-// involves reading consensus state and writing resignedLeaderAtTerm under the
-// same lock — holding it across both serialises against any concurrent
-// consensus operation (Promote, Demote, Recruit, BeginTerm REVOKE).
+// The action lock is held for the whole sequence because pgctld.Stop is
+// gated behind the protectedPgctldClient action-lock check.
 func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
+
+	// TODO: issue a bounded CHECKPOINT before resigning so there's a recent
+	// checkpoint if the failover process doesn't go smoothly and rewinds are
+	// needed.
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "GracefulShutdown")
 	if err != nil {
@@ -73,37 +69,46 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	}
 	defer pm.actionLock.Release(lockCtx)
 
+	// Announce STOPPING in topology before any blocking work. Operators see
+	// the announcement immediately; the actual teardown happens in the rest
+	// of this function and in the StopTopoRegistration call that follows in
+	// OnClose. STOPPING is observability-only — the orchestrator does not
+	// react to this value behaviourally; the authoritative cleanup signal is
+	// LIFECYCLE_SHUTDOWN written by StopTopoRegistration. The Mutate
+	// schedules an async publish; a transient publish failure is recovered
+	// by the publisher's 30 s retry tick.
+	if err := pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
+		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STOPPING,
+			Reason:  "shutting down",
+			Updated: timestamppb.Now(),
+		}
+	}); err != nil {
+		pm.logger.WarnContext(lockCtx, "failed to announce STOPPING lifecycle",
+			"error", err)
+	}
+
 	// Transition to NOT_SERVING so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
-	// --connpool-drain-grace-period). Best-effort: a failure here is logged but
-	// doesn't block the rest of shutdown.
+	// --connpool-drain-grace-period). SetState fans out OnStateChange to the
+	// in-process components (query service, connection pool, heartbeat,
+	// health streamer) and routes the topology update through record.Mutate
+	// so the publisher reflects NOT_SERVING during the drain window —
+	// without it, the entry would still read SERVING in topology until the
+	// OnClose StopTopoRegistration runs at the very end of shutdown.
+	//
+	// Best-effort: a failure here is logged but doesn't block the rest of
+	// shutdown.
 	if pm.servingState != nil {
-		if err := pm.servingState.SetState(lockCtx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
 				"error", err)
 		}
 	}
 
-	// If we are the leader, announce REQUESTING_DEMOTION before stopping
-	// postgres. primaryTermLocked reads the current rule position from
-	// postgres, so the read must happen while postgres is still alive;
-	// running it post-stop would fail and the coordinator would have to wait
-	// for stream EOF + LeaderIsDead grace period instead. No-op for
-	// non-leaders and partially-initialized managers (consensus not wired).
-	// Mirrors the EmergencyDemote pattern in rpc_manager.go.
-	if pm.consensusState != nil && pm.rules != nil {
-		primaryTerm, err := pm.primaryTermLocked(lockCtx)
-		switch {
-		case err != nil:
-			pm.logger.WarnContext(lockCtx, "could not read primary term for resignation announcement; coordinator will fail over via stream EOF",
-				"error", err)
-		case primaryTerm != 0:
-			if err := pm.setResignedLeaderAtTerm(lockCtx, primaryTerm); err != nil {
-				pm.logger.WarnContext(lockCtx, "failed to record resigned primary term",
-					"error", err)
-			}
-		}
-	}
+	// Advertise cohort ineligibility before stopping postgres just in case
+	// stopping is slow. We're favoring speed of failover rather than grace.
+	pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
 
 	pm.stopPostgresLocked(lockCtx)
 

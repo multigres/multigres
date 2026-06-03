@@ -772,15 +772,15 @@
   },
   {
     "comment": "stats_ext - Statement 179",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003c ANY (ARRAY[1, 51]) AND b \u003e ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a < ANY (ARRAY[1, 51]) AND b > ''1''')"
   },
   {
     "comment": "stats_ext - Statement 180",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003e= ANY (ARRAY[1, 51]) AND b \u003c= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a >= ANY (ARRAY[1, 51]) AND b <= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 181",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a \u003c= ANY (ARRAY[1, 2, 51, 52]) AND b \u003e= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE a <= ANY (ARRAY[1, 2, 51, 52]) AND b >= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 182",
@@ -881,15 +881,15 @@
   },
   {
     "comment": "stats_ext - Statement 206",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003c ANY (ARRAY[2, 102]) AND upper(b) \u003e ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) < ANY (ARRAY[2, 102]) AND upper(b) > ''1''')"
   },
   {
     "comment": "stats_ext - Statement 207",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003e= ANY (ARRAY[2, 102]) AND upper(b) \u003c= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) >= ANY (ARRAY[2, 102]) AND upper(b) <= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 208",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) \u003c= ANY (ARRAY[2, 4, 102, 104]) AND upper(b) \u003e= ANY (ARRAY[''1'', ''2''])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM functional_dependencies WHERE (a * 2) <= ANY (ARRAY[2, 4, 102, 104]) AND upper(b) >= ANY (ARRAY[''1'', ''2''])')"
   },
   {
     "comment": "stats_ext - Statement 209",
@@ -1017,35 +1017,35 @@
   },
   {
     "comment": "stats_ext - Statement 238",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 1 AND b \u003c ''1''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 1 AND b < ''1''')"
   },
   {
     "comment": "stats_ext - Statement 239",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 \u003e a AND ''1'' \u003e b')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 > a AND ''1'' > b')"
   },
   {
     "comment": "stats_ext - Statement 240",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= 0 AND b \u003c= ''0''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= 0 AND b <= ''0''')"
   },
   {
     "comment": "stats_ext - Statement 241",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 0 \u003e= a AND ''0'' \u003e= b')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 0 >= a AND ''0'' >= b')"
   },
   {
     "comment": "stats_ext - Statement 242",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 5 AND b \u003c ''1'' AND c \u003c 5')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 5 AND b < ''1'' AND c < 5')"
   },
   {
     "comment": "stats_ext - Statement 243",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c 5 AND ''1'' \u003e b AND 5 \u003e c')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < 5 AND ''1'' > b AND 5 > c')"
   },
   {
     "comment": "stats_ext - Statement 244",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= 4 AND b \u003c= ''0'' AND c \u003c= 4')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= 4 AND b <= ''0'' AND c <= 4')"
   },
   {
     "comment": "stats_ext - Statement 245",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 4 \u003e= a AND ''0'' \u003e= b AND 4 \u003e= c')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 4 >= a AND ''0'' >= b AND 4 >= c')"
   },
   {
     "comment": "stats_ext - Statement 246",
@@ -1073,27 +1073,27 @@
   },
   {
     "comment": "stats_ext - Statement 252",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= ANY (ARRAY[1, 2, 3]) AND b IN (''1'', ''2'', ''3'')')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= ANY (ARRAY[1, 2, 3]) AND b IN (''1'', ''2'', ''3'')')"
   },
   {
     "comment": "stats_ext - Statement 253",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c= ANY (ARRAY[1, NULL, 2, 3]) AND b IN (''1'', ''2'', NULL, ''3'')')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a <= ANY (ARRAY[1, NULL, 2, 3]) AND b IN (''1'', ''2'', NULL, ''3'')')"
   },
   {
     "comment": "stats_ext - Statement 254",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND c \u003e ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND c > ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 255",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND c \u003e ANY (ARRAY[1, 2, 3, NULL])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND c > ANY (ARRAY[1, 2, 3, NULL])')"
   },
   {
     "comment": "stats_ext - Statement 256",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', ''3'') AND c \u003e ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', ''3'') AND c > ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 257",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a \u003c ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', NULL, ''3'') AND c \u003e ANY (ARRAY[1, 2, NULL, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE a < ALL (ARRAY[4, 5]) AND b IN (''1'', ''2'', NULL, ''3'') AND c > ANY (ARRAY[1, 2, NULL, 3])')"
   },
   {
     "comment": "stats_ext - Statement 258",
@@ -1127,11 +1127,11 @@
   },
   {
     "comment": "stats_ext - Statement 265",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c 1 AND mod(b::int,10) \u003c 1')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) < 1 AND mod(b::int,10) < 1')"
   },
   {
     "comment": "stats_ext - Statement 266",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 \u003e mod(a,20) AND 1 \u003e mod(b::int,10)')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE 1 > mod(a,20) AND 1 > mod(b::int,10)')"
   },
   {
     "comment": "stats_ext - Statement 267",
@@ -1151,11 +1151,11 @@
   },
   {
     "comment": "stats_ext - Statement 271",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c= ANY (ARRAY[1, NULL, 2, 3]) AND mod(b::int,10) IN (1, 2, NULL, 3)')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) <= ANY (ARRAY[1, NULL, 2, 3]) AND mod(b::int,10) IN (1, 2, NULL, 3)')"
   },
   {
     "comment": "stats_ext - Statement 272",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) \u003c ALL (ARRAY[4, 5]) AND mod(b::int,10) IN (1, 2, 3) AND mod(c,5) \u003e ANY (ARRAY[1, 2, 3])')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM mcv_lists WHERE mod(a,20) < ALL (ARRAY[4, 5]) AND mod(b::int,10) IN (1, 2, 3) AND mod(c,5) > ANY (ARRAY[1, 2, 3])')"
   },
   {
     "comment": "stats_ext - Statement 273",
@@ -1513,7 +1513,7 @@
   },
   {
     "comment": "stats_ext - Statement 355",
-    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM expr_stats WHERE a = 0 AND (b || c) \u003c= ''z'' AND (c || b) \u003e= ''0''')"
+    "query": "SELECT * FROM check_estimated_rows('SELECT * FROM expr_stats WHERE a = 0 AND (b || c) <= ''z'' AND (c || b) >= ''0''')"
   },
   {
     "comment": "stats_ext - Statement 356",
@@ -1708,26 +1708,26 @@
   },
   {
     "comment": "stats_ext - Statement 396",
-    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 and tststats.priv_test_tbl.* \u003e (1, 1) is not null",
-    "expected": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 AND tststats.priv_test_tbl.* \u003e (1, 1) IS NOT NULL"
+    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 and tststats.priv_test_tbl.* > (1, 1) is not null",
+    "expected": "SELECT * FROM tststats.priv_test_tbl WHERE a = 1 AND tststats.priv_test_tbl.* > (1, 1) IS NOT NULL"
   },
   {
     "comment": "stats_ext - Statement 397",
-    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak =\u003e %, %'', $1, $2; RETURN $1 \u003c $2; END' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak =\u003e %, %', $1, $2; RETURN $1 \u003c $2; END$$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak => %, %'', $1, $2; RETURN $1 < $2; END' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak => %, %', $1, $2; RETURN $1 < $2; END$$ LANGUAGE plpgsql"
   },
   {
     "comment": "stats_ext - Statement 398",
-    "query": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
-    "expected": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
+    "query": "CREATE OPERATOR <<< (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
+    "expected": "CREATE OPERATOR <<< (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
   },
   {
     "comment": "stats_ext - Statement 399",
-    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
+    "query": "SELECT * FROM tststats.priv_test_tbl WHERE a <<< 0 AND b <<< 0"
   },
   {
     "comment": "stats_ext - Statement 400",
-    "query": "DELETE FROM tststats.priv_test_tbl WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
+    "query": "DELETE FROM tststats.priv_test_tbl WHERE a <<< 0 AND b <<< 0"
   },
   {
     "comment": "stats_ext - Statement 401",
@@ -1740,11 +1740,11 @@
   },
   {
     "comment": "stats_ext - Statement 403",
-    "query": "SELECT * FROM tststats.priv_test_view WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
+    "query": "SELECT * FROM tststats.priv_test_view WHERE a <<< 0 AND b <<< 0"
   },
   {
     "comment": "stats_ext - Statement 404",
-    "query": "DELETE FROM tststats.priv_test_view WHERE a \u003c\u003c\u003c 0 AND b \u003c\u003c\u003c 0"
+    "query": "DELETE FROM tststats.priv_test_view WHERE a <<< 0 AND b <<< 0"
   },
   {
     "comment": "stats_ext - Statement 405",
@@ -1790,8 +1790,8 @@
   },
   {
     "comment": "stats_ext - Statement 415",
-    "query": "DROP OPERATOR \u003c\u003c\u003c (int, int)",
-    "expected": "DROP OPERATOR \u003c\u003c\u003c(INT, INT)"
+    "query": "DROP OPERATOR <<< (int, int)",
+    "expected": "DROP OPERATOR <<<(INT, INT)"
   },
   {
     "comment": "stats_ext - Statement 416",

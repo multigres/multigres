@@ -16,3 +16,14 @@ style of the existing definitions first.
 
 Additionally, new definitions must adhere to the Google Cloud API Design Guide:
 <https://cloud.google.com/apis/design/>
+
+## Regenerating Generated Code
+
+After modifying any `.proto` file, regenerate the Go bindings from the repo
+root:
+
+```bash
+make proto
+```
+
+Generated `.pb.go` files land in `go/pb/` and are checked into the repository.

@@ -90,6 +90,21 @@ get_sha256() {
       ;;
     esac
     ;;
+  "pgproto")
+    # pgproto is built from source (no prebuilt binaries), so the checksum is
+    # of the pgpool-II release source tarball that carries src/tools/pgproto. It
+    # is platform- and arch-independent; only the release version (passed as
+    # $version) selects it.
+    case "$version" in
+    "4.6.6")
+      echo "a4021c06b9fbdca975e62bf15a54d93e1b38854c53b5ad9d53cd082ec185dad0"
+      ;;
+    *)
+      echo "ERROR: no SHA256 hash available for pgproto commit $version" >&2
+      exit 1
+      ;;
+    esac
+    ;;
   *)
     echo "ERROR: no SHA256 hashes for tool $tool" >&2
     exit 1

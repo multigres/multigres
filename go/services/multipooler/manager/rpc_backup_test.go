@@ -15,7 +15,9 @@
 package manager
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -100,7 +102,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		config:       &Config{},
 		serviceID:    multipoolerID,
 		topoClient:   topoClient,
-		multipooler:  multipoolerProto,
+		record:       newRecordFromProto(multipoolerProto),
 		state:        ManagerStateReady,
 		backupConfig: backupConfig,
 		actionLock:   NewActionLock(),
@@ -622,6 +624,25 @@ func TestSafeCombinedOutput_LongLines(t *testing.T) {
 			assert.Greater(t, len(line), 4000, "Each line should be at least 4KB")
 		}
 	})
+}
+
+// TestSafeCombinedOutput_LineExceedsScannerLimit verifies that a line
+// longer than bufio.Scanner's default buffer (64 KiB) does not silently
+// truncate the output: safeCombinedOutput surfaces the underlying
+// bufio.ErrTooLong as a wrapped error instead of returning a clean nil.
+// Without the scanner.Err() check inside the reader goroutine, this case
+// previously looked like a successful command with truncated output.
+func TestSafeCombinedOutput_LineExceedsScannerLimit(t *testing.T) {
+	// printf with no newline emits a single token larger than the
+	// default 64 KiB scanner buffer.
+	overlong := strings.Repeat("a", bufio.MaxScanTokenSize+1024)
+	script := "printf %s '" + overlong + "'"
+	cmd := executil.Command(t.Context(), "bash", "-c", script)
+
+	_, err := safeCombinedOutput(cmd)
+	require.Error(t, err, "scanner error on overlong line must be surfaced")
+	assert.True(t, errors.Is(err, bufio.ErrTooLong),
+		"expected wrapped bufio.ErrTooLong, got %v", err)
 }
 
 func TestSafeCombinedOutput_RapidOutput(t *testing.T) {
@@ -1240,7 +1261,7 @@ exit 0
 				config:     &Config{},
 				serviceID:  multipoolerID,
 				topoClient: ts,
-				multipooler: &clustermetadatapb.MultiPooler{
+				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 					Id:        multipoolerID,
 					Type:      clustermetadatapb.PoolerType_PRIMARY,
 					PoolerDir: poolerDir,
@@ -1249,7 +1270,7 @@ exit 0
 						Shard:      tt.shard,
 						Database:   "test-database",
 					},
-				},
+				}),
 				state:                ManagerStateReady,
 				backupConfig:         backupConfig,
 				actionLock:           NewActionLock(),

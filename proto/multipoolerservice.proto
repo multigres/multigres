@@ -256,8 +256,18 @@ message CopyBidiExecuteRequest {
     FAIL = 3;      // Abort operation
   }
 
+  // Direction indicates whether the COPY operation streams data into the
+  // server (FROM STDIN) or out from the server (TO STDOUT). Set on INITIATE.
+  enum Direction {
+    FROM_STDIN = 0; // Default for back-compat: clients without this field set get FROM STDIN.
+    TO_STDOUT = 1;
+  }
+
   // phase indicates the current phase
   Phase phase = 1;
+
+  // direction indicates COPY ... FROM STDIN vs COPY ... TO STDOUT (INITIATE only).
+  Direction direction = 9;
 
   // query is the SQL command to execute (only for INITIATE phase)
   string query = 2;
@@ -319,6 +329,24 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+
+  // notices carries PostgreSQL NoticeResponse/InfoResponse diagnostics
+  // collected during this phase. Trigger RAISE NOTICE output, INFO progress
+  // messages, and other backend notices appear here so the gateway can
+  // forward them to the client as NoticeResponse frames between CopyData and
+  // CommandComplete. Populated on READY (notices seen before CopyInResponse /
+  // CopyOutResponse), DATA (notices interleaved with CopyData on COPY TO
+  // STDOUT), and RESULT (notices read between CopyDone and CommandComplete).
+  repeated query.PgDiagnostic notices = 11;
+
+  // error_diagnostic carries the structured PostgreSQL ErrorResponse for
+  // ERROR phase responses. When the error originates from PG (e.g.
+  // constraint violation, "column does not exist"), this preserves SQLSTATE,
+  // severity, DETAIL, HINT, position, etc., so the gateway can re-emit a
+  // verbatim ErrorResponse instead of a wrapped Go-formatted string.
+  // The `error` field above remains populated as a fallback for callers /
+  // log paths that only need the message text.
+  query.PgDiagnostic error_diagnostic = 12;
 }
 
 // ReservationReason indicates why a connection needs to be reserved.

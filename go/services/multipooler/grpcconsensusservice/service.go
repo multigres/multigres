@@ -17,7 +17,6 @@ package grpcconsensusservice
 
 import (
 	"context"
-	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -63,59 +62,9 @@ func (s *consensusService) Recruit(ctx context.Context, req *consensusdata.Recru
 	return resp, nil
 }
 
-// BeginTerm handles coordinator requests during leader appointments
-func (s *consensusService) BeginTerm(ctx context.Context, req *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error) {
-	resp, err := s.manager.BeginTerm(ctx, req)
-	if err != nil {
-		// Return response even on error - the response may contain accepted=true
-		// when the term was accepted but the action (e.g. REVOKE) failed
-		return resp, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
 // Status returns the current status of this node
 func (s *consensusService) Status(ctx context.Context, req *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
 	resp, err := s.manager.ConsensusStatus(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// EmergencyDemote demotes the current leader server
-func (s *consensusService) EmergencyDemote(ctx context.Context, req *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
-	drainTimeout := 5 * time.Second
-	if req.DrainTimeout != nil {
-		drainTimeout = req.DrainTimeout.AsDuration()
-	}
-	resp, err := s.manager.EmergencyDemote(ctx, req.ConsensusTerm, drainTimeout, req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// DemoteStalePrimary demotes a stale primary that came back after failover
-func (s *consensusService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
-	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// Promote promotes a replica to leader
-func (s *consensusService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	resp, err := s.manager.Promote(ctx,
-		req.ConsensusTerm,
-		req.ExpectedLsn,
-		req.SyncReplicationConfig,
-		req.Force,
-		req.Reason,
-		req.CoordinatorId,
-		req.CohortMembers,
-		req.AcceptedMembers)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -133,20 +82,6 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
-}
-
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetPrimaryConnInfo(ctx,
-		req.Primary,
-		req.StopReplicationBefore,
-		req.StartReplicationAfter,
-		req.CurrentTerm,
-		req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
 }
 
 // SetTermPrimary updates this pooler's replication settings to point at the supplied

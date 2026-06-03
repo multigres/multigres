@@ -126,7 +126,7 @@ func (n *AlterObjectSchemaStmt) SqlString() string {
 				if nodeList.Len() >= 2 {
 					methodStr := ""
 					if str, ok := nodeList.Items[0].(*String); ok {
-						methodStr = str.SVal
+						methodStr = QuoteIdentifier(str.SVal)
 					} else {
 						methodStr = nodeList.Items[0].SqlString()
 					}
@@ -137,7 +137,7 @@ func (n *AlterObjectSchemaStmt) SqlString() string {
 							nameStr.WriteString(".")
 						}
 						if str, ok := nodeList.Items[i].(*String); ok {
-							nameStr.WriteString(str.SVal)
+							nameStr.WriteString(QuoteIdentifier(str.SVal))
 						} else {
 							nameStr.WriteString(nodeList.Items[i].SqlString())
 						}
@@ -203,7 +203,9 @@ func (n *AlterOperatorStmt) SqlString() string {
 		var optStrs []string
 		for _, opt := range n.Options.Items {
 			if defElem, ok := opt.(*DefElem); ok {
-				optStrs = append(optStrs, defElem.SqlString())
+				// COMMUTATOR/NEGATOR carry operator names, which must be emitted
+				// unquoted rather than as string literals.
+				optStrs = append(optStrs, operatorDefElemString(defElem))
 			}
 		}
 		parts = append(parts, strings.Join(optStrs, ", "))
@@ -536,7 +538,7 @@ func (n *AlterTSConfigurationStmt) SqlString() string {
 			var tokens []string
 			for _, token := range n.Tokentype.Items {
 				if str, ok := token.(*String); ok {
-					tokens = append(tokens, str.SVal)
+					tokens = append(tokens, QuoteIdentifier(str.SVal))
 				} else if nodeList, ok := token.(*NodeList); ok {
 					tokens = append(tokens, nodeListToQualifiedName(nodeList))
 				}
@@ -568,7 +570,7 @@ func (n *AlterTSConfigurationStmt) SqlString() string {
 			var tokens []string
 			for _, token := range n.Tokentype.Items {
 				if str, ok := token.(*String); ok {
-					tokens = append(tokens, str.SVal)
+					tokens = append(tokens, QuoteIdentifier(str.SVal))
 				} else if nodeList, ok := token.(*NodeList); ok {
 					tokens = append(tokens, nodeListToQualifiedName(nodeList))
 				}

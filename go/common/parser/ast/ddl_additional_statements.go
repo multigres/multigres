@@ -193,7 +193,7 @@ func (c *CreateAmStmt) SqlString() string {
 		handlerNames := make([]string, 0, c.HandlerName.Len())
 		for i := 0; i < c.HandlerName.Len(); i++ {
 			if strNode, ok := c.HandlerName.Items[i].(*String); ok {
-				handlerNames = append(handlerNames, strNode.SVal)
+				handlerNames = append(handlerNames, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "HANDLER", strings.Join(handlerNames, "."))
@@ -244,7 +244,7 @@ func (a *AlterStatsStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.DefNames.Len())
 		for i := 0; i < a.DefNames.Len(); i++ {
 			if strNode, ok := a.DefNames.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -389,8 +389,14 @@ func formatPubTable(pt *PublicationTable) string {
 	return s
 }
 
+// formatPubObjList renders a publication object list, preserving the original
+// order. A TABLE / TABLES IN SCHEMA keyword is emitted only when the object type
+// changes; consecutive same-type objects share the preceding keyword (the
+// inverse of preprocessPubObjList). Grouping the tables and schemas separately
+// would reorder the list and change the parsed tree.
 func formatPubObjList(pubObjects *NodeList) string {
-	var tableObjs, schemaObjs []string
+	var parts []string
+	prev := PUBLICATIONOBJ_CONTINUATION // sentinel: forces a keyword on the first object
 	for _, item := range pubObjects.Items {
 		pubObj, ok := item.(*PublicationObjSpec)
 		if !ok {
@@ -398,25 +404,56 @@ func formatPubObjList(pubObjects *NodeList) string {
 		}
 		switch pubObj.PubObjType {
 		case PUBLICATIONOBJ_TABLE:
-			if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-				tableObjs = append(tableObjs, formatPubTable(pubObj.PubTable))
+			if pubObj.PubTable == nil || pubObj.PubTable.Relation == nil {
+				continue
 			}
+			obj := formatPubTable(pubObj.PubTable)
+			if prev != PUBLICATIONOBJ_TABLE {
+				obj = "TABLE " + obj
+			}
+			parts = append(parts, obj)
 		case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
-			if pubObj.Name != "" {
-				schemaObjs = append(schemaObjs, QuoteIdentifier(pubObj.Name))
+			obj := QuoteIdentifier(pubObj.Name)
+			// A continuation entry can carry the name in PubTable instead, along
+			// with any column list / WHERE clause from the original text. Emit
+			// those through formatPubTable so they are not silently dropped (the
+			// combination is rejected by PostgreSQL at analysis time, but it still
+			// parses, so the round-trip must preserve it).
+			if pubObj.Name == "" && pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+				obj = formatPubTable(pubObj.PubTable)
 			}
+			if obj == "" {
+				continue
+			}
+			if prev != PUBLICATIONOBJ_TABLES_IN_SCHEMA {
+				obj = "TABLES IN SCHEMA " + obj
+			}
+			parts = append(parts, obj)
 		case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
-			schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
+			obj := "CURRENT_SCHEMA"
+			if prev != PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA {
+				obj = "TABLES IN SCHEMA " + obj
+			}
+			parts = append(parts, obj)
+		case PUBLICATIONOBJ_CONTINUATION:
+			// A CONTINUATION that survives preprocessing is a first object with no
+			// preceding TABLE / TABLES IN SCHEMA keyword (e.g. `FOR CURRENT_SCHEMA`
+			// or a bare name). PostgreSQL rejects these at analysis time, but they
+			// parse, so emit the bare spelling to preserve the tree.
+			switch {
+			case pubObj.PubTable != nil && pubObj.PubTable.Relation != nil:
+				parts = append(parts, formatPubTable(pubObj.PubTable))
+			case pubObj.Name != "":
+				parts = append(parts, QuoteIdentifier(pubObj.Name))
+			default:
+				parts = append(parts, "CURRENT_SCHEMA")
+			}
+		default:
+			continue
 		}
+		prev = pubObj.PubObjType
 	}
-	var groups []string
-	if len(tableObjs) > 0 {
-		groups = append(groups, "TABLE "+strings.Join(tableObjs, ", "))
-	}
-	if len(schemaObjs) > 0 {
-		groups = append(groups, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
-	}
-	return strings.Join(groups, ", ")
+	return strings.Join(parts, ", ")
 }
 
 // CreatePublicationStmt represents CREATE PUBLICATION statement
@@ -760,8 +797,32 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 			}
 			parts = append(parts, strings.Join(pubStrs, ", "))
 		}
+		if a.Options != nil && a.Options.Len() > 0 {
+			optionStrs := make([]string, 0, a.Options.Len())
+			for i := 0; i < a.Options.Len(); i++ {
+				if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+					optionStrs = append(optionStrs, defElem.SqlString())
+				}
+			}
+			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
+		}
 	case ALTER_SUBSCRIPTION_ENABLED:
-		parts = append(parts, "ENABLE")
+		// The "enabled" option carries whether this is ENABLE or DISABLE.
+		enabled := true
+		if a.Options != nil {
+			for _, item := range a.Options.Items {
+				if defElem, ok := item.(*DefElem); ok && defElem.Defname == "enabled" {
+					if b, ok := defElem.Arg.(*Boolean); ok {
+						enabled = b.BoolVal
+					}
+				}
+			}
+		}
+		if enabled {
+			parts = append(parts, "ENABLE")
+		} else {
+			parts = append(parts, "DISABLE")
+		}
 	case ALTER_SUBSCRIPTION_SKIP:
 		parts = append(parts, "SKIP")
 		if a.Options != nil && a.Options.Len() > 0 {
@@ -818,7 +879,7 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.OpFamilyName.Len())
 		for i := 0; i < a.OpFamilyName.Len(); i++ {
 			if strNode, ok := a.OpFamilyName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -951,7 +1012,7 @@ func (a *AlterTypeStmt) SqlString() string {
 		nameStrs := make([]string, 0, a.TypeName.Len())
 		for i := 0; i < a.TypeName.Len(); i++ {
 			if strNode, ok := a.TypeName.Items[i].(*String); ok {
-				nameStrs = append(nameStrs, strNode.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))

@@ -151,7 +151,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// everyone else will find an existing backup and skip to restore.
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease.
 		if pm.hasCompleteBackups(leaseCtx) {
@@ -181,7 +181,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 }
 
 func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
-	return filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
+	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
 }
 
 // hasBootstrapSentinel reports whether the sentinel file exists. A non-existent
@@ -239,14 +239,14 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.GetShardKey().GetDatabase())
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.GetShardKey().GetDatabase())
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.multipooler.GetShardKey().GetDatabase())
+			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

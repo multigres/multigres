@@ -642,6 +642,72 @@ func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	assert.Equal(t, int32(5), resp.PgbackrestStatus.RestartCount)
 }
 
+// TestPgCtldService_StopRewindStart verifies the stop→pg_rewind→start lifecycle.
+// This is a regression test for a bug where the pgctld service would fail to start
+// postgres after a stop+pg_rewind sequence. The fix ensures that the pgctld RPC
+// handlers have no internal "closed" state that prevents re-starting postgres after
+// a stop-for-rewind flow.
+func TestPgCtldService_StopRewindStart(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	baseDir := t.TempDir()
+	poolerDir := baseDir
+	dataDir := filepath.Join(baseDir, "pg_data")
+
+	// Set env vars expected by pgctld
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+	// Create mock PostgreSQL binaries (including pg_rewind)
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.CreateMockPostgreSQLBinaries(t, binDir)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	// Initialize a mock data directory so IsDataDirInitialized() returns true
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+	service, err := NewPgCtldService(logger, testServiceConfig, 30, poolerDir, "localhost", 0, "")
+	require.NoError(t, err)
+	defer service.Close()
+
+	ctx := context.Background()
+
+	// Step 1: Simulate a running postgres by installing a postmaster.pid that
+	// references a real process owned by the test. Using CreatePIDFile avoids
+	// spawning a real pg_ctl subprocess (which would leave orphaned children).
+	testutil.CreatePIDFile(t, dataDir, 0 /* pid is filled in by helper */)
+
+	// Step 2: Stop postgres. This is the first part of the stop→rewind→start sequence.
+	stopResp, err := service.Stop(ctx, &pb.StopRequest{Mode: "fast"})
+	require.NoError(t, err, "Stop must succeed — this is the first half of the stop→rewind→start sequence")
+	require.NotNil(t, stopResp)
+
+	// Step 3: Run pg_rewind (dry-run). The service must accept this call after a stop;
+	// if the stop had put the service into a closed state this call would fail.
+	rewindResp, err := service.PgRewind(ctx, &pb.PgRewindRequest{
+		SourceHost: "127.0.0.1",
+		SourcePort: 5433,
+		DryRun:     true,
+	})
+	require.NoError(t, err, "PgRewind must succeed after Stop")
+	require.NotNil(t, rewindResp)
+
+	// Step 4: Start postgres again as standby. This is the critical step: the service
+	// must be able to restart after stop+rewind without requiring a pgctld process restart.
+	restartResp, err := service.Restart(ctx, &pb.RestartRequest{
+		Mode:      "fast",
+		AsStandby: true,
+	})
+	require.NoError(t, err, "Restart as standby must succeed after stop+pg_rewind — REGRESSION: stop→rewind→start lifecycle must work")
+	require.NotNil(t, restartResp)
+	assert.Greater(t, restartResp.Pid, int32(0), "restarted postgres must have a valid PID")
+
+	// Cleanup: stop the mock postgres process created by the Restart call so the
+	// test does not leave an orphaned background subprocess.
+	_, _ = service.Stop(ctx, &pb.StopRequest{Mode: "fast"})
+}
+
 // testLogger returns a no-op logger for testing
 func testLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)

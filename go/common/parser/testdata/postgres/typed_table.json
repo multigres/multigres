@@ -54,12 +54,12 @@
   {
     "comment": "typed_table - Statement 13",
     "query": "CREATE TABLE personsx OF person_type (myname WITH OPTIONS NOT NULL)",
-    "expected": "CREATE TABLE personsx OF person_type"
+    "expected": "CREATE TABLE personsx OF person_type (myname NOT NULL)"
   },
   {
     "comment": "typed_table - Statement 14",
     "query": "CREATE TABLE persons2 OF person_type ( id WITH OPTIONS PRIMARY KEY, UNIQUE (name) )",
-    "expected": "CREATE TABLE persons2 OF person_type"
+    "expected": "CREATE TABLE persons2 OF person_type (id PRIMARY KEY, UNIQUE (name))"
   },
   {
     "comment": "typed_table - Statement 15",

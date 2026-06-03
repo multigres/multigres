@@ -2,7 +2,7 @@
   {
     "comment": "create_operator - Statement 1",
     "query": "CREATE OPERATOR ## ( leftarg = path, rightarg = path, function = path_inter, commutator = ## )",
-    "expected": "CREATE OPERATOR ## (leftarg = path, rightarg = path, function = path_inter, commutator = '##')"
+    "expected": "CREATE OPERATOR ## (leftarg = path, rightarg = path, function = path_inter, commutator = ##)"
   },
   {
     "comment": "create_operator - Statement 2",
@@ -51,7 +51,7 @@
   },
   {
     "comment": "create_operator - Statement 11",
-    "query": "CREATE OPERATOR =\u003e ( rightarg = int8, procedure = factorial )",
+    "query": "CREATE OPERATOR => ( rightarg = int8, procedure = factorial )",
     "error": "parse error at position 18: syntax error"
   },
   {
@@ -72,12 +72,12 @@
   {
     "comment": "create_operator - Statement 15",
     "query": "SELECT 2 !=/**/ 1, 2 !=/**/ 2",
-    "expected": "SELECT 2 \u003c\u003e 1, 2 \u003c\u003e 2"
+    "expected": "SELECT 2 <> 1, 2 <> 2"
   },
   {
     "comment": "create_operator - Statement 16",
     "query": "SELECT 2 != 1",
-    "expected": "SELECT 2 \u003c\u003e 1"
+    "expected": "SELECT 2 <> 1"
   },
   {
     "comment": "create_operator - Statement 17",
@@ -86,33 +86,33 @@
   },
   {
     "comment": "create_operator - Statement 22",
-    "query": "SELECT true\u003c\u003e-1 BETWEEN 1 AND 1",
-    "expected": "SELECT TRUE \u003c\u003e -1 BETWEEN 1 AND 1"
+    "query": "SELECT true<>-1 BETWEEN 1 AND 1",
+    "expected": "SELECT TRUE <> -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 23",
-    "query": "SELECT false\u003c\u003e/**/1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003c\u003e 1 BETWEEN 1 AND 1"
+    "query": "SELECT false<>/**/1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE <> 1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 24",
-    "query": "SELECT false\u003c=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003c= -1 BETWEEN 1 AND 1"
+    "query": "SELECT false<=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE <= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 25",
-    "query": "SELECT false\u003e=-1 BETWEEN 1 AND 1",
-    "expected": "SELECT FALSE \u003e= -1 BETWEEN 1 AND 1"
+    "query": "SELECT false>=-1 BETWEEN 1 AND 1",
+    "expected": "SELECT FALSE >= -1 BETWEEN 1 AND 1"
   },
   {
     "comment": "create_operator - Statement 26",
-    "query": "SELECT 2\u003c=/**/3, 3\u003e=/**/2, 2\u003c\u003e/**/3",
-    "expected": "SELECT 2 \u003c= 3, 3 \u003e= 2, 2 \u003c\u003e 3"
+    "query": "SELECT 2<=/**/3, 3>=/**/2, 2<>/**/3",
+    "expected": "SELECT 2 <= 3, 3 >= 2, 2 <> 3"
   },
   {
     "comment": "create_operator - Statement 27",
-    "query": "SELECT 3\u003c=/**/2, 2\u003e=/**/3, 2\u003c\u003e/**/2",
-    "expected": "SELECT 3 \u003c= 2, 2 \u003e= 3, 2 \u003c\u003e 2"
+    "query": "SELECT 3<=/**/2, 2>=/**/3, 2<>/**/2",
+    "expected": "SELECT 3 <= 2, 2 >= 3, 2 <> 2"
   },
   {
     "comment": "create_operator - Statement 28",
@@ -167,7 +167,7 @@
   {
     "comment": "create_operator - Statement 40",
     "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = boolean, PROCEDURE = fn_op2, COMMUTATOR = ===, NEGATOR = !==, RESTRICT = contsel, JOIN = contjoinsel, SORT1, SORT2, LTCMP, GTCMP, HASHES, MERGES )",
-    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = fn_op2, commutator = '===', negator = '!==', restrict = contsel, \"join\" = contjoinsel, sort1, sort2, ltcmp, gtcmp, hashes, merges)"
+    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = fn_op2, commutator = ===, negator = !==, restrict = contsel, \"join\" = contjoinsel, sort1, sort2, ltcmp, gtcmp, hashes, merges)"
   },
   {
     "comment": "create_operator - Statement 41",
@@ -313,31 +313,31 @@
   {
     "comment": "create_operator - Statement 72",
     "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = === )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = '===')"
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = ===)"
   },
   {
     "comment": "create_operator - Statement 73",
     "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, commutator = ===!!! )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '===!!!')"
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = ===!!!)"
   },
   {
     "comment": "create_operator - Statement 74",
     "query": "CREATE OPERATOR ===!!! ( leftarg = integer, rightarg = integer, procedure = int4ne, negator = ===!!! )",
-    "expected": "CREATE OPERATOR ===!!! (leftarg = INT, rightarg = INT, procedure = int4ne, negator = '===!!!')"
+    "expected": "CREATE OPERATOR ===!!! (leftarg = INT, rightarg = INT, procedure = int4ne, negator = ===!!!)"
   },
   {
     "comment": "create_operator - Statement 75",
     "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, commutator = = )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '=')"
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = =)"
   },
   {
     "comment": "create_operator - Statement 76",
-    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = \u003c\u003e )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = '\u003c\u003e')"
+    "query": "CREATE OPERATOR === ( leftarg = integer, rightarg = integer, procedure = int4eq, negator = <> )",
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, negator = <>)"
   },
   {
     "comment": "create_operator - Statement 77",
     "query": "CREATE OPERATOR === ( \"Leftarg\" = box, \"Rightarg\" = box, \"Procedure\" = area_equal_function, \"Commutator\" = ===, \"Negator\" = !==, \"Restrict\" = area_restriction_function, \"Join\" = area_join_function, \"Hashes\", \"Merges\" )",
-    "expected": "CREATE OPERATOR === (\"Leftarg\" = box, \"Rightarg\" = box, \"Procedure\" = area_equal_function, \"Commutator\" = '===', \"Negator\" = '!==', \"Restrict\" = area_restriction_function, \"Join\" = area_join_function, \"Hashes\", \"Merges\")"
+    "expected": "CREATE OPERATOR === (\"Leftarg\" = box, \"Rightarg\" = box, \"Procedure\" = area_equal_function, \"Commutator\" = ===, \"Negator\" = !==, \"Restrict\" = area_restriction_function, \"Join\" = area_join_function, \"Hashes\", \"Merges\")"
   }
 ]

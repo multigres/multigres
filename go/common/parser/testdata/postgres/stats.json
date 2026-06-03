@@ -174,18 +174,18 @@
   },
   {
     "comment": "stats - Statement 39",
-    "query": "SELECT st.seq_scan \u003e= pr.seq_scan + 1, st.seq_tup_read \u003e= pr.seq_tup_read + cl.reltuples, st.idx_scan \u003e= pr.idx_scan + 1, st.idx_tup_fetch \u003e= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
-    "expected": "SELECT st.seq_scan \u003e= pr.seq_scan + 1, st.seq_tup_read \u003e= pr.seq_tup_read + cl.reltuples, st.idx_scan \u003e= pr.idx_scan + 1, st.idx_tup_fetch \u003e= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
+    "query": "SELECT st.seq_scan >= pr.seq_scan + 1, st.seq_tup_read >= pr.seq_tup_read + cl.reltuples, st.idx_scan >= pr.idx_scan + 1, st.idx_tup_fetch >= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
+    "expected": "SELECT st.seq_scan >= pr.seq_scan + 1, st.seq_tup_read >= pr.seq_tup_read + cl.reltuples, st.idx_scan >= pr.idx_scan + 1, st.idx_tup_fetch >= pr.idx_tup_fetch + 1 FROM pg_stat_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
   },
   {
     "comment": "stats - Statement 40",
-    "query": "SELECT st.heap_blks_read + st.heap_blks_hit \u003e= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit \u003e= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
-    "expected": "SELECT st.heap_blks_read + st.heap_blks_hit \u003e= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit \u003e= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
+    "query": "SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit >= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname='tenk2' AND cl.relname='tenk2'",
+    "expected": "SELECT st.heap_blks_read + st.heap_blks_hit >= pr.heap_blks + cl.relpages, st.idx_blks_read + st.idx_blks_hit >= pr.idx_blks + 1 FROM pg_statio_user_tables AS st, pg_class AS cl, prevstats AS pr WHERE st.relname = 'tenk2' AND cl.relname = 'tenk2'"
   },
   {
     "comment": "stats - Statement 41",
-    "query": "SELECT pr.snap_ts \u003c pg_stat_get_snapshot_timestamp() as snapshot_newer FROM prevstats AS pr",
-    "expected": "SELECT pr.snap_ts \u003c pg_stat_get_snapshot_timestamp() AS snapshot_newer FROM prevstats AS pr"
+    "query": "SELECT pr.snap_ts < pg_stat_get_snapshot_timestamp() as snapshot_newer FROM prevstats AS pr",
+    "expected": "SELECT pr.snap_ts < pg_stat_get_snapshot_timestamp() AS snapshot_newer FROM prevstats AS pr"
   },
   {
     "comment": "stats - Statement 42",
@@ -431,13 +431,13 @@
   },
   {
     "comment": "stats - Statement 96",
-    "query": "SELECT seq_scan, 'test_last_seq' \u003c last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
-    "expected": "SELECT seq_scan, 'test_last_seq' \u003c last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
+    "query": "SELECT seq_scan, 'test_last_seq' < last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT seq_scan, 'test_last_seq' < last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 97",
-    "query": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' \u003c last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
-    "expected": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' \u003c last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
+    "query": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' < last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass",
+    "expected": "SELECT seq_scan, 'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, 'test_last_idx' < last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = CAST('test_last_scan' AS regclass)"
   },
   {
     "comment": "stats - Statement 98",
@@ -461,8 +461,8 @@
   },
   {
     "comment": "stats - Statement 102",
-    "query": "SELECT (n_tup_ins + n_tup_upd) \u003e 0 AS has_data FROM pg_stat_all_tables WHERE relid = 'pg_shdescription'::regclass",
-    "expected": "SELECT (n_tup_ins + n_tup_upd) \u003e 0 AS has_data FROM pg_stat_all_tables WHERE relid = CAST('pg_shdescription' AS regclass)"
+    "query": "SELECT (n_tup_ins + n_tup_upd) > 0 AS has_data FROM pg_stat_all_tables WHERE relid = 'pg_shdescription'::regclass",
+    "expected": "SELECT (n_tup_ins + n_tup_upd) > 0 AS has_data FROM pg_stat_all_tables WHERE relid = CAST('pg_shdescription' AS regclass)"
   },
   {
     "comment": "stats - Statement 103",
@@ -471,7 +471,7 @@
   },
   {
     "comment": "stats - Statement 104",
-    "query": "SELECT sessions \u003e 1 FROM pg_stat_database WHERE datname = (SELECT current_database())"
+    "query": "SELECT sessions > 1 FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
     "comment": "stats - Statement 105",
@@ -495,11 +495,11 @@
   },
   {
     "comment": "stats - Statement 110",
-    "query": "SELECT num_requested \u003e 1000 FROM pg_stat_checkpointer"
+    "query": "SELECT num_requested > 1000 FROM pg_stat_checkpointer"
   },
   {
     "comment": "stats - Statement 111",
-    "query": "SELECT wal_bytes \u003e 1000 FROM pg_stat_wal"
+    "query": "SELECT wal_bytes > 1000 FROM pg_stat_wal"
   },
   {
     "comment": "stats - Statement 112",
@@ -520,8 +520,8 @@
   },
   {
     "comment": "stats - Statement 116",
-    "query": "SELECT stats_reset \u003e 'slru_commit_ts_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'commit_timestamp'",
-    "expected": "SELECT stats_reset \u003e CAST('slru_commit_ts_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'commit_timestamp'"
+    "query": "SELECT stats_reset > 'slru_commit_ts_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'commit_timestamp'",
+    "expected": "SELECT stats_reset > CAST('slru_commit_ts_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'commit_timestamp'"
   },
   {
     "comment": "stats - Statement 117",
@@ -529,8 +529,8 @@
   },
   {
     "comment": "stats - Statement 118",
-    "query": "SELECT stats_reset \u003e 'slru_notify_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'notify'",
-    "expected": "SELECT stats_reset \u003e CAST('slru_notify_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'notify'"
+    "query": "SELECT stats_reset > 'slru_notify_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'notify'",
+    "expected": "SELECT stats_reset > CAST('slru_notify_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru WHERE name = 'notify'"
   },
   {
     "comment": "stats - Statement 119",
@@ -542,8 +542,8 @@
   },
   {
     "comment": "stats - Statement 121",
-    "query": "SELECT stats_reset \u003e 'archiver_reset_ts'::timestamptz FROM pg_stat_archiver",
-    "expected": "SELECT stats_reset \u003e CAST('archiver_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_archiver"
+    "query": "SELECT stats_reset > 'archiver_reset_ts'::timestamptz FROM pg_stat_archiver",
+    "expected": "SELECT stats_reset > CAST('archiver_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_archiver"
   },
   {
     "comment": "stats - Statement 122",
@@ -555,8 +555,8 @@
   },
   {
     "comment": "stats - Statement 124",
-    "query": "SELECT stats_reset \u003e 'bgwriter_reset_ts'::timestamptz FROM pg_stat_bgwriter",
-    "expected": "SELECT stats_reset \u003e CAST('bgwriter_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_bgwriter"
+    "query": "SELECT stats_reset > 'bgwriter_reset_ts'::timestamptz FROM pg_stat_bgwriter",
+    "expected": "SELECT stats_reset > CAST('bgwriter_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_bgwriter"
   },
   {
     "comment": "stats - Statement 125",
@@ -568,8 +568,8 @@
   },
   {
     "comment": "stats - Statement 127",
-    "query": "SELECT stats_reset \u003e 'checkpointer_reset_ts'::timestamptz FROM pg_stat_checkpointer",
-    "expected": "SELECT stats_reset \u003e CAST('checkpointer_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_checkpointer"
+    "query": "SELECT stats_reset > 'checkpointer_reset_ts'::timestamptz FROM pg_stat_checkpointer",
+    "expected": "SELECT stats_reset > CAST('checkpointer_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_checkpointer"
   },
   {
     "comment": "stats - Statement 128",
@@ -581,8 +581,8 @@
   },
   {
     "comment": "stats - Statement 130",
-    "query": "SELECT stats_reset \u003e 'recovery_prefetch_reset_ts'::timestamptz FROM pg_stat_recovery_prefetch",
-    "expected": "SELECT stats_reset \u003e CAST('recovery_prefetch_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_recovery_prefetch"
+    "query": "SELECT stats_reset > 'recovery_prefetch_reset_ts'::timestamptz FROM pg_stat_recovery_prefetch",
+    "expected": "SELECT stats_reset > CAST('recovery_prefetch_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_recovery_prefetch"
   },
   {
     "comment": "stats - Statement 131",
@@ -595,8 +595,8 @@
   },
   {
     "comment": "stats - Statement 133",
-    "query": "SELECT max(stats_reset) \u003e 'slru_reset_ts'::timestamptz FROM pg_stat_slru",
-    "expected": "SELECT MAX(stats_reset) \u003e CAST('slru_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru"
+    "query": "SELECT max(stats_reset) > 'slru_reset_ts'::timestamptz FROM pg_stat_slru",
+    "expected": "SELECT MAX(stats_reset) > CAST('slru_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_slru"
   },
   {
     "comment": "stats - Statement 134",
@@ -608,8 +608,8 @@
   },
   {
     "comment": "stats - Statement 136",
-    "query": "SELECT stats_reset \u003e 'wal_reset_ts'::timestamptz FROM pg_stat_wal",
-    "expected": "SELECT stats_reset \u003e CAST('wal_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_wal"
+    "query": "SELECT stats_reset > 'wal_reset_ts'::timestamptz FROM pg_stat_wal",
+    "expected": "SELECT stats_reset > CAST('wal_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_wal"
   },
   {
     "comment": "stats - Statement 137",
@@ -625,8 +625,8 @@
   },
   {
     "comment": "stats - Statement 140",
-    "query": "SELECT stats_reset \u003e 'db_reset_ts'::timestamptz FROM pg_stat_database WHERE datname = (SELECT current_database())",
-    "expected": "SELECT stats_reset \u003e CAST('db_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_database WHERE datname = (SELECT current_database())"
+    "query": "SELECT stats_reset > 'db_reset_ts'::timestamptz FROM pg_stat_database WHERE datname = (SELECT current_database())",
+    "expected": "SELECT stats_reset > CAST('db_reset_ts' AS TIMESTAMPTZ) FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
     "comment": "stats - Statement 141",
@@ -638,7 +638,7 @@
   },
   {
     "comment": "stats - Statement 143",
-    "query": "SELECT pg_stat_get_snapshot_timestamp() \u003e= NOW()"
+    "query": "SELECT pg_stat_get_snapshot_timestamp() >= NOW()"
   },
   {
     "comment": "stats - Statement 144",
@@ -743,15 +743,15 @@
   },
   {
     "comment": "stats - Statement 166",
-    "query": "SELECT 1000 \u003e 1000"
+    "query": "SELECT 1000 > 1000"
   },
   {
     "comment": "stats - Statement 167",
-    "query": "SELECT 1000 \u003e 1000"
+    "query": "SELECT 1000 > 1000"
   },
   {
     "comment": "stats - Statement 168",
-    "query": "SELECT current_setting('fsync') = 'off' OR 1000 \u003e 1000"
+    "query": "SELECT current_setting('fsync') = 'off' OR 1000 > 1000"
   },
   {
     "comment": "stats - Statement 169",
@@ -822,8 +822,8 @@
   },
   {
     "comment": "stats - Statement 183",
-    "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 \u003e 100",
-    "expected": "SELECT pg_relation_size('test_io_local') / CAST(current_setting('block_size') AS BIGINT) \u003e 100"
+    "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 > 100",
+    "expected": "SELECT pg_relation_size('test_io_local') / CAST(current_setting('block_size') AS BIGINT) > 100"
   },
   {
     "comment": "stats - Statement 184",
@@ -841,7 +841,7 @@
   },
   {
     "comment": "stats - Statement 187",
-    "query": "SELECT 1000 \u003e 1000, 1000 \u003e 1000, 1000 \u003e 1000, 1000 \u003e 1000"
+    "query": "SELECT 1000 > 1000, 1000 > 1000, 1000 > 1000, 1000 > 1000"
   },
   {
     "comment": "stats - Statement 188",
@@ -854,7 +854,7 @@
   },
   {
     "comment": "stats - Statement 190",
-    "query": "SELECT 1 \u003e 1000"
+    "query": "SELECT 1 > 1000"
   },
   {
     "comment": "stats - Statement 191",
@@ -889,11 +889,11 @@
   },
   {
     "comment": "stats - Statement 198",
-    "query": "SELECT 1000 \u003e 1000"
+    "query": "SELECT 1000 > 1000"
   },
   {
     "comment": "stats - Statement 199",
-    "query": "SELECT (1000 + 1000) \u003e (1000 + 1000)"
+    "query": "SELECT (1000 + 1000) > (1000 + 1000)"
   },
   {
     "comment": "stats - Statement 200",
@@ -934,7 +934,7 @@
   },
   {
     "comment": "stats - Statement 208",
-    "query": "SELECT 1 \u003c 1"
+    "query": "SELECT 1 < 1"
   },
   {
     "comment": "stats - Statement 209",
@@ -952,8 +952,8 @@
   },
   {
     "comment": "stats - Statement 212",
-    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) \u003e 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION wait_for_hot_stats () RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) \u003e 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION wait_for_hot_stats () RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "stats - Statement 213",
@@ -1045,7 +1045,7 @@
   {
     "comment": "stats - Statement 233",
     "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)",
-    "expected": "CREATE TABLE table_fillfactor (n CHAR(1000)) WITH (fillfactor = 10, autovacuum_enabled = off)"
+    "expected": "CREATE TABLE table_fillfactor (n bpchar(1000)) WITH (fillfactor = 10, autovacuum_enabled = off)"
   },
   {
     "comment": "stats - Statement 234",

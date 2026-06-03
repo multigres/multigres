@@ -546,7 +546,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Logf("Initializing PostgreSQL with POSTGRES_PASSWORD")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 
-		initCmd.Env = append(os.Environ(),
+		initCmd.Env = append(utils.BaseTestEnv(),
 			"PGCONNECT_TIMEOUT=5",
 			"POSTGRES_PASSWORD="+testPassword,
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
@@ -563,7 +563,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = append(os.Environ(),
+		startCmd.Env = append(utils.BaseTestEnv(),
 			"PGCONNECT_TIMEOUT=5",
 			"POSTGRES_PASSWORD="+testPassword,
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
@@ -593,7 +593,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
-		socketCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		socketCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		t.Logf("psql command: %v", socketCmd.Args)
 		output, err = socketCmd.CombinedOutput()
 		require.NoError(t, err, "Socket connection should succeed, output: %s", string(output))
@@ -601,7 +601,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Get the actual port from the status output
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", baseDir)
-		statusCmd.Env = append(os.Environ(), constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"))
+		statusCmd.Env = append(utils.BaseTestEnv(), constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"))
 		statusOutput, err := statusCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld status should succeed")
 		t.Logf("Status output: %s", string(statusOutput))
@@ -615,7 +615,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		tcpCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		output, err = tcpCmd.CombinedOutput()
 		require.NoError(t, err, "TCP connection with correct password should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
@@ -629,7 +629,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT 1;",
 		)
-		wrongPasswordCmd.Env = append(os.Environ(), "PGPASSWORD=wrong_password")
+		wrongPasswordCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD=wrong_password")
 		output, err = wrongPasswordCmd.CombinedOutput()
 		assert.Error(t, err, "TCP connection with wrong password should fail")
 		assert.Contains(t, string(output), "password authentication failed", "Should fail with authentication error")
@@ -645,7 +645,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-t", "-c", "SELECT rolname FROM pg_roles WHERE rolname = 'postgres';",
 		)
-		roleCheckCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		roleCheckCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		output, err = roleCheckCmd.CombinedOutput()
 		require.NoError(t, err, "Role check should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "postgres role should exist")
@@ -658,7 +658,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-t", "-c", "SELECT datname FROM pg_database WHERE datname = 'postgres';",
 		)
-		dbCheckCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		dbCheckCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		output, err = dbCheckCmd.CombinedOutput()
 		require.NoError(t, err, "Database check should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "postgres database should exist")
@@ -671,7 +671,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-t", "-c", "SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres';",
 		)
-		privilegeCheckCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		privilegeCheckCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		output, err = privilegeCheckCmd.CombinedOutput()
 		require.NoError(t, err, "Privilege check should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "t", "postgres role should have superuser privileges")
@@ -679,7 +679,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Clean shutdown
 		t.Logf("Shutting down PostgreSQL")
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = append(os.Environ(),
+		stopCmd.Env = append(utils.BaseTestEnv(),
 			"PGCONNECT_TIMEOUT=5",
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
 			"POSTGRES_PASSWORD="+testPassword,
@@ -706,7 +706,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		require.NoError(t, os.WriteFile(pwFile, []byte(testPassword+"\n"), 0o600))
 
 		envWithFile := func() []string {
-			env := filterEnv(os.Environ(), "POSTGRES_PASSWORD")
+			env := filterEnv(utils.BaseTestEnv(), "POSTGRES_PASSWORD")
 			env = append(env,
 				"PGCONNECT_TIMEOUT=5",
 				"POSTGRES_PASSWORD_FILE="+pwFile,
@@ -742,7 +742,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT current_user;",
 		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		tcpCmd.Env = append(utils.BaseTestEnv(), "PGPASSWORD="+testPassword)
 		output, err = tcpCmd.CombinedOutput()
 		require.NoError(t, err, "TCP connection should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres")
@@ -770,9 +770,9 @@ func TestPgctldRequiresPassword(t *testing.T) {
 
 		port := utils.GetFreePort(t)
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		// Build env without POSTGRES_PASSWORD: copy os.Environ() but drop any
+		// Build env without POSTGRES_PASSWORD: copy utils.BaseTestEnv() but drop any
 		// inherited POSTGRES_PASSWORD set by the test runner.
-		initCmd.Env = filterEnv(os.Environ(), "POSTGRES_PASSWORD")
+		initCmd.Env = filterEnv(utils.BaseTestEnv(), "POSTGRES_PASSWORD")
 		initCmd.Env = append(initCmd.Env,
 			"PGCONNECT_TIMEOUT=5",
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
@@ -800,7 +800,7 @@ func TestPgctldRequiresPassword(t *testing.T) {
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--http-port", strconv.Itoa(httpPort),
 		)
-		serverCmd.Env = filterEnv(os.Environ(), "POSTGRES_PASSWORD")
+		serverCmd.Env = filterEnv(utils.BaseTestEnv(), "POSTGRES_PASSWORD")
 		serverCmd.Env = append(serverCmd.Env,
 			"PGCONNECT_TIMEOUT=5",
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
@@ -855,7 +855,7 @@ func TestCustomDatabaseCreation(t *testing.T) {
 		port := utils.GetFreePort(t)
 		socketDir := filepath.Join(baseDir, "pg_sockets")
 
-		baseEnv := append(os.Environ(), "PGCONNECT_TIMEOUT=5",
+		baseEnv := append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5",
 			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
 			constants.PgPasswordEnvVar+"=test-password",
 			"PGPASSWORD=test-password",

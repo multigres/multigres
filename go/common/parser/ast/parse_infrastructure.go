@@ -173,11 +173,13 @@ func (a *A_Expr) SqlString() string {
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
-			// This is a qualified operator - format as OPERATOR(schema.op)
+			// This is a qualified operator - format as OPERATOR(schema.op).
+			// The leading parts are schema identifiers (quote them); the final
+			// part is the operator symbol (emit verbatim).
 			var parts []string
 			for _, item := range a.Name.Items {
 				if str, ok := item.(*String); ok {
-					parts = append(parts, str.SVal)
+					parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
 				} else {
 					parts = append(parts, item.String())
 				}
@@ -790,10 +792,12 @@ func (f *FuncCall) SqlString() string {
 					name = "POSITION"
 				case "substring":
 					name = "substring"
-				case "trim":
-					name = "trim"
-				case "btrim":
-					name = "trim"
+				default:
+					// A user-supplied function name must be quoted if it is
+					// case-sensitive, a keyword, or contains special characters.
+					// The cases above are built-ins the deparser deliberately
+					// renders as bare keywords, so they are left unquoted.
+					name = QuoteIdentifier(name)
 				}
 				nameParts = append(nameParts, name)
 			}
@@ -1138,7 +1142,7 @@ func (a *A_Indirection) SqlString() string {
 			case *String:
 				// Field access: obj.field
 				result.WriteString(".")
-				result.WriteString(indNode.SVal)
+				result.WriteString(QuoteIdentifier(indNode.SVal))
 			case *A_Indices:
 				// Array subscript: obj[index] or obj[lower:upper]
 				result.WriteString(indNode.SqlString())
@@ -1234,6 +1238,24 @@ func (c *ColumnDef) SqlString() string {
 		parts = append(parts, "STORAGE", c.StorageName)
 	}
 
+	// Add foreign-data-wrapper OPTIONS (foreign table columns), in PostgreSQL's
+	// generic-options form: OPTIONS (key 'value', ...).
+	if c.Fdwoptions != nil && c.Fdwoptions.Len() > 0 {
+		var optParts []string
+		for _, item := range c.Fdwoptions.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				if opt.Arg != nil {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
+				}
+			}
+		}
+		if len(optParts) > 0 {
+			parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+		}
+	}
+
 	// Add NOT NULL constraint if specified
 	if c.IsNotNull {
 		parts = append(parts, "NOT NULL")
@@ -1322,6 +1344,11 @@ func (c *ColumnDef) SqlString() string {
 						parts = append(parts, constraintStr)
 					}
 				}
+			} else if cc, ok := item.(*CollateClause); ok && cc != nil {
+				// A bare COLLATE (e.g. a partition/typed-table column
+				// `a COLLATE "POSIX"`) is stored as a CollateClause in the
+				// constraint list rather than in Collclause.
+				parts = append(parts, cc.SqlString())
 			}
 		}
 	}
@@ -1854,15 +1881,8 @@ func (g *GroupingSet) SqlString() string {
 							// Other grouping sets (ROLLUP, CUBE, etc)
 							sets = append(sets, gs.SqlString())
 						}
-					} else if _, ok := item.(*ParenExpr); ok {
-						// Parenthesized expression - already has parentheses
-						sets = append(sets, item.SqlString())
-					} else if _, ok := item.(*RowExpr); ok {
-						// Row expression - already has parentheses in its SqlString
-						sets = append(sets, item.SqlString())
 					} else {
-						// Simple expression - needs parentheses
-						sets = append(sets, fmt.Sprintf("(%s)", item.SqlString()))
+						sets = append(sets, item.SqlString())
 					}
 				}
 			}
@@ -2199,7 +2219,9 @@ func (o *ObjectWithArgs) SqlString() string {
 		var names []string
 		for _, item := range o.Objname.Items {
 			if str, ok := item.(*String); ok {
-				names = append(names, str.SVal)
+				// Objname may name a function/type (identifier, quote it) or an
+				// operator (symbol, emit verbatim).
+				names = append(names, QuoteIdentifierOrOperator(str.SVal))
 			}
 		}
 		if len(names) > 0 {

@@ -52,6 +52,7 @@ func TestManagerState_InitialState(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -60,7 +61,7 @@ func TestManagerState_InitialState(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Initial state should be Starting
 	assert.Equal(t, ManagerStateStarting, manager.GetState())
@@ -87,6 +88,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -96,10 +98,10 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	// Create manager with a short timeout for testing
 	manager, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 1*time.Second)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Start the async loader
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Wait for the state to become Error
 	require.Eventually(t, func() bool {
@@ -130,6 +132,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -142,13 +145,13 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start the async loader
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Give it a moment to start retrying
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the manager
-	manager.Shutdown()
+	manager.ShutdownForTest(t.Context())
 
 	// Wait for the state to become Error due to context cancellation
 	require.Eventually(t, func() bool {
@@ -209,10 +212,10 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPoolerObj, config)
 	require.NoError(t, err)
-	defer manager.Shutdown()
+	defer manager.ShutdownForTest(t.Context())
 
 	// Start async topo loader (consensus is loaded synchronously in the constructor)
-	go manager.loadMultiPoolerFromTopo()
+	go manager.loadShardConfigFromGlobalTopo()
 
 	// Wait for the state to become Ready after retries
 	require.Eventually(t, func() bool {
@@ -362,7 +365,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			}
 			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			defer manager.Shutdown()
+			defer manager.ShutdownForTest(t.Context())
 
 			// Set up mock query service for isInRecovery check during startup
 			mockQueryService := mock.NewQueryService()
@@ -525,6 +528,7 @@ func TestWaitUntilReady_Success(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -559,6 +563,7 @@ func TestWaitUntilReady_Error(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -594,6 +599,7 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -625,6 +631,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	}
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
 	multiPooler.ShardKey.Shard = constants.DefaultShard
+	multiPooler.ShardKey.Database = "testdb"
 	multiPooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -743,7 +750,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
-				manager.Shutdown()
+				manager.ShutdownForTest(t.Context())
 			}
 		})
 	}
@@ -970,4 +977,72 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestPause_PreservesPublisher verifies that Pause/resume does not stop the
+// poolerRecord's publisher — the topology entry continues to reflect state
+// changes throughout. (Pause is conceptually "stop serving queries", not
+// "stop participating in cluster topology".)
+func TestPause_PreservesPublisher(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pause-publisher",
+	}
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		PoolerDir:     t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	pm, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	// Inject a no-op query service so Open's heartbeat start doesn't panic
+	// on a nil pool. This test isn't exercising heartbeat behavior; it just
+	// needs Open to succeed so we have something to Pause.
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+
+	// Start the publisher (in production this happens via init.go's OnRun
+	// firing StartTopoRegistration). Then open the manager so Pause has
+	// something to pause.
+	pm.StartTopoRegistration(func(string) {})
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-pause")
+	require.NoError(t, err)
+	pm.Open(lockCtx)
+
+	// Pause the manager. With the old "publisher tied to Open" design this
+	// would have cancelled the publisher; with the new "publisher tied to
+	// Register" design it should keep running.
+	resume := pm.Pause(lockCtx)
+
+	// Mutate to PRIMARY while paused. The publisher should still pick this
+	// up and reflect it in topology.
+	require.NoError(t, pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
+		s.Type = clustermetadatapb.PoolerType_PRIMARY
+	}))
+
+	require.Eventually(t, func() bool {
+		mp, err := ts.GetMultiPooler(ctx, serviceID)
+		return err == nil && mp.Type == clustermetadatapb.PoolerType_PRIMARY
+	}, 2*time.Second, 25*time.Millisecond, "publisher should reflect Mutate to PRIMARY in topology while paused")
+
+	resume(lockCtx)
+	pm.actionLock.Release(lockCtx)
 }

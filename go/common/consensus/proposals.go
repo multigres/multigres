@@ -17,7 +17,6 @@ package consensus
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"google.golang.org/protobuf/proto"
 
@@ -25,6 +24,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/sortedmaps"
 )
 
 // RecruitmentResult holds the interpreted outcome of a successful recruitment
@@ -564,14 +564,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			best[key] = cs
 		}
 	}
-	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(best))
-	for _, cs := range best {
-		result = append(result, cs)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return topoclient.ClusterIDString(result[i].GetId()) < topoclient.ClusterIDString(result[j].GetId())
-	})
-	return result
+	return sortedmaps.Values(best)
 }
 
 // filterCohortStatuses returns the subset of statuses whose node ID is a

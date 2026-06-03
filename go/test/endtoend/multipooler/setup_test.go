@@ -32,7 +32,6 @@ package multipooler
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -113,7 +112,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 // Deprecated: Use shardsetup.WaitForManagerReady directly.
 func waitForManagerReady(t *testing.T, _ *MultipoolerTestSetup, manager *ProcessInstance) {
 	t.Helper()
-	shardsetup.WaitForManagerReady(t, manager)
+	shardsetup.WaitForManagerReady(t, manager, nil)
 }
 
 // cleanupOption is a function that configures cleanup behavior.
@@ -247,22 +246,6 @@ func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermana
 		status := getPrimaryStatusFromClient(t, client)
 		return checkFunc(status.SyncReplicationConfig)
 	}, 5*time.Second, 200*time.Millisecond, message)
-}
-
-// postgresIsInRecovery queries postgres directly to determine whether it is running in
-// standby (recovery) mode. Returns true for standby, false for primary.
-func postgresIsInRecovery(t *testing.T, client *shardsetup.MultiPoolerTestClient) (bool, error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	resp, err := client.ExecuteQuery(ctx, "SELECT pg_is_in_recovery()", 1)
-	if err != nil {
-		return false, err
-	}
-	if len(resp.Rows) == 0 {
-		return false, errors.New("pg_is_in_recovery() returned no rows")
-	}
-	return string(resp.Rows[0].Values[0]) == "t", nil
 }
 
 // Helper function to check if a standby ID is in the config.

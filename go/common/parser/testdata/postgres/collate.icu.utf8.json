@@ -1,8 +1,8 @@
 [
   {
     "comment": "collate.icu.utf8 - Statement 1",
-    "query": "/* * This test is for ICU collations. */ /* skip test if not UTF8 server encoding or no ICU collations installed */ SELECT getdatabaseencoding() \u003c\u003e 'UTF8' OR (SELECT count(*) FROM pg_collation WHERE collprovider = 'i' AND collname \u003c\u003e 'unicode') = 0 AS skip_test",
-    "expected": "SELECT getdatabaseencoding() \u003c\u003e 'UTF8' OR (SELECT COUNT(*) FROM pg_collation WHERE collprovider = 'i' AND collname \u003c\u003e 'unicode') = 0 AS skip_test"
+    "query": "/* * This test is for ICU collations. */ /* skip test if not UTF8 server encoding or no ICU collations installed */ SELECT getdatabaseencoding() <> 'UTF8' OR (SELECT count(*) FROM pg_collation WHERE collprovider = 'i' AND collname <> 'unicode') = 0 AS skip_test",
+    "expected": "SELECT getdatabaseencoding() <> 'UTF8' OR (SELECT COUNT(*) FROM pg_collation WHERE collprovider = 'i' AND collname <> 'unicode') = 0 AS skip_test"
   },
   {
     "comment": "collate.icu.utf8 - Statement 2",
@@ -52,31 +52,31 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 12",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 13",
-    "query": "SELECT * FROM collate_test2 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test2 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 14",
-    "query": "SELECT * FROM collate_test3 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test3 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 15",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 16",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.icu.utf8 - Statement 17",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.icu.utf8 - Statement 18",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"en-x-icu\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"en-x-icu\""
   },
   {
     "comment": "collate.icu.utf8 - Statement 19",
@@ -144,11 +144,11 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 34",
-    "query": "SELECT 'bbc' COLLATE \"en-x-icu\" \u003e 'äbc' COLLATE \"en-x-icu\" AS \"true\""
+    "query": "SELECT 'bbc' COLLATE \"en-x-icu\" > 'äbc' COLLATE \"en-x-icu\" AS \"true\""
   },
   {
     "comment": "collate.icu.utf8 - Statement 35",
-    "query": "SELECT 'bbc' COLLATE \"sv-x-icu\" \u003e 'äbc' COLLATE \"sv-x-icu\" AS \"false\""
+    "query": "SELECT 'bbc' COLLATE \"sv-x-icu\" > 'äbc' COLLATE \"sv-x-icu\" AS \"false\""
   },
   {
     "comment": "collate.icu.utf8 - Statement 36",
@@ -284,7 +284,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 69",
-    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 70",
@@ -433,13 +433,13 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 102",
-    "query": "SELECT a, b FROM collate_test3 WHERE a \u003c 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a \u003e 1 ORDER BY 2",
-    "expected": "(SELECT a, b FROM collate_test3 WHERE a \u003c 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a \u003e 1) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a > 1 ORDER BY 2",
+    "expected": "(SELECT a, b FROM collate_test3 WHERE a < 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a > 1) ORDER BY 2"
   },
   {
     "comment": "collate.icu.utf8 - Statement 103",
-    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a \u003c 2 ORDER BY 2",
-    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a \u003c 2) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a < 2 ORDER BY 2",
+    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a < 2) ORDER BY 2"
   },
   {
     "comment": "collate.icu.utf8 - Statement 104",
@@ -471,8 +471,8 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 111",
-    "query": "select x \u003c y from collate_test10",
-    "expected": "SELECT x \u003c y FROM collate_test10"
+    "query": "select x < y from collate_test10",
+    "expected": "SELECT x < y FROM collate_test10"
   },
   {
     "comment": "collate.icu.utf8 - Statement 112",
@@ -486,8 +486,8 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 114",
-    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en-x-icu\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de-x-icu\" FROM foo WHERE length(x) \u003c 10) SELECT * FROM foo",
-    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en-x-icu\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de-x-icu\" FROM foo WHERE length(x) \u003c 10)) SELECT * FROM foo"
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en-x-icu\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de-x-icu\" FROM foo WHERE length(x) < 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en-x-icu\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de-x-icu\" FROM foo WHERE length(x) < 10)) SELECT * FROM foo"
   },
   {
     "comment": "collate.icu.utf8 - Statement 115",
@@ -511,33 +511,33 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 119",
-    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 $$",
-    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 $$"
+    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 $$",
+    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 $$"
   },
   {
     "comment": "collate.icu.utf8 - Statement 120",
-    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$",
-    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$"
+    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 limit 1 $$",
+    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 limit 1 $$"
   },
   {
     "comment": "collate.icu.utf8 - Statement 121",
-    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$",
-    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$"
+    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$",
+    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$"
   },
   {
     "comment": "collate.icu.utf8 - Statement 122",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.icu.utf8 - Statement 123",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.icu.utf8 - Statement 124",
-    "query": "CREATE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text := x; yy text := y; begin return xx \u003c yy; end $$;",
-    "expected": "CREATE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text := x; yy text := y; begin return xx \u003c yy; end $$"
+    "query": "CREATE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text := x; yy text := y; begin return xx < yy; end $$;",
+    "expected": "CREATE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text := x; yy text := y; begin return xx < yy; end $$"
   },
   {
     "comment": "collate.icu.utf8 - Statement 128",
@@ -546,8 +546,8 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 129",
-    "query": "CREATE OR REPLACE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx \u003c yy; end $$;",
-    "expected": "CREATE OR REPLACE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx \u003c yy; end $$"
+    "query": "CREATE OR REPLACE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx < yy; end $$;",
+    "expected": "CREATE OR REPLACE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx < yy; end $$"
   },
   {
     "comment": "collate.icu.utf8 - Statement 130",
@@ -709,13 +709,11 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 165",
-    "query": "CREATE COLLATION test4 FROM nonsense",
-    "expected": "CREATE COLLATION test4 FROM \"nonsense\""
+    "query": "CREATE COLLATION test4 FROM nonsense"
   },
   {
     "comment": "collate.icu.utf8 - Statement 166",
-    "query": "CREATE COLLATION test5 FROM test0",
-    "expected": "CREATE COLLATION test5 FROM \"test0\""
+    "query": "CREATE COLLATION test5 FROM test0"
   },
   {
     "comment": "collate.icu.utf8 - Statement 167",
@@ -846,13 +844,13 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 196",
-    "query": "select textrange_c('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_c('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_c('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_c('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 197",
-    "query": "select textrange_en_us('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_en_us('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_en_us('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_en_us('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 198",
@@ -885,7 +883,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 204",
-    "query": "SELECT 'aaá' \u003e 'AAA' COLLATE \"und-x-icu\", 'aaá' \u003c 'AAA' COLLATE testcoll_ignore_accents"
+    "query": "SELECT 'aaá' > 'AAA' COLLATE \"und-x-icu\", 'aaá' < 'AAA' COLLATE testcoll_ignore_accents"
   },
   {
     "comment": "collate.icu.utf8 - Statement 205",
@@ -893,7 +891,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 206",
-    "query": "SELECT 'coté' \u003c 'côte' COLLATE \"und-x-icu\", 'coté' \u003e 'côte' COLLATE testcoll_backwards"
+    "query": "SELECT 'coté' < 'côte' COLLATE \"und-x-icu\", 'coté' > 'côte' COLLATE testcoll_backwards"
   },
   {
     "comment": "collate.icu.utf8 - Statement 207",
@@ -905,7 +903,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 209",
-    "query": "SELECT 'aaa' \u003c 'AAA' COLLATE testcoll_lower_first, 'aaa' \u003e 'AAA' COLLATE testcoll_upper_first"
+    "query": "SELECT 'aaa' < 'AAA' COLLATE testcoll_lower_first, 'aaa' > 'AAA' COLLATE testcoll_upper_first"
   },
   {
     "comment": "collate.icu.utf8 - Statement 210",
@@ -913,7 +911,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 211",
-    "query": "SELECT 'de-luge' \u003c 'deanza' COLLATE \"und-x-icu\", 'de-luge' \u003e 'deanza' COLLATE testcoll_shifted"
+    "query": "SELECT 'de-luge' < 'deanza' COLLATE \"und-x-icu\", 'de-luge' > 'deanza' COLLATE testcoll_shifted"
   },
   {
     "comment": "collate.icu.utf8 - Statement 212",
@@ -921,7 +919,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 213",
-    "query": "SELECT 'A-21' \u003e 'A-123' COLLATE \"und-x-icu\", 'A-21' \u003c 'A-123' COLLATE testcoll_numeric"
+    "query": "SELECT 'A-21' > 'A-123' COLLATE \"und-x-icu\", 'A-21' < 'A-123' COLLATE testcoll_numeric"
   },
   {
     "comment": "collate.icu.utf8 - Statement 214",
@@ -933,11 +931,11 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 216",
-    "query": "SELECT 'Goldmann' \u003c 'Götz' COLLATE \"de-x-icu\", 'Goldmann' \u003e 'Götz' COLLATE testcoll_de_phonebook"
+    "query": "SELECT 'Goldmann' < 'Götz' COLLATE \"de-x-icu\", 'Goldmann' > 'Götz' COLLATE testcoll_de_phonebook"
   },
   {
     "comment": "collate.icu.utf8 - Statement 217",
-    "query": "CREATE COLLATION testcoll_rules1 (provider = icu, locale = '', rules = '\u0026a \u003c g')"
+    "query": "CREATE COLLATION testcoll_rules1 (provider = icu, locale = '', rules = '&a < g')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 218",
@@ -981,12 +979,12 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 227",
-    "query": "INSERT INTO test6 VALUES (1, U\u0026'\\00E4bc')",
+    "query": "INSERT INTO test6 VALUES (1, U&'\\00E4bc')",
     "expected": "INSERT INTO test6 VALUES (1, 'äbc')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 228",
-    "query": "INSERT INTO test6 VALUES (2, U\u0026'\\0061\\0308bc')",
+    "query": "INSERT INTO test6 VALUES (2, U&'\\0061\\0308bc')",
     "expected": "INSERT INTO test6 VALUES (2, 'äbc')"
   },
   {
@@ -1008,12 +1006,12 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 233",
-    "query": "INSERT INTO test6a VALUES (1, ARRAY[U\u0026'\\00E4bc'])",
+    "query": "INSERT INTO test6a VALUES (1, ARRAY[U&'\\00E4bc'])",
     "expected": "INSERT INTO test6a VALUES (1, ARRAY['äbc'])"
   },
   {
     "comment": "collate.icu.utf8 - Statement 234",
-    "query": "INSERT INTO test6a VALUES (2, ARRAY[U\u0026'\\0061\\0308bc'])",
+    "query": "INSERT INTO test6a VALUES (2, ARRAY[U&'\\0061\\0308bc'])",
     "expected": "INSERT INTO test6a VALUES (2, ARRAY['äbc'])"
   },
   {
@@ -1039,11 +1037,11 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 240",
-    "query": "SELECT 'abc' \u003c= 'ABC' COLLATE case_sensitive, 'abc' \u003e= 'ABC' COLLATE case_sensitive"
+    "query": "SELECT 'abc' <= 'ABC' COLLATE case_sensitive, 'abc' >= 'ABC' COLLATE case_sensitive"
   },
   {
     "comment": "collate.icu.utf8 - Statement 241",
-    "query": "SELECT 'abc' \u003c= 'ABC' COLLATE case_insensitive, 'abc' \u003e= 'ABC' COLLATE case_insensitive"
+    "query": "SELECT 'abc' <= 'ABC' COLLATE case_insensitive, 'abc' >= 'ABC' COLLATE case_insensitive"
   },
   {
     "comment": "collate.icu.utf8 - Statement 242",
@@ -1060,7 +1058,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 245",
-    "query": "SELECT 'Z' COLLATE lt_upperfirst \u003c 'z' COLLATE lt_upperfirst"
+    "query": "SELECT 'Z' COLLATE lt_upperfirst < 'z' COLLATE lt_upperfirst"
   },
   {
     "comment": "collate.icu.utf8 - Statement 246",
@@ -1095,7 +1093,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 253",
-    "query": "SELECT x FROM test3cs WHERE x \u003c\u003e 'abc'"
+    "query": "SELECT x FROM test3cs WHERE x <> 'abc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 254",
@@ -1225,7 +1223,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 283",
-    "query": "SELECT x FROM test3ci WHERE x \u003c\u003e 'abc'"
+    "query": "SELECT x FROM test3ci WHERE x <> 'abc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 284",
@@ -1311,17 +1309,17 @@
   {
     "comment": "collate.icu.utf8 - Statement 303",
     "query": "CREATE TABLE test1bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test1bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test1bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 304",
     "query": "CREATE TABLE test2bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test2bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test2bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 305",
     "query": "CREATE TABLE test3bpci (x char(3) COLLATE case_insensitive)",
-    "expected": "CREATE TABLE test3bpci (x CHAR(3) COLLATE case_insensitive)"
+    "expected": "CREATE TABLE test3bpci (x bpchar(3) COLLATE case_insensitive)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 306",
@@ -1346,7 +1344,7 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 311",
-    "query": "SELECT x FROM test3bpci WHERE x \u003c\u003e 'abc'"
+    "query": "SELECT x FROM test3bpci WHERE x <> 'abc'"
   },
   {
     "comment": "collate.icu.utf8 - Statement 312",
@@ -1424,12 +1422,12 @@
   {
     "comment": "collate.icu.utf8 - Statement 329",
     "query": "SELECT string_to_array('ABC,DEF,GHI'::char(11) COLLATE case_insensitive, ',', 'abc')",
-    "expected": "SELECT string_to_array(CAST('ABC,DEF,GHI' AS CHAR(11)) COLLATE case_insensitive, ',', 'abc')"
+    "expected": "SELECT string_to_array(CAST('ABC,DEF,GHI' AS bpchar(11)) COLLATE case_insensitive, ',', 'abc')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 330",
     "query": "SELECT string_to_array('ABCDEFGHI'::char(9) COLLATE case_insensitive, NULL, 'b')",
-    "expected": "SELECT string_to_array(CAST('ABCDEFGHI' AS CHAR(9)) COLLATE case_insensitive, NULL, 'b')"
+    "expected": "SELECT string_to_array(CAST('ABCDEFGHI' AS bpchar(9)) COLLATE case_insensitive, NULL, 'b')"
   },
   {
     "comment": "collate.icu.utf8 - Statement 331",
@@ -1481,13 +1479,13 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 342",
-    "query": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND typname \u003c\u003e 'INT2'::text COLLATE case_insensitive ORDER BY typname",
-    "expected": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND typname \u003c\u003e CAST('INT2' AS TEXT) COLLATE case_insensitive ORDER BY typname"
+    "query": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND typname <> 'INT2'::text COLLATE case_insensitive ORDER BY typname",
+    "expected": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND typname <> CAST('INT2' AS TEXT) COLLATE case_insensitive ORDER BY typname"
   },
   {
     "comment": "collate.icu.utf8 - Statement 343",
-    "query": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND 'INT2'::text \u003c\u003e typname COLLATE case_insensitive ORDER BY typname",
-    "expected": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND CAST('INT2' AS TEXT) \u003c\u003e typname COLLATE case_insensitive ORDER BY typname"
+    "query": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND 'INT2'::text <> typname COLLATE case_insensitive ORDER BY typname",
+    "expected": "SELECT typname FROM pg_type WHERE typname LIKE 'int_' AND CAST('INT2' AS TEXT) <> typname COLLATE case_insensitive ORDER BY typname"
   },
   {
     "comment": "collate.icu.utf8 - Statement 344",
@@ -1749,8 +1747,8 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 403",
-    "query": "SELECT (SELECT count(*) FROM test23_0) \u003c\u003e (SELECT count(*) FROM test23_1)",
-    "expected": "SELECT (SELECT COUNT(*) FROM test23_0) \u003c\u003e (SELECT COUNT(*) FROM test23_1)"
+    "query": "SELECT (SELECT count(*) FROM test23_0) <> (SELECT count(*) FROM test23_1)",
+    "expected": "SELECT (SELECT COUNT(*) FROM test23_0) <> (SELECT COUNT(*) FROM test23_1)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 404",
@@ -1777,13 +1775,13 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 409",
-    "query": "SELECT (SELECT count(*) FROM test23a_0) \u003c\u003e (SELECT count(*) FROM test23a_1)",
-    "expected": "SELECT (SELECT COUNT(*) FROM test23a_0) \u003c\u003e (SELECT COUNT(*) FROM test23a_1)"
+    "query": "SELECT (SELECT count(*) FROM test23a_0) <> (SELECT count(*) FROM test23a_1)",
+    "expected": "SELECT (SELECT COUNT(*) FROM test23a_0) <> (SELECT COUNT(*) FROM test23a_1)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 410",
     "query": "CREATE TABLE test30 (a int, b char(3) COLLATE case_insensitive) PARTITION BY LIST (b)",
-    "expected": "CREATE TABLE test30 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY list (b)"
+    "expected": "CREATE TABLE test30 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY list (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 411",
@@ -1804,7 +1802,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 415",
     "query": "CREATE TABLE test31 (a int, b char(3) COLLATE case_insensitive) PARTITION BY RANGE (b)",
-    "expected": "CREATE TABLE test31 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY range (b)"
+    "expected": "CREATE TABLE test31 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY range (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 416",
@@ -1825,7 +1823,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 420",
     "query": "CREATE TABLE test32 (a int, b char(3) COLLATE case_sensitive) PARTITION BY HASH (b)",
-    "expected": "CREATE TABLE test32 (a INT, b CHAR(3) COLLATE case_sensitive) PARTITION BY hash (b)"
+    "expected": "CREATE TABLE test32 (a INT, b bpchar(3) COLLATE case_sensitive) PARTITION BY hash (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 421",
@@ -1853,7 +1851,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 426",
     "query": "CREATE TABLE test33 (a int, b char(3) COLLATE case_insensitive) PARTITION BY HASH (b)",
-    "expected": "CREATE TABLE test33 (a INT, b CHAR(3) COLLATE case_insensitive) PARTITION BY hash (b)"
+    "expected": "CREATE TABLE test33 (a INT, b bpchar(3) COLLATE case_insensitive) PARTITION BY hash (b)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 427",
@@ -1875,8 +1873,8 @@
   },
   {
     "comment": "collate.icu.utf8 - Statement 431",
-    "query": "SELECT (SELECT count(*) FROM test33_0) \u003c\u003e (SELECT count(*) FROM test33_1)",
-    "expected": "SELECT (SELECT COUNT(*) FROM test33_0) \u003c\u003e (SELECT COUNT(*) FROM test33_1)"
+    "query": "SELECT (SELECT count(*) FROM test33_0) <> (SELECT count(*) FROM test33_1)",
+    "expected": "SELECT (SELECT COUNT(*) FROM test33_0) <> (SELECT COUNT(*) FROM test33_1)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 432",

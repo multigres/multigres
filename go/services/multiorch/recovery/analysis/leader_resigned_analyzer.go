@@ -23,11 +23,13 @@ import (
 )
 
 // LeaderResignedAnalyzer detects when the topology leader has explicitly
-// requested its own replacement via LEADERSHIP_SIGNAL_REQUESTING_DEMOTION
-// (emitted by EmergencyDemote and graceful shutdown of a leader). Distinct
+// signalled that it should be replaced. Two signals trigger this analyzer
+// (see types.LeaderNeedsReplacement): COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE
+// (advertised by graceful shutdown) and LEADERSHIP_SIGNAL_REQUESTING_DEMOTION
+// (emitted by Recruit's primary-demote path after a postgres crash). Distinct
 // from LeaderIsDeadAnalyzer, which infers leader loss from reachability and
-// health. Resignation is an unambiguous, intentional signal so failover can
-// fire immediately with no follower-connection grace period.
+// health. Both signals are unambiguous, intentional indicators so failover
+// can fire immediately with no follower-connection grace period.
 type LeaderResignedAnalyzer struct {
 	factory *RecoveryActionFactory
 }

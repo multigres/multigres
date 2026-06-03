@@ -206,6 +206,10 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	asts, err := parser.ParseSQL(queryStr)
 	parseDuration := time.Since(parseStart)
 	if err != nil {
+		// ParseSQL only does syntactic parsing, so any error here is a syntax
+		// error. Surface it as a 42601 diagnostic (the parser stays
+		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would.
+		err = mterrors.NewParseError(err.Error())
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
 		return err
 	}

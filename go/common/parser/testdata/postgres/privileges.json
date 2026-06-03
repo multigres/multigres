@@ -42,7 +42,7 @@
   },
   {
     "comment": "privileges - Statement 11",
-    "query": "SELECT lo_unlink(oid) FROM pg_largeobject_metadata WHERE oid \u003e= 1000 AND oid \u003c 3000 ORDER BY oid"
+    "query": "SELECT lo_unlink(oid) FROM pg_largeobject_metadata WHERE oid >= 1000 AND oid < 3000 ORDER BY oid"
   },
   {
     "comment": "privileges - Statement 12",
@@ -94,15 +94,18 @@
   },
   {
     "comment": "privileges - Statement 24",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 25",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE GRANTED BY regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 26",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE GRANTED BY regress_priv_user3"
   },
   {
     "comment": "privileges - Statement 27",
@@ -179,7 +182,8 @@
   },
   {
     "comment": "privileges - Statement 44",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 45",
@@ -195,7 +199,8 @@
   },
   {
     "comment": "privileges - Statement 48",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 49",
@@ -219,7 +224,8 @@
   },
   {
     "comment": "privileges - Statement 54",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION",
+    "expected": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 55",
@@ -232,7 +238,8 @@
   },
   {
     "comment": "privileges - Statement 57",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION",
+    "expected": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 58",
@@ -279,8 +286,7 @@
   },
   {
     "comment": "privileges - Statement 68",
-    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE",
-    "expected": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET OPTION"
+    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE"
   },
   {
     "comment": "privileges - Statement 69",
@@ -384,7 +390,8 @@
   },
   {
     "comment": "privileges - Statement 91",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION",
+    "expected": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 92",
@@ -398,11 +405,13 @@
   },
   {
     "comment": "privileges - Statement 94",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role"
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role",
+    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY regress_priv_role"
   },
   {
     "comment": "privileges - Statement 95",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE"
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE",
+    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY CURRENT_ROLE"
   },
   {
     "comment": "privileges - Statement 96",
@@ -651,17 +660,17 @@
   },
   {
     "comment": "privileges - Statement 152",
-    "query": "CREATE OPERATOR \u003c\u003c\u003c (procedure = leak, leftarg = integer, rightarg = integer, restrict = scalarltsel)",
-    "expected": "CREATE OPERATOR \u003c\u003c\u003c (procedure = leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
+    "query": "CREATE OPERATOR <<< (procedure = leak, leftarg = integer, rightarg = integer, restrict = scalarltsel)",
+    "expected": "CREATE OPERATOR <<< (procedure = leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
   },
   {
     "comment": "privileges - Statement 153",
-    "query": "CREATE VIEW atest12v AS SELECT * FROM atest12 WHERE b \u003c\u003c\u003c 5"
+    "query": "CREATE VIEW atest12v AS SELECT * FROM atest12 WHERE b <<< 5"
   },
   {
     "comment": "privileges - Statement 154",
-    "query": "CREATE VIEW atest12sbv WITH (security_barrier=true) AS SELECT * FROM atest12 WHERE b \u003c\u003c\u003c 5",
-    "expected": "CREATE VIEW atest12sbv WITH ( security_barrier = 'true') AS SELECT * FROM atest12 WHERE b \u003c\u003c\u003c 5"
+    "query": "CREATE VIEW atest12sbv WITH (security_barrier=true) AS SELECT * FROM atest12 WHERE b <<< 5",
+    "expected": "CREATE VIEW atest12sbv WITH ( security_barrier = 'true') AS SELECT * FROM atest12 WHERE b <<< 5"
   },
   {
     "comment": "privileges - Statement 155",
@@ -678,8 +687,8 @@
   },
   {
     "comment": "privileges - Statement 158",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 x, atest12 y WHERE x.a = y.b and abs(y.a) \u003c\u003c\u003c 5",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12 AS x, atest12 AS y WHERE x.a = y.b AND abs(y.a) \u003c\u003c\u003c 5"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 x, atest12 y WHERE x.a = y.b and abs(y.a) <<< 5",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12 AS x, atest12 AS y WHERE x.a = y.b AND abs(y.a) <<< 5"
   },
   {
     "comment": "privileges - Statement 159",
@@ -688,28 +697,28 @@
   },
   {
     "comment": "privileges - Statement 160",
-    "query": "CREATE FUNCTION leak2(integer,integer) RETURNS boolean AS $$begin raise notice 'leak % %', $1, $2; return $1 \u003e $2; end$$ LANGUAGE plpgsql immutable",
-    "expected": "CREATE FUNCTION leak2 (INT, INT) RETURNS BOOLEAN AS $$begin raise notice 'leak % %', $1, $2; return $1 \u003e $2; end$$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "CREATE FUNCTION leak2(integer,integer) RETURNS boolean AS $$begin raise notice 'leak % %', $1, $2; return $1 > $2; end$$ LANGUAGE plpgsql immutable",
+    "expected": "CREATE FUNCTION leak2 (INT, INT) RETURNS BOOLEAN AS $$begin raise notice 'leak % %', $1, $2; return $1 > $2; end$$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "privileges - Statement 161",
-    "query": "CREATE OPERATOR \u003e\u003e\u003e (procedure = leak2, leftarg = integer, rightarg = integer, restrict = scalargtsel)",
-    "expected": "CREATE OPERATOR \u003e\u003e\u003e (procedure = leak2, leftarg = INT, rightarg = INT, restrict = scalargtsel)"
+    "query": "CREATE OPERATOR >>> (procedure = leak2, leftarg = integer, rightarg = integer, restrict = scalargtsel)",
+    "expected": "CREATE OPERATOR >>> (procedure = leak2, leftarg = INT, rightarg = INT, restrict = scalargtsel)"
   },
   {
     "comment": "privileges - Statement 162",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 WHERE a \u003e\u003e\u003e 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12 WHERE a \u003e\u003e\u003e 0"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 WHERE a >>> 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12 WHERE a >>> 0"
   },
   {
     "comment": "privileges - Statement 163",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12v x, atest12v y WHERE x.a = y.b and abs(y.a) \u003c\u003c\u003c 5",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12v AS x, atest12v AS y WHERE x.a = y.b AND abs(y.a) \u003c\u003c\u003c 5"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12v x, atest12v y WHERE x.a = y.b and abs(y.a) <<< 5",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12v AS x, atest12v AS y WHERE x.a = y.b AND abs(y.a) <<< 5"
   },
   {
     "comment": "privileges - Statement 164",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12sbv x, atest12sbv y WHERE x.a = y.b and abs(y.a) \u003c\u003c\u003c 5",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12sbv AS x, atest12sbv AS y WHERE x.a = y.b AND abs(y.a) \u003c\u003c\u003c 5"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12sbv x, atest12sbv y WHERE x.a = y.b and abs(y.a) <<< 5",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM atest12sbv AS x, atest12sbv AS y WHERE x.a = y.b AND abs(y.a) <<< 5"
   },
   {
     "comment": "privileges - Statement 165",
@@ -754,8 +763,7 @@
   },
   {
     "comment": "privileges - Statement 174",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE",
-    "expected": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT OPTION"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE"
   },
   {
     "comment": "privileges - Statement 175",
@@ -815,8 +823,8 @@
   },
   {
     "comment": "privileges - Statement 188",
-    "query": "select * from ((select a.q1 as x, random() from int8_tbl a where q1 \u003e 0) union all (select b.q2 as x, random() from int8_tbl b where q2 \u003e 0)) ss where x \u003c 0",
-    "expected": "SELECT * FROM ((SELECT a.q1 AS x, random() FROM int8_tbl AS a WHERE q1 \u003e 0) UNION ALL (SELECT b.q2 AS x, random() FROM int8_tbl AS b WHERE q2 \u003e 0)) AS ss WHERE x \u003c 0"
+    "query": "select * from ((select a.q1 as x, random() from int8_tbl a where q1 > 0) union all (select b.q2 as x, random() from int8_tbl b where q2 > 0)) ss where x < 0",
+    "expected": "SELECT * FROM ((SELECT a.q1 AS x, random() FROM int8_tbl AS a WHERE q1 > 0) UNION ALL (SELECT b.q2 AS x, random() FROM int8_tbl AS b WHERE q2 > 0)) AS ss WHERE x < 0"
   },
   {
     "comment": "privileges - Statement 189",
@@ -911,47 +919,47 @@
   {
     "comment": "privileges - Statement 209",
     "query": "SELECT * FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT * FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT * FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 210",
     "query": "SELECT j.* FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT j.* FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT j.* FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 211",
     "query": "SELECT (j.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one)) j",
-    "expected": "SELECT (j.*) IS NULL FROM atest5 AS a INNER JOIN atest5 AS b USING (one)"
+    "expected": "SELECT (j.*) IS NULL FROM (atest5 AS a INNER JOIN atest5 AS b USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 212",
     "query": "SELECT one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT one FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT one FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 213",
     "query": "SELECT j.one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.one FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.one FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 214",
     "query": "SELECT two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT two FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT two FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 215",
     "query": "SELECT j.two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.two FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.two FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 216",
     "query": "SELECT y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT y FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT y FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 217",
     "query": "SELECT j.y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j",
-    "expected": "SELECT j.y FROM atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)"
+    "expected": "SELECT j.y FROM (atest5 AS a INNER JOIN atest5 AS b(one, x, y, z) USING (one)) AS j"
   },
   {
     "comment": "privileges - Statement 218",
@@ -1262,8 +1270,8 @@
   },
   {
     "comment": "privileges - Statement 284",
-    "query": "CREATE TABLE t1 (c1 int, c2 int, c3 int check (c3 \u003c 5), primary key (c1, c2))",
-    "expected": "CREATE TABLE t1 (c1 INT, c2 INT, c3 INT CHECK (c3 \u003c 5), PRIMARY KEY (c1, c2))"
+    "query": "CREATE TABLE t1 (c1 int, c2 int, c3 int check (c3 < 5), primary key (c1, c2))",
+    "expected": "CREATE TABLE t1 (c1 INT, c2 INT, c3 INT CHECK (c3 < 5), PRIMARY KEY (c1, c2))"
   },
   {
     "comment": "privileges - Statement 285",
@@ -1556,18 +1564,15 @@
   },
   {
     "comment": "privileges - Statement 352",
-    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user1",
-    "expected": "GRANT USAGE ON sql TO regress_priv_user1"
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 353",
-    "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC",
-    "expected": "GRANT USAGE ON c TO PUBLIC"
+    "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 354",
-    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user2",
-    "expected": "GRANT USAGE ON sql TO regress_priv_user2"
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 355",
@@ -1709,7 +1714,7 @@
   {
     "comment": "privileges - Statement 383",
     "query": "GRANT ALL PRIVILEGES ON LANGUAGE sql TO PUBLIC",
-    "expected": "GRANT ALL ON sql TO PUBLIC"
+    "expected": "GRANT ALL ON LANGUAGE sql TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 384",
@@ -1735,8 +1740,7 @@
   },
   {
     "comment": "privileges - Statement 389",
-    "query": "GRANT USAGE ON DOMAIN priv_testtype1 TO regress_priv_user2",
-    "expected": "GRANT USAGE ON priv_testtype1 TO regress_priv_user2"
+    "query": "GRANT USAGE ON DOMAIN priv_testtype1 TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 390",
@@ -1746,12 +1750,11 @@
   {
     "comment": "privileges - Statement 391",
     "query": "REVOKE USAGE on DOMAIN priv_testdomain1 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON priv_testdomain1 FROM PUBLIC"
+    "expected": "REVOKE USAGE ON DOMAIN priv_testdomain1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 392",
-    "query": "GRANT USAGE ON DOMAIN priv_testdomain1 TO regress_priv_user2",
-    "expected": "GRANT USAGE ON priv_testdomain1 TO regress_priv_user2"
+    "query": "GRANT USAGE ON DOMAIN priv_testdomain1 TO regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 393",
@@ -2366,8 +2369,8 @@
   },
   {
     "comment": "privileges - Statement 525",
-    "query": "CREATE INDEX sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)",
-    "expected": "CREATE INDEX sro_idx ON sro_tab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)"
+    "query": "CREATE INDEX sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)",
+    "expected": "CREATE INDEX sro_idx ON sro_tab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) > sro_ifun(10)"
   },
   {
     "comment": "privileges - Statement 526",
@@ -2375,8 +2378,8 @@
   },
   {
     "comment": "privileges - Statement 527",
-    "query": "CREATE INDEX CONCURRENTLY sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)",
-    "expected": "CREATE INDEX CONCURRENTLY sro_idx ON sro_tab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)"
+    "query": "CREATE INDEX CONCURRENTLY sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)",
+    "expected": "CREATE INDEX CONCURRENTLY sro_idx ON sro_tab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) > sro_ifun(10)"
   },
   {
     "comment": "privileges - Statement 528",
@@ -2443,8 +2446,8 @@
   },
   {
     "comment": "privileges - Statement 543",
-    "query": "CREATE INDEX sro_pidx ON sro_ptab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)",
-    "expected": "CREATE INDEX sro_pidx ON sro_ptab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) \u003e sro_ifun(10)"
+    "query": "CREATE INDEX sro_pidx ON sro_ptab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)",
+    "expected": "CREATE INDEX sro_pidx ON sro_ptab USING btree ( (sro_ifun(a) + sro_ifun(0)) ) WHERE sro_ifun(a + 10) > sro_ifun(10)"
   },
   {
     "comment": "privileges - Statement 544",
@@ -2511,8 +2514,8 @@
   },
   {
     "comment": "privileges - Statement 562",
-    "query": "CREATE UNIQUE INDEX ON sro_index_mv (c) WHERE unwanted_grant_nofail(1) \u003e 0",
-    "expected": "CREATE UNIQUE INDEX ON sro_index_mv USING btree ( c ) WHERE unwanted_grant_nofail(1) \u003e 0"
+    "query": "CREATE UNIQUE INDEX ON sro_index_mv (c) WHERE unwanted_grant_nofail(1) > 0",
+    "expected": "CREATE UNIQUE INDEX ON sro_index_mv USING btree ( c ) WHERE unwanted_grant_nofail(1) > 0"
   },
   {
     "comment": "privileges - Statement 563",
@@ -3113,7 +3116,7 @@
   {
     "comment": "privileges - Statement 700",
     "query": "SELECT d.* FROM pg_default_acl d LEFT JOIN pg_namespace n ON defaclnamespace = n.oid WHERE nspname IS NULL AND defaclnamespace != 0",
-    "expected": "SELECT d.* FROM pg_default_acl AS d LEFT OUTER JOIN pg_namespace AS n ON defaclnamespace = n.oid WHERE nspname IS NULL AND defaclnamespace \u003c\u003e 0"
+    "expected": "SELECT d.* FROM pg_default_acl AS d LEFT OUTER JOIN pg_namespace AS n ON defaclnamespace = n.oid WHERE nspname IS NULL AND defaclnamespace <> 0"
   },
   {
     "comment": "privileges - Statement 701",
@@ -3343,8 +3346,7 @@
   },
   {
     "comment": "privileges - Statement 752",
-    "query": "REVOKE USAGE ON LANGUAGE sql FROM regress_priv_user1",
-    "expected": "REVOKE USAGE ON sql FROM regress_priv_user1"
+    "query": "REVOKE USAGE ON LANGUAGE sql FROM regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 753",
@@ -3466,11 +3468,11 @@
   },
   {
     "comment": "privileges - Statement 779",
-    "query": "SELECT COUNT(*) \u003e= 0 AS ok FROM pg_backend_memory_contexts"
+    "query": "SELECT COUNT(*) >= 0 AS ok FROM pg_backend_memory_contexts"
   },
   {
     "comment": "privileges - Statement 780",
-    "query": "SELECT COUNT(*) \u003e= 0 AS ok FROM pg_shmem_allocations"
+    "query": "SELECT COUNT(*) >= 0 AS ok FROM pg_shmem_allocations"
   },
   {
     "comment": "privileges - Statement 781",
@@ -3494,8 +3496,7 @@
   },
   {
     "comment": "privileges - Statement 786",
-    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE",
-    "expected": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT OPTION, ADMIN OPTION"
+    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE"
   },
   {
     "comment": "privileges - Statement 787",
@@ -3562,13 +3563,11 @@
   },
   {
     "comment": "privileges - Statement 802",
-    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE",
-    "expected": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
+    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE"
   },
   {
     "comment": "privileges - Statement 803",
-    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE",
-    "expected": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
+    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE"
   },
   {
     "comment": "privileges - Statement 804",
