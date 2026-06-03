@@ -1083,6 +1083,203 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
 }
 
+// TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo guards the helper
+// contract introduced in the unified-rewind refactor: restartAsStandbyLocked
+// sets primary_conninfo on success regardless of whether pg_rewind actually
+// ran. The dry-run reports no divergence here, so runPgRewind returns
+// rewindPerformed=false and skips the actual rewind — but the helper must
+// still point primary_conninfo at source. Without this test, a regression
+// that gates the conninfo call on rewindPerformed would pass the divergence
+// test (TestRewindToSource_RestoresPrimaryConnInfo) and silently break
+// callers that arrive via this path.
+func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.Background()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:        serviceID,
+		PoolerDir: poolerDir,
+		Type:      clustermetadatapb.PoolerType_REPLICA,
+		PortMap: map[string]int32{
+			"postgres": 5432,
+		},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+
+	// Mock pgctld: dry-run output does NOT contain "servers diverged at", so
+	// runPgRewind skips the actual rewind and returns rewindPerformed=false.
+	mockPgctld := &testutil.MockPgCtldService{
+		PgRewindResponse: &pgctldpb.PgRewindResponse{
+			Message: "pg_rewind dry-run completed",
+			Output:  "source and target cluster are on the same timeline",
+		},
+	}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	var primaryConnInfoSet string
+
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT 1",
+		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(query string) { primaryConnInfoSet = query },
+	)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
+		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, multipooler, config)
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	createPgDataDir(t, poolerDir)
+	require.NoError(t, manager.setInitialized())
+
+	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+	manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+
+	manager.mu.Lock()
+	manager.isOpen = true
+	manager.state = ManagerStateReady
+	manager.ctx, manager.cancel = context.WithCancel(ctx)
+	manager.mu.Unlock()
+
+	source := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "source-pooler",
+		},
+		Hostname: "source-host",
+		PortMap:  map[string]int32{"postgres": 5433},
+	}
+
+	resp, err := manager.RewindToSource(ctx, source)
+	require.NoError(t, err)
+	assert.False(t, resp.RewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
+
+	// Only the dry-run should have fired; no actual rewind.
+	rewindCalls := mockPgctld.PgRewindCalls
+	require.Len(t, rewindCalls, 1, "expected only the dry-run pg_rewind call")
+	assert.True(t, rewindCalls[0].DryRun, "the single call should be the dry-run")
+
+	// The contract: primary_conninfo gets set even when no rewind happens.
+	assert.NotEmpty(t, primaryConnInfoSet, "primary_conninfo must be set even when no rewind runs")
+	assert.Contains(t, primaryConnInfoSet, "source-host", "primary_conninfo must reference the source host")
+	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
+}
+
+// TestRewindToSource_InvalidArgs verifies the four input-validation branches
+// at the top of RewindToSource return INVALID_ARGUMENT without touching
+// postgres. The manager is constructed but never reaches setInitialized; the
+// validation happens before checkReady, so this is enough.
+func TestRewindToSource_InvalidArgs(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.Background()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:        serviceID,
+		PoolerDir: poolerDir,
+		Type:      clustermetadatapb.PoolerType_REPLICA,
+		PortMap:   map[string]int32{"postgres": 5432},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+
+	manager, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	createPgDataDir(t, poolerDir)
+	require.NoError(t, manager.setInitialized())
+	manager.mu.Lock()
+	manager.isOpen = true
+	manager.state = ManagerStateReady
+	manager.ctx, manager.cancel = context.WithCancel(ctx)
+	manager.mu.Unlock()
+
+	cases := []struct {
+		name   string
+		source *clustermetadatapb.MultiPooler
+	}{
+		{
+			name:   "nil source",
+			source: nil,
+		},
+		{
+			name: "nil port map",
+			source: &clustermetadatapb.MultiPooler{
+				Id:       &clustermetadatapb.ID{Name: "src"},
+				Hostname: "src-host",
+			},
+		},
+		{
+			name: "empty hostname",
+			source: &clustermetadatapb.MultiPooler{
+				Id:      &clustermetadatapb.ID{Name: "src"},
+				PortMap: map[string]int32{"postgres": 5433},
+			},
+		},
+		{
+			name: "missing postgres port",
+			source: &clustermetadatapb.MultiPooler{
+				Id:       &clustermetadatapb.ID{Name: "src"},
+				Hostname: "src-host",
+				PortMap:  map[string]int32{"grpc": 8080},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := manager.RewindToSource(ctx, tc.source)
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err),
+				"expected INVALID_ARGUMENT, got %v: %v", mterrors.Code(err), err)
+		})
+	}
+}
+
 func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 	ctx := t.Context()
 
