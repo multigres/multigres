@@ -153,11 +153,16 @@ func TestDiscardAllPrimitive_Success(t *testing.T) {
 }
 
 // TestDiscardAllPrimitive_ReleaseError surfaces a reserved-connection release
-// failure to the caller.
+// failure to the caller and verifies DISCARD ALL is atomic on that failure: the
+// release runs first, so when it errors none of the gateway-side resets (prepared
+// statements, session GUCs, HOLD-cursor tracking) have run.
 func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 	mockExec := &mockIExecute{releaseAllErr: errors.New("release boom")}
-	conn := newDiscardTestConn(t, &recordingHandler{})
+	h := &recordingHandler{}
+	conn := newDiscardTestConn(t, h)
 	state := handler.NewMultiGatewayConnectionState()
+	state.SetSessionVariable("work_mem", "64MB")
+	state.AddOpenHoldCursor("c1")
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
 	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil,
@@ -165,6 +170,13 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "release boom")
+
+	// Atomic on failure: the session is left untouched, not half-reset.
+	assert.Empty(t, h.closeCalls, "prepared statements must not be dropped when release fails")
+	v, ok := state.GetSessionVariable("work_mem")
+	assert.True(t, ok, "session settings must be left intact when release fails")
+	assert.Equal(t, "64MB", v)
+	assert.True(t, state.HasAnyOpenHoldCursor(), "HOLD cursor tracking must be left intact when release fails")
 }
 
 // TestDiscardAllPrimitive_PortalStreamExecute exercises the extended-protocol

@@ -55,6 +55,14 @@ import (
 // them keeps the multipooler's connState accurate. Only the gateway's
 // per-session view (the consolidator) is cleared, which is what frees the
 // client's statement names.
+//
+// Out of scope: the `SELECT pg_advisory_unlock_all()` half of PG's DISCARD ALL
+// is NOT handled here. Session-level advisory locks live on whatever backend
+// executed pg_advisory_lock, and the reserved-connection release rolls back
+// (which only drops transaction-level locks) rather than running
+// pg_advisory_unlock_all on the backend. Session-level advisory locks are a
+// pre-existing limitation under pooling and are not addressed by this
+// primitive.
 type DiscardAllPrimitive struct {
 	// Query is the original SQL string ("DISCARD ALL").
 	Query string
@@ -86,6 +94,22 @@ func (d *DiscardAllPrimitive) StreamExecute(
 			"DISCARD ALL cannot run inside a transaction block", "")
 	}
 
+	// CLOSE ALL + DISCARD TEMP + rollback of a reserved backend — release any
+	// reserved connection regardless of reason. ReleaseAllReservedConnections
+	// rolls back, discards temp tables, releases portals, returns the backend
+	// to the pool clean, and clears local shard state.
+	//
+	// This is done FIRST because it is the only step that can fail (it makes an
+	// RPC to the multipooler). The gateway-side resets below are pure in-memory
+	// state mutations that cannot fail, so running the fallible release up front
+	// keeps DISCARD ALL effectively atomic: if the release errors we bail with
+	// the client's session untouched rather than half-reset.
+	if err := exec.ReleaseAllReservedConnections(ctx, conn, state); err != nil {
+		return err
+	}
+	// Clear the gateway's HOLD cursor bookkeeping to match the released backend.
+	state.ClearOpenHoldCursors()
+
 	// DEALLOCATE ALL — drop the session's prepared statements from the
 	// consolidator (same path DEALLOCATE ALL uses). Pooled backends keep their
 	// canonical statements; only the client-facing names are released.
@@ -106,16 +130,6 @@ func (d *DiscardAllPrimitive) StreamExecute(
 		if state.SubSync != nil {
 			state.SubSync.SyncSubscriptions(conn.Context(), conn, state, nil, nil, true)
 		}
-	}
-
-	// CLOSE ALL + DISCARD TEMP + rollback of a reserved backend — release any
-	// reserved connection regardless of reason. ReleaseAllReservedConnections
-	// rolls back, discards temp tables, releases portals, returns the backend
-	// to the pool clean, and clears local shard state. Clear the gateway's HOLD
-	// cursor bookkeeping to match.
-	state.ClearOpenHoldCursors()
-	if err := exec.ReleaseAllReservedConnections(ctx, conn, state); err != nil {
-		return err
 	}
 
 	return callback(ctx, &sqltypes.Result{CommandTag: "DISCARD ALL"})

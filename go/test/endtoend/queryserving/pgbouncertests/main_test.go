@@ -18,9 +18,6 @@
 // scenarios from PgBouncer's test suite (https://github.com/pgbouncer/pgbouncer,
 // ISC License — see the LICENSE file in this directory) to Go end-to-end tests
 // against the multigateway → multipooler → postgres path.
-//
-// See README.md for the triage that selects which PgBouncer scenarios are
-// ported here (and which are out of scope / already covered elsewhere).
 package pgbouncertests
 
 import (
