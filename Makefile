@@ -25,16 +25,17 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 SQLLOGICTEST_VER = v0.29.1
 export SQLLOGICTEST_VER
-# pgproto ships no release binaries; we build from a pinned source commit.
-# PGPROTO_VER is therefore a git commit SHA, not a semver tag.
-PGPROTO_VER = fa08c9c96df9ca514cd19aa7f587e27c7ac63160
+# pgproto is built from source from the pgpool-II release tarball (it lives in
+# the pgpool2 tree under src/tools/pgproto). PGPROTO_VER is the pgpool-II
+# release version.
+PGPROTO_VER = 4.6.6
 export PGPROTO_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgproto pgproto-update-patches proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser help
 
 ##@ General
 
@@ -161,6 +162,23 @@ pgregress: build ## Run the PostgreSQL regression suite with patch-based verific
 # diff before merging.
 pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from the current run.
 	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Run the external extension suite (e.g. pgvector). Clones and builds each
+# external extension as a PGXS module against the from-source PostgreSQL, then
+# runs its shipped pg_regress suite through multigateway with patch-based
+# verification. Known divergences are recorded under
+# testdata/pg17/patches/external/<ext>/.
+pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch-based verification.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=verify \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Re-run the external extension suite in generate mode: any residual diff between
+# actual output and patched-expected output is absorbed by (re)writing
+# testdata/pg17/patches/external/<ext>/<name>.patch. Review the resulting patches
+# in the PR diff before merging.
+pgexternal-update-patches: build ## Regenerate testdata/pg17/patches/external/*.patch from the current run.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate \
 	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
 # Run the pgproto wire-protocol conformance suite (patch-verify mode). Requires

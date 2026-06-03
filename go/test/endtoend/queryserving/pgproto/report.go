@@ -141,8 +141,8 @@ func writeMarkdownSummary(t *testing.T, outputDir string, r *suiteutil.SuiteRepo
 
 	var sb strings.Builder
 	sb.WriteString("## pgproto Wire-Protocol Conformance\n\n")
-	fmt.Fprintf(&sb, "**Tool:** [tatsuo-ishii/pgproto@%.12s](%s/tree/%s)\n",
-		r.CorpusCommit, PgprotoRepoURL, r.CorpusCommit)
+	fmt.Fprintf(&sb, "**Tool:** [pgpool-II %s](%s) (src/tools/pgproto)\n",
+		r.CorpusCommit, PgprotoRepoURL)
 	fmt.Fprintf(&sb, "**Corpus:** `%s`\n", r.CorpusDir)
 	fmt.Fprintf(&sb, "**Started:** %s UTC — **Duration:** %s\n\n",
 		r.StartedAt.UTC().Format(time.RFC3339), r.Duration)

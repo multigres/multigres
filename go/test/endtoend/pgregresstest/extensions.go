@@ -28,7 +28,10 @@ const (
 	// contrib/, so the pgregress harness can build and run its suite directly.
 	KindContrib ExtKind = "contrib"
 	// KindExternal: the extension lives in a separate repository (not in the
-	// PostgreSQL source tree) and needs bespoke build infrastructure.
+	// PostgreSQL source tree) and needs bespoke build infrastructure (clone its
+	// repo at a pinned tag, build it as a PGXS module against the from-source
+	// PostgreSQL, then run its shipped pg_regress suite — see externalSpecs and
+	// Builder.InstallExternalExtension).
 	KindExternal ExtKind = "external"
 )
 
@@ -36,8 +39,10 @@ const (
 type ExtStatus string
 
 const (
-	// StatusCovered: wired into the contrib suite (see ExtensionCatalog →
-	// CoveredContribModules); its pg_regress suite runs through multigateway.
+	// StatusCovered: wired into a suite that runs the extension's pg_regress
+	// tests through multigateway. For KindContrib that is the contrib suite
+	// (ExtensionCatalog → CoveredContribModules); for KindExternal it is the
+	// external suite (CoveredExternalExtensions, backed by externalSpecs).
 	StatusCovered ExtStatus = "covered"
 	// StatusPending: a core-contrib module with a pg_regress suite that this
 	// harness could run but has not been wired up yet.
@@ -102,17 +107,70 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"supabase_vault", KindExternal, StatusExternal, ""},
 	{"unaccent", KindContrib, StatusCovered, ""},
 	{"uuid-ossp", KindContrib, StatusCovered, "needs --with-uuid"},
-	{"vector", KindExternal, StatusExternal, "pgvector"},
+	{"vector", KindExternal, StatusCovered, "pgvector; built as a PGXS module from externalSpecs"},
 	{"wrappers", KindExternal, StatusExternal, "Rust"},
 }
 
+// ExternalExtension describes one external (non-contrib) extension wired into
+// the external suite: its catalog name plus the git coordinates the harness
+// clones and builds it from.
+type ExternalExtension struct {
+	Name string
+	Repo string
+	Tag  string
+}
+
+// externalSpecs holds the build coordinates (git repo + pinned tag) for every
+// external extension the harness can build. An ExtensionCatalog entry with
+// Kind==KindExternal can only be StatusCovered if it also has a spec here; the
+// pinned tag keeps the suite reproducible (and matches the pgvector ABI the
+// from-source PostgreSQL was built against). Keyed by catalog Name.
+var externalSpecs = map[string]ExternalExtension{
+	"vector": {Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1"},
+}
+
+// CoveredExternalExtensions returns the external extensions the suite builds and
+// tests, derived from ExtensionCatalog (every KindExternal+StatusCovered entry)
+// joined with its build spec. An entry marked covered without a matching spec is
+// a configuration error and is skipped (CheckExternalSpecs surfaces it as a
+// hard failure so it can't silently drop coverage).
+func CoveredExternalExtensions() []ExternalExtension {
+	var exts []ExternalExtension
+	for _, e := range ExtensionCatalog {
+		if e.Kind == KindExternal && e.Status == StatusCovered {
+			if spec, ok := externalSpecs[e.Name]; ok {
+				exts = append(exts, spec)
+			}
+		}
+	}
+	return exts
+}
+
+// CheckExternalSpecs verifies every covered external extension has a build spec.
+// Returns the names missing a spec so the caller can fail loudly rather than
+// silently testing nothing.
+func CheckExternalSpecs() []string {
+	var missing []string
+	for _, e := range ExtensionCatalog {
+		if e.Kind == KindExternal && e.Status == StatusCovered {
+			if _, ok := externalSpecs[e.Name]; !ok {
+				missing = append(missing, e.Name)
+			}
+		}
+	}
+	return missing
+}
+
 // CoveredContribModules returns the contrib module directories the suite runs,
-// derived from ExtensionCatalog (every StatusCovered entry). This is the single
-// source of truth; DefaultContribModules is built from it.
+// derived from ExtensionCatalog (every KindContrib+StatusCovered entry). This is
+// the single source of truth; DefaultContribModules is built from it. External
+// covered extensions are intentionally excluded — they ship outside the
+// PostgreSQL source tree and run through the separate external suite
+// (CoveredExternalExtensions).
 func CoveredContribModules() []string {
 	var mods []string
 	for _, e := range ExtensionCatalog {
-		if e.Status == StatusCovered {
+		if e.Kind == KindContrib && e.Status == StatusCovered {
 			mods = append(mods, e.Name)
 		}
 	}
@@ -158,13 +216,18 @@ func statusCell(s ExtStatus) string {
 // rest so the grouping reads cleanly. Non-covered extensions get a single row
 // with the reason in Notes.
 //
-// contrib may be nil (no contrib suite ran), in which case covered extensions
-// show "—" results.
-func ExtensionCoverageMarkdown(contrib *TestResults) string {
-	// Group this run's per-test results by module ("mod/test" → mod).
+// suites are this run's per-test result sets whose tests are named "mod/test"
+// (the contrib and external suites). Any may be nil (that suite did not run), in
+// which case its covered extensions show "—" results.
+func ExtensionCoverageMarkdown(suites ...*TestResults) string {
+	// Group this run's per-test results by module ("mod/test" → mod) across
+	// every suite (contrib + external share the same module-prefixed naming).
 	byModule := map[string][]IndividualTestResult{}
-	if contrib != nil {
-		for _, tr := range contrib.Tests {
+	for _, suite := range suites {
+		if suite == nil {
+			continue
+		}
+		for _, tr := range suite.Tests {
 			mod, test, ok := strings.Cut(tr.Name, "/")
 			if !ok {
 				continue

@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -410,6 +411,173 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 	return merged, nil
 }
 
+// ExternalModules returns the external extensions to test, defaulting to the
+// covered set (CoveredExternalExtensions). PGEXTERNAL_TESTS (space-separated
+// catalog names, e.g. "vector") selects a subset for local iteration.
+func ExternalModules() []ExternalExtension {
+	all := CoveredExternalExtensions()
+	sel := strings.Fields(os.Getenv("PGEXTERNAL_TESTS"))
+	if len(sel) == 0 {
+		return all
+	}
+	want := make(map[string]bool, len(sel))
+	for _, s := range sel {
+		want[s] = true
+	}
+	var out []ExternalExtension
+	for _, e := range all {
+		if want[e.Name] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// listRegressTests returns the regression test names for an external extension,
+// derived from the .sql files under <testDir>/sql. This mirrors the PGXS
+// convention REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql)).
+// Names are sorted so the run order is deterministic and matches make's sorted
+// $(wildcard).
+func listRegressTests(testDir string) []string {
+	matches, err := filepath.Glob(filepath.Join(testDir, "sql", "*.sql"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(matches)
+	names := make([]string, 0, len(matches))
+	for _, m := range matches {
+		names = append(names, strings.TrimSuffix(filepath.Base(m), ".sql"))
+	}
+	return names
+}
+
+// RunExternalTests runs each external extension's shipped pg_regress suite
+// against multigateway and returns one merged TestResults across all of them.
+//
+// External (KindExternal) extensions are PGXS modules that live outside the
+// PostgreSQL source tree (see Builder.InstallExternalExtension, which has
+// already cloned and installed each one before this is called). They ship the
+// same sql/ + expected/ fixture layout as contrib, so verification reuses the
+// shared pipeline (verifyModuleResults). Per-test names are prefixed with the
+// extension name ("vector/btree") to stay unique in the merged report.
+//
+// Unlike contrib we cannot use `make installcheck`: under PGXS that target runs
+// $(top_builddir)/src/test/regress/pg_regress, and PGXS resolves top_builddir
+// into the install tree, where pg_regress is not installed. We instead invoke
+// the pg_regress we built directly, passing the same flags the contrib suite
+// relies on (--use-existing --dbname=postgres, because multigateway rejects
+// DROP/CREATE DATABASE) plus the extension's --inputdir/--load-extension.
+//
+// As with contrib, all extensions share the single postgres database, so before
+// each one we reset the public schema directly on the primary (directPgPort,
+// bypassing the gateway's DDL block) to clear objects a prior extension left
+// behind; pg_regress's --load-extension re-creates the extension per test.
+func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, exts []ExternalExtension, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	// Ensure the pg_regress we drive directly is built (a contrib/regression run
+	// would have built it already; an external-only run must build it here).
+	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
+	pgRegress := filepath.Join(regressDir, "pg_regress")
+	if !suiteutil.FileExists(pgRegress) {
+		if out, err := executil.Command(ctx, "make", "-C", regressDir, "all").CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("failed to build pg_regress: %w\n%s", err, truncateForLog(string(out), 2000))
+		}
+	}
+
+	merged := &TestResults{
+		FailureDetails: []TestFailure{},
+		Tests:          []IndividualTestResult{},
+	}
+	mode := GetPatchMode()
+	pgBinDir := pb.BinDir()
+
+	for _, ext := range exts {
+		cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
+		testDir := filepath.Join(cloneDir, "test")
+		if !suiteutil.FileExists(filepath.Join(testDir, "sql")) {
+			t.Logf("external/%s: no test/sql in checkout, skipping", ext.Name)
+			continue
+		}
+
+		tests := listRegressTests(testDir)
+		if len(tests) == 0 {
+			t.Logf("external/%s: no .sql tests found, skipping", ext.Name)
+			continue
+		}
+
+		// Clean slate for this extension: drop anything a prior extension left in
+		// public. Best-effort — log and proceed if it fails.
+		if err := resetContribState(directPgPort, password); err != nil {
+			t.Logf("external/%s: warning: public schema reset failed: %v", ext.Name, err)
+		}
+
+		// Preload the extension: --use-existing skips pg_regress's own
+		// --load-extension step, and pgvector's fixtures assume it is already
+		// installed (see createExtensionViaGateway).
+		if err := createExtensionViaGateway(multigatewayPort, password, ext.Name); err != nil {
+			t.Logf("external/%s: warning: CREATE EXTENSION failed: %v", ext.Name, err)
+		}
+
+		t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
+		args := []string{
+			"--inputdir=" + testDir,
+			"--outputdir=" + cloneDir,
+			"--bindir=" + pgBinDir,
+			"--use-existing",
+			"--dbname=postgres",
+			"--load-extension=" + ext.Name,
+		}
+		args = append(args, tests...)
+		// Run from the clone root so psql's client-side \copy resolves the
+		// relative paths the fixtures use (e.g. pgvector's copy test does
+		// \copy t TO 'results/vector.bin'); pg_regress writes its results/ dir
+		// under --outputdir=cloneDir, which is this same directory.
+		cmd := executil.Command(ctx, pgRegress, args...).WithProcessGroup().SetDir(cloneDir)
+
+		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
+			suiteName: "External/" + ext.Name,
+			outputDir: filepath.Join(pb.OutputDir, "external", ext.Name),
+			srcOutDir: cloneDir,
+		}, multigatewayPort, password)
+		if res == nil {
+			t.Logf("external/%s: no test results (%v)", ext.Name, err)
+			continue
+		}
+
+		// Re-evaluate each test via the patch pipeline. pg_regress wrote results
+		// to <cloneDir>/results (--outputdir); expected lives in <cloneDir>/test
+		// (--inputdir), and patches are per-extension under patches/external/<ext>.
+		patchDir := filepath.Join(PatchesDir(), "external", ext.Name)
+		pb.verifyModuleResults(ctx, testDir, filepath.Join(cloneDir, "results"), patchDir, res, mode)
+
+		for _, tr := range res.Tests {
+			tr.Name = ext.Name + "/" + tr.Name
+			merged.Tests = append(merged.Tests, tr)
+			switch tr.Status {
+			case "fail":
+				merged.FailedTests++
+				detail := tr.FailReason
+				if detail == "" {
+					detail = "see external/" + ext.Name + "/regression.diffs"
+				}
+				merged.FailureDetails = append(merged.FailureDetails, TestFailure{
+					TestName: tr.Name,
+					Error:    detail,
+				})
+			case "skip":
+				merged.SkippedTests++
+			default:
+				merged.PassedTests++
+			}
+		}
+		merged.TimedOut = merged.TimedOut || res.TimedOut
+	}
+
+	merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+	return merged, nil
+}
+
 // verifyContribModule re-evaluates each test in a contrib module's results
 // using the patch-based pipeline (see patch_verify.go), replacing pg_regress's
 // strict text verdict. Expected output lives in the source tree
@@ -422,8 +590,18 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 // caller afterwards). Statuses are updated in place.
 func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, res *TestResults, mode PatchMode) {
 	moduleSrcDir := filepath.Join(pb.SourceDir, "contrib", mod)
-	moduleBuildDir := filepath.Join(pb.BuildDir, "contrib", mod)
+	moduleResultsDir := filepath.Join(pb.BuildDir, "contrib", mod, "results")
 	patchDir := filepath.Join(PatchesDir(), "contrib", mod)
+	pb.verifyModuleResults(ctx, moduleSrcDir, moduleResultsDir, patchDir, res, mode)
+}
+
+// verifyModuleResults is the shared per-test verification loop behind both the
+// contrib and external suites. expectedDir is the directory whose expected/
+// subdirectory holds the upstream .out files (and numbered variants); resultsDir
+// holds the .out files pg_regress wrote for this run; patchDir holds the
+// per-test patches for genuine multigres-specific differences. Statuses in
+// res.Tests are updated in place; skipped tests are left untouched.
+func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir, resultsDir, patchDir string, res *TestResults, mode PatchMode) {
 	repoRoot := findRepoRoot()
 
 	for i := range res.Tests {
@@ -439,8 +617,8 @@ func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, 
 		// actual matches ANY variant; mirror that here before falling back to
 		// patch-based verification, otherwise a canonical-only comparison
 		// manufactures diffs that aren't multigres behavior at all.
-		variants := expectedVariants(moduleSrcDir, test.Name)
-		actPath := filepath.Join(moduleBuildDir, "results", test.Name+".out")
+		variants := expectedVariants(expectedDir, test.Name)
+		actPath := filepath.Join(resultsDir, test.Name+".out")
 		if len(variants) == 0 || !suiteutil.FileExists(actPath) {
 			// Test didn't run or expected missing; keep the TAP verdict.
 			test.FailReason = "expected or actual output missing; kept TAP verdict"
@@ -545,6 +723,39 @@ func resetContribState(directPgPort int, password string) error {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("exec [%s]: %w", stmt, err)
 		}
+	}
+	return nil
+}
+
+// createExtensionViaGateway runs CREATE EXTENSION IF NOT EXISTS through
+// multigateway — the same path the test queries take, so there's no
+// create-on-primary-then-read-from-standby replication race, and it doubles as
+// real coverage that CREATE EXTENSION works over the pooled path (CREATE
+// EXTENSION is not on the gateway's blocked-DDL list; contrib tests create their
+// own extensions through the gateway too).
+//
+// This is needed because pg_regress applies its --load-extension flag only
+// inside create_database(), which it calls solely when !use_existing (see
+// pg_regress.c). The external suite must pass --use-existing (multigateway
+// rejects CREATE/DROP DATABASE), so that load step never fires. Extensions whose
+// test fixtures assume the extension is preloaded (e.g. pgvector — its tests
+// open with a bare CREATE TABLE t (val vector(3)) and never CREATE EXTENSION
+// themselves) would otherwise fail every statement with "type ... does not
+// exist". Creating it here reproduces what create_database would have done.
+func createExtensionViaGateway(multigatewayPort int, password, ext string) error {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		multigatewayPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	// ext comes from the controlled extension catalog, not user input; quote it
+	// as an identifier defensively all the same.
+	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS "%s"`, ext)
+	if _, err := db.Exec(stmt); err != nil {
+		return fmt.Errorf("exec [%s]: %w", stmt, err)
 	}
 	return nil
 }
@@ -874,11 +1085,11 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	patchURLPrefix := githubBlobURLPrefix()
 
 	for _, s := range suites {
-		// The contrib suite's per-test detail is rendered by the richer
-		// Extension Coverage table below (it carries the same per-test results
-		// plus catalog context), so skip the generic per-test section here. The
-		// contrib badge above is still shown.
-		if s.Name == "Contrib Extension Tests" {
+		// The contrib and external suites' per-test detail is rendered by the
+		// richer Extension Coverage table below (it carries the same per-test
+		// results plus catalog context), so skip the generic per-test section
+		// here. Their badges above are still shown.
+		if s.Name == "Contrib Extension Tests" || s.Name == "External Extension Tests" {
 			continue
 		}
 
@@ -922,14 +1133,20 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	}
 
 	// Extension coverage map: the full catalog (covered / pending / unsupported
-	// / external) merged with this run's per-test contrib results. Rendered
-	// whenever a contrib suite ran so the report doubles as the living coverage
-	// tracker (see extensions.go).
+	// / external) merged with this run's per-test results from both the contrib
+	// and external suites. Rendered whenever either ran so the report doubles as
+	// the living coverage tracker (see extensions.go).
+	var contribResults, externalResults *TestResults
 	for _, s := range suites {
-		if s.Name == "Contrib Extension Tests" {
-			sb.WriteString(ExtensionCoverageMarkdown(s.Results))
-			break
+		switch s.Name {
+		case "Contrib Extension Tests":
+			contribResults = s.Results
+		case "External Extension Tests":
+			externalResults = s.Results
 		}
+	}
+	if contribResults != nil || externalResults != nil {
+		sb.WriteString(ExtensionCoverageMarkdown(contribResults, externalResults))
 	}
 
 	summary := sb.String()
@@ -966,6 +1183,42 @@ func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) 
 	}
 	t.Logf("JSON results written to: %s", resultsPath)
 	return resultsPath, nil
+}
+
+// WriteBadgeEndpoints writes one shields.io endpoint JSON per suite plus a
+// combined "overall.json" into pb.OutputDir/badges. CI publishes this directory
+// to GitHub Pages so the README and blog badges render the live pass count
+// (republishing the JSON updates the badge with no markdown edits).
+//
+// Filenames are the suite label slug: regression.json, isolation.json,
+// contrib-extension.json, and overall.json. These names are part of the public
+// badge URL, so keep them stable.
+func (pb *PostgresBuilder) WriteBadgeEndpoints(t *testing.T, suites []SuiteResult) error {
+	t.Helper()
+
+	badgeDir := filepath.Join(pb.OutputDir, "badges")
+
+	var totalPassed, totalTests, totalExpected int
+	var anyTimedOut bool
+	for _, s := range suites {
+		label := strings.TrimSuffix(s.Name, " Tests")
+		endpoint := suiteutil.NewBadgeEndpoint(label, s.Results.PassedTests, s.Results.TotalTests, s.ExpectedTests, s.Results.TimedOut)
+		if _, err := suiteutil.WriteJSON(badgeDir, suiteutil.BadgeSlug(label)+".json", endpoint); err != nil {
+			return err
+		}
+		totalPassed += s.Results.PassedTests
+		totalTests += s.Results.TotalTests
+		totalExpected += s.ExpectedTests
+		anyTimedOut = anyTimedOut || s.Results.TimedOut
+	}
+
+	overall := suiteutil.NewBadgeEndpoint("Overall", totalPassed, totalTests, totalExpected, anyTimedOut)
+	if _, err := suiteutil.WriteJSON(badgeDir, "overall.json", overall); err != nil {
+		return err
+	}
+
+	t.Logf("Badge endpoints written to: %s", badgeDir)
+	return nil
 }
 
 // patchIsolationtester rewrites two pieces of

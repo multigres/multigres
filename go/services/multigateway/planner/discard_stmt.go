@@ -15,7 +15,6 @@
 package planner
 
 import (
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -26,14 +25,10 @@ import (
 // For DISCARD TEMP, uses DiscardTempPrimitive which handles removing the
 // temp table reservation reason on the multipooler side.
 //
-// For DISCARD ALL, uses CloseCursorRoute(CloseAll) so any open
-// `DECLARE … WITH HOLD` cursor pins are released alongside PG's
-// session-level cleanup. PG documents DISCARD ALL as equivalent to
-// `CLOSE ALL; SET SESSION AUTHORIZATION DEFAULT; RESET ALL; DEALLOCATE
-// ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD PLANS;
-// DISCARD TEMP;` — the cursor-close half is what we mirror here so the
-// reserved backend isn't leaked with a stale `ReasonPortal` after the
-// session-level cursor wipe.
+// For DISCARD ALL, uses DiscardAllPrimitive, which resets the gateway's
+// session state and releases any reserved connection back to the pool
+// without forwarding the statement to a shared pooled backend (see that
+// primitive for the rationale).
 //
 // DISCARD PLANS / DISCARD SEQUENCES carry no cursor or temp-table side
 // effects and fall through to planDefault.
@@ -54,14 +49,18 @@ func (p *Planner) planDiscardStmt(
 
 	if stmt.Target == ast.DISCARD_ALL {
 		p.logger.Debug("planning discard all statement", "sql", sql)
-		// CloseCursorRoute snapshots OpenHoldCursorNames at execution
-		// time and forwards them as release_portal_names, so any HOLD
-		// pin on the reserved backend is drained before/with the
-		// DISCARD ALL itself. The actual SQL forwarded to PG is
-		// unchanged — PG handles every other DISCARD ALL side effect.
-		route := engine.NewCloseAllCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql)
-		plan := engine.NewPlan(sql, route)
-		plan.Type = engine.PlanTypeCloseCursorRoute
+		// DISCARD ALL is handled entirely at the gateway and is NOT
+		// forwarded to a pooled backend. In the pooled model the
+		// session state DISCARD ALL resets lives at the gateway
+		// (prepared statements, session GUCs, LISTEN subscriptions);
+		// the only backend-resident state is on a reserved connection,
+		// which DiscardAllPrimitive releases back to the pool. Forwarding
+		// the literal DISCARD ALL would run DEALLOCATE ALL on a shared
+		// backend and desync the multipooler's prepared-statement
+		// tracking. See DiscardAllPrimitive for the full rationale.
+		primitive := engine.NewDiscardAllPrimitive(sql)
+		plan := engine.NewPlan(sql, primitive)
+		plan.Type = engine.PlanTypeDiscardAll
 		return plan, nil
 	}
 

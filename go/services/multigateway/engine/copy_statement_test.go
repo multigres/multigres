@@ -55,6 +55,10 @@ type mockIExecute struct {
 	copyAbortCalled atomic.Int32
 	copyAbortErr    error
 
+	// ReleaseAllReservedConnections behavior
+	releaseAllCalled atomic.Int32
+	releaseAllErr    error
+
 	// CopyOutInitiate behavior (TO STDOUT direction)
 	copyOutInitiateErr     error
 	copyOutInitiateFormat  int16
@@ -207,7 +211,8 @@ func (m *mockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn,
 }
 
 func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
-	return nil
+	m.releaseAllCalled.Add(1)
+	return m.releaseAllErr
 }
 
 // Helper to create a CopyStatement for testing

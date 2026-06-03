@@ -18,11 +18,9 @@ import (
 	"context"
 	"time"
 
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // pgctld.Stop is escalated through these modes in order. Each mode gets its
@@ -110,7 +108,9 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// stopping is slow. We're favoring speed of failover rather than grace.
 	pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
 
-	pm.stopPostgresLocked(lockCtx)
+	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
+		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
+	}
 
 	// Signal long-lived subscribers (health-stream gRPC handlers) that the
 	// manager is shutting down. Their cleanup goroutines close subscriber
@@ -126,30 +126,4 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	}
 
 	pm.logger.InfoContext(lockCtx, "graceful shutdown sequence complete")
-}
-
-// stopPostgresLocked stops postgres via pgctld using fast → immediate.
-// Caller must hold the action lock.
-func (pm *MultiPoolerManager) stopPostgresLocked(ctx context.Context) {
-	if pm.pgctldClient == nil {
-		pm.logger.ErrorContext(ctx, "pgctld client not available; skipping pgctld.Stop")
-		return
-	}
-
-	for _, m := range pgctldStopModes {
-		req := &pgctldpb.StopRequest{
-			Mode:    m.name,
-			Timeout: durationpb.New(m.timeout),
-		}
-		stepCtx, cancel := context.WithTimeout(ctx, m.timeout)
-		_, err := pm.pgctldClient.Stop(stepCtx, req)
-		cancel()
-		if err == nil {
-			pm.logger.InfoContext(ctx, "pgctld.Stop succeeded", "mode", m.name)
-			return
-		}
-		pm.logger.WarnContext(ctx, "pgctld.Stop failed; escalating",
-			"mode", m.name, "timeout", m.timeout, "error", err)
-	}
-	pm.logger.ErrorContext(ctx, "all pgctld.Stop modes exhausted without success")
 }

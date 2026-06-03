@@ -91,7 +91,7 @@ make tools
 make build
 
 # Run (skipped without RUN_EXTENDED_QUERY_SERVING_TESTS=1; matches the
-# "Run Extended Query Serving Tests" PR label).
+# "Run all Query Serving Tests" PR label).
 scripts/portpool.sh start
 RUN_EXTENDED_QUERY_SERVING_TESTS=1 \
   MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock \
@@ -154,8 +154,9 @@ Written under `builder.OutputDir` (i.e.
 
 `.github/workflows/test-sqllogictest.yml` runs the suite on:
 
-- **PRs labeled `Run Extended Query Serving Tests`** — opt-in per-PR. The
-  same label also triggers `pgregresstest`.
+- **PRs labeled `Run all Query Serving Tests`** — opt-in per-PR. This is the
+  "heavy tier" label; the cheaper `Run Extended Query Serving Tests` label
+  (pgproto + pgregresstest) does **not** trigger sqllogictest.
 - **Nightly cron** (`30 3 * * *` UTC) — baseline tracking.
 - **Weekly summary cron** (`30 9 * * 1` UTC) — Slack digest.
 - **`workflow_dispatch`** — manual kick.

@@ -148,7 +148,8 @@ func TestTempTable_DiscardTempUnpins(t *testing.T) {
 }
 
 // TestTempTable_DiscardAllDropsTempTables verifies DISCARD ALL drops temp tables.
-// The session stays pinned (DISCARD ALL handling is out of scope for temp table pinning).
+// DISCARD ALL is handled at the gateway and releases the reserved (pinned)
+// connection back to the pool — its cleanup discards the temp tables.
 func TestTempTable_DiscardAllDropsTempTables(t *testing.T) {
 	skipIfShort(t)
 	setup := getSharedSetup(t)

@@ -35,14 +35,17 @@ const (
 	// PGPROTO_CORPUS_GLOB to scope which files run during iteration.
 	DefaultCorpusGlob = "**/*.pgproto"
 
-	// PgprotoRepoURL is the upstream tool repository.
-	PgprotoRepoURL = "https://github.com/tatsuo-ishii/pgproto"
+	// PgprotoRepoURL is the upstream repository. pgproto is maintained in the
+	// pgpool2 tree under src/tools/pgproto (the standalone tatsuo-ishii/pgproto
+	// repo is being retired).
+	PgprotoRepoURL = "https://github.com/pgpool/pgpool2"
 
-	// PgprotoCommit pins the pgproto tool revision built by `make tools`. It
-	// mirrors PGPROTO_VER in the Makefile and is recorded in results.json so a
-	// recorded baseline is tied to the exact tool that produced it. Keep these
-	// two in sync when bumping the tool.
-	PgprotoCommit = "fa08c9c96df9ca514cd19aa7f587e27c7ac63160"
+	// PgprotoCommit pins the pgproto tool version built by `make tools` — the
+	// pgpool-II release whose src/tools/pgproto we build. It mirrors PGPROTO_VER
+	// in the Makefile and is recorded in results.json so a recorded baseline is
+	// tied to the exact tool that produced it. Keep these two in sync when
+	// bumping the tool.
+	PgprotoCommit = "4.6.6"
 )
 
 // resolveCorpusDir returns the absolute directory containing the corpus to run.
