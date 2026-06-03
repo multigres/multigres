@@ -102,6 +102,9 @@ func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 	if err := planUnsupportedStmt(stmt); err != nil {
 		return nil, err
 	}
+	if err := checkSynchronousCommitChange(stmt); err != nil {
+		return nil, err
+	}
 	return inspectExpressionFuncCalls(stmt)
 }
 
@@ -251,14 +254,25 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	}
 	if isLocal {
 		// is_local=true: PG executes it as a transaction-scoped call and
-		// the pooler does not track it. Name/value need not be literals
-		// here — they may have been normalized to ParamRef.
+		// the pooler does not track it. The value may have been normalized
+		// to a ParamRef, but the name is kept literal (see normalizer.go) so
+		// we can still enforce the synchronous_commit guard here — a
+		// transaction-scoped set_config is just another reachable path for
+		// the override we block elsewhere. A genuinely non-literal name is a
+		// documented gap: we let it through rather than reject blindly.
+		if name, ok := constStringArg(fc.Args.Items[0]); ok &&
+			strings.EqualFold(name, synchronousCommitGUC) {
+			return nil, mterrors.NewFeatureNotSupported(errSynchronousCommitChange)
+		}
 		return nil, nil
 	}
 
 	name, ok := constStringArg(fc.Args.Items[0])
 	if !ok {
 		return nil, setConfigArgError(fc.Args.Items[0], "name")
+	}
+	if strings.EqualFold(name, synchronousCommitGUC) {
+		return nil, mterrors.NewFeatureNotSupported(errSynchronousCommitChange)
 	}
 	value, ok := constStringArg(fc.Args.Items[1])
 	if !ok {

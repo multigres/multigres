@@ -202,6 +202,50 @@ normalization happening earlier in the pipeline for caching.
 - Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
   parse time.
 
+### GUC value guard — `synchronous_commit`
+
+Separate from the tiers above (which block whole statement types or whole
+functions), a narrow guard rejects any attempt to **assign a value** to one
+specific GUC, `synchronous_commit`, regardless of the statement carrying it.
+
+Replication durability is managed centrally: the multipooler rule store /
+`SyncStandbyManager` is the sole writer of `synchronous_commit` (via
+`ALTER SYSTEM`), and the HA contract requires `synchronous_commit = on` so that
+an acknowledged commit is durably flushed on the synchronous standby (see
+`docs/ha/decision-log/2026-02-12-synchronous-commit-on.md`). A session that
+lowers the value silently weakens that guarantee for its writes — a footgun, so
+we take the choice away. See
+`docs/ha/decision-log/2026-05-29-block-synchronous-commit-changes.md`.
+
+| Path                                          | Action                                   |
+| --------------------------------------------- | ---------------------------------------- |
+| `SET synchronous_commit = x`                  | Reject                                   |
+| `SET LOCAL synchronous_commit = x`            | Reject                                   |
+| `SET synchronous_commit FROM CURRENT`         | Reject                                   |
+| `ALTER DATABASE d SET synchronous_commit = x` | Reject                                   |
+| `ALTER ROLE r SET synchronous_commit = x`     | Reject                                   |
+| `set_config('synchronous_commit', x, _)`      | Reject (both `is_local` variants)        |
+| `ALTER SYSTEM SET synchronous_commit = x`     | Already rejected (Tier 2)                |
+| `RESET synchronous_commit`                    | **Allowed** — restores the managed value |
+| `SET synchronous_commit TO DEFAULT`           | **Allowed** — restores the managed value |
+| `RESET ALL`                                   | **Allowed** — restores the managed value |
+
+Reverts are allowed because they can only restore the cluster-managed value.
+The rejection is a `feature_not_supported` (`0A000`) error pointing users at
+`RESET`.
+
+**Where it runs.** In `checkSynchronousCommitChange`, called from
+`planUnsupportedConstructs` alongside the Tier 2 and expression-level checks, so
+it covers both query protocols and is short-circuited by the plan cache. The
+`set_config(...)` form is enforced inside the same expression walker that tracks
+set_config. So that the planner can inspect the variable name even for
+transaction-scoped `set_config(..., true)`, the normalizer keeps that name
+literal (only the value is parameterized for plan-cache stability).
+
+**Known gaps** (consistent with the rest of this layer): assignments inside
+PL/pgSQL bodies, dynamic `EXECUTE`, and a `set_config` call whose variable name
+is itself non-literal are not caught.
+
 ## Other Allowed Statements With Known Risk
 
 Beyond Tier 1 (allowed pending body analysis), a few more statements
@@ -265,17 +309,18 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 ### Key Files
 
-| File                                                       | Purpose                                                                                                     |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements        |
-| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls  |
-| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                  |
-| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                     |
-| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching      |
-| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                            |
-| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                |
-| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                   |
-| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction |
+| File                                                       | Purpose                                                                                                                       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                          |
+| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls                    |
+| `go/services/multigateway/planner/synchronous_commit.go`   | `checkSynchronousCommitChange()` — rejects value assignments to `synchronous_commit` across SET / ALTER ROLE / ALTER DATABASE |
+| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                                    |
+| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                                       |
+| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                        |
+| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                                              |
+| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                  |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                     |
+| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction                   |
 
 ### Error Format
 
