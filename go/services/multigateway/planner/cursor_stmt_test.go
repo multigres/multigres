@@ -96,8 +96,9 @@ func TestPlan_ClosePortal(t *testing.T) {
 	}
 }
 
-// TestPlan_DiscardAll routes DISCARD ALL through CloseCursorRoute(CloseAll)
-// so any tracked HOLD-cursor pins drain alongside PG's session wipe.
+// TestPlan_DiscardAll routes DISCARD ALL through DiscardAllPrimitive, which
+// resets the gateway's session state and releases any reserved connection
+// without forwarding the statement to a shared pooled backend.
 func TestPlan_DiscardAll(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -108,11 +109,10 @@ func TestPlan_DiscardAll(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	route, ok := plan.Primitive.(*engine.CloseCursorRoute)
-	require.True(t, ok, "DISCARD ALL must route through CloseCursorRoute, got %T", plan.Primitive)
-	assert.True(t, route.CloseAll, "DISCARD ALL must drain every tracked HOLD pin")
-	assert.Equal(t, "DISCARD ALL", route.Query, "forwarded SQL must be preserved for PG")
-	assert.Equal(t, engine.PlanTypeCloseCursorRoute, plan.Type)
+	prim, ok := plan.Primitive.(*engine.DiscardAllPrimitive)
+	require.True(t, ok, "DISCARD ALL must route through DiscardAllPrimitive, got %T", plan.Primitive)
+	assert.Equal(t, "DISCARD ALL", prim.Query)
+	assert.Equal(t, engine.PlanTypeDiscardAll, plan.Type)
 }
 
 // TestPlan_DiscardPlansSequences keeps the existing planDefault behavior for

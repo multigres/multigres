@@ -38,6 +38,7 @@ const (
 	PlanTypeTempTableRoute      = "TempTableRoute"
 	PlanTypeHoldCursorRoute     = "HoldCursorRoute"
 	PlanTypeCloseCursorRoute    = "CloseCursorRoute"
+	PlanTypeDiscardAll          = "DiscardAll"
 	PlanTypeUnknown             = "Unknown"
 )
 
