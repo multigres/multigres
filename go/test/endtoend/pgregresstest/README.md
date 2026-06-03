@@ -49,18 +49,20 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Four env vars enable it; setting more
+The test is **disabled by default**. Five env vars enable it; setting more
 than one is fine (the union runs):
 
 - `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
-  isolation, contrib). This is what CI uses (matches the "Run Extended Query
-  Serving Tests" PR label, and also the broader "Run all Query Serving Tests"
-  label).
+  isolation, contrib, external). This is what CI uses (matches the "Run Extended
+  Query Serving Tests" PR label, and also the broader "Run all Query Serving
+  Tests" label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
 - `RUN_PGCONTRIB=1` — runs the contrib extension suite only (see
   "Contrib Extension Tests" below).
+- `RUN_PGEXTERNAL=1` — runs the external extension suite only (see
+  "External Extension Tests" below).
 
 ```bash
 # Run both suites (unified report) — same as CI
@@ -87,6 +89,9 @@ PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -
 
 # Run specific contrib modules only (directory names under contrib/)
 PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific external extensions only (catalog names)
+PGEXTERNAL_TESTS="vector" RUN_PGEXTERNAL=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 ## Contrib Extension Tests
@@ -133,6 +138,49 @@ results: covered extensions expand to one row per sub-test with the live
 pass/fail, while pending/unsupported/external extensions show a single row with
 the reason. The table is the living coverage tracker — it updates automatically
 as catalog entries move to `covered` and their suites run.
+
+## External Extension Tests
+
+The external suite runs the pg_regress suites of extensions that live **outside**
+the PostgreSQL source tree (separate repositories), executed through
+multigateway. pgvector is the first: catalog name `vector`, pinned to a tag in
+`externalSpecs` (`extensions.go`).
+
+How it works, and how it differs from the contrib suite:
+
+- **Build**: each external extension is a [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
+  module. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
+  the per-run build root, then runs `make && make install` with
+  `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
+  against the exact server ABI the cluster runs (the same guarantee the suite
+  gives `regress.so`). pgvector needs only a C compiler — no extra system libs.
+- **Test execution**: unlike contrib we cannot use `make installcheck`. Under
+  PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
+  PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
+  not installed. The harness instead invokes the `pg_regress` it built directly,
+  with the same flags the contrib suite relies on
+  (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
+  DATABASE) plus the extension's `--inputdir`/`--load-extension`. The test list
+  is derived from `test/sql/*.sql`, mirroring the extension's
+  `REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql))`.
+- **Per-extension isolation** and **verification** work exactly like contrib:
+  the `public` schema is reset on the primary between extensions, and results go
+  through the same patch pipeline (`PGREGRESS_PATCH_MODE`). Genuine
+  multigres-specific output differences are captured under
+  `testdata/pg17/patches/external/<ext>/`.
+
+Enrolling another external extension is a two-line change: add its
+`externalSpecs` entry (repo + pinned tag) and flip its `ExtensionCatalog` row to
+`StatusCovered`. The catalog and report update automatically. Extensions that
+need toolchains the harness doesn't provision (Rust: `pg_graphql`, `wrappers`)
+or that the pooler blocks by design (outbound connections) stay `StatusExternal`
+/ `StatusUnsupported`.
+
+Regenerate the patches after an output change with:
+
+```bash
+make pgexternal-update-patches   # RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate
+```
 
 ### First Run vs Cached Runs
 
