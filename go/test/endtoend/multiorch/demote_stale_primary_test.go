@@ -290,7 +290,7 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 }
 
 // verifyReplicaReplicating verifies the replica is actively streaming from the new primary
-func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replicaName, primaryName string) {
+func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replicaName, _ string) {
 	t.Helper()
 
 	replica := setup.GetMultipoolerInstance(replicaName)

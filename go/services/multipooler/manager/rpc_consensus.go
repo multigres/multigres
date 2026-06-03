@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
@@ -181,6 +182,52 @@ func (pm *MultiPoolerManager) setCohortEligibility(signal clustermetadatapb.Coho
 	pm.mu.Unlock()
 	if changed {
 		pm.broadcastHealth()
+	}
+}
+
+// markPoolerActive performs the STARTING → ACTIVE transition once postgres
+// has been observed running and responsive. The pgMonitor callback fires
+// every 5 s; the early-return below is the only thing preventing that tick
+// from issuing a topology publish every cycle. Removing it would turn
+// lifecycle into a per-tick heartbeat at the cost of N publishes per 5 s
+// across the cluster and would silently change the meaning of
+// LifecycleStatus.Updated from "first time ACTIVE" to "last seen ACTIVE".
+// Keep the guard.
+//
+// pm.multipooler is the single in-memory source of truth: the guard reads it,
+// the mutation writes it, and topoPublisher.Notify hands the same pointer to
+// the publisher goroutine which clones-then-writes. The action lock is held
+// across the mutate-then-Notify sequence so lifecycle writes serialise
+// against the consensus state machine (Promote/Demote/BeginTerm) the same
+// way every other Notify caller does.
+func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
+	// Cheap pre-check before acquiring the action lock: if the record
+	// already reads ACTIVE, skip the lock acquisition entirely. The guard
+	// inside record.Mutate's callback is the authoritative one.
+	if pm.record.Snapshot().GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE {
+		return
+	}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "markPoolerActive")
+	if err != nil {
+		pm.logger.WarnContext(ctx, "failed to acquire action lock for lifecycle ACTIVE; will retry next tick",
+			"error", err)
+		return
+	}
+	defer pm.actionLock.Release(lockCtx)
+
+	if err := pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
+		if s.LifecycleStatus.GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE {
+			return
+		}
+		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
+			Reason:  "pooler active",
+			Updated: timestamppb.Now(),
+		}
+	}); err != nil {
+		pm.logger.WarnContext(lockCtx, "record.Mutate for ACTIVE lifecycle failed",
+			"error", err)
 	}
 }
 
@@ -697,7 +744,13 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		if err := pm.resetSynchronousReplication(ctx); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 		}
-		// Postgres just came back as a standby with no primary_conninfo;
+		// Point conninfo at the new leader. restartAsStandbyLocked also
+		// restores conninfo when pg_rewind actually ran, but we may enter
+		// this branch with rewindPending set yet no divergence detected
+		// (e.g. emergencyDemoteLocked raised the flag pre-emptively); in
+		// that case the helper leaves conninfo untouched and we still
+		// need to redirect to the new leader here. The double-write on
+		// the diverged path is a cheap idempotent rewrite.
 		// (false, false) is enough — no in-flight replication to pause, and
 		// the WAL receiver starts once conninfo is reloaded.
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port, false, false); err != nil {

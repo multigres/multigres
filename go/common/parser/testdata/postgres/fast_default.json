@@ -80,7 +80,7 @@
   {
     "comment": "fast_default - Statement 23",
     "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2",
-    "expected": "ALTER TABLE t ADD COLUMN c_bpchar CHAR(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2"
+    "expected": "ALTER TABLE t ADD COLUMN c_bpchar bpchar(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2"
   },
   {
     "comment": "fast_default - Statement 24",
@@ -234,7 +234,7 @@
   {
     "comment": "fast_default - Statement 61",
     "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT LENGTH(foo(8))",
-    "expected": "ALTER TABLE t ADD COLUMN c_bpchar CHAR(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT length(foo(8))"
+    "expected": "ALTER TABLE t ADD COLUMN c_bpchar bpchar(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT length(foo(8))"
   },
   {
     "comment": "fast_default - Statement 62",
@@ -732,7 +732,7 @@
   {
     "comment": "fast_default - Statement 169",
     "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)",
-    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10)"
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE bpchar(10)"
   },
   {
     "comment": "fast_default - Statement 170",

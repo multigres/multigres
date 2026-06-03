@@ -1,0 +1,22 @@
+# Known divergence: extended-query message sequencing on a plan-time error.
+#
+# For `SELECT 1/0` (Parse/Bind/Execute/Sync), PostgreSQL constant-folds 1/0 at
+# plan time during Bind, so it sends ParseComplete then ErrorResponse and never
+# BindComplete. The multigateway plans/executes lazily at Execute, so it emits
+# BindComplete before the error. Matching PostgreSQL would require eager
+# bind-time planning against the backend (an extra round-trip on the
+# latency-sensitive query path) for negligible client benefit, so we record the
+# divergence here instead of fixing it.
+#
+# Effect: add the extra `<= BE BindComplete` line to PostgreSQL's trace so it
+# matches what the multigateway produces.
+--- a
++++ b
+@@ -20,6 +20,7 @@
+ FE=> Execute(portal="p_dz")
+ FE=> Sync
+ <= BE ParseComplete
++<= BE BindComplete
+ <= BE ErrorResponse(C 22012)
+ <= BE ReadyForQuery(I)
+ FE=> Query (query="SELECT count(*) FROM pgproto_err")

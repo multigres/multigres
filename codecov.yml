@@ -15,3 +15,18 @@ ignore:
   # would otherwise show as missing patch coverage. The suite itself is
   # exercised by the dedicated extended-suite workflow.
   - "go/test/endtoend/pgregresstest/**"
+  # pgproto wire-protocol conformance suite — same story: gated behind
+  # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated test-pgproto
+  # workflow, never by the coverage-collecting CI.
+  - "go/test/endtoend/queryserving/pgproto/**"
+  # sqllogictest differential suite — same story: gated behind
+  # RUN_EXTENDED_QUERY_SERVING_TESTS and run by the dedicated sqllogictest
+  # workflow, never by the coverage-collecting CI.
+  - "go/test/endtoend/queryserving/sqllogictest/**"
+  # Shared harness helpers (patch verify/generate, corpus discovery, the
+  # differential report core, schema-reset and run-loop scaffolding). The
+  # pure-logic subset has unit tests, but the bulk only runs from the gated
+  # extended suites above, so the cluster-driven lines would otherwise show
+  # as missing patch coverage.
+  - "go/test/endtoend/pgbuilder/**"
+  - "go/test/endtoend/suiteutil/**"

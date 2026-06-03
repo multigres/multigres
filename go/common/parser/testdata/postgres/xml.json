@@ -388,7 +388,7 @@
   {
     "comment": "xml - Statement 81",
     "query": "SELECT xmlserialize(content 'good' as char(10))",
-    "expected": "SELECT XMLSERIALIZE(CONTENT 'good' AS CHAR(10))"
+    "expected": "SELECT XMLSERIALIZE(CONTENT 'good' AS bpchar(10))"
   },
   {
     "comment": "xml - Statement 82",
@@ -668,7 +668,7 @@
   {
     "comment": "xml - Statement 138",
     "query": "CREATE VIEW xmlview8 AS SELECT xmlserialize(content 'good' as char(10))",
-    "expected": "CREATE VIEW xmlview8 AS SELECT XMLSERIALIZE(CONTENT 'good' AS CHAR(10))"
+    "expected": "CREATE VIEW xmlview8 AS SELECT XMLSERIALIZE(CONTENT 'good' AS bpchar(10))"
   },
   {
     "comment": "xml - Statement 139",
@@ -1226,6 +1226,6 @@
   {
     "comment": "xml - Statement 259",
     "query": "SELECT xmltext('x'|| '<P>73</P>'::xml || .42 || true || 'j'::char)",
-    "expected": "SELECT xmltext('x' || CAST('<P>73</P>' AS XML) || .42 || TRUE || CAST('j' AS CHAR(1)))"
+    "expected": "SELECT xmltext('x' || CAST('<P>73</P>' AS XML) || .42 || TRUE || CAST('j' AS bpchar(1)))"
   }
 ]

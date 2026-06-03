@@ -866,6 +866,27 @@ func (n *CommentStmt) SqlString() string {
 			parts = append(parts, "COMMENT ON CAST (", sourceType, "AS", targetType, ") IS")
 		}
 
+	case OBJECT_POLICY:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
+			// The grammar appends the policy name to the table's any_name list,
+			// so the last item is the policy name and the preceding items are
+			// the (possibly schema-qualified) table name: "POLICY name ON table".
+			last := len(nodeList.Items) - 1
+			policyName := ""
+			var tableNameParts []string
+			for i, item := range nodeList.Items {
+				if str, ok := item.(*String); ok {
+					if i == last {
+						policyName = str.SVal
+					} else {
+						tableNameParts = append(tableNameParts, str.SVal)
+					}
+				}
+			}
+			tableName := FormatQualifiedName(tableNameParts...)
+			parts = append(parts, "COMMENT ON POLICY", QuoteIdentifier(policyName), "ON", tableName, "IS")
+		}
+
 	default:
 		// Regular format for other object types
 		objectName := formatObjectName(n.Object)

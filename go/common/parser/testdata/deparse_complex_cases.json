@@ -1,0 +1,530 @@
+[
+  {
+    "comment": "deparse/case.sql",
+    "query": "SELECT CASE WHEN count(*) FILTER (WHERE col_state = 2) = count(col_id) THEN true WHEN count(*) FILTER (WHERE col_state = 3) > 0 THEN false ELSE NULL END AS col_alias FROM my_table"
+  },
+  {
+    "comment": "deparse/comment_multiline.sql",
+    "query": "CREATE EXTENSION IF NOT EXISTS btree_gin SCHEMA public"
+  },
+  {
+    "comment": "deparse/complex_depesz.sql",
+    "query": "SELECT decode(a.category, NULL, b.category, a.category) AS category, b.par AS \"Total object Request\", b.ps AS \"objects Served\", b.ar AS \"Total sushi Request\", a.sushis AS \"sushis Served\", round(decode(b.ar, 0, 0, (b.ar - decode(a.sushis, NULL, 0, a.sushis)::numeric) / b.ar) * 100, 3) AS \"USR\", a.clk AS points, decode(b.ps, 0, 0, round((a.clk / b.ps) * 100, 3)) AS \"CTR\", a.cpc AS \"CPC\", a.tc AS \"Cost\", decode(b.ps, 0, 0, (a.tc / b.ps) * 1000::numeric(8, 3)) AS effectcost FROM ( SELECT decode(b.category, NULL, 'N/A', b.category) AS category, sum(doughnuts) AS sushis, sum(points) AS clk, round(sum(total_cost)::numeric, 3) AS tc, decode(sum(points), 0, 0, round(sum(total_cost) / sum(points)::numeric, 3)) AS cpc FROM daily_city_dealer_summary a, category_dealer_map b WHERE a.category_dealer_id = b.category_dealer_id AND created_day BETWEEN '2010-05-01' AND '2010-05-25' GROUP BY b.category ) a FULL JOIN ( SELECT decode(a.category, NULL, 'N/A', decode(a.category, '-', 'World-Remaining countries', a.category)) AS category, sum(valid_object_request) AS par, sum(valid_sushi_request) AS ar, sum(object_doughnuts) AS ps FROM traffic_hit a WHERE request_date BETWEEN '2010-05-01' AND '2010-05-25' GROUP BY a.category ) b ON lower(a.category) = lower(b.category) ORDER BY 4 DESC"
+  },
+  {
+    "comment": "deparse/complex_gitlab.sql",
+    "query": "WITH my_data AS ( SELECT my_data.* FROM prod.my_data_with_a_long_table_name my_data JOIN prod.other_thing ON true WHERE my_data.filter = 'my_filter' ), some_cte AS ( SELECT DISTINCT id AS other_id, other_field_1, other_field_2, date_field_at, data_by_row, field_4, field_5, lag(other_field_2) OVER ( PARTITION BY other_id, other_field_1 ORDER BY 5 ) AS previous_other_field_2 FROM prod.my_other_data ), final AS ( SELECT my_data.field_1 AS detailed_field_1, my_data.field_2 AS detailed_field_2, my_data.detailed_field_3, date_trunc('month', some_cte.date_field_at) AS date_field_month, some_cte.data_by_row['id']::number AS id_field, iff(my_data.detailed_field_3 > my_data.field_2, true, false) AS is_boolean, CASE WHEN my_data.cancellation_date IS NULL AND my_data.expiration_date IS NOT NULL THEN my_data.expiration_date WHEN my_data.cancellation_date IS NULL THEN my_data.start_date + 7 ELSE my_data.cancellation_date END AS adjusted_cancellation_date, count(*) AS number_of_records, sum(some_cte.field_4) AS field_4_sum, max(some_cte.field_5) AS field_5_max FROM my_data LEFT JOIN some_cte ON my_data.id = some_cte.id WHERE my_data.field_1 = 'abc' AND (my_data.field_2 = 'def' OR my_data.field_2 = 'ghi') GROUP BY 1, 2, 3, 4, 5, 6 HAVING count(*) > 1 ORDER BY 8 DESC ) SELECT * FROM final"
+  },
+  {
+    "comment": "deparse/complex_mattm.sql",
+    "query": "WITH hubspot_interest AS ( SELECT email, timestamp_millis(property_beacon_interest) AS expressed_interest_at FROM hubspot.contact WHERE property_beacon_interest IS NOT NULL ), support_interest AS ( SELECT conversation.email, conversation.created_at AS expressed_interest_at FROM helpscout.conversation JOIN helpscout.conversation_tag ON conversation.id = conversation_tag.conversation_id WHERE conversation_tag.tag = 'beacon-interest' ), combined_interest AS ( SELECT * FROM hubspot_interest UNION ALL SELECT * FROM support_interest ), first_interest AS ( SELECT email, min(expressed_interest_at) AS expressed_interest_at FROM combined_interest GROUP BY email ) SELECT * FROM first_interest"
+  },
+  {
+    "comment": "deparse/ddl_alter_table_add_constraint.sql",
+    "query": "ALTER TABLE ONLY public.vacuum_insight_runs_7d ADD CONSTRAINT vacuum_insight_runs_7d_pkey PRIMARY KEY (server_id, check_name, run_at)"
+  },
+  {
+    "comment": "deparse/ddl_create_index.sql",
+    "query": "CREATE UNIQUE INDEX schema_tables_database_id_schema_name_table_name_idx ON public.schema_tables USING btree (database_id, schema_name, table_name) WHERE removed_at IS NULL"
+  },
+  {
+    "comment": "deparse/ddl_create_table.sql",
+    "query": "CREATE TABLE public.vacuum_run_stats_35d ( vacuum_run_stats_id uuid DEFAULT public.gen_random_uuid() NOT NULL, server_id uuid NOT NULL, vacuum_run_id uuid NOT NULL, collected_at timestamp NOT NULL, phase int NOT NULL, heap_blks_total bigint NOT NULL, heap_blks_scanned bigint NOT NULL, heap_blks_vacuumed bigint NOT NULL, index_vacuum_count bigint NOT NULL, max_dead_tuples bigint NOT NULL, num_dead_tuples bigint NOT NULL ) PARTITION BY RANGE (collected_at)"
+  },
+  {
+    "comment": "deparse/ddl_create_trigger.sql",
+    "query": "CREATE TRIGGER query_runs_notify AFTER INSERT ON public.query_runs REFERENCING NEW TABLE rows EXECUTE FUNCTION public.query_runs_notify()"
+  },
+  {
+    "comment": "deparse/ddl_create_type.sql",
+    "query": "CREATE TYPE public.schema_table_event_type AS ENUM ( 'manual_vacuum', 'auto_vacuum', 'manual_analyze', 'auto_analyze' )"
+  },
+  {
+    "comment": "deparse/insert_long.sql",
+    "query": "INSERT INTO schema_migrations (version) VALUES ('20121115104253'), ('20121115104424'), ('20121115144719'), ('20121222152557'), ('20121222210347'), ('20130129121255'), ('20130129163021'), ('20130129175021'), ('20130129180846'), ('20130130131612'), ('20130208115344'), ('20130217171132'), ('20130222164352'), ('20130305141105'), ('20130404094832'), ('20130429153359'), ('20130701150108'), ('20130706202400'), ('20130706202500')"
+  },
+  {
+    "comment": "deparse/nested_cte.sql",
+    "query": "WITH q AS ( SELECT 1 AS z ) INSERT INTO t (a) WITH qq AS ( SELECT * FROM q ) SELECT z FROM qq"
+  },
+  {
+    "comment": "deparse/simple.sql",
+    "query": "SELECT col1, col2 FROM xyz JOIN abc ON a = b WHERE c IN ( SELECT id FROM test ) AND col2 > 123"
+  },
+  {
+    "comment": "deparse/union.sql",
+    "query": "WITH input AS ( SELECT database_id, fingerprint, last_occurred_at, index FROM unnest($1::int[], $2::bigint[], $3::date[], $4::int[]) _(database_id, fingerprint, last_occurred_at, index) ), existing_queries AS ( SELECT queries.id AS query_id, input.database_id, input.fingerprint, input.last_occurred_at, input.index FROM queries JOIN input USING (database_id, fingerprint) ), update_occurrences AS ( UPDATE query_occurrences SET last = last_occurred_at FROM existing_queries q WHERE q.query_id = query_occurrences.query_id AND last < last_occurred_at RETURNING index ) SELECT index, $5 AS \"exists\" FROM update_occurrences UNION ( SELECT input.index, $6 AS \"exists\" FROM input LEFT JOIN existing_queries USING (database_id, fingerprint) WHERE existing_queries.database_id IS NULL LIMIT 1 ) LIMIT 5"
+  },
+  {
+    "comment": "deparse/union_2.sql",
+    "query": "( SELECT 1 LIMIT 1 ) UNION ( SELECT 1 LIMIT 1 ) LIMIT 2"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/01-numbers.psql",
+    "query": "SELECT 1, 1.5, 0, 0.0"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/02-string.psql",
+    "query": "SELECT 'abc', 'a''bc'"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/03-sql-functions.psql",
+    "query": "SELECT current_catalog, current_role, current_schema, current_user, session_user, user, current_date, current_time, current_timestamp, localtime, localtimestamp, current_time(0), current_timestamp(0), localtime(0), localtimestamp(0), current_time(2), current_timestamp(2), localtime(2), localtimestamp(2)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/04-functions.psql",
+    "query": "SELECT now(), upper('abc'), larger('abcd', 'efghijklmnop'), single('012345678901234567890123456789'), single_long('01234567890123456789012345678901234567890123456789'), nested(12, 13, other_function('fsajkh', 56, 67)), named_1(1, 2, a := 'b'), named_2(b := '2', a := 'b', c := NULL)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/06-column-aliases.psql",
+    "query": "SELECT now(), lower('x') AS lx, 1 AS a, 2 AS \"This\", 'z' AS other"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/07-casts.psql",
+    "query": "SELECT '12'::text, 12::varchar(20)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/08-fields-in-table.psql",
+    "query": "SELECT a, \"Weird\", t.b::int4, t.\"WeirdER\"::int8 FROM table1 t"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/09-operators.psql",
+    "query": "SELECT a + 1 AS new_a, a = 123 AS bool_a, c && '{x,y,z}'::text[] AS including_c, @ d AS abs_d FROM t"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/10-operators.psql",
+    "query": "SELECT (((a + b) + c) + d) + e, ((1 + 2) + 3) + 4, d + (b * 5), (e * c) + 2, (x - 1) * 3 FROM t"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/11-weird-operator.psql",
+    "query": "SELECT a OPERATOR(\"Schema\".-) b FROM c"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/12-boolean-operation.psql",
+    "query": "SELECT (a = b AND c = d AND e = f) OR g = h, NOT i FROM z"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/13-joins.psql",
+    "query": "SELECT a FROM b LEFT JOIN c ON b.x = c.y JOIN d USING (z)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/14-star.psql",
+    "query": "SELECT *, count(*) FROM a"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/15-where.psql",
+    "query": "SELECT * FROM a WHERE b = c AND d < (now() - '1 week'::interval)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/16-groupby.psql",
+    "query": "SELECT a, x, count(*), min(b) FROM c GROUP BY a, x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/17-orderby.psql",
+    "query": "SELECT * FROM a ORDER BY b, c ASC, d DESC, e NULLS FIRST, f NULLS LAST, g ASC NULLS FIRST, h DESC NULLS FIRST, i ASC NULLS LAST, j DESC NULLS LAST"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/18-limitoffset.psql",
+    "query": "SELECT a FROM b LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/19-having.psql",
+    "query": "SELECT a, count(*) FROM b GROUP BY a HAVING count(*) > 10 AND min(id) > 123"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/20-case.psql",
+    "query": "SELECT CASE WHEN a = 1 THEN 2 WHEN a = 2 THEN 4 ELSE 5 END, CASE b WHEN 1 THEN 5 WHEN 2 THEN 15 ELSE 0 END FROM x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/21-in.psql",
+    "query": "SELECT a FROM b WHERE c IN (1, 2, 3) AND d IN ('something longer', 'something longer 2', 'something longer 3', 'something longer 4', 'something longer 5', '')"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/22-subselect.psql",
+    "query": "SELECT *, ( SELECT count(*) FROM x ), ARRAY( SELECT e FROM f ) FROM a WHERE b IN ( SELECT c FROM d ) AND EXISTS ( SELECT x FROM y )"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/23-null.psql",
+    "query": "SELECT a(b, NULL), c IS NULL, d IS NOT NULL FROM e"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/24-range-function.psql",
+    "query": "SELECT * FROM unnest('{1,2,3}'::int4[]) x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/25-coalesce.psql",
+    "query": "SELECT COALESCE(a, b || c, 'missing') FROM d"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/26-range-subselect.psql",
+    "query": "SELECT * FROM ( SELECT a FROM b ) x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/27-distinct.psql",
+    "query": "SELECT DISTINCT a, b FROM c"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/28-distinct-on.psql",
+    "query": "SELECT DISTINCT ON (a, b) a, b, c FROM t ORDER BY a, b"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/29-param-ref.psql",
+    "query": "SELECT $1, $2::int4, $3 || 'z'"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/30-array.psql",
+    "query": "SELECT ARRAY[1, 2, 3], ARRAY['a', NULL, 'c']::text[], format('%s, %s', VARIADIC ARRAY[1, 2]), format('%s, %s', ARRAY[1, 2], 'a')"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/31-indirection.psql",
+    "query": "SELECT a[2], a[2:], a[:2], a[2:3], b[2][2:][:2][2:3], ('{red,green,blue}'::text[])[2] FROM c"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/32-collate.psql",
+    "query": "SELECT a FROM b ORDER BY a COLLATE \"C\" DESC, z"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/33-window-functions.psql",
+    "query": "SELECT count(*) OVER (), sum(a) OVER ( PARTITION BY b, c ), sum(a) OVER ( ORDER BY c ), sum(a) OVER ( PARTITION BY b, c ORDER BY c DESC, a ASC ) FROM x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/34-framed-functions.psql",
+    "query": "SELECT sum(a) OVER ( PARTITION BY b ORDER BY c RANGE UNBOUNDED PRECEDING ), sum(a) OVER ( PARTITION BY b ORDER BY c GROUPS 2 PRECEDING EXCLUDE GROUP ), sum(a) OVER ( PARTITION BY b ORDER BY c ROWS CURRENT ROW EXCLUDE CURRENT ROW ), sum(a) OVER ( PARTITION BY b ORDER BY c RANGE UNBOUNDED PRECEDING EXCLUDE TIES ), sum(a) OVER ( PARTITION BY b ORDER BY c ROWS 10 PRECEDING ), sum(a) OVER ( PARTITION BY b ORDER BY c ROWS BETWEEN 1 PRECEDING AND 2 FOLLOWING ), sum(a) OVER ( PARTITION BY b ORDER BY c ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING ) FROM d"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/35-setops.psql",
+    "query": "( ( SELECT 1 UNION SELECT 2 ) UNION SELECT 3 ) EXCEPT ALL ( SELECT 4 INTERSECT SELECT 5 )"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/36-values.psql",
+    "query": "SELECT * FROM ( VALUES (1, 'a'), (2, 'b') ) x(f1, f2)"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/37-cte.psql",
+    "query": "WITH sub1 AS ( SELECT 1 AS x ), sub2(a, b) AS ( SELECT 2, 3 ), sub3 AS MATERIALIZED ( SELECT 4 AS y ) SELECT s1.*, s2.*, s3.* FROM sub1 s1, sub2 s2, sub3 s3"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/38-rcte.psql",
+    "query": "WITH RECURSIVE x AS ( SELECT 1 AS i UNION ALL SELECT i + 1 FROM x WHERE i < 5 ) SELECT * FROM x"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/39-any.psql",
+    "query": "SELECT * FROM pg_class WHERE oid = ANY('{112,113}'::int4[])"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/40-all.psql",
+    "query": "SELECT * FROM pg_class WHERE oid <> ALL('{112,113}'::int4[])"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/41-special-a-expr.psql",
+    "query": "SELECT 2 BETWEEN 1 AND 3, 2 BETWEEN 3 AND 1, 2 NOT BETWEEN 1 AND 3, 2 BETWEEN SYMMETRIC 3 AND 1, 2 NOT BETWEEN SYMMETRIC 3 AND 1, 1 IS DISTINCT FROM NULL, NULL IS DISTINCT FROM NULL, 1 IS NOT DISTINCT FROM NULL, NULL IS NOT DISTINCT FROM NULL, 1.5 IS NULL, 'null' IS NOT NULL, true IS TRUE, NULL::boolean IS TRUE, false IS NOT TRUE, NULL::boolean IS NOT TRUE, true IS FALSE, NULL::boolean IS FALSE, true IS NOT FALSE, NULL::boolean IS NOT FALSE, true IS UNKNOWN, NULL::boolean IS UNKNOWN, true IS NOT UNKNOWN, NULL::boolean IS NOT UNKNOWN, 'a' LIKE '%', 'a' ILIKE '%', NULLIF('a', 'a'), 'a' SIMILAR TO '%'"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/42-minimax.psql",
+    "query": "SELECT LEAST(a, b, c), GREATEST(d, e, f), LEAST(long_column_name * other_long_name, 31242352524) FROM t"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/43-rowexpr.psql",
+    "query": "SELECT * FROM t WHERE (a, b) = (1, 2) AND (c, d) = (long_table_column * other_long_column, '423543265666')"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/44-bitstring.psql",
+    "query": "SELECT b'', b'0', b'1', b'10101010', b'10000000', b'01111111111111111111111111111111'"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/45-grouping-sets.psql",
+    "query": "SELECT relkind, relhasindex, count(*) FROM pg_class GROUP BY GROUPING SETS ((), relkind, relhasindex, (relkind, relhasindex))"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/46-cube.psql",
+    "query": "SELECT d1, d2, d3, GROUPING(d1, d2, d3), sum(v) FROM test GROUP BY CUBE (d1, (d2, d3))"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/47-rollup.psql",
+    "query": "SELECT d1, d2, d3, sum(v) FROM test GROUP BY ROLLUP (d1, (d2, d3))"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/48-sublink-any-all.psql",
+    "query": "SELECT * FROM generate_series(1, 10) i WHERE i > ANY ( SELECT generate_series(1, 8, 2) ) AND i <> ALL ( SELECT generate_series(3, 7, 2) )"
+  },
+  {
+    "comment": "deparse-depesz/08-selects.d/49-variadic-func-call.psql",
+    "query": "SELECT fun1(VARIADIC ( SELECT array_agg(i) FROM generate_series(1, 5) i )), fun2(VARIADIC ARRAY[1, 2]), fun3('whatever', VARIADIC ARRAY[3, 4])"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/01-basic.psql",
+    "query": "INSERT INTO t VALUES ('a')"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/02-with-columns.psql",
+    "query": "INSERT INTO t (a, b) VALUES (1, 2)"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/03-many-columns.psql",
+    "query": "INSERT INTO t (a, b, c, d, e, f, g, h, i) VALUES ('value for column a', 'value for column b', 'value for column c', 'value for column d', 'value for column e', 'value for column f', 'value for column g', 'value for column h', 'value for column i')"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/04-with-schema.psql",
+    "query": "INSERT INTO \"BadOne\".t VALUES ('a')"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/05-multirow.psql",
+    "query": "INSERT INTO t (a, b) VALUES (1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (17, 18), (19, 20)"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/06-returning-all.psql",
+    "query": "INSERT INTO t VALUES ('a') RETURNING *"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/07-returning-some.psql",
+    "query": "INSERT INTO t (a) VALUES ('a') RETURNING b, c, d"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/08-default.psql",
+    "query": "INSERT INTO t (a, b, c, d, e) VALUES (1, 2, 3, DEFAULT, DEFAULT)"
+  },
+  {
+    "comment": "deparse-depesz/09-inserts.d/09-cte.psql",
+    "query": "WITH q AS ( SELECT 1 AS z ) INSERT INTO t (a) SELECT z FROM q"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/01-single-column-no-where.psql",
+    "query": "UPDATE t SET a = 123"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/02-many-columns-and-where.psql",
+    "query": "UPDATE t SET a = 123, b = 234, c = 56 WHERE d = 123"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/03-with.psql",
+    "query": "UPDATE a al SET b = x.w FROM whatever x WHERE al.id = x.id"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/04-returning-all.psql",
+    "query": "UPDATE t SET a = 1 WHERE id < 10 RETURNING *"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/05-returning-some.psql",
+    "query": "UPDATE t SET a = 1 WHERE id < 10 RETURNING a, id, b"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/06-multi-assign-simple.psql",
+    "query": "UPDATE t SET (a, b, c) = (1, 2, 3)"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/07-multi-assign-long.psql",
+    "query": "UPDATE t SET (a, b, c) = ( SELECT q.x, q.y, q.z FROM q WHERE q.w = t.v )"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/08-multi-assign-mix.psql",
+    "query": "UPDATE t SET a = 2, (b, c, d) = (3, 4, 5), e = 6"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/09-cte.psql",
+    "query": "WITH w AS ( SELECT 1 AS s, 2 AS d ) UPDATE t SET a = w.d FROM w WHERE w.s = t.a"
+  },
+  {
+    "comment": "deparse-depesz/10-updates.d/10-complex-where.psql",
+    "query": "UPDATE t SET a = x.b FROM b WHERE a.id = b.id AND a.t >= b.tmin AND a.t <= b.tmax"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/01-simple.psql",
+    "query": "DELETE FROM a"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/02-where.psql",
+    "query": "DELETE FROM a al WHERE al.id > 10"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/03-using.psql",
+    "query": "DELETE FROM a USING b WHERE a.id = b.id"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/04-returning-all.psql",
+    "query": "DELETE FROM a RETURNING *"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/05-returning-some.psql",
+    "query": "DELETE FROM a RETURNING b, c, d"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/06-cte.psql",
+    "query": "WITH w AS ( SELECT 2 AS x ) DELETE FROM t USING w WHERE w.x = t.a"
+  },
+  {
+    "comment": "deparse-depesz/11-deletes.d/07-complex-where.psql",
+    "query": "DELETE FROM x USING y WHERE x.a = y.a AND x.t >= t.tmin AND x.t <= t.tmax"
+  },
+  {
+    "comment": "deparse-depesz/12-explains.d/01-base.psql",
+    "query": "EXPLAIN SELECT 1"
+  },
+  {
+    "comment": "deparse-depesz/12-explains.d/02-analyze.psql",
+    "query": "EXPLAIN (ANALYZE) SELECT 1"
+  },
+  {
+    "comment": "deparse-depesz/12-explains.d/03-verbose.psql",
+    "query": "EXPLAIN (VERBOSE) SELECT 1"
+  },
+  {
+    "comment": "deparse-depesz/12-explains.d/04-analyze-verbose.psql",
+    "query": "EXPLAIN (ANALYZE, VERBOSE) SELECT 1"
+  },
+  {
+    "comment": "deparse-depesz/12-explains.d/05-other.psql",
+    "query": "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, SETTINGS ON, BUFFERS OFF, WAL ON, TIMING OFF, SUMMARY ON, FORMAT \"json\") SELECT 1"
+  },
+  {
+    "comment": "deparse-depesz/13-tablesample.d/01-system.psql",
+    "query": "SELECT * FROM pg_class TABLESAMPLE system(5)"
+  },
+  {
+    "comment": "deparse-depesz/13-tablesample.d/02-bernoulli.psql",
+    "query": "SELECT * FROM pg_class x TABLESAMPLE bernoulli(5)"
+  },
+  {
+    "comment": "deparse-depesz/13-tablesample.d/03-repeatable.psql",
+    "query": "SELECT * FROM pg_class TABLESAMPLE system(5) REPEATABLE (123.5)"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/01-simple.psql",
+    "query": "SELECT xmlelement(name element, xmlattributes(1 AS one, 'deuce' AS two), 'content')"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/02-concat.psql",
+    "query": "SELECT xmlconcat('<?xml version=\"1.1\"?><foo/>', '<?xml version=\"1.1\" standalone=\"no\"?><bar/>')"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/03-forest.psql",
+    "query": "SELECT xmlforest(name, age, salary AS pay)"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/04-parse.psql",
+    "query": "SELECT xmlparse(document '<?xml version=\"1.0\"?><book><title>Manual</title><chapter>...</chapter></book>'), xmlparse(content 'abc<foo>bar</foo><bar>foo</bar>')"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/05-pi.psql",
+    "query": "SELECT xmlpi(name xxx), xmlpi(name zzz, 'whatever')"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/06-root.psql",
+    "query": "SELECT xmlroot('<foo/>'::xml, version no value, standalone no value), xmlroot('<foo/>'::xml, version '1.0', standalone yes), xmlroot('<foo/>'::xml, version '1.0', standalone no), xmlroot('<foo/>'::xml, version '1.0')"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/07-serialize.psql",
+    "query": "SELECT xmlserialize(content 'good' AS char(10)), xmlserialize(document 'bad' AS text)"
+  },
+  {
+    "comment": "deparse-depesz/14-xml.d/08-is-document.psql",
+    "query": "SELECT '<foo>bar</foo>'::xml IS DOCUMENT, NOT '<foo>bar</foo>'::xml IS DOCUMENT"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/01-lateral.psql",
+    "query": "SELECT c.oid::regclass, u.grantor FROM pg_class c, LATERAL ( SELECT u.usename AS grantor FROM aclexplode(c.relacl) x JOIN pg_user u ON x.grantor = u.usesysid WHERE x.privilege_type = 'SELECT' AND x.grantee = 16514 ) u"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/02-current-row.psql",
+    "query": "SELECT i, sum(i) OVER ( ORDER BY i ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING ), sum(i) OVER ( ORDER BY i ROWS BETWEEN 2 PRECEDING AND CURRENT ROW ) FROM generate_series(1, 10) i"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/03-filtered-aggregates.psql",
+    "query": "SELECT count(*) FILTER (WHERE relkind = 'r') FROM pg_class"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/04-cast-of-expression.psql",
+    "query": "SELECT (data ->> 'timestamp')::timestamptz, (1 = 1 OR 2 = 2)::int4 FROM z"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/05-literal-new-line.psql",
+    "query": "SELECT ' '"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/06-aggregate-filter-inside-case.psql",
+    "query": "SELECT CASE WHEN count(*) FILTER (WHERE col_state = 2) = count(col_id) THEN true WHEN count(*) FILTER (WHERE col_state = 3) > 0 THEN false ELSE NULL END AS col_alias FROM my_table"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/07-missing-ordinality-and-order-by.psql",
+    "query": "SELECT string_agg(E'\\\\U' || lpad(to_hex(ascii(unnest)), 8, '0'), '' ORDER BY ordinality) FROM unnest(regexp_split_to_array($1, '')) WITH ORDINALITY"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/08-missing-dot-before-start.psql",
+    "query": "SELECT (unnest('{\"(ACDT,10:30:00,t)\",\"(ACSST,10:30:00,t)\"}'::pg_timezone_abbrevs[])).*"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/09-missing-dot-before-column.psql",
+    "query": "SELECT (unnest('{\"(ACDT,10:30:00,t)\",\"(ACSST,10:30:00,t)\"}'::pg_timezone_abbrevs[])).abbrev"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/10-missing-not.psql",
+    "query": "SELECT 1 NOT IN (2, 3, 4), 'a' NOT LIKE 'z'"
+  },
+  {
+    "comment": "deparse-depesz/16-bugs.d/11-distinct-aggregate.psql",
+    "query": "SELECT count(DISTINCT x), array_agg(DISTINCT id, ', ' ORDER BY id DESC) FROM z"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/01-for-update.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR UPDATE"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/02-for-no-key-update.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR NO KEY UPDATE"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/03-for-share.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR SHARE"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/04-for-key-share.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR KEY SHARE"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/05-of-table.psql",
+    "query": "SELECT * FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid ORDER BY c.oid ASC LIMIT 5 FOR SHARE OF c"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/06-of-tables.psql",
+    "query": "SELECT * FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid ORDER BY c.oid ASC LIMIT 5 FOR SHARE OF c, n"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/07-nowait.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR UPDATE NOWAIT"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/08-skip-locked.psql",
+    "query": "SELECT * FROM pg_class ORDER BY oid LIMIT 5 FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "comment": "deparse-depesz/17-locking-selects.d/09-multi.psql",
+    "query": "SELECT * FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid ORDER BY c.oid ASC LIMIT 5 FOR UPDATE OF c NOWAIT FOR SHARE OF n SKIP LOCKED"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/01-basic-nothing.psql",
+    "query": "INSERT INTO t (a, b, c) VALUES ('aa', 'bb', 'cc') ON CONFLICT DO NOTHING"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/02-constraint-nothing.psql",
+    "query": "INSERT INTO t (a, b, c) VALUES ('aa', 'bb', 'cc') ON CONFLICT ON CONSTRAINT some_constraint DO NOTHING"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/03-columns-nothing.psql",
+    "query": "INSERT INTO t (a, b, c) VALUES ('aa', 'bb', 'cc') ON CONFLICT (a, lower(b)) DO NOTHING"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/04-expr-complex.psql",
+    "query": "INSERT INTO t (a, b, c) VALUES ('aa', 'bb', 'cc') ON CONFLICT (a COLLATE \"C\", b text_pattern_ops, c COLLATE \"C\" text_pattern_ops) DO NOTHING"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/05-simple-update.psql",
+    "query": "INSERT INTO t (a, b, c) VALUES ('aa', 'bb', 'cc') ON CONFLICT DO UPDATE SET c = excluded.fruit"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/06-update-multicolumn.psql",
+    "query": "INSERT INTO insertconflicttest VALUES (1, 'Apple'), (2, 'Orange') ON CONFLICT (key) DO UPDATE SET (fruit, key) = (excluded.fruit, excluded.key)"
+  },
+  {
+    "comment": "deparse-depesz/18-conflicts.d/07-update-complex.psql",
+    "query": "INSERT INTO dropcol (key, drop1, keep1, drop2, keep2) VALUES (1, 2, '2', '2', 2) ON CONFLICT (key) DO UPDATE SET drop1 = excluded.drop1, keep1 = excluded.keep1, drop2 = excluded.drop2, keep2 = excluded.keep2 WHERE excluded.drop1 IS NOT NULL AND excluded.keep1 IS NOT NULL AND excluded.drop2 IS NOT NULL AND excluded.keep2 IS NOT NULL AND dropcol.drop1 IS NOT NULL AND dropcol.keep1 IS NOT NULL AND dropcol.drop2 IS NOT NULL AND dropcol.keep2 IS NOT NULL RETURNING *"
+  }
+]

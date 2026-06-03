@@ -302,6 +302,37 @@ func (c *Conn) WriteCopyInResponse(format int16, columnFormats []int16) error {
 	return c.writePacket(buf, pos)
 }
 
+// WriteCopyOutResponse writes a CopyOutResponse ('H') message to the client.
+// Sent at the start of a COPY ... TO STDOUT response, before any CopyData
+// frames. Body layout matches CopyInResponse: Int8(format) +
+// Int16(numCols) + Int16[numCols] per-column formats.
+func (c *Conn) WriteCopyOutResponse(format int16, columnFormats []int16) error {
+	bodyLen := 1 + 2 + 2*len(columnFormats)
+	buf, pos := c.startPacket(protocol.MsgCopyOutResponse, bodyLen)
+	pos = writeByteAt(buf, pos, byte(format))
+	pos = writeInt16At(buf, pos, int16(len(columnFormats)))
+	for _, fmt := range columnFormats {
+		pos = writeInt16At(buf, pos, fmt)
+	}
+	return c.writePacket(buf, pos)
+}
+
+// WriteCopyData writes a CopyData ('d') message body to the client.
+// Used during COPY ... TO STDOUT to forward each row chunk PG returned.
+func (c *Conn) WriteCopyData(data []byte) error {
+	buf, pos := c.startPacket(protocol.MsgCopyData, len(data))
+	pos = writeBytesAt(buf, pos, data)
+	return c.writePacket(buf, pos)
+}
+
+// WriteCopyDone writes a CopyDone ('c') message (zero-length body) to the
+// client. Sent after the last CopyData frame in a COPY ... TO STDOUT response,
+// just before CommandComplete.
+func (c *Conn) WriteCopyDone() error {
+	buf, pos := c.startPacket(protocol.MsgCopyDone, 0)
+	return c.writePacket(buf, pos)
+}
+
 // ReadCopyDataMessage reads a CopyData ('d') message body
 // The message type byte has already been read
 // length is the body length (already has 4 subtracted by ReadMessageLength)

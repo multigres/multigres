@@ -675,9 +675,10 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 				assert.Equal(t, 1, n)
 			})
 
-			// MUL-389 follow-up: DISCARD ALL closes every cursor — verify
-			// the gateway forwards release_portal_names so the
-			// multipooler's portal pin set drains alongside PG's wipe.
+			// MUL-389 follow-up: DISCARD ALL closes every cursor. The
+			// gateway handles DISCARD ALL locally and releases the reserved
+			// connection (pinned by the HOLD cursor) back to the pool, so
+			// the multipooler's portal pin set drains alongside PG's wipe.
 			t.Run("DISCARD ALL releases HOLD cursor pins", func(t *testing.T) {
 				tableName := fmt.Sprintf("hold_da_test_%d", time.Now().UnixNano())
 

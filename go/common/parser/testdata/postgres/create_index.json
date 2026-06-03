@@ -985,7 +985,7 @@
   {
     "comment": "create_index - Statement 215",
     "query": "CREATE TABLE cwi_test( a int , b varchar(10), c char)",
-    "expected": "CREATE TABLE cwi_test (a INT, b VARCHAR(10), c CHAR(1))"
+    "expected": "CREATE TABLE cwi_test (a INT, b VARCHAR(10), c bpchar(1))"
   },
   {
     "comment": "create_index - Statement 216",

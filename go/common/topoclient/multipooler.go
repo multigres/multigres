@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -40,6 +41,18 @@ func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadata
 			TableGroup: tableGroup,
 		},
 		PortMap: make(map[string]int32),
+		// The pooler process is up but postgres readiness has not yet been
+		// confirmed; the manager transitions this to ACTIVE once the
+		// pgMonitor observes postgres responding. The timestamp is set at
+		// construction time rather than at write time — the caller
+		// (registerFunc) invokes RegisterMultiPooler within microseconds
+		// of the factory call, so the difference is negligible and avoids
+		// plumbing a clock through the factory's call sites.
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+			Reason:  "process starting",
+			Updated: timestamppb.Now(),
+		},
 	}
 }
 

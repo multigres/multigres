@@ -432,7 +432,7 @@
   {
     "comment": "inherit - Statement 88",
     "query": "create table parted_tab (a int, b char) partition by list (a)",
-    "expected": "CREATE TABLE parted_tab (a INT, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE parted_tab (a INT, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "inherit - Statement 89",
@@ -487,7 +487,7 @@
   {
     "comment": "inherit - Statement 99",
     "query": "create table mlparted_tab (a int, b char, c text) partition by list (a)",
-    "expected": "CREATE TABLE mlparted_tab (a INT, b CHAR(1), c TEXT) PARTITION BY list (a)"
+    "expected": "CREATE TABLE mlparted_tab (a INT, b bpchar(1), c TEXT) PARTITION BY list (a)"
   },
   {
     "comment": "inherit - Statement 100",
@@ -1875,7 +1875,7 @@
   {
     "comment": "inherit - Statement 380",
     "query": "create table range_list_parted ( a\tint, b\tchar(2) ) partition by range (a)",
-    "expected": "CREATE TABLE range_list_parted (a INT, b CHAR(2)) PARTITION BY range (a)"
+    "expected": "CREATE TABLE range_list_parted (a INT, b bpchar(2)) PARTITION BY range (a)"
   },
   {
     "comment": "inherit - Statement 381",

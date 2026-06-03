@@ -1649,7 +1649,7 @@
   {
     "comment": "jsonb - Statement 349",
     "query": "CREATE TYPE jsbrec AS ( i\tint, ia\t_int4, ia1\tint[], ia2\tint[][], ia3\tint[][][], ia1d\tjsb_int_array_1d, ia2d\tjsb_int_array_2d, t\ttext, ta\ttext[], c\tchar(10), ca\tchar(10)[], ts\ttimestamp, js\tjson, jsb\tjsonb, jsa\tjson[], rec\tjbpop, reca\tjbpop[] )",
-    "expected": "CREATE TYPE jsbrec AS (i INT, ia _int4, ia1 INT[], ia2 INT[][], ia3 INT[][][], ia1d jsb_int_array_1d, ia2d jsb_int_array_2d, t TEXT, ta TEXT[], c CHAR(10), ca CHAR(10)[], ts TIMESTAMP, js JSON, jsb JSONB, jsa JSON[], rec jbpop, reca jbpop[])"
+    "expected": "CREATE TYPE jsbrec AS (i INT, ia _int4, ia1 INT[], ia2 INT[][], ia3 INT[][][], ia1d jsb_int_array_1d, ia2d jsb_int_array_2d, t TEXT, ta TEXT[], c bpchar(10), ca bpchar(10)[], ts TIMESTAMP, js JSON, jsb JSONB, jsa JSON[], rec jbpop, reca jbpop[])"
   },
   {
     "comment": "jsonb - Statement 350",
@@ -2049,7 +2049,7 @@
   {
     "comment": "jsonb - Statement 429",
     "query": "create type jsb_char2 as (a char(2))",
-    "expected": "CREATE TYPE jsb_char2 AS (a CHAR(2))"
+    "expected": "CREATE TYPE jsb_char2 AS (a bpchar(2))"
   },
   {
     "comment": "jsonb - Statement 430",
@@ -2329,7 +2329,7 @@
   {
     "comment": "jsonb - Statement 485",
     "query": "select *, c is null as c_is_null from jsonb_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::jsonb) as t(a int, b jsonb, c text, x int, ca char(5)[], ia int[][], r jbpop)",
-    "expected": "SELECT *, c IS NULL AS c_is_null FROM jsonb_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSONB)) AS t (a INT, b JSONB, c TEXT, x INT, ca CHAR(5)[], ia INT[][], r jbpop)"
+    "expected": "SELECT *, c IS NULL AS c_is_null FROM jsonb_to_record(CAST('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}' AS JSONB)) AS t (a INT, b JSONB, c TEXT, x INT, ca bpchar(5)[], ia INT[][], r jbpop)"
   },
   {
     "comment": "jsonb - Statement 486",

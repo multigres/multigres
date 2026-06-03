@@ -25,12 +25,17 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 SQLLOGICTEST_VER = v0.29.1
 export SQLLOGICTEST_VER
+# pgproto is built from source from the pgpool-II release tarball (it lives in
+# the pgpool2 tree under src/tools/pgproto). PGPROTO_VER is the pgpool-II
+# release version.
+PGPROTO_VER = 4.6.6
+export PGPROTO_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser help
 
 ##@ General
 
@@ -159,6 +164,38 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
 	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
+# Run the external extension suite (e.g. pgvector). Clones and builds each
+# external extension as a PGXS module against the from-source PostgreSQL, then
+# runs its shipped pg_regress suite through multigateway with patch-based
+# verification. Known divergences are recorded under
+# testdata/pg17/patches/external/<ext>/.
+pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch-based verification.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=verify \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Re-run the external extension suite in generate mode: any residual diff between
+# actual output and patched-expected output is absorbed by (re)writing
+# testdata/pg17/patches/external/<ext>/<name>.patch. Review the resulting patches
+# in the PR diff before merging.
+pgexternal-update-patches: build ## Regenerate testdata/pg17/patches/external/*.patch from the current run.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Run the pgproto wire-protocol conformance suite (patch-verify mode). Requires
+# `make build` and `make tools` (builds the pgproto binary); clones/builds
+# PostgreSQL on first run. Known divergences are recorded as patches under
+# go/test/endtoend/queryserving/pgproto/testdata/patches/.
+pgproto: build ## Run the pgproto wire-protocol conformance suite with patch-based verification.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=verify \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
+
+# Re-run the pgproto suite in generate mode: any residual divergence between the
+# multigateway and PostgreSQL is absorbed by (re)writing
+# go/test/endtoend/queryserving/pgproto/testdata/patches/<name>.patch. Review the
+# resulting patches in the PR diff before merging.
+pgproto-update-patches: build ## Regenerate pgproto testdata/patches/*.patch from the current run.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=generate \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
 # Path to the supabase/postgres checkout. Override with SUPABASE_POSTGRES_DIR=... if needed.
 SUPABASE_POSTGRES_DIR ?= $(HOME)/repos/supabase/postgres
 

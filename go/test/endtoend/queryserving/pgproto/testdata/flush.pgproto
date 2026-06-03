@@ -1,0 +1,46 @@
+#
+# Extended-query: Flush forces buffered responses out without a Sync.
+#
+# In the extended protocol the backend buffers its replies and does not push
+# them to the client until either a Sync (which also ends the implicit
+# transaction and sends ReadyForQuery) or a Flush (which pushes whatever is
+# buffered *without* a ReadyForQuery and without ending the transaction). A
+# client driving an incremental conversation relies on Flush to read a
+# statement's result before deciding what to send next. A proxy that only
+# forwards on Sync — or that withholds bytes until it sees ReadyForQuery — would
+# hang or reorder here.
+#
+# 'H' sends Flush; 'y' reads whatever has arrived for up to 1s and then stops
+# (unlike 'Y', which blocks until ReadyForQuery — there is no ReadyForQuery
+# after a Flush, so 'Y' would hang). Each 'y' below should surface exactly the
+# messages the preceding Flush pushed, and no ReadyForQuery.
+#
+
+'Q'	"CREATE TABLE pgproto_flush (id int)"
+'Y'
+'Q'	"INSERT INTO pgproto_flush VALUES (7)"
+'Y'
+
+# Parse, then Flush -> ParseComplete arrives on its own (no ReadyForQuery).
+'P'	"s_flush"	"SELECT id FROM pgproto_flush ORDER BY id"	0
+'H'
+'y'
+
+# Bind + Describe(portal), then Flush -> BindComplete + RowDescription arrive,
+# still no ReadyForQuery.
+'B'	"p_flush"	"s_flush"	0	0	0
+'D'	'P'	"p_flush"
+'H'
+'y'
+
+# Execute, then Flush -> DataRow + CommandComplete arrive, still no
+# ReadyForQuery (the implicit transaction is still open).
+'E'	"p_flush"	0
+'H'
+'y'
+
+# Finally Sync closes the implicit transaction and yields ReadyForQuery.
+'S'
+'Y'
+
+'X'

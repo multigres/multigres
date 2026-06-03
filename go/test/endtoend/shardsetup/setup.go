@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -77,6 +78,7 @@ type SetupConfig struct {
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
+	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
 	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
@@ -95,6 +97,17 @@ type SetupOption func(*SetupConfig)
 func WithMultipoolerCount(count int) SetupOption {
 	return func(c *SetupConfig) {
 		c.MultipoolerCount = count
+	}
+}
+
+// WithMultipoolerExtraArgs appends extra CLI flags to every multipooler in the
+// setup. Use for connpool tuning that has no dedicated option yet, e.g.
+// shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=4",
+// "--connpool-user-reserved-inactivity-timeout=2s"). Flags are appended last,
+// so they override the multipooler defaults.
+func WithMultipoolerExtraArgs(args ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.MultipoolerExtraArgs = append(c.MultipoolerExtraArgs, args...)
 	}
 }
 
@@ -579,6 +592,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
 			// Append SSL config to postgresql.conf at init time.
@@ -1656,6 +1670,15 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 4. Start pgctld + multipooler for all nodes
 	for name, inst := range s.Multipoolers {
+		// Immediate shutdown (step 3) is best-effort and returns before the OS
+		// has released the postmaster's listen socket — under CI load the old
+		// postmaster can still own the pg-port when we get here. Restarting now
+		// makes the new postmaster fail to bind ("could not create any TCP/IP
+		// sockets: address already in use"), so it never reaches PostgresReady
+		// and WaitForManagerReady times out with an opaque error. Wait for the
+		// port to actually free first.
+		waitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
+
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
 		}
@@ -1689,6 +1712,32 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
+// waitForPortFree blocks until no process is listening on localhost:port, or
+// the timeout elapses. It is used between stopping postgres and restarting it
+// on the same port during ReinitializeCluster, so the new postmaster can bind.
+//
+// A successful net.Listen means the port is free (an active listener on the
+// same port — e.g. a not-yet-exited postmaster — makes Listen fail even with
+// SO_REUSEADDR). If the port never frees we log and return rather than fail
+// here; the subsequent start surfaces a precise bind error.
+func waitForPortFree(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	addr := fmt.Sprintf(":%d", port)
+	deadline := time.Now().Add(timeout)
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			_ = ln.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Logf("ReinitializeCluster: warning: port %d still in use after %s (%v); proceeding anyway", port, timeout, err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // wipeTopologyForReinit removes the etcd keys that would otherwise carry

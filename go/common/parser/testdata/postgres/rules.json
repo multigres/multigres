@@ -104,17 +104,17 @@
   {
     "comment": "rules - Statement 22",
     "query": "create table rtest_emp (ename char(20), salary numeric)",
-    "expected": "CREATE TABLE rtest_emp (ename CHAR(20), salary NUMERIC)"
+    "expected": "CREATE TABLE rtest_emp (ename bpchar(20), salary NUMERIC)"
   },
   {
     "comment": "rules - Statement 23",
     "query": "create table rtest_emplog (ename char(20), who name, action char(10), newsal numeric, oldsal numeric)",
-    "expected": "CREATE TABLE rtest_emplog (ename CHAR(20), who name, action CHAR(10), newsal NUMERIC, oldsal NUMERIC)"
+    "expected": "CREATE TABLE rtest_emplog (ename bpchar(20), who name, action bpchar(10), newsal NUMERIC, oldsal NUMERIC)"
   },
   {
     "comment": "rules - Statement 24",
     "query": "create table rtest_empmass (ename char(20), salary numeric)",
-    "expected": "CREATE TABLE rtest_empmass (ename CHAR(20), salary NUMERIC)"
+    "expected": "CREATE TABLE rtest_empmass (ename bpchar(20), salary NUMERIC)"
   },
   {
     "comment": "rules - Statement 25",
@@ -1124,12 +1124,12 @@
   {
     "comment": "rules - Statement 226",
     "query": "create table rtest_comp ( part\ttext, unit\tchar(4), size\tfloat )",
-    "expected": "CREATE TABLE rtest_comp (part TEXT, unit CHAR(4), size FLOAT8)"
+    "expected": "CREATE TABLE rtest_comp (part TEXT, unit bpchar(4), size FLOAT8)"
   },
   {
     "comment": "rules - Statement 227",
     "query": "create table rtest_unitfact ( unit\tchar(4), factor\tfloat )",
-    "expected": "CREATE TABLE rtest_unitfact (unit CHAR(4), factor FLOAT8)"
+    "expected": "CREATE TABLE rtest_unitfact (unit bpchar(4), factor FLOAT8)"
   },
   {
     "comment": "rules - Statement 228",
@@ -1194,17 +1194,17 @@
   {
     "comment": "rules - Statement 240",
     "query": "CREATE TABLE shoe_data ( shoename   char(10), sh_avail   integer, slcolor    char(10), slminlen   float, slmaxlen   float, slunit     char(8) )",
-    "expected": "CREATE TABLE shoe_data (shoename CHAR(10), sh_avail INT, slcolor CHAR(10), slminlen FLOAT8, slmaxlen FLOAT8, slunit CHAR(8))"
+    "expected": "CREATE TABLE shoe_data (shoename bpchar(10), sh_avail INT, slcolor bpchar(10), slminlen FLOAT8, slmaxlen FLOAT8, slunit bpchar(8))"
   },
   {
     "comment": "rules - Statement 241",
     "query": "CREATE TABLE shoelace_data ( sl_name    char(10), sl_avail   integer, sl_color   char(10), sl_len     float, sl_unit    char(8) )",
-    "expected": "CREATE TABLE shoelace_data (sl_name CHAR(10), sl_avail INT, sl_color CHAR(10), sl_len FLOAT8, sl_unit CHAR(8))"
+    "expected": "CREATE TABLE shoelace_data (sl_name bpchar(10), sl_avail INT, sl_color bpchar(10), sl_len FLOAT8, sl_unit bpchar(8))"
   },
   {
     "comment": "rules - Statement 242",
     "query": "CREATE TABLE unit ( un_name    char(8), un_fact    float )",
-    "expected": "CREATE TABLE unit (un_name CHAR(8), un_fact FLOAT8)"
+    "expected": "CREATE TABLE unit (un_name bpchar(8), un_fact FLOAT8)"
   },
   {
     "comment": "rules - Statement 243",
@@ -1298,7 +1298,7 @@
   {
     "comment": "rules - Statement 263",
     "query": "CREATE TABLE shoelace_log ( sl_name    char(10), sl_avail   integer, log_who    name, log_when   timestamp )",
-    "expected": "CREATE TABLE shoelace_log (sl_name CHAR(10), sl_avail INT, log_who name, log_when TIMESTAMP)"
+    "expected": "CREATE TABLE shoelace_log (sl_name bpchar(10), sl_avail INT, log_who name, log_when TIMESTAMP)"
   },
   {
     "comment": "rules - Statement 264",
@@ -1332,12 +1332,12 @@
   {
     "comment": "rules - Statement 270",
     "query": "CREATE TABLE shoelace_arrive ( arr_name    char(10), arr_quant   integer )",
-    "expected": "CREATE TABLE shoelace_arrive (arr_name CHAR(10), arr_quant INT)"
+    "expected": "CREATE TABLE shoelace_arrive (arr_name bpchar(10), arr_quant INT)"
   },
   {
     "comment": "rules - Statement 271",
     "query": "CREATE TABLE shoelace_ok ( ok_name     char(10), ok_quant    integer )",
-    "expected": "CREATE TABLE shoelace_ok (ok_name CHAR(10), ok_quant INT)"
+    "expected": "CREATE TABLE shoelace_ok (ok_name bpchar(10), ok_quant INT)"
   },
   {
     "comment": "rules - Statement 272",
@@ -2142,12 +2142,12 @@
   {
     "comment": "rules - Statement 437",
     "query": "CREATE TABLE hats ( hat_name    char(10) primary key, hat_color   char(10) )",
-    "expected": "CREATE TABLE hats (hat_name CHAR(10) PRIMARY KEY, hat_color CHAR(10))"
+    "expected": "CREATE TABLE hats (hat_name bpchar(10) PRIMARY KEY, hat_color bpchar(10))"
   },
   {
     "comment": "rules - Statement 438",
     "query": "CREATE TABLE hat_data ( hat_name    char(10), hat_color   char(10) )",
-    "expected": "CREATE TABLE hat_data (hat_name CHAR(10), hat_color CHAR(10))"
+    "expected": "CREATE TABLE hat_data (hat_name bpchar(10), hat_color bpchar(10))"
   },
   {
     "comment": "rules - Statement 439",

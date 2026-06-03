@@ -364,7 +364,7 @@
   {
     "comment": "truncate - Statement 80",
     "query": "CREATE TABLE truncparted (a int, b char) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE truncparted (a INT, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE truncparted (a INT, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "truncate - Statement 81",

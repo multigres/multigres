@@ -24,9 +24,19 @@ Browse the design and reference docs by area:
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management).
 
+## Alpha Deployment Notes
+
+- **[Getting started on EKS](./kubernetes/eks.md)**
+
+## Release Documentation
+
+- **[Release artifacts and verification](../RELEASE.md)**
+
 ## PostgreSQL Compatibility
 
 multigres runs the official PostgreSQL regression test suite to track compatibility.
 
 - **Results:** See the [latest workflow run](https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml) for the detailed compatibility report in the Job Summary.
-- **Artifacts:** Each run uploads `compatibility-report.md` and `regression.diffs` as downloadable artifacts.
+- **PostgreSQL compatibility artifacts:** Each run uploads
+  `postgres-compatibility-results`, which includes the compatibility report and
+  PostgreSQL regression diffs when results are produced.

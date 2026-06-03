@@ -521,6 +521,192 @@ func (c *replicationStatusClient) Status(
 	}, nil
 }
 
+// streamingAfterRewindClient wraps FakeClient to simulate the full pg_rewind
+// success path: the replica has no primary_conninfo initially, the WAL receiver
+// stays idle through the first verifyReplicationStarted window (exhausting all
+// attempts), then streams after RewindToSource restores primary_conninfo.
+//
+// Call sequence (with verifyMaxAttempts = N):
+//  1. verifyProblemExists        → no PrimaryConnInfo (triggers fix)
+//     2..N+1. verifyReplicationStarted after SetTermPrimary  → not streaming (all fail)
+//     N+2+.  verifyReplicationStarted after RewindToSource → streaming
+type streamingAfterRewindClient struct {
+	*rpcclient.FakeClient
+	replicaCallCount  int
+	nonStreamingCalls int // number of non-streaming calls after call 1 before transitioning
+}
+
+func (c *streamingAfterRewindClient) Status(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
+	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
+		return c.FakeClient.Status(ctx, pooler, request)
+	}
+	c.replicaCallCount++
+	switch {
+	case c.replicaCallCount == 1:
+		// verifyProblemExists: no primary_conninfo → triggers fix
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{},
+			},
+		}, nil
+	case c.replicaCallCount <= 1+c.nonStreamingCalls:
+		// verifyReplicationStarted after SetTermPrimary: WAL receiver idle
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					WalReceiverStatus: "",
+				},
+			},
+		}, nil
+	default:
+		// verifyReplicationStarted after RewindToSource: streaming
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					WalReceiverStatus: "streaming",
+					LastReceiveLsn:    "0/5000100",
+				},
+			},
+		}, nil
+	}
+}
+
+// TestFixReplicationAction_SucceedsViaRewind is a regression test for the bug where
+// RewindToSource did not restore primary_conninfo after pg_rewind, leaving the WAL
+// receiver with no primary to connect to. The full path under test:
+//
+//  1. SetTermPrimary is called but the WAL receiver never starts streaming.
+//  2. tryPgRewind → RewindToSource runs (which now restores primary_conninfo).
+//  3. verifyReplicationStarted sees "streaming" and the action succeeds.
+func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	const verifyAttempts = 3 // override default to keep test fast
+
+	baseFakeClient := rpcclient.NewFakeClient()
+	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: true,
+			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+		},
+	})
+	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
+		"multipooler-cell1-primary": {
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			},
+		},
+		"multipooler-cell1-replica1": {
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			},
+		},
+	}
+	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+		"multipooler-cell1-primary": {},
+	}
+	// RewindToSource succeeds, simulating pg_rewind running and primary_conninfo
+	// being restored by the fix in rpc_manager.go.
+	baseFakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+		"multipooler-cell1-replica1": {
+			Success:         true,
+			RewindPerformed: true,
+		},
+	}
+
+	fakeClient := &streamingAfterRewindClient{
+		FakeClient:        baseFakeClient,
+		nonStreamingCalls: verifyAttempts,
+	}
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	replica := &clustermetadatapb.MultiPooler{
+		Id: replicaID,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Type: clustermetadatapb.PoolerType_REPLICA,
+	}
+	primary := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "primary",
+		},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		Type:     clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "primary.example.com",
+		PortMap:  map[string]int32{"postgres": 5432},
+	}
+
+	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
+	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: replica,
+	})
+	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: primary,
+		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				},
+			},
+		},
+	})
+
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond
+	action.verifyMaxAttempts = verifyAttempts
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaNotReplicating,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+	require.NoError(t, err, "fixNotReplicating must succeed via pg_rewind path")
+
+	// Verify the expected call sequence.
+	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)",
+		"SetTermPrimary must be called first")
+	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)",
+		"RewindToSource must be called when SetTermPrimary doesn't start streaming")
+
+	// REGRESSION: the pooler must NOT be drained — RewindToSource succeeded and
+	// streaming started. Before the fix, primary_conninfo was wiped by pg_rewind
+	// so verifyReplicationStarted always failed, eventually routing to DRAINED.
+	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	require.NoError(t, err)
+	assert.NotEqual(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type,
+		"pooler must not be drained when replication starts successfully after rewind")
+}
+
 func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")

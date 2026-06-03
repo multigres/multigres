@@ -948,6 +948,17 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		return false, mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 
+	// If pg_rewind ran, postgresql.auto.conf was overwritten from source (a
+	// primary, which has no primary_conninfo), so the WAL receiver has no
+	// target. Restore primary_conninfo before returning so the caller's
+	// "restart as standby of source" expectation actually holds. Discovered in
+	// the mg-scale12 AZ-outage test (2026-05-29).
+	if rewindPerformed {
+		if err := pm.setPrimaryConnInfoLocked(ctx, sourceHost, sourcePort, false, false); err != nil {
+			return false, mterrors.Wrap(err, "restore primary_conninfo after pg_rewind")
+		}
+	}
+
 	return rewindPerformed, nil
 }
 

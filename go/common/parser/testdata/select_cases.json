@@ -86,6 +86,16 @@
     "expected": "SELECT CAST((age + 1) AS VARCHAR) FROM users"
   },
   {
+    "comment": "Unbounded bpchar cast keeps full length; deparsing to bare CHAR would make PostgreSQL read it as char(1) and truncate",
+    "query": "SELECT 'ABA'::bpchar",
+    "expected": "SELECT CAST('ABA' AS bpchar)"
+  },
+  {
+    "comment": "Bounded bpchar cast still normalizes to CHAR(n)",
+    "query": "SELECT 'ABA'::bpchar(5)",
+    "expected": "SELECT CAST('ABA' AS bpchar(5))"
+  },
+  {
     "comment": "Function no args",
     "query": "SELECT now()",
     "expected": "SELECT NOW()"

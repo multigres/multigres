@@ -74,7 +74,7 @@
   {
     "comment": "alter_table - Statement 17",
     "query": "ALTER TABLE attmp ADD COLUMN i char",
-    "expected": "ALTER TABLE attmp ADD COLUMN i CHAR(1)"
+    "expected": "ALTER TABLE attmp ADD COLUMN i bpchar(1)"
   },
   {
     "comment": "alter_table - Statement 18",
@@ -4419,7 +4419,7 @@
   {
     "comment": "alter_table - Statement 928",
     "query": "ALTER TABLE partitioned ALTER COLUMN a TYPE char(5)",
-    "expected": "ALTER TABLE partitioned ALTER COLUMN a TYPE CHAR(5)"
+    "expected": "ALTER TABLE partitioned ALTER COLUMN a TYPE bpchar(5)"
   },
   {
     "comment": "alter_table - Statement 929",
@@ -4428,7 +4428,7 @@
   {
     "comment": "alter_table - Statement 930",
     "query": "ALTER TABLE partitioned ALTER COLUMN b TYPE char(5)",
-    "expected": "ALTER TABLE partitioned ALTER COLUMN b TYPE CHAR(5)"
+    "expected": "ALTER TABLE partitioned ALTER COLUMN b TYPE bpchar(5)"
   },
   {
     "comment": "alter_table - Statement 931",
@@ -4477,7 +4477,7 @@
   {
     "comment": "alter_table - Statement 941",
     "query": "CREATE TABLE list_parted ( a int NOT NULL, b char(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0) ) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE list_parted (a INT NOT NULL, b CHAR(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE list_parted (a INT NOT NULL, b bpchar(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0)) PARTITION BY list (a)"
   },
   {
     "comment": "alter_table - Statement 942",
@@ -4622,17 +4622,17 @@
   {
     "comment": "alter_table - Statement 975",
     "query": "CREATE TABLE fail_part ( b char(3), a int NOT NULL )",
-    "expected": "CREATE TABLE fail_part (b CHAR(3), a INT NOT NULL)"
+    "expected": "CREATE TABLE fail_part (b bpchar(3), a INT NOT NULL)"
   },
   {
     "comment": "alter_table - Statement 976",
     "query": "ALTER TABLE fail_part ALTER b TYPE char (2) COLLATE \"POSIX\"",
-    "expected": "ALTER TABLE fail_part ALTER COLUMN b TYPE CHAR(2) COLLATE \"POSIX\""
+    "expected": "ALTER TABLE fail_part ALTER COLUMN b TYPE bpchar(2) COLLATE \"POSIX\""
   },
   {
     "comment": "alter_table - Statement 977",
     "query": "CREATE TABLE fail_part ( b char(2) COLLATE \"C\", a int NOT NULL )",
-    "expected": "CREATE TABLE fail_part (b CHAR(2) COLLATE \"C\", a INT NOT NULL)"
+    "expected": "CREATE TABLE fail_part (b bpchar(2) COLLATE \"C\", a INT NOT NULL)"
   },
   {
     "comment": "alter_table - Statement 978",
@@ -4641,7 +4641,7 @@
   {
     "comment": "alter_table - Statement 979",
     "query": "CREATE TABLE part_1 ( a int NOT NULL, b char(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0) )",
-    "expected": "CREATE TABLE part_1 (a INT NOT NULL, b CHAR(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0))"
+    "expected": "CREATE TABLE part_1 (a INT NOT NULL, b bpchar(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0))"
   },
   {
     "comment": "alter_table - Statement 980",
@@ -4680,7 +4680,7 @@
   {
     "comment": "alter_table - Statement 988",
     "query": "CREATE TABLE list_parted2 ( a int, b char ) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE list_parted2 (a INT, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE list_parted2 (a INT, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "alter_table - Statement 989",

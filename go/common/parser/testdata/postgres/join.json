@@ -1290,17 +1290,17 @@
   {
     "comment": "join - Statement 262",
     "query": "create temp table a ( code char not null, constraint a_pk primary key (code) )",
-    "expected": "CREATE TEMPORARY TABLE a (code CHAR(1) NOT NULL, CONSTRAINT a_pk PRIMARY KEY (code))"
+    "expected": "CREATE TEMPORARY TABLE a (code bpchar(1) NOT NULL, CONSTRAINT a_pk PRIMARY KEY (code))"
   },
   {
     "comment": "join - Statement 263",
     "query": "create temp table b ( a char not null, num integer not null, constraint b_pk primary key (a, num) )",
-    "expected": "CREATE TEMPORARY TABLE b (a CHAR(1) NOT NULL, num INT NOT NULL, CONSTRAINT b_pk PRIMARY KEY (a, num))"
+    "expected": "CREATE TEMPORARY TABLE b (a bpchar(1) NOT NULL, num INT NOT NULL, CONSTRAINT b_pk PRIMARY KEY (a, num))"
   },
   {
     "comment": "join - Statement 264",
     "query": "create temp table c ( name char not null, a char, constraint c_pk primary key (name) )",
-    "expected": "CREATE TEMPORARY TABLE c (name CHAR(1) NOT NULL, a CHAR(1), CONSTRAINT c_pk PRIMARY KEY (name))"
+    "expected": "CREATE TEMPORARY TABLE c (name bpchar(1) NOT NULL, a bpchar(1), CONSTRAINT c_pk PRIMARY KEY (name))"
   },
   {
     "comment": "join - Statement 265",

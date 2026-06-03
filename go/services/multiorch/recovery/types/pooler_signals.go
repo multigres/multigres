@@ -29,9 +29,20 @@ import (
 // signalled that it should be replaced via a new election. It reads the
 // self-reported AvailabilityStatus from the consensus status RPC.
 //
-// The staleness check (leadership_status.primary_term == consensus primary_term)
-// ensures we don't act on a REQUESTING_DEMOTION signal left over from a previous
-// election cycle that was never cleared (e.g. after a process restart).
+// Two independent signals trigger replacement:
+//
+//   - CohortEligibilityStatus.Signal == INELIGIBLE: the pooler is unwilling to
+//     remain in the cohort (e.g. graceful shutdown advertises this before
+//     stopping postgres). Not term-gated — eligibility is a current preference
+//     and staleness comes from the freshness of the surrounding health
+//     snapshot; a node that doesn't want to be in the cohort certainly should
+//     not continue as leader.
+//
+//   - LeadershipStatus.Signal == REQUESTING_DEMOTION with leader_term ==
+//     current primary term: emitted by Recruit's primary-demote path after a
+//     postgres crash so the coordinator can correlate the request with the
+//     specific term and avoid acting on a leftover signal from a previous
+//     election cycle that was never cleared (e.g. after a process restart).
 //
 // TODO: once the coordinator synthesizes AvailabilityStatus into
 // PoolerHealthState directly (see clustermetadata.proto TODO), read from
@@ -39,7 +50,11 @@ import (
 // coordinator-synthesized signals (e.g. TEMPORARILY_UNAVAILABLE for unreachable
 // nodes) are handled here too.
 func LeaderNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
-	leadershipStatus := p.GetAvailabilityStatus().GetLeadershipStatus()
+	av := p.GetAvailabilityStatus()
+	if PoolerIsCohortIneligible(av) {
+		return true
+	}
+	leadershipStatus := av.GetLeadershipStatus()
 	if leadershipStatus == nil {
 		return false
 	}

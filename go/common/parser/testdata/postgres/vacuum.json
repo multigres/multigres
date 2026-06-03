@@ -453,7 +453,7 @@
   {
     "comment": "vacuum - Statement 102",
     "query": "CREATE TABLE vacparted (a int, b char) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE vacparted (a INT, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE vacparted (a INT, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "vacuum - Statement 103",

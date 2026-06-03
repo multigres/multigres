@@ -135,7 +135,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(sa *ShardAnalysis, pa *PoolerAnalysis) bool {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *PoolerAnalysis) bool {
 	if pa.IsLeader {
 		return false
 	}

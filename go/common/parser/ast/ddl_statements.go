@@ -798,7 +798,7 @@ func normalizeSingleTypeName(typeName string) string {
 	case "bool", "boolean":
 		return "BOOLEAN"
 	case "bpchar":
-		return "CHAR"
+		return "bpchar"
 	case "char":
 		// pg_catalog."char" is a one-byte ad-hoc type distinct from bpchar/CHAR;
 		// preserve the quoting so it does not collapse to bpchar(1) on the wire.
@@ -1243,6 +1243,18 @@ func (c *Constraint) indexConstraintTail() string {
 	result := ""
 	if c.Including != nil && c.Including.Len() > 0 {
 		result += " INCLUDE (" + strings.Join(nodeListToStrings(c.Including), ", ") + ")"
+	}
+	// WITH (reloptions) for the underlying index, e.g. UNIQUE (a) WITH (fillfactor=70).
+	if c.Options != nil && c.Options.Len() > 0 {
+		opts := make([]string, 0, c.Options.Len())
+		for _, item := range c.Options.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				opts = append(opts, defElem.SqlString())
+			}
+		}
+		if len(opts) > 0 {
+			result += " WITH (" + strings.Join(opts, ", ") + ")"
+		}
 	}
 	if c.Indexname != "" {
 		result += " USING INDEX " + QuoteIdentifier(c.Indexname)
@@ -1847,6 +1859,10 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "SET STATISTICS")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
+		} else {
+			// A nil value is the DEFAULT form (SET STATISTICS DEFAULT); the
+			// grammar's set_statistics_value maps DEFAULT to a nil node.
+			parts = append(parts, "DEFAULT")
 		}
 
 	case AT_SetExpression:
@@ -3152,10 +3168,25 @@ func (a *AlterExtensionContentsStmt) String() string {
 	return fmt.Sprintf("AlterExtensionContentsStmt(%s %s)@%d", a.Extname, action, a.Location())
 }
 
-// SqlString returns the SQL representation of AlterExtensionContentsStmt
+// identifierFromNode renders a node that names an identifier. A String node is
+// quoted as an identifier (not as a string literal); any other node falls back
+// to its own SqlString.
+func identifierFromNode(n Node) string {
+	if s, ok := n.(*String); ok {
+		return QuoteIdentifier(s.SVal)
+	}
+	return n.SqlString()
+}
+
+// SqlString returns the SQL representation of AlterExtensionContentsStmt.
+// Mirrors PostgreSQL's deparseAlterExtensionContentsStmt: the object type
+// keyword is emitted, then the member object is rendered according to its
+// grammar shape (a bare name, a qualified any_name, a function/operator with
+// argtypes, a type name, a cast, an operator class/family with USING, or a
+// transform).
 func (a *AlterExtensionContentsStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER EXTENSION", a.Extname)
+	parts = append(parts, "ALTER EXTENSION", QuoteIdentifier(a.Extname))
 
 	if a.Action {
 		parts = append(parts, "ADD")
@@ -3163,71 +3194,117 @@ func (a *AlterExtensionContentsStmt) SqlString() string {
 		parts = append(parts, "DROP")
 	}
 
-	// Add object type and handle special formatting cases
-	switch a.Objtype {
-	case int(OBJECT_AGGREGATE):
+	// Object type keyword.
+	switch ObjectType(a.Objtype) {
+	case OBJECT_ACCESS_METHOD:
+		parts = append(parts, "ACCESS METHOD")
+	case OBJECT_AGGREGATE:
 		parts = append(parts, "AGGREGATE")
-	case int(OBJECT_CAST):
+	case OBJECT_CAST:
 		parts = append(parts, "CAST")
-		// For CAST, the object is a NodeList with two TypeNames
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			parts = append(parts, "(", nodeList.Items[0].SqlString(), "AS", nodeList.Items[1].SqlString(), ")")
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_DOMAIN):
+	case OBJECT_COLLATION:
+		parts = append(parts, "COLLATION")
+	case OBJECT_CONVERSION:
+		parts = append(parts, "CONVERSION")
+	case OBJECT_DOMAIN:
 		parts = append(parts, "DOMAIN")
-	case int(OBJECT_FUNCTION):
+	case OBJECT_FUNCTION:
 		parts = append(parts, "FUNCTION")
-	case int(OBJECT_OPCLASS):
+	case OBJECT_LANGUAGE:
+		parts = append(parts, "LANGUAGE")
+	case OBJECT_OPERATOR:
+		parts = append(parts, "OPERATOR")
+	case OBJECT_OPCLASS:
 		parts = append(parts, "OPERATOR CLASS")
-		// For OPERATOR CLASS, need to handle "name USING method" format
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			// First item is method name, rest are class name parts
-			methodStr := nodeList.Items[0].SqlString()
-			var nameStr strings.Builder
-			for i := 1; i < nodeList.Len(); i++ {
-				if i > 1 {
-					nameStr.WriteString(".")
-				}
-				nameStr.WriteString(nodeList.Items[i].SqlString())
-			}
-			parts = append(parts, nameStr.String(), "USING", methodStr)
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_OPFAMILY):
+	case OBJECT_OPFAMILY:
 		parts = append(parts, "OPERATOR FAMILY")
-		// For OPERATOR FAMILY, need to handle "name USING method" format
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			// First item is method name, rest are family name parts
-			methodStr := nodeList.Items[0].SqlString()
-			var nameStr strings.Builder
-			for i := 1; i < nodeList.Len(); i++ {
-				if i > 1 {
-					nameStr.WriteString(".")
-				}
-				nameStr.WriteString(nodeList.Items[i].SqlString())
-			}
-			parts = append(parts, nameStr.String(), "USING", methodStr)
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_PROCEDURE):
+	case OBJECT_PROCEDURE:
 		parts = append(parts, "PROCEDURE")
-	case int(OBJECT_ROUTINE):
+	case OBJECT_ROUTINE:
 		parts = append(parts, "ROUTINE")
-	case int(OBJECT_TYPE):
-		parts = append(parts, "TYPE")
-	case int(OBJECT_TABLE):
+	case OBJECT_SCHEMA:
+		parts = append(parts, "SCHEMA")
+	case OBJECT_EVENT_TRIGGER:
+		parts = append(parts, "EVENT TRIGGER")
+	case OBJECT_TABLE:
 		parts = append(parts, "TABLE")
-	case int(OBJECT_VIEW):
+	case OBJECT_TSPARSER:
+		parts = append(parts, "TEXT SEARCH PARSER")
+	case OBJECT_TSDICTIONARY:
+		parts = append(parts, "TEXT SEARCH DICTIONARY")
+	case OBJECT_TSTEMPLATE:
+		parts = append(parts, "TEXT SEARCH TEMPLATE")
+	case OBJECT_TSCONFIGURATION:
+		parts = append(parts, "TEXT SEARCH CONFIGURATION")
+	case OBJECT_SEQUENCE:
+		parts = append(parts, "SEQUENCE")
+	case OBJECT_VIEW:
 		parts = append(parts, "VIEW")
-	default:
-		// For other object types, use simple case conversion
-		parts = append(parts, "OBJECT")
+	case OBJECT_MATVIEW:
+		parts = append(parts, "MATERIALIZED VIEW")
+	case OBJECT_FOREIGN_TABLE:
+		parts = append(parts, "FOREIGN TABLE")
+	case OBJECT_FDW:
+		parts = append(parts, "FOREIGN DATA WRAPPER")
+	case OBJECT_FOREIGN_SERVER:
+		parts = append(parts, "SERVER")
+	case OBJECT_TRANSFORM:
+		parts = append(parts, "TRANSFORM")
+	case OBJECT_TYPE:
+		parts = append(parts, "TYPE")
 	}
 
-	// Add object name for simple cases (non-special formatting)
-	if a.Object != nil && a.Objtype != int(OBJECT_CAST) && a.Objtype != int(OBJECT_OPCLASS) && a.Objtype != int(OBJECT_OPFAMILY) {
-		parts = append(parts, a.Object.SqlString())
+	// Member object, rendered by its grammar shape.
+	switch ObjectType(a.Objtype) {
+	case OBJECT_COLLATION, OBJECT_CONVERSION, OBJECT_TABLE, OBJECT_TSPARSER,
+		OBJECT_TSDICTIONARY, OBJECT_TSTEMPLATE, OBJECT_TSCONFIGURATION,
+		OBJECT_SEQUENCE, OBJECT_VIEW, OBJECT_MATVIEW, OBJECT_FOREIGN_TABLE:
+		// any_name: a possibly-qualified name held as a NodeList of String parts.
+		if nodeList, ok := a.Object.(*NodeList); ok {
+			parts = append(parts, nodeListToQualifiedName(nodeList))
+		}
+	case OBJECT_ACCESS_METHOD, OBJECT_LANGUAGE, OBJECT_SCHEMA,
+		OBJECT_EVENT_TRIGGER, OBJECT_FDW, OBJECT_FOREIGN_SERVER:
+		// name: a single identifier held as a String node.
+		if s, ok := a.Object.(*String); ok {
+			parts = append(parts, QuoteIdentifier(s.SVal))
+		}
+	case OBJECT_AGGREGATE, OBJECT_FUNCTION, OBJECT_PROCEDURE, OBJECT_ROUTINE,
+		OBJECT_OPERATOR, OBJECT_DOMAIN, OBJECT_TYPE:
+		// ObjectWithArgs (aggregate/function/operator) or a TypeName
+		// (domain/type); both render themselves.
+		if a.Object != nil {
+			parts = append(parts, a.Object.SqlString())
+		}
+	case OBJECT_CAST:
+		// A NodeList of two TypeNames: (source AS target).
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			parts = append(parts, "(", nodeList.Items[0].SqlString(), "AS", nodeList.Items[1].SqlString(), ")")
+		}
+	case OBJECT_OPCLASS, OBJECT_OPFAMILY:
+		// A NodeList of [method, name parts...]; rendered as "name USING method".
+		// Every element is an identifier (the method name and the qualified
+		// class/family name parts), so each must be quoted as an identifier
+		// rather than rendered as a String literal.
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			methodStr := identifierFromNode(nodeList.Items[0])
+			var nameStr strings.Builder
+			for i := 1; i < nodeList.Len(); i++ {
+				if i > 1 {
+					nameStr.WriteString(".")
+				}
+				nameStr.WriteString(identifierFromNode(nodeList.Items[i]))
+			}
+			parts = append(parts, nameStr.String(), "USING", methodStr)
+		}
+	case OBJECT_TRANSFORM:
+		// A NodeList of [TypeName, language String]: "FOR <type> LANGUAGE <lang>".
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			parts = append(parts, "FOR", nodeList.Items[0].SqlString())
+			if lang, ok := nodeList.Items[1].(*String); ok {
+				parts = append(parts, "LANGUAGE", QuoteIdentifier(lang.SVal))
+			}
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -4058,7 +4135,9 @@ func (c *CreatedbStmt) formatDatabaseOption(opt *DefElem) string {
 		}
 		return fmt.Sprintf("%s = %s", optName, argStr)
 	}
-	return optName
+	// A nil arg is the DEFAULT form (e.g. LOCATION DEFAULT, TABLESPACE DEFAULT);
+	// emit the keyword so the option re-parses as a valid createdb_opt_item.
+	return optName + " DEFAULT"
 }
 
 // DropdbStmt represents a DROP DATABASE statement.

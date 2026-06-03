@@ -246,22 +246,22 @@
   {
     "comment": "strings - Statement 50",
     "query": "SELECT CAST(f1 AS char(10)) AS \"char(text)\" FROM TEXT_TBL",
-    "expected": "SELECT CAST(f1 AS CHAR(10)) AS \"char(text)\" FROM text_tbl"
+    "expected": "SELECT CAST(f1 AS bpchar(10)) AS \"char(text)\" FROM text_tbl"
   },
   {
     "comment": "strings - Statement 51",
     "query": "SELECT CAST(f1 AS char(20)) AS \"char(text)\" FROM TEXT_TBL",
-    "expected": "SELECT CAST(f1 AS CHAR(20)) AS \"char(text)\" FROM text_tbl"
+    "expected": "SELECT CAST(f1 AS bpchar(20)) AS \"char(text)\" FROM text_tbl"
   },
   {
     "comment": "strings - Statement 52",
     "query": "SELECT CAST(f1 AS char(10)) AS \"char(varchar)\" FROM VARCHAR_TBL",
-    "expected": "SELECT CAST(f1 AS CHAR(10)) AS \"char(varchar)\" FROM varchar_tbl"
+    "expected": "SELECT CAST(f1 AS bpchar(10)) AS \"char(varchar)\" FROM varchar_tbl"
   },
   {
     "comment": "strings - Statement 53",
     "query": "SELECT CAST(name 'namefield' AS char(10)) AS \"char(name)\"",
-    "expected": "SELECT CAST(CAST('namefield' AS name) AS CHAR(10)) AS \"char(name)\""
+    "expected": "SELECT CAST(CAST('namefield' AS name) AS bpchar(10)) AS \"char(name)\""
   },
   {
     "comment": "strings - Statement 54",
@@ -1228,12 +1228,12 @@
   {
     "comment": "strings - Statement 275",
     "query": "SELECT char(20) 'characters' || ' and text' AS \"Concat char to unknown type\"",
-    "expected": "SELECT CAST('characters' AS CHAR(20)) || ' and text' AS \"Concat char to unknown type\""
+    "expected": "SELECT CAST('characters' AS bpchar(20)) || ' and text' AS \"Concat char to unknown type\""
   },
   {
     "comment": "strings - Statement 276",
     "query": "SELECT text 'text' || char(20) ' and characters' AS \"Concat text to char\"",
-    "expected": "SELECT CAST('text' AS TEXT) || CAST(' and characters' AS CHAR(20)) AS \"Concat text to char\""
+    "expected": "SELECT CAST('text' AS TEXT) || CAST(' and characters' AS bpchar(20)) AS \"Concat text to char\""
   },
   {
     "comment": "strings - Statement 277",
@@ -1312,7 +1312,7 @@
   {
     "comment": "strings - Statement 292",
     "query": "CREATE TABLE toasttest (c char(4096))",
-    "expected": "CREATE TABLE toasttest (c CHAR(4096))"
+    "expected": "CREATE TABLE toasttest (c bpchar(4096))"
   },
   {
     "comment": "strings - Statement 293",

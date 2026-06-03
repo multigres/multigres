@@ -42,8 +42,9 @@ const (
 // immutable — exposing only this struct in the mutation API makes that
 // contract a property of the type system rather than a runtime check.
 type MutablePoolerRecordState struct {
-	Type          clustermetadatapb.PoolerType
-	ServingStatus clustermetadatapb.PoolerServingStatus
+	Type            clustermetadatapb.PoolerType
+	ServingStatus   clustermetadatapb.PoolerServingStatus
+	LifecycleStatus *clustermetadatapb.PoolerLifecycle
 }
 
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
@@ -172,18 +173,21 @@ func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordS
 
 // applyMutation clones the current desired proto, hands a
 // MutablePoolerRecordState view to fn, then writes back the (possibly
-// updated) Type and ServingStatus and atomically stores the result.
-// Caller is responsible for sequencing (action lock, publisher state).
+// updated) Type, ServingStatus, and LifecycleStatus and atomically stores
+// the result. Caller is responsible for sequencing (action lock, publisher
+// state).
 func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 	current := r.desired.Load()
 	state := MutablePoolerRecordState{
-		Type:          current.Type,
-		ServingStatus: current.ServingStatus,
+		Type:            current.Type,
+		ServingStatus:   current.ServingStatus,
+		LifecycleStatus: current.LifecycleStatus,
 	}
 	fn(&state)
 	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
 	next.Type = state.Type
 	next.ServingStatus = state.ServingStatus
+	next.LifecycleStatus = state.LifecycleStatus
 	r.desired.Store(next)
 }
 
