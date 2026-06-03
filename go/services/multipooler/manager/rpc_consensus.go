@@ -738,23 +738,13 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber(),
 			"is_primary", isPrimary)
+		// restartAsStandbyLocked sets primary_conninfo to leader on success,
+		// so we don't need a separate setPrimaryConnInfoLocked call here.
 		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {
 			return nil, err
 		}
 		if err := pm.resetSynchronousReplication(ctx); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
-		}
-		// Point conninfo at the new leader. restartAsStandbyLocked also
-		// restores conninfo when pg_rewind actually ran, but we may enter
-		// this branch with rewindPending set yet no divergence detected
-		// (e.g. emergencyDemoteLocked raised the flag pre-emptively); in
-		// that case the helper leaves conninfo untouched and we still
-		// need to redirect to the new leader here. The double-write on
-		// the diverged path is a cheap idempotent rewrite.
-		// (false, false) is enough — no in-flight replication to pause, and
-		// the WAL receiver starts once conninfo is reloaded.
-		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port, false, false); err != nil {
-			return nil, mterrors.Wrap(err, "configure replication to source primary")
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "SetTermPrimary: updating standby primary_conninfo",
