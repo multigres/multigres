@@ -193,6 +193,9 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	if p.VpidStampEnabled {
 		args = append(args, "--vpid-stamp-enabled=true")
 	}
+	// Append any extra args (e.g., connpool capacity/timeout flags from
+	// WithMultipoolerExtraArgs). Placed last so they can override defaults.
+	args = append(args, p.ExtraArgs...)
 	return args
 }
 

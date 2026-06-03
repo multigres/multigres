@@ -78,6 +78,7 @@ type SetupConfig struct {
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
+	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
 	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
@@ -96,6 +97,17 @@ type SetupOption func(*SetupConfig)
 func WithMultipoolerCount(count int) SetupOption {
 	return func(c *SetupConfig) {
 		c.MultipoolerCount = count
+	}
+}
+
+// WithMultipoolerExtraArgs appends extra CLI flags to every multipooler in the
+// setup. Use for connpool tuning that has no dedicated option yet, e.g.
+// shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=4",
+// "--connpool-user-reserved-inactivity-timeout=2s"). Flags are appended last,
+// so they override the multipooler defaults.
+func WithMultipoolerExtraArgs(args ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.MultipoolerExtraArgs = append(c.MultipoolerExtraArgs, args...)
 	}
 }
 
@@ -580,6 +592,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
 			// Append SSL config to postgresql.conf at init time.
