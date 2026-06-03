@@ -1407,9 +1407,12 @@ func TestPauseReplication(t *testing.T) {
 // shrinking the parent context shortens the effective deadline via the
 // min-deadline semantics of context.WithTimeout.
 func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
-	t.Run("deadline expires before first poll", func(t *testing.T) {
+	t.Run("deadline already expired surfaces timeout before polling", func(t *testing.T) {
 		pm, _ := newTestManagerWithMock("default", "0-inf")
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		// Deadline already in the past: the first retry attempt observes the
+		// expired context and returns the timeout without ever polling, so no
+		// query mock is needed.
+		ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 		defer cancel()
 
 		status, err := pm.waitForReceiverDisconnect(ctx)
@@ -1419,16 +1422,15 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
 	})
 
-	t.Run("deadline expires after one poll returns still-streaming", func(t *testing.T) {
+	t.Run("deadline expires while polls keep returning still-streaming", func(t *testing.T) {
 		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
-		// Persistent (non-consumeOnce) pattern: the function may poll once or
-		// more before the deadline trips, depending on scheduling.
+		// Persistent (non-consumeOnce) pattern: the function polls repeatedly
+		// (immediately, then with exponential backoff) until the deadline trips.
 		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
 			[]string{"count", "status", "primary_conninfo"},
 			[][]any{{int64(1), "streaming", "host=primary port=5432"}}))
 
-		// 600ms leaves room for at least one 500ms tick before the deadline trips.
-		ctx, cancel := context.WithTimeout(t.Context(), 600*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 		defer cancel()
 
 		status, err := pm.waitForReceiverDisconnect(ctx)

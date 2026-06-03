@@ -353,45 +353,93 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	return status, nil
 }
 
-// waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
-// This ensures the LSN returned represents the exact point at which replication stopped.
-func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	// Create a context with timeout for the polling loop
+// pollForReplicationStatus polls poll on a 10s budget until it reports done,
+// returning the accompanying status. The first attempt runs immediately and
+// subsequent attempts back off exponentially from a small base: a state that
+// settles within milliseconds (the common case for these replication waits)
+// returns promptly instead of paying a fixed poll interval on the failover
+// critical path, while the backoff avoids hammering postgres when it takes
+// longer.
+//
+// poll returns (status, done, err): done==true stops the loop and returns
+// status; a non-nil err aborts immediately, except that an err observed after
+// the context expired mid-poll is reported as the canonical timeout. On
+// budget/context exhaustion, onTimeout (if non-nil) is invoked for diagnostics
+// and a canonical DEADLINE_EXCEEDED (timeoutMsg) or wrapped cancellation
+// (cancelMsg) is returned.
+func (pm *MultiPoolerManager) pollForReplicationStatus(
+	ctx context.Context,
+	timeoutMsg, cancelMsg string,
+	onTimeout func(cause error),
+	poll func(ctx context.Context) (status *multipoolermanagerdatapb.StandbyReplicationStatus, done bool, err error),
+) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	fail := func(cause error) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+		if onTimeout != nil {
+			onTimeout(cause)
+		}
+		if errors.Is(cause, context.DeadlineExceeded) {
+			return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, timeoutMsg)
+		}
+		return nil, mterrors.Wrap(cause, cancelMsg)
+	}
 
-	for {
-		select {
-		case <-waitCtx.Done():
-			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to pause")
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to pause")
+	r := retry.New(5*time.Millisecond, 500*time.Millisecond)
+	for _, err := range r.Attempts(waitCtx) {
+		if err != nil {
+			return fail(err)
+		}
+		status, done, pErr := poll(waitCtx)
+		if pErr != nil {
+			// Surface the cleaner timeout cause if waitCtx expired mid-poll
+			// instead of an opaque "pool ctx expired" wrapper.
+			if waitErr := waitCtx.Err(); waitErr != nil {
+				return fail(waitErr)
 			}
-			pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL replay to pause")
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for WAL replay to pause")
+			return nil, pErr
+		}
+		if done {
+			return status, nil
+		}
+	}
 
-		case <-ticker.C:
-			// Query all replication status fields
+	// Attempts only stops yielding when waitCtx is done, which is handled by the
+	// err branch above; this is unreachable but required for the compiler.
+	return fail(waitCtx.Err())
+}
+
+// waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
+// This ensures the LSN returned represents the exact point at which replication stopped.
+func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	return pm.pollForReplicationStatus(ctx,
+		"timeout waiting for WAL replay to pause",
+		"context cancelled while waiting for WAL replay to pause",
+		func(cause error) {
+			if errors.Is(cause, context.DeadlineExceeded) {
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to pause")
+			} else {
+				pm.logger.ErrorContext(ctx, "Context cancelled while waiting for WAL replay to pause")
+			}
+		},
+		func(waitCtx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, bool, error) {
+			// pg_wal_replay_pause() is asynchronous, so poll until it takes effect.
 			status, err := pm.queryReplicationStatus(waitCtx)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
-				return nil, err
+				return nil, false, err
 			}
-
-			// Once paused, we have the exact state at the moment replication stopped
-			if status.IsWalReplayPaused {
-				pm.logger.InfoContext(ctx, "WAL replay is now paused",
-					"last_replay_lsn", status.LastReplayLsn,
-					"last_receive_lsn", status.LastReceiveLsn,
-					"pause_state", status.WalReplayPauseState)
-
-				return status, nil
+			if !status.IsWalReplayPaused {
+				return nil, false, nil
 			}
-		}
-	}
+			// Once paused, we have the exact state at the moment replication stopped.
+			pm.logger.InfoContext(ctx, "WAL replay is now paused",
+				"last_replay_lsn", status.LastReplayLsn,
+				"last_receive_lsn", status.LastReceiveLsn,
+				"pause_state", status.WalReplayPauseState)
+			return status, true, nil
+		})
 }
 
 // readPrimaryConnInfo returns the current primary_conninfo setting as a raw string.
@@ -457,6 +505,13 @@ func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*mult
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
+	// TODO: short-circuit when replay has provably caught up. On the recruit path
+	// the receiver is stopped before this runs, so the received LSN is fixed; if
+	// pg_last_wal_replay_lsn() == pg_last_wal_receive_lsn() we are maximally
+	// applied and can return immediately instead of waiting out requiredStablePolls.
+	// That needs queryReplayState to also return the receive LSN. Until then the
+	// stability heuristic below is a safe (if slightly slower) fallback.
+	//
 	// requiredStablePolls: number of consecutive polls showing the same replay_lsn
 	// before we declare stability. At 10ms per tick, 3 polls = 30ms of stability.
 	const requiredStablePolls = 3
@@ -527,13 +582,6 @@ func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn s
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
 func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	// Create a context with timeout for the polling loop
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
 	// Track the latest poll snapshot so a timeout has diagnostic detail without
 	// needing another query after the ctx has already expired.
 	var (
@@ -542,32 +590,17 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 		lastConnInfo string
 	)
 
-	timedOut := func(cause error) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-		pm.logger.ErrorContext(ctx, "WAL receiver did not disconnect",
-			"cause", cause,
-			"last_receiver_count", lastCount,
-			"last_walreceiver_status", lastStatus,
-			"last_primary_conninfo", lastConnInfo)
-		if errors.Is(cause, context.DeadlineExceeded) {
-			return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL receiver to disconnect")
-		}
-		return nil, mterrors.Wrap(cause, "context cancelled while waiting for WAL receiver to disconnect")
-	}
-
-	for {
-		select {
-		case <-waitCtx.Done():
-			return timedOut(waitCtx.Err())
-
-		case <-ticker.C:
-			// Re-check waitCtx before issuing a query: when waitCtx expires at the
-			// same tick boundary, select may pick this branch and the subsequent
-			// pm.query would surface an opaque "pool ctx expired" instead of the
-			// real timeout cause.
-			if err := waitCtx.Err(); err != nil {
-				return timedOut(err)
-			}
-
+	return pm.pollForReplicationStatus(ctx,
+		"timeout waiting for WAL receiver to disconnect",
+		"context cancelled while waiting for WAL receiver to disconnect",
+		func(cause error) {
+			pm.logger.ErrorContext(ctx, "WAL receiver did not disconnect",
+				"cause", cause,
+				"last_receiver_count", lastCount,
+				"last_walreceiver_status", lastStatus,
+				"last_primary_conninfo", lastConnInfo)
+		},
+		func(waitCtx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, bool, error) {
 			// Pull the count, the walreceiver status, and the live primary_conninfo
 			// in a single query so each poll is also a diagnostic snapshot.
 			result, err := pm.query(waitCtx, `SELECT
@@ -575,18 +608,12 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 				coalesce((SELECT status FROM pg_stat_wal_receiver), ''),
 				current_setting('primary_conninfo')`)
 			if err != nil {
-				// If waitCtx expired between the pre-check and the Pool.Get
-				// ctx.Err() check, surface the cleaner timeout cause instead of
-				// an opaque "pool ctx expired" wrapper.
-				if waitErr := waitCtx.Err(); waitErr != nil {
-					return timedOut(waitErr)
-				}
 				pm.logger.ErrorContext(ctx, "Failed to query pg_stat_wal_receiver", "error", err)
-				return nil, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+				return nil, false, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
 			}
 			if err := executor.ScanSingleRow(result, &lastCount, &lastStatus, &lastConnInfo); err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to scan pg_stat_wal_receiver row", "error", err)
-				return nil, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
+				return nil, false, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
 			}
 
 			// Done when either the walreceiver slot is gone, OR it's sitting
@@ -606,22 +633,21 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 			//     Treating WAITING+empty as done lets us proceed without
 			//     waiting out that timeout.
 			done := lastCount == 0 || (lastStatus == "waiting" && lastConnInfo == "")
-			if done {
-				pm.logger.InfoContext(ctx, "WAL receiver has disconnected",
-					"last_receiver_count", lastCount,
-					"last_walreceiver_status", lastStatus)
-
-				// Get the final replication status
-				status, err := pm.queryReplicationStatus(waitCtx)
-				if err != nil {
-					pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
-					return nil, err
-				}
-
-				return status, nil
+			if !done {
+				return nil, false, nil
 			}
-		}
-	}
+			pm.logger.InfoContext(ctx, "WAL receiver has disconnected",
+				"last_receiver_count", lastCount,
+				"last_walreceiver_status", lastStatus)
+
+			// Get the final replication status
+			status, err := pm.queryReplicationStatus(waitCtx)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
+				return nil, false, err
+			}
+			return status, true, nil
+		})
 }
 
 // pauseReplication pauses replication based on the specified mode.
