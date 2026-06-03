@@ -21,10 +21,6 @@
 //
 // See README.md for the triage that selects which PgBouncer scenarios are
 // ported here (and which are out of scope / already covered elsewhere).
-//
-// The suite is gated behind RUN_EXTENDED_QUERY_SERVING_TESTS (the "Run Extended
-// Query Serving Tests" PR label); every test self-skips otherwise, so the shared
-// cluster is never built during a plain `go test ./...`.
 package pgbouncertests
 
 import (

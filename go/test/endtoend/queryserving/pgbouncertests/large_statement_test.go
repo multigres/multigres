@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -48,7 +47,6 @@ const (
 // PostgreSQL is the oracle: each case runs against both direct PostgreSQL and
 // the multigateway and must return identical results.
 func TestLargePreparedStatementRelay(t *testing.T) {
-	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
@@ -106,7 +104,6 @@ func TestLargePreparedStatementRelay(t *testing.T) {
 // full literal intact. Black-box (see that test for the rationale): rotation is
 // driven by concurrent churn and observed via pg_backend_pid() in results.
 func TestLargePreparedStatementAcrossPooledBackends(t *testing.T) {
-	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}

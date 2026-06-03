@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -52,7 +51,6 @@ import (
 // backends proves the re-prepare path was actually exercised (the test is not
 // vacuous).
 func TestPreparedStatementAcrossPooledBackends(t *testing.T) {
-	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
