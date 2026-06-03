@@ -512,6 +512,13 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			t.Logf("external/%s: warning: public schema reset failed: %v", ext.Name, err)
 		}
 
+		// Preload the extension: --use-existing skips pg_regress's own
+		// --load-extension step, and pgvector's fixtures assume it is already
+		// installed (see createExtensionViaGateway).
+		if err := createExtensionViaGateway(multigatewayPort, password, ext.Name); err != nil {
+			t.Logf("external/%s: warning: CREATE EXTENSION failed: %v", ext.Name, err)
+		}
+
 		t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
 		args := []string{
 			"--inputdir=" + testDir,
@@ -522,7 +529,11 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			"--load-extension=" + ext.Name,
 		}
 		args = append(args, tests...)
-		cmd := executil.Command(ctx, pgRegress, args...).WithProcessGroup()
+		// Run from the clone root so psql's client-side \copy resolves the
+		// relative paths the fixtures use (e.g. pgvector's copy test does
+		// \copy t TO 'results/vector.bin'); pg_regress writes its results/ dir
+		// under --outputdir=cloneDir, which is this same directory.
+		cmd := executil.Command(ctx, pgRegress, args...).WithProcessGroup().SetDir(cloneDir)
 
 		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 			suiteName: "External/" + ext.Name,
@@ -712,6 +723,39 @@ func resetContribState(directPgPort int, password string) error {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("exec [%s]: %w", stmt, err)
 		}
+	}
+	return nil
+}
+
+// createExtensionViaGateway runs CREATE EXTENSION IF NOT EXISTS through
+// multigateway — the same path the test queries take, so there's no
+// create-on-primary-then-read-from-standby replication race, and it doubles as
+// real coverage that CREATE EXTENSION works over the pooled path (CREATE
+// EXTENSION is not on the gateway's blocked-DDL list; contrib tests create their
+// own extensions through the gateway too).
+//
+// This is needed because pg_regress applies its --load-extension flag only
+// inside create_database(), which it calls solely when !use_existing (see
+// pg_regress.c). The external suite must pass --use-existing (multigateway
+// rejects CREATE/DROP DATABASE), so that load step never fires. Extensions whose
+// test fixtures assume the extension is preloaded (e.g. pgvector — its tests
+// open with a bare CREATE TABLE t (val vector(3)) and never CREATE EXTENSION
+// themselves) would otherwise fail every statement with "type ... does not
+// exist". Creating it here reproduces what create_database would have done.
+func createExtensionViaGateway(multigatewayPort int, password, ext string) error {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		multigatewayPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	// ext comes from the controlled extension catalog, not user input; quote it
+	// as an identifier defensively all the same.
+	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS "%s"`, ext)
+	if _, err := db.Exec(stmt); err != nil {
+		return fmt.Errorf("exec [%s]: %w", stmt, err)
 	}
 	return nil
 }
