@@ -939,28 +939,17 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	return pm.applySynchronousStandbyNames(ctx, standbyNamesValue)
 }
 
-// getSynchronousReplicationConfig retrieves and parses the current synchronous replication configuration
-func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Context) (*multipoolermanagerdatapb.SynchronousReplicationConfiguration, error) {
+// parseSyncReplicationConfig builds the synchronous replication configuration
+// from the raw synchronous_standby_names and synchronous_commit GUC values. It
+// is a pure function (no query) so the parsing rules are unit-testable directly;
+// the caller (getPrimaryStatusInternal) reads the GUCs.
+func parseSyncReplicationConfig(syncStandbyNames, syncCommit string) (*multipoolermanagerdatapb.SynchronousReplicationConfiguration, error) {
 	config := &multipoolermanagerdatapb.SynchronousReplicationConfiguration{}
 
-	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-
-	// Query synchronous_standby_names
-	result, err := pm.query(queryCtx, "SHOW synchronous_standby_names")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to query synchronous_standby_names")
-	}
-
-	var syncStandbyNamesStr string
-	if err := executor.ScanSingleRow(result, &syncStandbyNamesStr); err != nil {
-		return nil, mterrors.Wrap(err, "failed to scan synchronous_standby_names")
-	}
-
 	// Only parse standby names if not empty
-	syncStandbyNamesStr = strings.TrimSpace(syncStandbyNamesStr)
-	if syncStandbyNamesStr != "" {
-		syncConfig, err := parseSynchronousStandbyNames(syncStandbyNamesStr)
+	syncStandbyNames = strings.TrimSpace(syncStandbyNames)
+	if syncStandbyNames != "" {
+		syncConfig, err := parseSynchronousStandbyNames(syncStandbyNames)
 		if err != nil {
 			return nil, err
 		}
@@ -974,20 +963,9 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 		config.StandbyApplicationNames = poolerIDsToAppNames(appNames)
 	}
 
-	// Query synchronous_commit
-	result, err = pm.query(queryCtx, "SHOW synchronous_commit")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to query synchronous_commit")
-	}
-
-	var syncCommitStr string
-	if err := executor.ScanSingleRow(result, &syncCommitStr); err != nil {
-		return nil, mterrors.Wrap(err, "failed to scan synchronous_commit")
-	}
-
-	// Map string to enum
+	// Map synchronous_commit string to enum
 	var syncCommitLevel multipoolermanagerdatapb.SynchronousCommitLevel
-	switch strings.ToLower(syncCommitStr) {
+	switch strings.ToLower(syncCommit) {
 	case "off":
 		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
 	case "local":
@@ -1000,7 +978,7 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 		syncCommitLevel = multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY
 	default:
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("unknown synchronous_commit value: %q", syncCommitStr))
+			fmt.Sprintf("unknown synchronous_commit value: %q", syncCommit))
 	}
 	config.SynchronousCommit = syncCommitLevel
 
