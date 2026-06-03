@@ -52,6 +52,13 @@ type MockPgCtldService struct {
 	InitDirResponse  *pb.InitDataDirResponse
 	PgRewindResponse *pb.PgRewindResponse
 
+	// StatusResponseQueue allows tests to return different responses on successive
+	// Status calls. Each call pops the first element from the queue. When the queue
+	// is empty the call falls through to StatusResponse or the default RUNNING+Ready
+	// response. Useful for simulating postgres starting up: queue a few not-ready
+	// responses followed by a ready one.
+	StatusResponseQueue []*pb.StatusResponse
+
 	// Error configurations
 	StartError    error
 	StopError     error
@@ -115,12 +122,24 @@ func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConf
 	return &pb.ReloadConfigResponse{Message: "Mock config reloaded"}, nil
 }
 
+// StatusCallCount returns the number of Status RPC calls received so far.
+func (m *MockPgCtldService) StatusCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.StatusCalls)
+}
+
 func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
+	}
+	if len(m.StatusResponseQueue) > 0 {
+		resp := m.StatusResponseQueue[0]
+		m.StatusResponseQueue = m.StatusResponseQueue[1:]
+		return resp, nil
 	}
 	if m.StatusResponse != nil {
 		return m.StatusResponse, nil

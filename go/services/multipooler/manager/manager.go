@@ -1335,6 +1335,17 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		return nil
 	}
 
+	// Wait for postgres to be ready before attempting promotion. A freshly
+	// recreated pod may have valid WAL data on its PVC (giving it a valid
+	// LSN in the Recruit response) but postgres may still be initialising —
+	// the socket may not yet exist or pg_isready may not yet pass. Without
+	// this wait the connection attempt inside pg_promote() fails immediately
+	// with "no such file or directory". We block here rather than failing and
+	// waiting for the next analysis cycle.
+	if err := pm.waitForPostgresReady(ctx); err != nil {
+		return mterrors.Wrap(err, "postgres not ready for promotion")
+	}
+
 	// Call pg_promote() to promote standby to primary
 	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed")
 	pm.logger.InfoContext(ctx, "Calling pg_promote() to promote standby to primary")
@@ -1425,6 +1436,32 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 
 			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
 				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
+				return nil
+			}
+		}
+	}
+}
+
+// waitForPostgresReady polls isPostgresReady until postgres is accepting
+// connections or the context deadline is reached. It returns immediately if
+// postgres is already ready. Used by promoteStandbyToPrimary to handle the
+// window where a freshly (re)started postgres has not yet opened its socket
+// or not yet passed pg_isready, which would otherwise cause the pg_promote()
+// connection attempt to fail with "no such file or directory".
+func (pm *MultiPoolerManager) waitForPostgresReady(ctx context.Context) error {
+	if pm.isPostgresReady(ctx) {
+		return nil
+	}
+	pm.logger.InfoContext(ctx, "Waiting for postgres to become ready before promotion")
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("postgres did not become ready before context deadline: %w", ctx.Err())
+		case <-ticker.C:
+			if pm.isPostgresReady(ctx) {
+				pm.logger.InfoContext(ctx, "Postgres is now ready, proceeding with promotion")
 				return nil
 			}
 		}

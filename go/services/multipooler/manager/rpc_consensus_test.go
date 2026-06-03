@@ -37,6 +37,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
@@ -47,16 +48,19 @@ var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 // path reads one field but stores the other, the assertion catches it.
 var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
-func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
+// setupManagerWithPgctld is like setupManagerWithMockDB but accepts a custom
+// pgctld mock. Use it when a test needs to control the sequence of pgctld
+// Status responses (e.g. to simulate postgres starting up).
+func setupManagerWithPgctld(t *testing.T, mockQueryService *mock.QueryService, pgctld *testutil.MockPgCtldService, rules ruleStorer) (*MultiPoolerManager, string) {
+	t.Helper()
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, pgctld)
 	t.Cleanup(cleanupPgctld)
 
-	// Create the database in topology with backup location
 	database := "testdb"
 	addDatabaseToTopo(t, ts, database)
 
@@ -89,8 +93,6 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
-	// Assign mock pooler controller and rule store BEFORE starting the manager
-	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 	pm.rules = rules
 
@@ -101,13 +103,9 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	// Create the pg_data directory to simulate initialized data directory
 	pgDataDir := tmpDir + "/pg_data"
-	err = os.MkdirAll(pgDataDir, 0o755)
-	require.NoError(t, err)
-	// Create PG_VERSION file to mark it as initialized
-	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644))
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 	// Initialize consensus state
@@ -116,6 +114,11 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	pm.mu.Unlock()
 
 	return pm, tmpDir
+}
+
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
+	t.Helper()
+	return setupManagerWithPgctld(t, mockQueryService, &testutil.MockPgCtldService{}, rules)
 }
 
 // ============================================================================
@@ -1057,4 +1060,67 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 
 	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 0))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
+}
+
+// ============================================================================
+// TestWaitForPostgresReady
+// ============================================================================
+
+// notReady/ready helpers for StatusResponseQueue construction.
+func pgctldNotReady() *pgctldpb.StatusResponse {
+	return &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING, Ready: false}
+}
+
+func pgctldReady() *pgctldpb.StatusResponse {
+	return &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING, Ready: true}
+}
+
+// TestWaitForPostgresReady exercises the three code paths in
+// waitForPostgresReady:
+//
+//  1. Fast path  — postgres is already ready on the first check; returns
+//     immediately without entering the polling loop.
+//  2. Polling    — postgres is not ready initially but becomes ready after a
+//     few polling ticks; returns nil once ready.
+//  3. Timeout    — postgres never becomes ready before the context deadline;
+//     returns an error wrapping ctx.Err().
+func TestWaitForPostgresReady(t *testing.T) {
+	t.Run("already ready returns immediately", func(t *testing.T) {
+		// Default MockPgCtldService returns RUNNING+Ready=true — fast path.
+		pm, _ := setupManagerWithMockDB(t, mock.NewQueryService(), &fakeRuleStore{pos: makeRulePosition(0)})
+		err := pm.waitForPostgresReady(t.Context())
+		require.NoError(t, err)
+	})
+
+	t.Run("polls until postgres becomes ready", func(t *testing.T) {
+		// Queue: two not-ready responses, then one ready response.
+		// waitForPostgresReady should poll twice and succeed on the third call.
+		pgctld := &testutil.MockPgCtldService{
+			StatusResponseQueue: []*pgctldpb.StatusResponse{
+				pgctldNotReady(),
+				pgctldNotReady(),
+				pgctldReady(),
+			},
+		}
+		pm, _ := setupManagerWithPgctld(t, mock.NewQueryService(), pgctld, &fakeRuleStore{pos: makeRulePosition(0)})
+		err := pm.waitForPostgresReady(t.Context())
+		require.NoError(t, err, "should succeed once postgres becomes ready")
+		// All three queued responses should have been consumed (checked via the
+		// Status call counter which is protected by the mock's internal mutex).
+		assert.Equal(t, 3, pgctld.StatusCallCount(),
+			"waitForPostgresReady should have called Status exactly 3 times")
+	})
+
+	t.Run("returns error when context deadline exceeded", func(t *testing.T) {
+		// Never becomes ready: every Status call returns Ready=false.
+		pgctld := &testutil.MockPgCtldService{
+			StatusResponse: pgctldNotReady(),
+		}
+		pm, _ := setupManagerWithPgctld(t, mock.NewQueryService(), pgctld, &fakeRuleStore{pos: makeRulePosition(0)})
+		ctx, cancel := context.WithTimeout(t.Context(), 350*time.Millisecond)
+		defer cancel()
+		err := pm.waitForPostgresReady(ctx)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
 }
