@@ -70,7 +70,6 @@ jobs:
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
       - name: Run pgbench benchmarks
-        id: pgbench
         env:
           RUN_BENCHMARKS: "1"
           PGBENCH_DURATION: "30"
@@ -86,16 +85,6 @@ jobs:
       - name: Stop port pool server
         if: ${{ always() }}
         run: kill "$PORT_POOL_PID" || true
-
-      # Upload-only: this benchmark suite has its own TPS regression detection,
-      # so continue-on-error keeps a Trunk-side exit from changing the job result.
-      - name: Upload test results to Trunk
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        uses: ./.github/actions/upload-test-results
-        with:
-          json-file: pgbench-test-results.jsonl
-          previous-step-outcome: ${{ steps.pgbench.outcome }}
 
       - name: Find results.json
         id: results
