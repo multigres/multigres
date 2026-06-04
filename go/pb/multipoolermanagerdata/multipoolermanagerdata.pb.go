@@ -1078,8 +1078,13 @@ type PrimaryStatus struct {
 	ConnectedFollowers []*clustermetadata.ID `protobuf:"bytes,3,rep,name=connected_followers,json=connectedFollowers,proto3" json:"connected_followers,omitempty"`
 	// Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
 	SyncReplicationConfig *SynchronousReplicationConfiguration `protobuf:"bytes,4,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Maximum number of WAL sender processes the primary allows (the
+	// max_wal_senders setting). Surfacing this alongside connected_followers makes
+	// wal-sender capacity exhaustion visible: once connected_followers reaches
+	// max_wal_senders, additional standbys cannot stream.
+	MaxWalSenders int32 `protobuf:"varint,5,opt,name=max_wal_senders,json=maxWalSenders,proto3" json:"max_wal_senders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PrimaryStatus) Reset() {
@@ -1138,6 +1143,13 @@ func (x *PrimaryStatus) GetSyncReplicationConfig() *SynchronousReplicationConfig
 		return x.SyncReplicationConfig
 	}
 	return nil
+}
+
+func (x *PrimaryStatus) GetMaxWalSenders() int32 {
+	if x != nil {
+		return x.MaxWalSenders
+	}
+	return 0
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -2787,12 +2799,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12:\n" +
-	"\x19standby_application_names\x18\x05 \x03(\tR\x17standbyApplicationNames\"\xf2\x01\n" +
+	"\x19standby_application_names\x18\x05 \x03(\tR\x17standbyApplicationNames\"\x9a\x02\n" +
 	"\rPrimaryStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12D\n" +
 	"\x13connected_followers\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x12connectedFollowers\x12s\n" +
-	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\"\x8d\x06\n" +
+	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\x12&\n" +
+	"\x0fmax_wal_senders\x18\x05 \x01(\x05R\rmaxWalSenders\"\x8d\x06\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +

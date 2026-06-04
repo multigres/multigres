@@ -380,11 +380,11 @@ func TestReplicationStatus(t *testing.T) {
 		// getConnectedFollowerIDs()
 		mockQueryService.AddQueryPattern("SELECT application_name",
 			mock.MakeQueryResult([]string{"application_name"}, nil))
-		// getSynchronousReplicationConfig()
-		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
-			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
-		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
-			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+		// replication GUCs (synchronous config + max_wal_senders)
+		mockQueryService.AddQueryPattern("SELECT current_setting",
+			mock.MakeQueryResult(
+				[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
+				[][]any{{"", "on", "5"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
@@ -628,10 +628,10 @@ func TestReplicationStatus(t *testing.T) {
 			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1000000"}}))
 		mockQueryService.AddQueryPattern("SELECT application_name",
 			mock.MakeQueryResult([]string{"application_name"}, nil))
-		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
-			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
-		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
-			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+		mockQueryService.AddQueryPattern("SELECT current_setting",
+			mock.MakeQueryResult(
+				[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
+				[][]any{{"", "on", "5"}}))
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 		pm.rules = &fakeRuleStore{
@@ -713,11 +713,11 @@ func TestReplicationStatus(t *testing.T) {
 		// getConnectedFollowerIDs()
 		mockQueryService.AddQueryPattern("SELECT application_name",
 			mock.MakeQueryResult([]string{"application_name"}, nil))
-		// getSynchronousReplicationConfig()
-		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
-			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
-		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
-			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+		// replication GUCs (synchronous config + max_wal_senders)
+		mockQueryService.AddQueryPattern("SELECT current_setting",
+			mock.MakeQueryResult(
+				[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
+				[][]any{{"", "on", "5"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
 		pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
@@ -834,12 +834,12 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		return manager.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond)
 
-	// Mock getSynchronousReplicationConfig (called to get current config)
+	// Mock the replication-GUC read (called to get current config)
 	// Returns current config with 2 standbys
-	mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
-		mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{"FIRST 1 (zone1_replica-1, zone1_replica-2)"}}))
-	mockQueryService.AddQueryPattern("SHOW synchronous_commit",
-		mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"remote_write"}}))
+	mockQueryService.AddQueryPattern("SELECT current_setting",
+		mock.MakeQueryResult(
+			[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
+			[][]any{{"FIRST 1 (zone1_replica-1, zone1_replica-2)", "remote_write", "5"}}))
 
 	// We do NOT add expectations for ALTER SYSTEM SET synchronous_standby_names
 	// If it gets called, ExpectationsWereMet() will fail
