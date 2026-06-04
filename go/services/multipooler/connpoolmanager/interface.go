@@ -43,8 +43,15 @@ type PoolManager interface {
 	// while credentials are managed internally via viper flags.
 	Open(ctx context.Context, connConfig *ConnectionConfig)
 
-	// Close shuts down all connection pools.
+	// Close shuts down all connection pools. This is a terminal close.
 	Close()
+
+	// CloseForReopen closes all pools as the first half of a reopen (a Close
+	// immediately followed by an Open, e.g. to refresh stale file descriptors
+	// after a PostgreSQL restart). It must be paired with a subsequent Open.
+	// Unlike Close, it marks the close as transient so connection requests
+	// racing the reopen wait for the Open and retry, rather than failing.
+	CloseForReopen()
 
 	// PgUser returns the configured PostgreSQL user for system queries.
 	PgUser() string

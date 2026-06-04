@@ -129,6 +129,7 @@ type stubPoolManager struct {
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
 func (m *stubPoolManager) Close()                                                  {}
+func (m *stubPoolManager) CloseForReopen()                                         {}
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
 func (m *stubPoolManager) GetAdminConn(context.Context) (admin.PooledConn, error)  { return nil, nil }
