@@ -559,7 +559,7 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 	}
 
 	pm.pgMonitor.Stop()
-	pm.closeConnectionsLocked()
+	pm.closeConnectionsLocked(false /* forReopen */)
 	pm.cancel()
 	pm.isOpen = false
 	pm.logger.InfoContext(ctx, "MultiPoolerManager: "+logMessage)
@@ -685,7 +685,12 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 // without canceling the main context. Caller must hold pm.mu.
 // This is used by reopenConnections() during auto-restore to avoid canceling
 // the startup context that WaitUntilReady is waiting on.
-func (pm *MultiPoolerManager) closeConnectionsLocked() {
+//
+// When forReopen is true the pool manager is closed via CloseForReopen, which
+// marks the close as transient so connection requests racing the immediately
+// following openConnectionsLocked wait for it and retry instead of failing with
+// a closed-pool error.
+func (pm *MultiPoolerManager) closeConnectionsLocked(forReopen bool) {
 	// Close resources (safe to call even if nil/never opened)
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
@@ -699,7 +704,11 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() {
 
 	// Close connection pool manager
 	if pm.connPoolMgr != nil {
-		pm.connPoolMgr.Close()
+		if forReopen {
+			pm.connPoolMgr.CloseForReopen()
+		} else {
+			pm.connPoolMgr.Close()
+		}
 	}
 }
 
@@ -711,7 +720,10 @@ func (pm *MultiPoolerManager) reopenConnections(_ context.Context) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	pm.closeConnectionsLocked()
+	// forReopen=true: CloseForReopen marks a reopen window so in-flight
+	// connection requests wait for openConnectionsLocked below and retry,
+	// instead of leaking a transient closed-pool error to clients.
+	pm.closeConnectionsLocked(true /* forReopen */)
 	pm.openConnectionsLocked()
 }
 
