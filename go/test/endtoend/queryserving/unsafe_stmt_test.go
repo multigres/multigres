@@ -117,6 +117,76 @@ func TestMultiGateway_UnsafeStatementRejection(t *testing.T) {
 		}
 	})
 
+	// UNLOGGED tables skip the WAL, so their contents are not replicated to
+	// standbys and are truncated on crash recovery — incompatible with a
+	// replicated, highly-available deployment. Ordinary and temp tables are
+	// unaffected.
+	t.Run("unlogged tables rejected", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			sql     string
+			wantMsg string
+		}{
+			{
+				name:    "CREATE UNLOGGED TABLE",
+				sql:     "CREATE UNLOGGED TABLE _test_unlogged (id int)",
+				wantMsg: "UNLOGGED tables are not supported",
+			},
+			{
+				name:    "CREATE UNLOGGED TABLE AS",
+				sql:     "CREATE UNLOGGED TABLE _test_unlogged_as AS SELECT 1 AS id",
+				wantMsg: "UNLOGGED tables are not supported",
+			},
+			{
+				name:    "SELECT INTO UNLOGGED",
+				sql:     "SELECT 1 AS id INTO UNLOGGED _test_unlogged_into",
+				wantMsg: "UNLOGGED tables are not supported",
+			},
+			{
+				// Rejected at plan time, so the table need not exist.
+				name:    "ALTER TABLE SET UNLOGGED",
+				sql:     "ALTER TABLE _test_any SET UNLOGGED",
+				wantMsg: "ALTER TABLE ... SET UNLOGGED is not supported",
+			},
+			{
+				name:    "ALTER TABLE ADD COLUMN then SET UNLOGGED",
+				sql:     "ALTER TABLE _test_any ADD COLUMN c int, SET UNLOGGED",
+				wantMsg: "ALTER TABLE ... SET UNLOGGED is not supported",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := conn.Exec(ctx, tt.sql)
+				require.Error(t, err, "%s should be rejected", tt.name)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+				assert.Equal(t, "0A000", pgErr.Code, "SQLSTATE should be feature_not_supported")
+				assert.Contains(t, pgErr.Message, tt.wantMsg)
+				t.Logf("rejected %s: %s", tt.name, pgErr.Message)
+			})
+		}
+	})
+
+	// Ordinary CREATE TABLE and non-UNLOGGED ALTER TABLE must still pass
+	// through the pooler — the UNLOGGED checks are field/subcommand-conditional,
+	// not blanket CREATE/ALTER TABLE rejections.
+	t.Run("ordinary CREATE and ALTER TABLE allowed", func(t *testing.T) {
+		_, err := conn.Exec(ctx, "CREATE TABLE _test_logged_tbl (id int)")
+		require.NoError(t, err, "ordinary CREATE TABLE should be allowed")
+
+		_, err = conn.Exec(ctx, "ALTER TABLE _test_logged_tbl ADD COLUMN c int")
+		require.NoError(t, err, "ALTER TABLE ADD COLUMN should be allowed")
+
+		// SET LOGGED is the harmless inverse of SET UNLOGGED — must pass.
+		_, err = conn.Exec(ctx, "ALTER TABLE _test_logged_tbl SET LOGGED")
+		require.NoError(t, err, "ALTER TABLE SET LOGGED should be allowed")
+
+		_, err = conn.Exec(ctx, "DROP TABLE _test_logged_tbl")
+		require.NoError(t, err)
+	})
+
 	// Verify the connection is still healthy after all rejections.
 	// This confirms that rejected statements don't corrupt connection state.
 	t.Run("connection healthy after rejections", func(t *testing.T) {
