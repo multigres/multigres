@@ -429,7 +429,7 @@ func (m *Manager) Close() {
 		return
 	}
 	m.setLifecycle(lifecycleClosed)
-	// If a reopen was in progress, this terminal close pre-empts it: wake any
+	// If a reopen was in progress, this terminal close preempts it: wake any
 	// withReopenRetry waiters so they observe lifecycleClosed and surface the
 	// error instead of blocking on a paired Open that will never come.
 	m.endReopen()

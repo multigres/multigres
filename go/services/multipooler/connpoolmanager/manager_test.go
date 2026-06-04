@@ -455,7 +455,7 @@ func TestWithReopenRetry_ReopenWaitHonorsContextCancellation(t *testing.T) {
 }
 
 // TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter verifies the
-// pre-emption behavior the single lifecycle enum makes representable: if a
+// preemption behavior the single lifecycle enum makes representable: if a
 // terminal Close lands while a caller is blocked on an in-progress reopen
 // window, the caller is woken, observes the now-terminal lifecycle, and
 // surfaces ErrManagerClosed instead of blocking until its context expires.
@@ -487,7 +487,7 @@ func TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter(t *testing.T) {
 		resCh <- result{calls: calls, err: err}
 	}()
 
-	// Let the caller reach the reopen wait, then pre-empt it with a terminal Close.
+	// Let the caller reach the reopen wait, then preempt it with a terminal Close.
 	time.Sleep(20 * time.Millisecond)
 	manager.Close()
 
@@ -495,9 +495,9 @@ func TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter(t *testing.T) {
 	case res := <-resCh:
 		require.Error(t, res.err)
 		assert.ErrorIs(t, res.err, ErrManagerClosed)
-		assert.Equal(t, 0, res.calls, "op must not run once the reopen is pre-empted by a terminal close")
+		assert.Equal(t, 0, res.calls, "op must not run once the reopen is preempted by a terminal close")
 	case <-time.After(2 * time.Second):
-		t.Fatal("withReopenRetry did not wake after a terminal Close pre-empted the reopen")
+		t.Fatal("withReopenRetry did not wake after a terminal Close preempted the reopen")
 	}
 }
 
