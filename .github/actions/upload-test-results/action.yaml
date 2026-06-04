@@ -37,7 +37,7 @@ inputs:
     default: ""
   previous-step-outcome:
     description: >-
-      Outcome of the test step, i.e. ${{ steps.<id>.outcome }}. In quarantine
+      Outcome of the test step, i.e. the steps.<id>.outcome value. In quarantine
       mode this is how the uploader learns whether tests failed. An empty value
       (e.g. a stale step id) is treated as 'failure' so the gate fails closed
       rather than silently passing.
