@@ -353,36 +353,32 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 10: Error handling — invalid SET params
 	//
-	// Behaviour deviation from PostgreSQL: SET commands are applied locally
-	// without validation. Invalid variables are accepted at SET time; errors
-	// surface on the next query when the pool tries to apply the setting.
+	// SET is validated against PostgreSQL at SET time (the gateway runs
+	// set_config(..., is_local := true) before tracking it), so an unrecognized
+	// variable errors immediately and is never tracked — matching PostgreSQL,
+	// and leaving the session uncorrupted (no RESET-to-recover dance).
 	t.Run("error handling", func(t *testing.T) {
 		// Set valid value first
 		_, err := db.ExecContext(ctx, "SET work_mem = '64MB'")
 		require.NoError(t, err, "failed to SET valid value")
 
-		// SET with invalid variable succeeds locally (not validated against PG)
+		// An unrecognized variable now errors at SET time and is not tracked.
 		_, err = db.ExecContext(ctx, "SET invalid_variable_12345 = 'value'")
-		require.NoError(t, err, "invalid SET should succeed locally (behaviour deviation from PG)")
+		require.Error(t, err, "invalid SET should error at SET time (validated against PG)")
+		assert.Contains(t, err.Error(), "unrecognized configuration parameter",
+			"should be PostgreSQL's unrecognized-parameter error")
 
-		// Next query should fail because the pool tries to apply the bad setting
+		// The rejected SET corrupts nothing: the connection stays healthy and the
+		// earlier valid setting is intact.
 		var result string
-		err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&result)
-		require.Error(t, err, "query after invalid SET should fail when pool applies bad setting")
-
-		// RESET the bad variable to recover
-		_, err = db.ExecContext(ctx, "RESET invalid_variable_12345")
-		require.NoError(t, err, "RESET of invalid variable should succeed")
-
-		// Connection should be usable again with original work_mem intact
 		for i := range 100 {
 			err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&result)
-			require.NoError(t, err, "iteration %d: should work after RESET of bad variable", i)
+			require.NoError(t, err, "iteration %d: connection should remain usable", i)
 			require.Equal(t, "64MB", result, "iteration %d: work_mem should still be 64MB", i)
 
 			var one int
 			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
-			require.NoError(t, err, "iteration %d: connection should be usable after recovery", i)
+			require.NoError(t, err, "iteration %d: connection should be usable", i)
 			require.Equal(t, 1, one)
 		}
 	})
@@ -621,24 +617,20 @@ func TestMultiGateway_SessionSettingsSQLInjection(t *testing.T) {
 	})
 
 	t.Run("connection survives a single quote in the variable name", func(t *testing.T) {
-		// The GUC name is also embedded in the apply query literal, so it is
-		// escaped too (covered deterministically by the unit test
-		// TestSettingsApplyQuerySingleQuoteInName). Such a custom name is not a
-		// valid GUC, so applying it fails — but it must fail as a clean PostgreSQL
-		// error and leave the pooled connection usable, never as a broken-out
-		// multi-statement apply query.
+		// The GUC name is embedded in the set_config validation literal, so a
+		// single quote in it is escaped (doubled), exactly like the value
+		// (covered deterministically by TestSettingsApplyQuerySingleQuoteInName).
+		// Such a name is not a valid GUC, so validation now fails at SET time —
+		// but it must fail as a clean PostgreSQL error and leave the pooled
+		// connection usable, never as a broken-out multi-statement query.
 		_, err := db.ExecContext(ctx, `SET "mtinject.it's" = 'value'`)
-		require.NoError(t, err, "SET with quote in name should be accepted locally")
+		require.Error(t, err, "SET with an invalid (quoted) name should error, not inject")
 
-		var got string
-		_ = db.QueryRowContext(ctx, `SHOW "mtinject.it's"`).Scan(&got)
-
-		_, err = db.ExecContext(ctx, `RESET "mtinject.it's"`)
-		require.NoError(t, err, "RESET should recover the connection")
-
+		// The quote must not have escaped the literal: the connection stays
+		// usable and the next statement runs normally.
 		var one int
 		err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
-		require.NoError(t, err, "connection should be usable after recovery")
+		require.NoError(t, err, "connection should be usable after the rejected SET")
 		require.Equal(t, 1, one)
 	})
 }

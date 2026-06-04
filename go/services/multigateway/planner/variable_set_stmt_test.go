@@ -42,9 +42,15 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	// The primitive should be an ApplySessionState
-	_, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
+	// SET var = value is validated on a backend then tracked locally, so the
+	// plan is Sequence[ValidateSetting, ApplySessionState].
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2, "expected [ValidateSetting, ApplySessionState]")
+	_, ok = seq.Primitives[0].(*engine.ValidateSetting)
+	assert.True(t, ok, "first primitive should be ValidateSetting (validate on backend), got %T", seq.Primitives[0])
+	_, ok = seq.Primitives[1].(*engine.ApplySessionState)
+	assert.True(t, ok, "second primitive should be ApplySessionState (track + emit SET), got %T", seq.Primitives[1])
 }
 
 func TestPlanVariableSetStmt_RESET(t *testing.T) {
