@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,5 +82,45 @@ func TestMultiGateway_SetValidation(t *testing.T) {
 		var got string
 		require.NoError(t, conn.QueryRow(ctx, "SHOW extra_float_digits").Scan(&got))
 		assert.Equal(t, "2", got, "the valid setting should be applied")
+	})
+
+	// The extended protocol (Parse/Bind/Execute) must validate and track SET
+	// identically. pgx.QueryExecModeExec forces it, the way clients like the
+	// PostgreSQL JDBC driver always send statements — even parameterless ones.
+	// Previously this path forwarded a raw SET to a pooled backend (no
+	// validation, no tracking, and a later RESET could not undo it).
+	t.Run("extended protocol: out-of-range SET errors immediately", func(t *testing.T) {
+		conn := connectPgx(t, ctx, setup)
+		defer conn.Close(ctx)
+
+		_, err := conn.Exec(ctx, "SET extra_float_digits = 100", pgx.QueryExecModeExec)
+		require.Error(t, err, "out-of-range SET over the extended protocol should error at SET time")
+
+		var pgErr *pgconn.PgError
+		require.True(t, errors.As(err, &pgErr), "expected a PgError, got %T: %v", err, err)
+		assert.Equal(t, "22023", pgErr.Code, "should be invalid_parameter_value")
+	})
+
+	// Tracking + RESET over the extended protocol: a valid SET is applied and a
+	// subsequent RESET reverts it. This proves the extended path tracks the
+	// setting (rather than orphaning it on a backend), so RESET works.
+	t.Run("extended protocol: SET tracks and RESET reverts", func(t *testing.T) {
+		conn := connectPgx(t, ctx, setup)
+		defer conn.Close(ctx)
+		const m = pgx.QueryExecModeExec
+
+		_, err := conn.Exec(ctx, "SET search_path = 'custom_ext'", m)
+		require.NoError(t, err, "valid SET over the extended protocol should succeed")
+
+		var got string
+		require.NoError(t, conn.QueryRow(ctx, "SHOW search_path", m).Scan(&got))
+		assert.Equal(t, "custom_ext", got, "extended-protocol SET should be tracked and applied")
+
+		_, err = conn.Exec(ctx, "RESET search_path", m)
+		require.NoError(t, err, "RESET over the extended protocol should succeed")
+
+		require.NoError(t, conn.QueryRow(ctx, "SHOW search_path", m).Scan(&got))
+		assert.NotEqual(t, "custom_ext", got, "RESET must revert — the extended SET must not orphan backend state")
+		assert.Contains(t, got, "public", "default search_path contains public")
 	})
 }
