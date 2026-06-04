@@ -46,22 +46,6 @@ func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPo
 	return nil
 }
 
-// ValidateTerm checks that the consensus term matches the expected value.
-// Follows the pattern from multipooler/setup_test.go:validateTerm.
-func ValidateTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, expectedTerm int64, nodeName string) error {
-	status, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("%s failed to get status: %w", nodeName, err)
-	}
-
-	currentTerm := status.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	if currentTerm != expectedTerm {
-		return fmt.Errorf("%s term=%d (expected %d)", nodeName, currentTerm, expectedTerm)
-	}
-
-	return nil
-}
-
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
 func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []string) map[string]string {
