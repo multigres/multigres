@@ -271,7 +271,18 @@ func (p *Planner) PlanPortal(
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
 		setStmt := stmt.(*ast.VariableSetStmt)
-		if isGatewayManagedVariable(setStmt.Name) || setStmt.Kind == ast.VAR_RESET_ALL {
+		// Mirror planVariableSetStmt's local-vs-forward decision so the
+		// extended-protocol path validates and tracks SET exactly like the
+		// simple protocol. Gateway-managed variables and the locally-handled
+		// kinds (plain SET, RESET, RESET ALL, SET TO DEFAULT) are planned here;
+		// only SET LOCAL and SET TRANSACTION / SET ... FROM CURRENT — which the
+		// backend is authoritative for — fall through to a plain portal execute.
+		// Without this, a non-gateway SET over the extended protocol forwarded a
+		// raw SET to the backend: it mutated backend state outside multipooler's
+		// tracking (breaking a later RESET) and never tracked the setting for
+		// pool-rotation replay.
+		if isGatewayManagedVariable(setStmt.Name) ||
+			(!setStmt.IsLocal && setStmt.Kind != ast.VAR_SET_MULTI && setStmt.Kind != ast.VAR_SET_CURRENT) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil

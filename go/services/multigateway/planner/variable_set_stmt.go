@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -27,9 +28,16 @@ import (
 )
 
 // planVariableSetStmt plans SET/RESET commands.
-// Creates an ApplySessionState that handles SET and RESET as local state updates
-// with synthetic responses. PG validation is deferred to the next query when
-// the pool applies settings to the backend connection.
+//
+//   - SET var = value (non gateway-managed, non-LOCAL) is planned as
+//     Sequence[ValidateSetting, ApplySessionState]: ValidateSetting runs
+//     set_config(name, value, is_local := true) on a backend so an invalid
+//     name/value errors at SET time (matching PostgreSQL) without persisting on
+//     the pooled backend, and ApplySessionState records it for pool-rotation
+//     replay only if validation succeeded.
+//   - RESET / RESET ALL update local tracking only (no backend round-trip).
+//   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION / FROM CURRENT
+//     are handled by their dedicated paths below.
 func (p *Planner) planVariableSetStmt(
 	sql string,
 	stmt *ast.VariableSetStmt,
@@ -76,8 +84,32 @@ func (p *Planner) planVariableSetStmt(
 	}
 
 	switch stmt.Kind {
-	case ast.VAR_SET_VALUE, ast.VAR_RESET, ast.VAR_RESET_ALL:
-		// These are tracked locally
+	case ast.VAR_SET_VALUE:
+		// Validate the value against PostgreSQL, then track it locally. The
+		// ValidateSetting step runs set_config(name, value, is_local := true),
+		// which validates the value (an invalid name or out-of-range value
+		// errors at SET time, matching PostgreSQL) but reverts immediately, so
+		// no state is left on the pooled backend — multipooler stays the sole
+		// authority on backend session GUCs. The Sequence stops on the first
+		// child's error, so a rejected SET never reaches the tracker. On success
+		// the trailing ApplySessionState records the setting for pool-rotation
+		// replay and emits CommandComplete("SET").
+		value := extractVariableValue(stmt.Args)
+		validate := engine.NewValidateSetting(p.defaultTableGroup, constants.DefaultShard, stmt.Name, value, sql)
+		track := engine.NewApplySessionState(sql, stmt)
+		plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
+		p.logger.Debug("created validate-then-track SET plan",
+			"variable", stmt.Name, "plan", plan.String())
+		return plan, nil
+
+	case ast.VAR_RESET, ast.VAR_RESET_ALL:
+		// RESET clears local tracking; the merged settings the pool applies on
+		// the next query then fall back to the startup/default value. No
+		// PostgreSQL round-trip is needed.
+		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
+		p.logger.Debug("created RESET plan",
+			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+		return plan, nil
 
 	case ast.VAR_SET_MULTI, ast.VAR_SET_CURRENT:
 		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
@@ -90,16 +122,6 @@ func (p *Planner) planVariableSetStmt(
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
 	}
-
-	p.logger.Debug("planning SET/RESET command",
-		"kind", stmt.Kind,
-		"variable", stmt.Name)
-
-	primitive := engine.NewApplySessionState(sql, stmt)
-
-	plan := engine.NewPlan(sql, primitive)
-	p.logger.Debug("created SET/RESET plan", "plan", plan.String())
-	return plan, nil
 }
 
 // isGatewayManagedVariable returns true for session variables that are managed

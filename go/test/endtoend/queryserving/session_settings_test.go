@@ -353,44 +353,159 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 10: Error handling — invalid SET params
 	//
-	// Behaviour deviation from PostgreSQL: SET commands are applied locally
-	// without validation. Invalid variables are accepted at SET time; errors
-	// surface on the next query when the pool tries to apply the setting.
+	// SET is validated against PostgreSQL at SET time (the gateway runs
+	// set_config(..., is_local := true) before tracking it), so an unrecognized
+	// variable errors immediately and is never tracked — matching PostgreSQL,
+	// and leaving the session uncorrupted (no RESET-to-recover dance).
 	t.Run("error handling", func(t *testing.T) {
 		// Set valid value first
 		_, err := db.ExecContext(ctx, "SET work_mem = '64MB'")
 		require.NoError(t, err, "failed to SET valid value")
 
-		// SET with invalid variable succeeds locally (not validated against PG)
+		// An unrecognized variable now errors at SET time and is not tracked.
 		_, err = db.ExecContext(ctx, "SET invalid_variable_12345 = 'value'")
-		require.NoError(t, err, "invalid SET should succeed locally (behaviour deviation from PG)")
+		require.Error(t, err, "invalid SET should error at SET time (validated against PG)")
+		assert.Contains(t, err.Error(), "unrecognized configuration parameter",
+			"should be PostgreSQL's unrecognized-parameter error")
 
-		// Next query should fail because the pool tries to apply the bad setting
+		// The rejected SET corrupts nothing: the connection stays healthy and the
+		// earlier valid setting is intact.
 		var result string
-		err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&result)
-		require.Error(t, err, "query after invalid SET should fail when pool applies bad setting")
-
-		// RESET the bad variable to recover
-		_, err = db.ExecContext(ctx, "RESET invalid_variable_12345")
-		require.NoError(t, err, "RESET of invalid variable should succeed")
-
-		// Connection should be usable again with original work_mem intact
 		for i := range 100 {
 			err = db.QueryRowContext(ctx, "SHOW work_mem").Scan(&result)
-			require.NoError(t, err, "iteration %d: should work after RESET of bad variable", i)
+			require.NoError(t, err, "iteration %d: connection should remain usable", i)
 			require.Equal(t, "64MB", result, "iteration %d: work_mem should still be 64MB", i)
 
 			var one int
 			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
-			require.NoError(t, err, "iteration %d: connection should be usable after recovery", i)
+			require.NoError(t, err, "iteration %d: connection should be usable", i)
 			require.Equal(t, 1, one)
 		}
 	})
 
-	// Test 11: SET LOCAL behavior (Phase 2 placeholder)
+	// Test 11: SET and SET LOCAL behavior inside transactions.
+	//
+	// Exercises the full client → gateway → multipooler → PostgreSQL flow for
+	// SET commands issued inside an explicit transaction:
+	//   - a regular SET inside a txn is discarded on ROLLBACK, kept on COMMIT
+	//   - SET LOCAL on a gateway-managed variable (statement_timeout) applies
+	//     within the txn and reverts at COMMIT — it must not survive the boundary
+	//   - SET LOCAL on a non-managed variable (search_path) is passed through to
+	//     PostgreSQL and likewise does not leak past COMMIT
+	//
+	// Session state is per gateway connection, so all statements run on a single
+	// pinned *sql.Conn. The follow-up SHOW loops still route through the pool, so
+	// they also verify the gateway re-applies the post-txn state to fresh backends.
 	t.Run("SET LOCAL behavior", func(t *testing.T) {
-		t.Skip("SET LOCAL requires transaction support (Phase 2)")
-		// TODO Phase 2: Implement transaction-scoped settings tracking
+		conn, err := db.Conn(ctx)
+		require.NoError(t, err, "failed to pin connection")
+		defer conn.Close()
+
+		// Start from a clean, known session state.
+		_, err = conn.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err, "failed to RESET ALL")
+
+		t.Run("regular SET inside txn is discarded on ROLLBACK", func(t *testing.T) {
+			_, err := conn.ExecContext(ctx, "SET search_path = 'before_txn'")
+			require.NoError(t, err, "failed to SET pre-txn search_path")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET search_path = 'inside_txn'")
+			require.NoError(t, err, "failed to SET inside txn")
+
+			var inside string
+			err = tx.QueryRowContext(ctx, "SHOW search_path").Scan(&inside)
+			require.NoError(t, err, "failed to SHOW inside txn")
+			assert.Equal(t, "inside_txn", inside, "SET inside txn should be visible within the txn")
+
+			require.NoError(t, tx.Rollback(), "failed to ROLLBACK")
+
+			// ROLLBACK discards the in-txn SET; search_path reverts to the
+			// pre-txn value.
+			for i := range 10 {
+				var after string
+				err = conn.QueryRowContext(ctx, "SHOW search_path").Scan(&after)
+				require.NoError(t, err, "iteration %d: failed to SHOW after rollback", i)
+				require.Equal(t, "before_txn", after, "iteration %d: ROLLBACK should discard in-txn SET", i)
+			}
+		})
+
+		t.Run("regular SET inside txn persists on COMMIT", func(t *testing.T) {
+			_, err := conn.ExecContext(ctx, "SET search_path = 'before_commit'")
+			require.NoError(t, err, "failed to SET pre-commit search_path")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET search_path = 'after_commit'")
+			require.NoError(t, err, "failed to SET inside txn")
+			require.NoError(t, tx.Commit(), "failed to COMMIT")
+
+			// COMMIT makes the in-txn SET the persistent session value.
+			for i := range 10 {
+				var after string
+				err = conn.QueryRowContext(ctx, "SHOW search_path").Scan(&after)
+				require.NoError(t, err, "iteration %d: failed to SHOW after commit", i)
+				require.Equal(t, "after_commit", after, "iteration %d: COMMIT should persist in-txn SET", i)
+			}
+		})
+
+		t.Run("SET LOCAL statement_timeout reverts at COMMIT", func(t *testing.T) {
+			// Establish a session-level value the LOCAL override masks.
+			_, err := conn.ExecContext(ctx, "SET statement_timeout = '30s'")
+			require.NoError(t, err, "failed to SET session statement_timeout")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET LOCAL statement_timeout = '5s'")
+			require.NoError(t, err, "failed to SET LOCAL statement_timeout")
+
+			var inside string
+			err = tx.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&inside)
+			require.NoError(t, err, "failed to SHOW inside txn")
+			assert.Equal(t, "5s", inside, "SET LOCAL should apply within the txn")
+
+			require.NoError(t, tx.Commit(), "failed to COMMIT")
+
+			// SET LOCAL does not survive the transaction; the session value is restored.
+			for i := range 10 {
+				var after string
+				err = conn.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&after)
+				require.NoError(t, err, "iteration %d: failed to SHOW after commit", i)
+				require.Equal(t, "30s", after, "iteration %d: SET LOCAL must not persist past COMMIT", i)
+			}
+		})
+
+		t.Run("SET LOCAL on non-managed variable does not leak past COMMIT", func(t *testing.T) {
+			// search_path is not gateway-managed: SET LOCAL is passed through to
+			// PostgreSQL, which scopes it to the transaction.
+			_, err := conn.ExecContext(ctx, "SET search_path = 'session_path'")
+			require.NoError(t, err, "failed to SET session search_path")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET LOCAL search_path = 'local_path'")
+			require.NoError(t, err, "failed to SET LOCAL search_path")
+
+			var inside string
+			err = tx.QueryRowContext(ctx, "SHOW search_path").Scan(&inside)
+			require.NoError(t, err, "failed to SHOW inside txn")
+			assert.Equal(t, "local_path", inside, "SET LOCAL should apply within the txn")
+
+			require.NoError(t, tx.Commit(), "failed to COMMIT")
+
+			// The LOCAL value is gone after COMMIT; the session value remains.
+			for i := range 10 {
+				var after string
+				err = conn.QueryRowContext(ctx, "SHOW search_path").Scan(&after)
+				require.NoError(t, err, "iteration %d: failed to SHOW after commit", i)
+				require.Equal(t, "session_path", after, "iteration %d: SET LOCAL must not persist past COMMIT", i)
+			}
+		})
 	})
 }
 
@@ -621,24 +736,20 @@ func TestMultiGateway_SessionSettingsSQLInjection(t *testing.T) {
 	})
 
 	t.Run("connection survives a single quote in the variable name", func(t *testing.T) {
-		// The GUC name is also embedded in the apply query literal, so it is
-		// escaped too (covered deterministically by the unit test
-		// TestSettingsApplyQuerySingleQuoteInName). Such a custom name is not a
-		// valid GUC, so applying it fails — but it must fail as a clean PostgreSQL
-		// error and leave the pooled connection usable, never as a broken-out
-		// multi-statement apply query.
+		// The GUC name is embedded in the set_config validation literal, so a
+		// single quote in it is escaped (doubled), exactly like the value
+		// (covered deterministically by TestSettingsApplyQuerySingleQuoteInName).
+		// Such a name is not a valid GUC, so validation now fails at SET time —
+		// but it must fail as a clean PostgreSQL error and leave the pooled
+		// connection usable, never as a broken-out multi-statement query.
 		_, err := db.ExecContext(ctx, `SET "mtinject.it's" = 'value'`)
-		require.NoError(t, err, "SET with quote in name should be accepted locally")
+		require.Error(t, err, "SET with an invalid (quoted) name should error, not inject")
 
-		var got string
-		_ = db.QueryRowContext(ctx, `SHOW "mtinject.it's"`).Scan(&got)
-
-		_, err = db.ExecContext(ctx, `RESET "mtinject.it's"`)
-		require.NoError(t, err, "RESET should recover the connection")
-
+		// The quote must not have escaped the literal: the connection stays
+		// usable and the next statement runs normally.
 		var one int
 		err = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
-		require.NoError(t, err, "connection should be usable after recovery")
+		require.NoError(t, err, "connection should be usable after the rejected SET")
 		require.Equal(t, 1, one)
 	})
 }
