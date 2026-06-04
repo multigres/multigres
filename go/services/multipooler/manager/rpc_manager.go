@@ -31,6 +31,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
 // broadcastHealth broadcasts the current health state to all subscribers.
@@ -546,12 +547,32 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.ConnectedFollowers = followers
 
-	// Get synchronous replication configuration
-	syncConfig, err := pm.getSynchronousReplicationConfig(ctx)
+	// Read the replication GUCs in a single query. synchronous_standby_names and
+	// synchronous_commit build the synchronous replication config; max_wal_senders
+	// is the server-wide WAL-sender cap, reported alongside connected followers so
+	// capacity exhaustion (connected followers == max_wal_senders) is visible.
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx,
+		"SELECT current_setting('synchronous_standby_names'), current_setting('synchronous_commit'), current_setting('max_wal_senders')")
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query replication settings")
+	}
+	var (
+		syncStandbyNames string
+		syncCommit       string
+		maxWalSenders    int32
+	)
+	if err := executor.ScanSingleRow(result, &syncStandbyNames, &syncCommit, &maxWalSenders); err != nil {
+		return nil, mterrors.Wrap(err, "failed to scan replication settings")
+	}
+
+	syncConfig, err := parseSyncReplicationConfig(syncStandbyNames, syncCommit)
 	if err != nil {
 		return nil, err
 	}
 	status.SyncReplicationConfig = syncConfig
+	status.MaxWalSenders = maxWalSenders
 
 	return status, nil
 }
