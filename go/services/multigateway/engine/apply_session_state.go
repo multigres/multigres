@@ -28,24 +28,24 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// ApplySessionState handles SET/RESET commands by updating local session state only.
+// ApplySessionState records a SET/RESET in the gateway's local session-settings
+// tracker. The pool propagates the tracked settings to a backend on the next
+// query via ApplySettings, so the change survives pool rotation.
 //
-// Neither SET nor RESET is routed to PostgreSQL. Both are applied locally and
-// return a synthetic CommandComplete response. The pool propagates these settings
-// to the backend connection on the next query via ApplySettings.
+// This primitive does NOT validate against PostgreSQL — it only records state.
+// Validation is the planner's job: a real `SET var = value` is planned as
+// Sequence[ValidateSetting, ApplySessionState] (see planner.planVariableSetStmt).
+// The ValidateSetting step runs set_config(..., is_local := true) on a backend so
+// an invalid name/value errors at SET time (but leaves no backend state behind),
+// and this primitive runs only if that succeeded — recording the setting and
+// emitting CommandComplete("SET"). A silent variant of this primitive is also
+// used for `SELECT set_config(...)` (see planner.planSelectStmt), where a
+// trailing Route owns the client response.
 //
-// Behaviour deviation from PostgreSQL:
-// SET commands are NOT validated against PostgreSQL. This means a client can SET
-// an invalid variable name or value without receiving an immediate error. The error
-// will surface on the next query when the pool tries to apply the setting to a
-// backend connection. The client must RESET the bad variable to recover. This
-// trade-off was chosen intentionally to keep the SET/RESET path simple. It may
-// be revisited in the future if stricter validation is needed.
-//
-// For RESET/RESET ALL:
-// The variable is removed from SessionSettings. On the next query, the merged
-// settings (SessionSettings overlaid on StartupParams) will fall back to the
-// startup parameter value, and the pool will apply the correct SET commands.
+// RESET/RESET ALL run through this primitive directly (no backend round-trip):
+// the variable is removed from SessionSettings, and on the next query the merged
+// settings (SessionSettings overlaid on StartupParams) fall back to the
+// startup/default value.
 type ApplySessionState struct {
 	// VariableStmt is the SET/RESET statement from the AST.
 	VariableStmt *ast.VariableSetStmt
