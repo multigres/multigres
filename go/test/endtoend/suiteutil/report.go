@@ -116,6 +116,47 @@ func BadgeMarkdown(label string, passed, total, expected int, timedOut bool) str
 	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s)", label, encodeBadgeField(label), value, colour)
 }
 
+// BadgeEndpoint is the shields.io "endpoint" badge schema. Serialized to JSON
+// and published to a stable public URL, it lets a README or blog badge
+// re-render the current pass count at view time — republishing the JSON updates
+// every badge that references it, with no markdown edits.
+// See https://shields.io/badges/endpoint-badge.
+type BadgeEndpoint struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Label         string `json:"label"`
+	Message       string `json:"message"`
+	Color         string `json:"color"`
+}
+
+// NewBadgeEndpoint builds a shields.io endpoint badge payload from a suite's
+// pass count. It mirrors BadgeMarkdown's message and colour rules (the expected
+// denominator when a run is partial, and the timed-out downgrade) but renders
+// the message as plain text suitable for the endpoint "message" field — no URL
+// escaping, since shields reads it from JSON rather than the URL path.
+func NewBadgeEndpoint(label string, passed, total, expected int, timedOut bool) BadgeEndpoint {
+	colour := BadgeColor(passed, total)
+	message := fmt.Sprintf("%d/%d passed", passed, total)
+	if expected > 0 && expected > total {
+		message = fmt.Sprintf("%d/%d passed (of %d)", passed, total, expected)
+	}
+	if timedOut {
+		message += " (timed out)"
+		if colour == "brightgreen" {
+			colour = "yellow"
+		}
+	}
+	return BadgeEndpoint{SchemaVersion: 1, Label: label, Message: message, Color: colour}
+}
+
+// BadgeSlug converts a suite label into a stable, URL-safe filename stem for its
+// endpoint JSON (e.g. "Contrib Extension" -> "contrib-extension"). The slug is
+// the published URL path, so keep it stable: README/blog badge URLs depend on
+// it.
+func BadgeSlug(label string) string {
+	s := strings.ToLower(strings.TrimSpace(label))
+	return strings.ReplaceAll(s, " ", "-")
+}
+
 // encodeBadgeField escapes a string for use in a shields.io badge URL path
 // segment: literal underscores and dashes are doubled, then spaces become
 // single underscores (which shields.io renders back as spaces). Order matters —

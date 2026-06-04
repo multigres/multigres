@@ -1,0 +1,23 @@
+#
+# Re-Bind the same prepared statement with different parameter values.
+#
+# Parse one statement, then Bind+Execute the unnamed portal twice with distinct
+# bound values (1, then 2) before a single Sync. The unnamed portal is replaced
+# on the second Bind, so this is the case that most directly depends on Bind
+# carrying real parameter values — what the move to the pgpool-II pgproto build
+# unblocked. PostgreSQL returns one DataRow per Execute (two total) before
+# ReadyForQuery; the multigateway must relay both.
+#
+# Bind field layout (tab-separated):
+#   'B'  portal  stmt  ncodes  nparams  [paramlen "value"]...  nresultcodes
+# Each value here is one byte: "1"=1, "2"=1.
+#
+
+'P'	""	"SELECT $1::int + 100"	0
+'B'	""	""	0	1	1	"1"	0
+'E'	""	0
+'B'	""	""	0	1	1	"2"	0
+'E'	""	0
+'S'
+'Y'
+'X'
