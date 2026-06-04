@@ -454,6 +454,53 @@ func TestWithReopenRetry_ReopenWaitHonorsContextCancellation(t *testing.T) {
 	assert.Equal(t, 0, calls, "op must not run while waiting for the reopen to complete")
 }
 
+// TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter verifies the
+// pre-emption behavior the single lifecycle enum makes representable: if a
+// terminal Close lands while a caller is blocked on an in-progress reopen
+// window, the caller is woken, observes the now-terminal lifecycle, and
+// surfaces ErrManagerClosed instead of blocking until its context expires.
+func TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	manager.CloseForReopen() // window open; pools torn down, no paired Open coming
+
+	type result struct {
+		calls int
+		err   error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		calls := 0
+		// A generous deadline: the assertion is that we return via the terminal
+		// Close below, well before this would fire.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+			calls++
+			return 0, nil
+		})
+		resCh <- result{calls: calls, err: err}
+	}()
+
+	// Let the caller reach the reopen wait, then pre-empt it with a terminal Close.
+	time.Sleep(20 * time.Millisecond)
+	manager.Close()
+
+	select {
+	case res := <-resCh:
+		require.Error(t, res.err)
+		assert.ErrorIs(t, res.err, ErrManagerClosed)
+		assert.Equal(t, 0, res.calls, "op must not run once the reopen is pre-empted by a terminal close")
+	case <-time.After(2 * time.Second):
+		t.Fatal("withReopenRetry did not wake after a terminal Close pre-empted the reopen")
+	}
+}
+
 // TestWithReopenRetry_EvictsStalePoolOnAuthError verifies the stale-key
 // self-heal path: when op fails with a class-28 SQLSTATE (SCRAM auth
 // failure against stale cached keys), withReopenRetry must evict the

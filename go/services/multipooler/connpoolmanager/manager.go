@@ -51,6 +51,26 @@ const (
 // otherwise.
 var ErrManagerClosed = errors.New("manager is closed")
 
+// managerLifecycle is the manager's phase. It is the single source of truth for
+// retry decisions in withReopenRetry: only lifecycleRunning permits new pool
+// creation, lifecycleReopening is a transient close that callers wait out, and
+// lifecycleClosed is terminal.
+type managerLifecycle uint32
+
+const (
+	// lifecycleRunning is the normal serving state. It is the zero value, so a
+	// freshly-allocated Manager must be explicitly stored as lifecycleClosed
+	// until Open() runs (see NewManager).
+	lifecycleRunning managerLifecycle = iota
+	// lifecycleReopening marks a CloseForReopen->Open window. Pool creation is
+	// refused (the pools are torn down) but the close is transient: callers
+	// block on reopenDone and retry once the paired Open completes.
+	lifecycleReopening
+	// lifecycleClosed is a terminal shutdown. Pool creation is refused and
+	// callers surface the close instead of retrying.
+	lifecycleClosed
+)
+
 // Manager orchestrates per-user connection pools with a shared admin pool.
 // Each user gets their own RegularPool and ReservedPool that connect directly
 // as that user via trust/peer authentication.
@@ -91,19 +111,19 @@ type Manager struct {
 	// This mutex is only acquired when a new user pool needs to be created.
 	createMu sync.Mutex
 
-	// closed indicates whether the manager has been closed. It is set by both
-	// Close (terminal) and CloseForReopen (transient); the reopen bookkeeping
-	// below is what distinguishes the two for retry decisions.
-	closed atomic.Bool
+	// lifecycle is the manager's phase (running/reopening/closed) and the single
+	// source of truth for retry decisions. It is read lock-free on the hot path
+	// and distinguishes a transient reopen from a terminal shutdown without a
+	// second flag. See managerLifecycle.
+	lifecycle atomic.Uint32
 
-	// Reopen bookkeeping, guarded by reopenMu. CloseForReopen opens a reopen
-	// window (reopening=true, reopenDone=fresh channel) before tearing the
-	// pools down; the paired Open closes the window via endReopen. While a
-	// window is open, withReopenRetry waits on reopenDone before retrying a
-	// closed-pool error instead of surfacing the transient failure to the
-	// client.
+	// reopenDone is the wait handle for a reopen window, guarded by reopenMu.
+	// CloseForReopen creates it (and moves lifecycle to reopening) before tearing
+	// the pools down; the paired Open — or a terminal Close that interrupts the
+	// reopen — closes it via endReopen. While lifecycle is reopening,
+	// withReopenRetry blocks on this channel before retrying a closed-pool error
+	// instead of surfacing the transient failure to the client.
 	reopenMu   sync.Mutex
-	reopening  bool
 	reopenDone chan struct{}
 
 	// Rebalancer goroutine management
@@ -153,7 +173,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	close(zeroCh)
 	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
-	m.closed.Store(false)
+	m.setLifecycle(lifecycleRunning)
 
 	// Build admin client config. pwSourceNone signals that ResolvePgPassword
 	// was never called — production startup in services/multipooler/init.go
@@ -300,8 +320,11 @@ func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) 
 		}
 	}
 
-	// Check if closed before attempting to create
-	if m.closed.Load() {
+	// Refuse to create a pool unless the manager is running. Reopening counts as
+	// closed here: the pools (and admin pool) are torn down mid-reopen, so a pool
+	// built now would be wired to a nil admin pool. withReopenRetry waits the
+	// reopen window out and retries against the fresh pools.
+	if m.lifecycleState() != lifecycleRunning {
 		return nil, ErrManagerClosed
 	}
 
@@ -325,8 +348,8 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		}
 	}
 
-	// Check if closed (with lock held)
-	if m.closed.Load() {
+	// Re-check lifecycle with the lock held (see getOrCreateUserPool).
+	if m.lifecycleState() != lifecycleRunning {
 		return nil, ErrManagerClosed
 	}
 
@@ -402,7 +425,15 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 func (m *Manager) Close() {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
-	m.closeLocked()
+	if m.lifecycleState() == lifecycleClosed {
+		return
+	}
+	m.setLifecycle(lifecycleClosed)
+	// If a reopen was in progress, this terminal close pre-empts it: wake any
+	// withReopenRetry waiters so they observe lifecycleClosed and surface the
+	// error instead of blocking on a paired Open that will never come.
+	m.endReopen()
+	m.teardownLocked()
 }
 
 // CloseForReopen closes all pools as the first half of a reopen — a Close
@@ -415,22 +446,23 @@ func (m *Manager) Close() {
 func (m *Manager) CloseForReopen() {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
+	// beginReopen moves lifecycle to reopening (and arms reopenDone) before the
+	// teardown, so a racing acquisition sees "reopening" rather than a torn-down
+	// "running" manager.
 	m.beginReopen()
-	m.closeLocked()
+	m.teardownLocked()
 }
 
-// closeLocked tears down all pools and marks the manager closed. The caller
-// must hold createMu.
-func (m *Manager) closeLocked() {
-	if m.closed.Load() {
-		return
-	}
-	m.closed.Store(true)
-
+// teardownLocked tears down all pools and shared resources. It does NOT touch
+// lifecycle — the caller sets that (Close -> closed, CloseForReopen -> reopening)
+// before calling. It is idempotent: each resource is guarded so a repeated or
+// post-reopen call is a cheap no-op. The caller must hold createMu.
+func (m *Manager) teardownLocked() {
 	// Stop the rebalancer goroutine first
 	if m.rebalancerCancel != nil {
 		m.rebalancerCancel()
 		m.rebalancerWg.Wait()
+		m.rebalancerCancel = nil
 	}
 
 	// Close all user pools
@@ -451,7 +483,7 @@ func (m *Manager) closeLocked() {
 	}
 
 	// Unregister observable metric callbacks so the OTel SDK stops invoking
-	// them against closed pool state.
+	// them against closed pool state. Metrics.Close is safe to call repeatedly.
 	if err := m.metrics.Close(); err != nil {
 		m.logger.Warn("failed to unregister pool metrics callbacks", "error", err)
 	}
@@ -673,65 +705,84 @@ func withReopenRetry[T any](ctx context.Context, m *Manager, user string, client
 }
 
 // handleClosed decides how withReopenRetry should react to a closed-pool
-// failure (ErrPoolClosed from an op, or ErrManagerClosed from the lookup). If a
-// reopen is in progress it blocks for the paired Open to finish, honoring ctx,
-// then reports retry=true. A terminal close with no reopen pending reports
-// retry=false. It returns a non-nil error only when ctx is cancelled while
-// waiting. Retry bounding is the caller's responsibility.
+// failure (ErrPoolClosed from an op, or ErrManagerClosed from the lookup),
+// switching on the manager's lifecycle:
+//
+//   - reopening: a CloseForReopen->Open window is in progress. Block on the
+//     reopen channel (honoring ctx) for the paired Open to finish, then retry
+//     against the fresh pools.
+//   - closed: terminal shutdown. Report retry=false so the caller surfaces the
+//     error unchanged.
+//   - running: the reopen already completed, or a pool was evicted/swapped
+//     while the manager stayed up. Retry against the current snapshot.
+//
+// It returns a non-nil error only when ctx is cancelled while waiting. Retry
+// bounding is the caller's responsibility.
 func (m *Manager) handleClosed(ctx context.Context) (retry bool, err error) {
-	reopening, done := m.reopenState()
-	switch {
-	case reopening:
-		// Wait for the paired Open to finish, then retry against fresh pools.
-		// done is non-nil whenever reopening is true; the guard is defensive.
-		if done != nil {
+	switch m.lifecycleState() {
+	case lifecycleReopening:
+		// done is non-nil whenever lifecycle is reopening; reopenWaitCh may
+		// still return nil if the window closed between the load above and the
+		// lock below, in which case the reopen is done and we just retry.
+		if done := m.reopenWaitCh(); done != nil {
 			select {
 			case <-done:
 			case <-ctx.Done():
 				return false, ctx.Err()
 			}
 		}
-	case m.closed.Load():
-		// Terminal shutdown with no reopen pending: nothing to retry.
+		return true, nil
+	case lifecycleClosed:
 		return false, nil
+	default: // lifecycleRunning
+		return true, nil
 	}
-
-	// Either the reopen completed (manager is back up), or a pool was closed
-	// (evicted/swapped) while the manager stayed up. Retry against the current
-	// snapshot.
-	return true, nil
 }
 
-// beginReopen opens a reopen window. The caller must hold createMu.
+// lifecycleState returns the manager's current phase.
+func (m *Manager) lifecycleState() managerLifecycle {
+	return managerLifecycle(m.lifecycle.Load())
+}
+
+// setLifecycle stores the manager's phase.
+func (m *Manager) setLifecycle(s managerLifecycle) {
+	m.lifecycle.Store(uint32(s))
+}
+
+// beginReopen arms the reopen wait handle and moves lifecycle to reopening. The
+// channel is created before the lifecycle store so any reader that observes
+// "reopening" is guaranteed a non-nil channel to wait on. The caller must hold
+// createMu.
 func (m *Manager) beginReopen() {
 	m.reopenMu.Lock()
-	defer m.reopenMu.Unlock()
 	if m.reopenDone == nil {
 		m.reopenDone = make(chan struct{})
 	}
-	m.reopening = true
+	m.reopenMu.Unlock()
+	m.setLifecycle(lifecycleReopening)
 }
 
-// endReopen closes the current reopen window, if any, waking withReopenRetry
-// waiters so they retry against the freshly reopened pools. It is a no-op when
-// no window is open (e.g. a plain startup Open).
+// endReopen closes the current reopen wait handle, if any, waking withReopenRetry
+// waiters so they re-check lifecycle and retry (against the freshly reopened
+// pools after Open, or surface the error after a terminal Close). It is a no-op
+// when no window is armed (e.g. a plain startup Open). It does not change
+// lifecycle — the caller sets that first.
 func (m *Manager) endReopen() {
 	m.reopenMu.Lock()
 	done := m.reopenDone
 	m.reopenDone = nil
-	m.reopening = false
 	m.reopenMu.Unlock()
 	if done != nil {
 		close(done)
 	}
 }
 
-// reopenState reports whether a reopen window is currently open and returns the
-// channel that endReopen will close when it completes.
-func (m *Manager) reopenState() (bool, <-chan struct{}) {
+// reopenWaitCh returns the channel endReopen will close when the current reopen
+// window completes, or nil if no window is armed.
+func (m *Manager) reopenWaitCh() <-chan struct{} {
 	m.reopenMu.Lock()
 	defer m.reopenMu.Unlock()
-	return m.reopening, m.reopenDone
+	return m.reopenDone
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.
@@ -856,9 +907,10 @@ func (m *Manager) CloseReservedConnections(ctx context.Context) int {
 	return total
 }
 
-// IsClosed returns whether the manager has been closed.
+// IsClosed reports whether the manager is terminally closed. It returns false
+// during a reopen window: the manager is mid-refresh, not shut down.
 func (m *Manager) IsClosed() bool {
-	return m.closed.Load()
+	return m.lifecycleState() == lifecycleClosed
 }
 
 // UserPoolCount returns the number of user pools currently managed.
