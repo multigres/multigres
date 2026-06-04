@@ -71,32 +71,7 @@ runs:
         JUNIT_PATHS: ${{ inputs.junit-paths }}
         JSON_FILE: ${{ inputs.json-file }}
         PREV_OUTCOME: ${{ inputs.previous-step-outcome }}
-      run: |
-        set -euo pipefail
-        # Fail closed: an empty outcome (e.g. a stale step id that resolves to "")
-        # must not silently disable quarantine gating. Treat it as a failure so
-        # the uploader still gates on it.
-        echo "previous-step-outcome=${PREV_OUTCOME:-failure}" >> "$GITHUB_OUTPUT"
-        if [[ -n "$JUNIT_PATHS" ]]; then
-          # Forward the user's glob/list straight through to the uploader.
-          out="$JUNIT_PATHS"
-        elif [[ -z "$JSON_FILE" ]]; then
-          echo "::error::upload-test-results requires either junit-paths or json-file"
-          exit 1
-        elif [[ -f "$JSON_FILE" ]]; then
-          # go-junit-report converts the `go test -json` event stream into JUnit
-          # XML, the format the Trunk uploader consumes. The module is
-          # checksum-verified against the Go checksum database on download.
-          go install github.com/jstemmer/go-junit-report/v2@v2.1.0
-          out="${JSON_FILE%.*}.trunk-junit.xml"
-          "$(go env GOPATH)/bin/go-junit-report" -parser gojson -in "$JSON_FILE" -out "$out"
-        else
-          # Suite crashed before writing output; allow-missing-junit-files (the
-          # uploader's default) keeps the missing path from being a hard error.
-          echo "::warning::json-file '$JSON_FILE' not found; nothing to convert"
-          out="${JSON_FILE%.*}.trunk-junit.xml"
-        fi
-        echo "junit-paths=$out" >> "$GITHUB_OUTPUT"
+      run: "$GITHUB_ACTION_PATH/prepare-junit.sh"
 
     - name: Upload to Trunk
       uses: trunk-io/analytics-uploader@58d9d52d4a8ed29fefca0afb568293f2047826b3 # v2.1.0
