@@ -519,6 +519,18 @@ message ExpireBackupsResponse {
   repeated string expired_backup_ids = 1;
 }
 
+// VerifyBackupsRequest requests a full-stanza pgbackrest verify run.
+message VerifyBackupsRequest {
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+message VerifyBackupsResponse {
+  // duration is the server-side wall-clock for the verify run.
+  google.protobuf.Duration duration = 1;
+  // raw_output is the full stdout+stderr of `pgbackrest verify`.
+  string raw_output = 2;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
