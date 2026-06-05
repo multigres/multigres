@@ -73,6 +73,56 @@ func planUnsupportedStmt(stmt ast.Stmt) error {
 		return mterrors.NewFeatureNotSupported(
 			"CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler")
 
+	// UNLOGGED tables skip the WAL, so their contents are not replicated to
+	// standbys and are truncated on crash recovery — incompatible with a
+	// replicated, highly-available deployment. Reject CREATE UNLOGGED TABLE
+	// and CREATE UNLOGGED TABLE AS / SELECT INTO UNLOGGED; ordinary tables
+	// are unaffected.
+	case ast.T_CreateStmt:
+		if s, ok := stmt.(*ast.CreateStmt); ok &&
+			s.Relation != nil && s.Relation.RelPersistence == ast.RELPERSISTENCE_UNLOGGED {
+			return mterrors.NewFeatureNotSupported(
+				"UNLOGGED tables are not supported: their contents are not replicated and are lost on crash recovery")
+		}
+		return nil
+
+	case ast.T_CreateTableAsStmt:
+		if s, ok := stmt.(*ast.CreateTableAsStmt); ok &&
+			s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED {
+			return mterrors.NewFeatureNotSupported(
+				"UNLOGGED tables are not supported: their contents are not replicated and are lost on crash recovery")
+		}
+		return nil
+
+	// SELECT ... INTO UNLOGGED parses as a SelectStmt carrying an IntoClause —
+	// it only becomes a CreateTableAsStmt during later parse analysis, which
+	// does not run at plan time. The persistence flag therefore lives on
+	// SelectStmt.IntoClause.Rel here, not on a CreateTableAsStmt. Plain
+	// SELECTs (IntoClause == nil) fall straight through.
+	case ast.T_SelectStmt:
+		if s, ok := stmt.(*ast.SelectStmt); ok &&
+			s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED {
+			return mterrors.NewFeatureNotSupported(
+				"UNLOGGED tables are not supported: their contents are not replicated and are lost on crash recovery")
+		}
+		return nil
+
+	// ALTER TABLE ... SET UNLOGGED converts an existing permanent table to
+	// UNLOGGED in place — same replication / crash-recovery hazard as creating
+	// one. A single ALTER may carry several subcommands (e.g. ADD COLUMN, SET
+	// UNLOGGED), so scan every command for the SET UNLOGGED subtype. SET LOGGED
+	// (the inverse, restoring WAL logging) is harmless and passes through.
+	case ast.T_AlterTableStmt:
+		if s, ok := stmt.(*ast.AlterTableStmt); ok && s.Cmds != nil {
+			for _, item := range s.Cmds.Items {
+				if cmd, ok := item.(*ast.AlterTableCmd); ok && cmd.Subtype == ast.AT_SetUnLogged {
+					return mterrors.NewFeatureNotSupported(
+						"ALTER TABLE ... SET UNLOGGED is not supported: UNLOGGED tables are not replicated and are lost on crash recovery")
+				}
+			}
+		}
+		return nil
+
 	default:
 		return nil
 	}
