@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -49,125 +49,6 @@ import (
 // ----------------------------------------------------------------------------
 // Application Name Helpers
 // ----------------------------------------------------------------------------
-
-// maxApplicationNameLength is the maximum length of a PostgreSQL application_name (NAMEDATALEN - 1).
-const maxApplicationNameLength = 63
-
-// poolerID is a validated MULTIPOOLER identity for use in PostgreSQL replication.
-// Construct via newPoolerID(). Holds both the canonical cluster ID and its derived
-// PostgreSQL application_name. The appName field is the only serialization format
-// used internally; other formats (e.g., JSON, gRPC ID) are accessible via the id field.
-type poolerID struct {
-	id      *clustermetadatapb.ID
-	appName string
-}
-
-// newPoolerID generates the poolerID for a multipooler from its ID.
-// Format: {cell}_{name}
-// This is used consistently for:
-// - primary_conninfo: standby's application_name when connecting to primary
-// - synchronous_standby_names: standby identities on the primary
-//
-// On validation failure an approximate poolerID is returned alongside the error.
-// The approximate appName is "{cell}_{name}" with missing fields replaced by
-// "<unknown>". For overlong names the full (invalid) string is returned as-is.
-// Callers that require a strictly valid appName must check the error. Callers that
-// can tolerate an approximate name (e.g. for logging or informational responses)
-// may use the returned value regardless.
-func newPoolerID(id *clustermetadatapb.ID) (poolerID, error) {
-	if id == nil {
-		return poolerID{appName: "<nil>"}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil ID")
-	}
-
-	cell := id.Cell
-	if cell == "" {
-		cell = "<unknown>"
-	}
-	name := id.Name
-	if name == "" {
-		name = "<unknown>"
-	}
-	appName := fmt.Sprintf("%s_%s", cell, name)
-
-	if id.Cell == "" {
-		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
-	}
-	if id.Name == "" {
-		return poolerID{id: id, appName: appName}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
-	}
-	// Underscores are not allowed in Cell or Name because they are used as delimiters
-	// in the application_name format (cell_name). Allowing underscores would break parsing.
-	if strings.Contains(id.Cell, "_") {
-		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"cell contains underscore: %q (underscores not allowed)", id.Cell)
-	}
-	if strings.Contains(id.Name, "_") {
-		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"name contains underscore: %q (underscores not allowed)", id.Name)
-	}
-	if len(appName) > maxApplicationNameLength {
-		return poolerID{id: id, appName: appName}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"application name %q exceeds maximum length of %d characters", appName, maxApplicationNameLength)
-	}
-	return poolerID{id: id, appName: appName}, nil
-}
-
-// poolerIDsToAppNames converts a slice of poolerID to their application name strings for use in APIs
-// that accept []string (e.g., history records).
-func poolerIDsToAppNames(ids []poolerID) []string {
-	strs := make([]string, len(ids))
-	for i, n := range ids {
-		strs[i] = n.appName
-	}
-	return strs
-}
-
-// formatStandbyList formats a list of pooler IDs as a comma-separated list of quoted application names.
-func formatStandbyList(ids []poolerID) string {
-	quoted := make([]string, len(ids))
-	for i, id := range ids {
-		quoted[i] = fmt.Sprintf(`"%s"`, id.appName)
-	}
-	return strings.Join(quoted, ", ")
-}
-
-// toPoolerIDs converts a slice of IDs to their poolerID representations.
-// If any ID fails strict validation the corresponding poolerID contains an
-// approximate appName and the first error is returned alongside the full slice.
-// Callers that require strict validity must check the error. Callers that can
-// tolerate approximate names (e.g. for logging or informational responses) may
-// use the returned slice regardless.
-func toPoolerIDs(ids []*clustermetadatapb.ID) ([]poolerID, error) {
-	result := make([]poolerID, len(ids))
-	var firstErr error
-	for i, id := range ids {
-		pid, err := newPoolerID(id)
-		result[i] = pid
-		if err != nil && firstErr == nil {
-			firstErr = mterrors.Wrapf(err, "ids[%d]", i)
-		}
-	}
-	return result, firstErr
-}
-
-// poolerIDFromAppName parses a PostgreSQL application_name (format: "cell_name") into
-// a poolerID. This is the inverse of newPoolerID's appName generation.
-// On parse failure an error is returned alongside a best-effort poolerID that
-// preserves the raw appName in the Name field so callers can include it rather
-// than silently dropping the member.
-//
-// TODO: once leadership_history stores serialized clustermetadata.ID values directly
-// instead of application_name strings, this parsing and its error path can be removed.
-func poolerIDFromAppName(appName string) (poolerID, error) {
-	id, err := parseApplicationName(appName)
-	if err != nil {
-		return poolerID{
-			id:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Name: appName},
-			appName: appName,
-		}, err
-	}
-	return poolerID{id: id, appName: appName}, nil
-}
 
 // ----------------------------------------------------------------------------
 // Replication Status Query Methods
@@ -759,82 +640,10 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 	return nil
 }
 
-// reloadPostgresConfig reloads PostgreSQL configuration to apply changes made via
-// ALTER SYSTEM, and waits for postmaster to finish re-reading the config files
-// before returning.
-//
-// pg_reload_conf() returns immediately after sending SIGHUP to postmaster, well
-// before any of that work has happened. We use pg_conf_load_time() — the
-// timestamp of postmaster's most recent successful config load — as the
-// completion signal: once a follow-up query observes it advance past the
-// pre-reload value, postmaster has re-read postgresql.auto.conf and signalled
-// its child processes.
-//
-// Caveat: this guarantees postmaster has processed the reload, not that every
-// child process has. Backends (the walreceiver, individual query backends)
-// each pick up SIGHUP at their own pace — typically within milliseconds, but
-// not synchronously. Callers that need to observe a child's reaction (e.g.
-// polling pg_stat_wal_receiver for the walreceiver to disconnect after
-// clearing primary_conninfo) should still poll, but they can do so knowing
-// the new config is loaded server-side rather than racing with postmaster's
-// signal handler.
-func reloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.InternalQueryService) error {
-	if qs == nil {
-		return errors.New("internal query service not available")
-	}
-
-	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer loadTimeCancel()
-	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")
-	if err != nil {
-		return mterrors.Wrap(err, "failed to read pg_conf_load_time before reload")
-	}
-	var loadTimeBefore string
-	if err := executor.ScanSingleRow(result, &loadTimeBefore); err != nil {
-		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
-	}
-
-	logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer reloadCancel()
-	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
-		logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
-		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
-	}
-
-	// Poll pg_conf_load_time() until it advances. retry.New uses "do work, then
-	// back off" semantics, so the backoff timer starts after the previous query
-	// finishes — a slow query under load doesn't cause back-to-back hammering.
-	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer waitCancel()
-	r := retry.New(1*time.Millisecond, 20*time.Millisecond)
-	for _, attemptErr := range r.Attempts(waitCtx) {
-		if attemptErr != nil {
-			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
-		}
-		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
-		result, err := qs.Query(queryCtx, "SELECT pg_conf_load_time()")
-		queryCancel()
-		if err != nil {
-			return mterrors.Wrap(err, "failed to poll pg_conf_load_time after reload")
-		}
-		var loadTimeAfter string
-		if err := executor.ScanSingleRow(result, &loadTimeAfter); err != nil {
-			return mterrors.Wrap(err, "failed to scan pg_conf_load_time after reload")
-		}
-		if loadTimeAfter != loadTimeBefore {
-			return nil
-		}
-	}
-	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
-	return mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
-}
-
 // reloadPostgresConfig is a convenience wrapper around the package-level
 // reloadPostgresConfig helper bound to this manager's query service and logger.
 func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
-	return reloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
+	return consensus.ReloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
@@ -889,27 +698,6 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 // Synchronous Replication Configuration
 // ----------------------------------------------------------------------------
 
-// buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
-// This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
-func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []poolerID) (string, error) {
-	if len(names) == 0 {
-		return "", nil
-	}
-
-	var methodStr string
-	switch method {
-	case multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST:
-		methodStr = "FIRST"
-	case multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY:
-		methodStr = "ANY"
-	default:
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", method.String()))
-	}
-
-	return fmt.Sprintf("%s %d (%s)", methodStr, numSync, formatStandbyList(names)), nil
-}
-
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
 func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
 	pm.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
@@ -935,8 +723,8 @@ func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 //	ANY 1 (standby1, standby2)
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
-// Application names are generated from multipooler IDs using the shared newPoolerID helper
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []poolerID) error {
+// Application names are generated from multipooler IDs using the shared consensus.NewReplicaID helper
+func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []consensus.ReplicaID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(names) == 0 {
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -956,7 +744,7 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	}
 
 	// Build the synchronous_standby_names value using the shared helper
-	standbyNamesValue, err := buildSynchronousStandbyNamesValue(synchronousMethod, numSync, names)
+	standbyNamesValue, err := consensus.BuildSynchronousStandbyNamesValue(synchronousMethod, numSync, names)
 	if err != nil {
 		return err
 	}
@@ -982,11 +770,11 @@ func parseSyncReplicationConfig(syncStandbyNames, syncCommit string) (*multipool
 		config.SynchronousMethod = syncConfig.Method
 		config.NumSync = syncConfig.NumSync
 		config.StandbyIds = syncConfig.StandbyIDs
-		appNames, err := toPoolerIDs(syncConfig.StandbyIDs)
+		appNames, err := consensus.ToReplicaIDs(syncConfig.StandbyIDs)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "failed to convert standby IDs to application names")
 		}
-		config.StandbyApplicationNames = poolerIDsToAppNames(appNames)
+		config.StandbyApplicationNames = consensus.ReplicaIDsToAppNames(appNames)
 	}
 
 	// Map synchronous_commit string to enum
@@ -1066,49 +854,6 @@ func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) e
 }
 
 // ----------------------------------------------------------------------------
-// Validation Helpers
-// ----------------------------------------------------------------------------
-// validateStandbyIDs validates that the list is non-empty and converts each ID to its poolerID.
-func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) {
-	if len(standbyIDs) == 0 {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
-	}
-	pids, err := toPoolerIDs(standbyIDs)
-	if err != nil {
-		return pids, mterrors.Wrap(err, "invalid standby_ids")
-	}
-	return pids, nil
-}
-
-// validateSyncReplicationParams validates the parameters for setting synchronous_standby_names.
-func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) ([]poolerID, error) {
-	// Validate numSync is non-negative
-	if numSync < 0 {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("num_sync must be non-negative, got: %d", numSync))
-	}
-
-	// If standbyIDs are provided, validate them
-	if len(standbyIDs) > 0 {
-		// Validate that numSync doesn't exceed the number of standbys (PostgreSQL requirement)
-		// Note: numSync=0 is allowed and will be defaulted to 1 in setSynchronousStandbyNames
-		if numSync > int32(len(standbyIDs)) {
-			return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("num_sync (%d) cannot exceed number of standby_ids (%d)", numSync, len(standbyIDs)))
-		}
-
-		// Validate each standby ID
-		names, err := validateStandbyIDs(standbyIDs)
-		if err != nil {
-			return nil, err
-		}
-		return names, nil
-	}
-
-	return nil, nil
-}
-
-// ----------------------------------------------------------------------------
 // standbyUpdateOperationName maps a CohortUpdateOperation enum to a short string for logging/history.
 func standbyUpdateOperationName(op multipoolermanagerdatapb.CohortUpdateOperation) string {
 	switch op {
@@ -1124,48 +869,18 @@ func standbyUpdateOperationName(op multipoolermanagerdatapb.CohortUpdateOperatio
 // Standby List Operations
 // ----------------------------------------------------------------------------
 
-// applyAddOperation adds new standbys to the standby list (idempotent)
-func applyAddOperation(currentStandbys, newStandbys []poolerID) []poolerID {
-	updatedStandbys := append([]poolerID{}, currentStandbys...)
-	existingMap := make(map[string]bool, len(currentStandbys))
-	for _, standby := range currentStandbys {
-		existingMap[standby.appName] = true
-	}
-	for _, newStandby := range newStandbys {
-		if !existingMap[newStandby.appName] {
-			updatedStandbys = append(updatedStandbys, newStandby)
-		}
-	}
-	return updatedStandbys
-}
-
-// applyRemoveOperation removes standby names from the standby list (idempotent)
-func applyRemoveOperation(currentStandbys, standbysToRemove []poolerID) []poolerID {
-	removeMap := make(map[string]bool, len(standbysToRemove))
-	for _, standby := range standbysToRemove {
-		removeMap[standby.appName] = true
-	}
-	var updatedStandbys []poolerID
-	for _, standby := range currentStandbys {
-		if !removeMap[standby.appName] {
-			updatedStandbys = append(updatedStandbys, standby)
-		}
-	}
-	return updatedStandbys
-}
-
 // poolerIDSetEqual returns true if a and b contain the same set of pooler IDs
 // (order-independent comparison using appName as the key).
-func poolerIDSetEqual(a, b []poolerID) bool {
+func poolerIDSetEqual(a, b []consensus.ReplicaID) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	m := make(map[string]struct{}, len(a))
 	for _, p := range a {
-		m[p.appName] = struct{}{}
+		m[p.AppName()] = struct{}{}
 	}
 	for _, p := range b {
-		if _, ok := m[p.appName]; !ok {
+		if _, ok := m[p.AppName()]; !ok {
 			return false
 		}
 	}
@@ -1196,7 +911,7 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 				return nil, mterrors.Wrap(err, "failed to scan application_name from pg_stat_replication")
 			}
 			// Parse application_name back to cluster ID
-			followerID, err := parseApplicationName(appName)
+			followerID, err := consensus.ParseApplicationName(appName)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to parse application_name", "application_name", appName, "error", err)
 				return nil, mterrors.Wrap(err, "failed to parse application_name: "+appName)

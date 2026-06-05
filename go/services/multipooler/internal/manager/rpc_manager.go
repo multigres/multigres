@@ -32,6 +32,8 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
 // broadcastHealth broadcasts the current health state to all subscribers.
@@ -98,7 +100,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 // this point — a stale-primary detection is an escalated event that
 // supersedes an older admin pause.
 func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
@@ -146,7 +148,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		user = pm.connPoolMgr.PgUser()
 	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, user, appName.appName)
+		host, port, user, appName.AppName())
 	if pm.pgpassPath != "" {
 		connInfo += " passfile=" + pm.pgpassPath
 	}
@@ -313,7 +315,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	poolerStatus.WalPosition = walPosition
 
 	// Get cohort members from the current rule (best-effort).
-	if pos, err := pm.rules.observePosition(ctx); err != nil {
+	if pos, err := pm.rules.ObservePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
 	} else if pos.Rule != nil {
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
@@ -413,7 +415,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 
 	// Validate standby IDs using the shared validation function
-	requestedApplicationNames, err := validateStandbyIDs(standbyIDs)
+	requestedApplicationNames, err := consensus.ValidateStandbyIDs(standbyIDs)
 	if err != nil {
 		return err
 	}
@@ -435,7 +437,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// === Parse Current Configuration ===
 
 	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.rules.observePosition(ctx)
+	pos, err := pm.rules.ObservePosition(ctx)
 	if err != nil {
 		return err
 	}
@@ -450,20 +452,20 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 
 	// Convert current cohort IDs to pooler IDs for set operations.
-	currentApplicationNames, err := toPoolerIDs(currentCohort)
+	currentApplicationNames, err := consensus.ToReplicaIDs(currentCohort)
 	if err != nil {
 		return err
 	}
 
 	// === Apply Operation ===
 
-	var updatedStandbys []poolerID
+	var updatedStandbys []consensus.ReplicaID
 	switch operation {
 	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
-		updatedStandbys = applyAddOperation(currentApplicationNames, requestedApplicationNames)
+		updatedStandbys = consensus.ApplyAddOperation(currentApplicationNames, requestedApplicationNames)
 
 	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
-		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
+		updatedStandbys = consensus.ApplyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -494,21 +496,21 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 	updatedStandbyIDs := make([]*clustermetadatapb.ID, len(updatedStandbys))
 	for i, p := range updatedStandbys {
-		updatedStandbyIDs[i] = p.id
+		updatedStandbyIDs[i] = p.ID()
 	}
 	// The new rule inherits the expected coordinator term — we're not
 	// changing the leader, just amending its cohort. The rule store assigns
 	// a fresh leader_subterm.
-	standbyUpdate := newRuleUpdate(
+	standbyUpdate := consensus.NewRuleUpdate(
 		expectedOutgoingRule.GetCoordinatorTerm(),
 		coordID,
 		"replication_config",
 		"UpdateConsensusRule: "+operationName,
 		time.Now()).
-		withLeader(leaderID.id).
-		withCohort(updatedStandbyIDs).
-		withOperation(operationName).
-		withPreviousRule(
+		WithLeader(leaderID.ID()).
+		WithCohort(updatedStandbyIDs).
+		WithOperation(operationName).
+		WithPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
 			expectedOutgoingRule.GetLeaderSubterm())
 	if _, err := pm.DoUpdateRule(ctx, standbyUpdate); err != nil {
@@ -653,7 +655,7 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 // changeTypeLocked updates the pooler type without acquiring the action lock.
 // The caller MUST already hold the action lock.
 func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType clustermetadatapb.PoolerType) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
@@ -681,7 +683,7 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 // shut down itself.
 func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) error {
 	// Verify action lock is held
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
@@ -904,7 +906,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	sourceHost string,
 	sourcePort int32,
 ) (rewindPerformed bool, err error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return false, err
 	}
 	if pm.pgctldClient == nil {
@@ -1005,7 +1007,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		SourceHost:      sourceHost,
 		SourcePort:      sourcePort,
 		DryRun:          true,
-		ApplicationName: pid.appName,
+		ApplicationName: pid.AppName(),
 	}
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
 	if err != nil {
@@ -1023,7 +1025,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
-			ApplicationName: pid.appName,
+			ApplicationName: pid.AppName(),
 			ExtraArgs:       []string{"-R"},
 		}
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)

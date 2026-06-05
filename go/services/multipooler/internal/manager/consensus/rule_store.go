@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"context"
@@ -34,37 +34,38 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// ruleStorer is the interface for reading and writing the current shard rule.
+// RuleStorer is the interface for reading and writing the current shard rule.
 // *ruleStore implements this; tests use fakeRuleStore.
-type ruleStorer interface {
-	// observePosition reads the current rule and WAL LSN from postgres.
+type RuleStorer interface {
+	// ObservePosition reads the current rule and WAL LSN from postgres.
 	// Always returns a non-nil position when err is nil (the initial row guarantees a row exists).
-	observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
-	updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
-	// createRuleTables creates multigres.current_rule and multigres.rule_history
+	ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
+	UpdateRule(ctx context.Context, update *RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
+	// CreateRuleTables creates multigres.current_rule and multigres.rule_history
 	// if they do not already exist, and inserts the initial row for the default
 	// shard, populated with the given durability policy. bootstrapID is recorded
 	// as the initial row's coordinator_id, analogous to how a pooler is the
 	// coordinator for leader-led rule changes. It is idempotent and safe to
 	// call multiple times.
-	createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error
-	// cachedPosition returns the most recently observed or written PoolerPosition
+	CreateRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error
+	// CachedPosition returns the most recently observed or written PoolerPosition
 	// from memory, without querying postgres. Returns nil if no position has been
-	// cached yet (e.g. before the first observePosition or updateRule call).
-	cachedPosition() *clustermetadatapb.PoolerPosition
+	// cached yet (e.g. before the first ObservePosition or UpdateRule call).
+	CachedPosition() *clustermetadatapb.PoolerPosition
 
-	// hasInconsistentGUC returns true if the cached rule's policy would produce
+	// HasInconsistentGUC returns true if the cached rule's policy would produce
 	// different GUC strings than what postgres currently has. Safe to call
 	// without the action lock.
-	hasInconsistentGUC(ctx context.Context) bool
+	HasInconsistentGUC(ctx context.Context) bool
 
-	// reconcileGUC re-reads the current rule (under SELECT FOR UPDATE when
+	// ReconcileGUC re-reads the current rule (under SELECT FOR UPDATE when
 	// inRecovery is false) and re-applies the GUC if needed. Requires the
 	// action lock.
-	reconcileGUC(ctx context.Context, inRecovery bool) error
+	ReconcileGUC(ctx context.Context, inRecovery bool) error
 }
 
 // ruleStore manages the current shard rule in postgres.
@@ -77,12 +78,12 @@ type ruleStore struct {
 	syncStandby  SyncStandbyManager
 
 	mu      sync.Mutex
-	lastPos *clustermetadatapb.PoolerPosition // updated on every observePosition / updateRule
+	lastPos *clustermetadatapb.PoolerPosition // updated on every ObservePosition / UpdateRule
 }
 
-// newRuleStore creates a ruleStore. ssm must not be nil; tests that do not
+// NewRuleStore creates a ruleStore. ssm must not be nil; tests that do not
 // need GUC verification should pass noopSyncStandbyManager{}.
-func newRuleStore(
+func NewRuleStore(
 	logger *slog.Logger,
 	qs executor.InternalQueryService,
 	ssm SyncStandbyManager,
@@ -105,19 +106,19 @@ func (rs *ruleStore) cacheRuleObservation(pos *clustermetadatapb.PoolerPosition)
 	rs.lastPos = pos
 }
 
-// cachedPosition returns the most recently observed or written PoolerPosition
+// CachedPosition returns the most recently observed or written PoolerPosition
 // from memory. Returns nil if no position has been cached yet.
-func (rs *ruleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
+func (rs *ruleStore) CachedPosition() *clustermetadatapb.PoolerPosition {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	return rs.lastPos
 }
 
-// hasInconsistentGUC returns true if the cached rule's policy would produce
+// HasInconsistentGUC returns true if the cached rule's policy would produce
 // different GUC strings than what postgres currently has. Safe to call
 // without the action lock.
-func (rs *ruleStore) hasInconsistentGUC(ctx context.Context) bool {
-	pos := rs.cachedPosition()
+func (rs *ruleStore) HasInconsistentGUC(ctx context.Context) bool {
+	pos := rs.CachedPosition()
 	if pos.GetRule().GetDurabilityPolicy() == nil {
 		return false
 	}
@@ -135,23 +136,23 @@ func (rs *ruleStore) hasInconsistentGUC(ctx context.Context) bool {
 	return needs
 }
 
-// reconcileGUC re-reads the current rule under SELECT FOR UPDATE to drain prior
+// ReconcileGUC re-reads the current rule under SELECT FOR UPDATE to drain prior
 // writers, then re-applies the GUC if the cached values are stale. Requires the
 // action lock.
-func (rs *ruleStore) reconcileGUC(ctx context.Context, inRecovery bool) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return fmt.Errorf("reconcileGUC: %w", err)
+func (rs *ruleStore) ReconcileGUC(ctx context.Context, inRecovery bool) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return fmt.Errorf("ReconcileGUC: %w", err)
 	}
 	pos, lockedCtx, err := rs.readCurrentRuleLocked(ctx, inRecovery)
 	if err != nil {
-		return fmt.Errorf("reconcileGUC: %w", err)
+		return fmt.Errorf("ReconcileGUC: %w", err)
 	}
 	if pos.GetRule().GetDurabilityPolicy() == nil {
 		return nil
 	}
 	policy, err := consensus.NewPolicyFromProto(pos.GetRule().GetDurabilityPolicy())
 	if err != nil {
-		return fmt.Errorf("reconcileGUC: invalid durability policy: %w", err)
+		return fmt.Errorf("ReconcileGUC: invalid durability policy: %w", err)
 	}
 	return rs.syncStandby.SetPolicy(lockedCtx, consensus.PolicyWithCohort{
 		Policy: policy,
@@ -169,10 +170,10 @@ type ruleNumber struct {
 	leaderSubterm   int64
 }
 
-// ruleUpdateBuilder constructs the parameters for updateRule.
+// RuleUpdateBuilder constructs the parameters for UpdateRule.
 // coordinatorID, eventType, reason, and createdAt are always required.
 // Fields not set via builder methods retain their current value in current_rule.
-type ruleUpdateBuilder struct {
+type RuleUpdateBuilder struct {
 	// required
 	termNumber    int64
 	coordinatorID *clustermetadatapb.ID
@@ -196,14 +197,32 @@ type ruleUpdateBuilder struct {
 	promotionHook      promotionFn // non-nil iff postgres is known to be in recovery
 }
 
-// promotionFn is called by updateRule after the pre-promote GUC is applied and
+// promotionFn is called by UpdateRule after the pre-promote GUC is applied and
 // before the rule history write. It must call pg_promote() and wait for promotion
 // to complete. It is provided iff the caller has already verified that postgres
 // is in recovery.
 type promotionFn func(ctx context.Context) error
 
-func newRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventType, reason string, createdAt time.Time) *ruleUpdateBuilder {
-	return &ruleUpdateBuilder{
+// Accessors for the builder's fields. Exposed so callers and tests in other
+// packages can inspect a constructed update.
+func (b *RuleUpdateBuilder) GetEventType() string                      { return b.eventType }
+func (b *RuleUpdateBuilder) GetReason() string                         { return b.reason }
+func (b *RuleUpdateBuilder) GetTermNumber() int64                      { return b.termNumber }
+func (b *RuleUpdateBuilder) GetCoordinatorID() *clustermetadatapb.ID   { return b.coordinatorID }
+func (b *RuleUpdateBuilder) GetLeaderID() *clustermetadatapb.ID        { return b.leaderID }
+func (b *RuleUpdateBuilder) GetCohortMembers() []*clustermetadatapb.ID { return b.cohortMembers }
+func (b *RuleUpdateBuilder) GetWALPosition() string                    { return b.walPosition }
+
+func (b *RuleUpdateBuilder) GetDurabilityPolicy() *clustermetadatapb.DurabilityPolicy {
+	return b.durabilityPolicy
+}
+func (b *RuleUpdateBuilder) GetAcceptedMembers() []*clustermetadatapb.ID { return b.acceptedMembers }
+
+// GetPromotionHook returns the promotion hook set on this update, if any. Exposed for tests.
+func (b *RuleUpdateBuilder) GetPromotionHook() promotionFn { return b.promotionHook }
+
+func NewRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventType, reason string, createdAt time.Time) *RuleUpdateBuilder {
+	return &RuleUpdateBuilder{
 		termNumber:    termNumber,
 		coordinatorID: coordinatorID,
 		eventType:     eventType,
@@ -212,58 +231,58 @@ func newRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventT
 	}
 }
 
-func (b *ruleUpdateBuilder) withLeader(id *clustermetadatapb.ID) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithLeader(id *clustermetadatapb.ID) *RuleUpdateBuilder {
 	b.leaderID = id
 	return b
 }
 
-func (b *ruleUpdateBuilder) withCohort(members []*clustermetadatapb.ID) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithCohort(members []*clustermetadatapb.ID) *RuleUpdateBuilder {
 	b.cohortMembers = members
 	return b
 }
 
-func (b *ruleUpdateBuilder) withWALPosition(pos string) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithWALPosition(pos string) *RuleUpdateBuilder {
 	b.walPosition = pos
 	return b
 }
 
-func (b *ruleUpdateBuilder) withPromotionHook(fn promotionFn) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithPromotionHook(fn promotionFn) *RuleUpdateBuilder {
 	b.promotionHook = fn
 	return b
 }
 
-func (b *ruleUpdateBuilder) withOperation(op string) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithOperation(op string) *RuleUpdateBuilder {
 	b.operation = op
 	return b
 }
 
-func (b *ruleUpdateBuilder) withAcceptedMembers(members []*clustermetadatapb.ID) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithAcceptedMembers(members []*clustermetadatapb.ID) *RuleUpdateBuilder {
 	b.acceptedMembers = members
 	return b
 }
 
-func (b *ruleUpdateBuilder) withDurabilityPolicy(policy *clustermetadatapb.DurabilityPolicy) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithDurabilityPolicy(policy *clustermetadatapb.DurabilityPolicy) *RuleUpdateBuilder {
 	b.durabilityPolicy = policy
 	return b
 }
 
-func (b *ruleUpdateBuilder) withForce() *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithForce() *RuleUpdateBuilder {
 	b.force = true
 	return b
 }
 
-// withSkipOutgoingQuorum instructs updateRule to skip BuildPolicyTransition and apply
+// WithSkipOutgoingQuorum instructs UpdateRule to skip BuildPolicyTransition and apply
 // the incoming cohort GUC directly (Both = Incoming). Used for coordinator-directed
 // changes where the outgoing cohort is empty (bootstrap) or the coordinator has already
 // verified the transition is safe, so no dual-ack window is needed.
-func (b *ruleUpdateBuilder) withSkipOutgoingQuorum() *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithSkipOutgoingQuorum() *RuleUpdateBuilder {
 	b.skipOutgoingQuorum = true
 	return b
 }
 
-// withPreviousRule adds a compare-and-swap check: the update only proceeds if the
+// WithPreviousRule adds a compare-and-swap check: the update only proceeds if the
 // current rule matches the given coordinator term and subterm.
-func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int64) *ruleUpdateBuilder {
+func (b *RuleUpdateBuilder) WithPreviousRule(coordinatorTerm, leaderSubterm int64) *RuleUpdateBuilder {
 	b.previousRule = &ruleNumber{coordinatorTerm: coordinatorTerm, leaderSubterm: leaderSubterm}
 	return b
 }
@@ -272,7 +291,7 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int6
 // Schema Operations
 // ----------------------------------------------------------------------------
 
-// createRuleTables creates multigres.current_rule and multigres.rule_history if
+// CreateRuleTables creates multigres.current_rule and multigres.rule_history if
 // they do not already exist, then inserts the initial row for the default
 // shard. It is idempotent and safe to call multiple times.
 //
@@ -283,12 +302,12 @@ func (b *ruleUpdateBuilder) withPreviousRule(coordinatorTerm, leaderSubterm int6
 // coordinator_term=0 in the initial row means no rule has been applied yet.
 // policy is written into the initial row so all subsequent rule reads have a
 // non-nil DurabilityPolicy; operations that do not change the policy (e.g.
-// Promote) carry it forward via COALESCE in updateRule.
+// Promote) carry it forward via COALESCE in UpdateRule.
 //
 // bootstrapID becomes the initial row's coordinator_id. The pooler that
 // initializes the schema acts as the coordinator for the initial row —
 // analogous to how a pooler is the coordinator for leader-led rule changes.
-func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error {
+func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy, bootstrapID *clustermetadatapb.ID) error {
 	if policy == nil {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "durability policy required to initialize rule tables")
 	}
@@ -357,8 +376,8 @@ func (rs *ruleStore) createRuleTables(ctx context.Context, policy *clustermetada
 // Read/Write Operations
 // ----------------------------------------------------------------------------
 
-// errRuleConflict is returned by updateRule when a compare-and-swap check fails:
-// either withPreviousRule's explicit version check did not match, or a concurrent
+// errRuleConflict is returned by UpdateRule when a compare-and-swap check fails:
+// either WithPreviousRule's explicit version check did not match, or a concurrent
 // write changed the rule between our read and our write.
 var errRuleConflict = errors.New("rule conflict: current rule version changed since last read")
 
@@ -436,12 +455,12 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	return pos, nil
 }
 
-// observePosition reads the current rule and WAL LSN from postgres and returns
+// ObservePosition reads the current rule and WAL LSN from postgres and returns
 // the observed position. Always returns a non-nil position when err is nil.
 //
 // Returns an error if postgres is unreachable or if the current_rule sentinel
 // row is missing (which indicates the tables are not initialized).
-func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
+func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	pos, err := rs.readCurrentRule(queryCtx, false)
@@ -454,7 +473,7 @@ func (rs *ruleStore) observePosition(ctx context.Context) (*clustermetadatapb.Po
 
 // readCurrentRuleLocked reads the current_rule row and returns a lockedCtx that
 // carries proof that prior rule writes from any previous action lock holder have
-// been drained (withPriorRuleWritesDrained). The timeout is managed internally;
+// been drained (WithPriorRuleWritesDrained). The timeout is managed internally;
 // lockedCtx is derived from ctx (not the internal timeout context) and remains
 // valid for subsequent operations after the read completes.
 //
@@ -470,11 +489,11 @@ func (rs *ruleStore) readCurrentRuleLocked(ctx context.Context, inRecovery bool)
 	if err != nil {
 		return nil, nil, err
 	}
-	lockedCtx := withPriorRuleWritesDrained(ctx)
+	lockedCtx := WithPriorRuleWritesDrained(ctx)
 	return pos, lockedCtx, nil
 }
 
-// updateRule writes a new rule to current_rule and rule_history.
+// UpdateRule writes a new rule to current_rule and rule_history.
 //
 // The leader_subterm is assigned as:
 //   - 0 if termNumber is greater than the current coordinator_term (new term)
@@ -495,9 +514,9 @@ func (rs *ruleStore) readCurrentRuleLocked(ctx context.Context, inRecovery bool)
 // This operation uses the remote-operation-timeout and will fail if it cannot
 // complete within that time. A timeout typically indicates that synchronous
 // replication is not functioning.
-func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, fmt.Errorf("updateRule: %w", err)
+func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return nil, fmt.Errorf("UpdateRule: %w", err)
 	}
 
 	if update.force {
@@ -520,11 +539,11 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	// often touches postgres GUCs around this write.
 	if update.coordinatorID == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"updateRule requires a non-nil coordinator_id")
+			"UpdateRule requires a non-nil coordinator_id")
 	}
 	if update.createdAt.IsZero() {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"updateRule requires a non-zero created_at")
+			"UpdateRule requires a non-zero created_at")
 	}
 
 	isPromotion := update.promotionHook != nil
@@ -617,34 +636,34 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 	// Convert values to SQL parameters.
 	var newLeaderStr string
 	if newLeader != nil {
-		pid, err := newPoolerID(newLeader)
+		pid, err := NewReplicaID(newLeader)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "invalid leader ID")
 		}
 		newLeaderStr = pid.appName
 	}
 
-	cohortPIDs, err := toPoolerIDs(newCohort)
+	cohortPIDs, err := ToReplicaIDs(newCohort)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "invalid cohort member ID")
 	}
-	newCohortParam := poolerIDsToAppNames(cohortPIDs)
+	newCohortParam := ReplicaIDsToAppNames(cohortPIDs)
 	if newCohortParam == nil {
 		newCohortParam = []string{}
 	}
 
 	var acceptedParam []string
 	if len(update.acceptedMembers) > 0 {
-		pids, err := toPoolerIDs(update.acceptedMembers)
+		pids, err := ToReplicaIDs(update.acceptedMembers)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "invalid accepted member ID")
 		}
-		acceptedParam = poolerIDsToAppNames(pids)
+		acceptedParam = ReplicaIDsToAppNames(pids)
 	}
 
 	coordinatorIDStr := topoclient.ClusterIDString(update.coordinatorID)
-	// newDP is always non-nil: updateRule falls back to the current rule's policy when
-	// the caller omits withDurabilityPolicy(), so these values are always present.
+	// newDP is always non-nil: UpdateRule falls back to the current rule's policy when
+	// the caller omits WithDurabilityPolicy(), so these values are always present.
 	dpName := newDP.PolicyName
 	dpQuorumType := newDP.QuorumType.String()
 	dpRequiredCount := int64(newDP.RequiredCount)
@@ -907,7 +926,7 @@ func buildPoolerPosition(
 	}
 
 	if leaderIDStr != nil {
-		id, err := parseApplicationName(*leaderIDStr)
+		id, err := ParseApplicationName(*leaderIDStr)
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to parse leader_id %q", *leaderIDStr)
 		}
@@ -915,7 +934,7 @@ func buildPoolerPosition(
 	}
 
 	if coordinatorIDStr != "" {
-		// Coordinator IDs are multiorch, not multipooler — parseApplicationName
+		// Coordinator IDs are multiorch, not multipooler — ParseApplicationName
 		// is pooler-specific, so decode the cell_name encoding directly.
 		cell, name, err := topoclient.SplitClusterID(coordinatorIDStr)
 		if err != nil {
@@ -957,7 +976,7 @@ func buildPoolerPosition(
 func appNamesToIDs(names []string) ([]*clustermetadatapb.ID, error) {
 	ids := make([]*clustermetadatapb.ID, 0, len(names))
 	for _, name := range names {
-		id, err := parseApplicationName(name)
+		id, err := ParseApplicationName(name)
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "invalid ID %q", name)
 		}
@@ -971,34 +990,17 @@ type ruleHistoryRecord struct {
 	CoordinatorTerm         int64
 	LeaderSubterm           int64
 	EventType               string
-	LeaderID                *poolerID // nil if not set
-	CoordinatorID           *string   // informational only; component type is not stored
+	LeaderID                *ReplicaID // nil if not set
+	CoordinatorID           *string    // informational only; component type is not stored
 	WALPosition             *string
 	Operation               *string
 	Reason                  string
-	CohortMembers           []poolerID
-	AcceptedMembers         []poolerID
+	CohortMembers           []ReplicaID
+	AcceptedMembers         []ReplicaID
 	DurabilityPolicyName    string
 	DurabilityQuorumType    string
 	DurabilityRequiredCount int32
 	CreatedAt               time.Time
-}
-
-// parsePoolerIDStrings converts a slice of "cell_name" app name strings into poolerIDs.
-// Returns nil for nil input, preserving the distinction between "not set" and "empty".
-func parsePoolerIDStrings(names []string) ([]poolerID, error) {
-	if names == nil {
-		return nil, nil
-	}
-	result := make([]poolerID, 0, len(names))
-	for _, s := range names {
-		id, err := parseApplicationName(s)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, poolerID{id: id, appName: s})
-	}
-	return result, nil
 }
 
 // scanRuleHistoryRow scans string-typed DB columns into a ruleHistoryRecord,
@@ -1006,20 +1008,20 @@ func parsePoolerIDStrings(names []string) ([]poolerID, error) {
 // leaderIDStr, cohortNames, and acceptedNames are intermediary scan targets.
 func scanRuleHistoryRow(rec *ruleHistoryRecord, leaderIDStr *string, cohortNames, acceptedNames []string) error {
 	if leaderIDStr != nil {
-		id, err := parseApplicationName(*leaderIDStr)
+		id, err := ParseApplicationName(*leaderIDStr)
 		if err != nil {
 			return mterrors.Wrapf(err, "failed to parse leader_id %q", *leaderIDStr)
 		}
-		p := poolerID{id: id, appName: *leaderIDStr}
+		p := ReplicaID{id: id, appName: *leaderIDStr}
 		rec.LeaderID = &p
 	}
-	cohort, err := parsePoolerIDStrings(cohortNames)
+	cohort, err := ParseReplicaIDStrings(cohortNames)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse cohort_members")
 	}
 	rec.CohortMembers = cohort
 
-	accepted, err := parsePoolerIDStrings(acceptedNames)
+	accepted, err := ParseReplicaIDStrings(acceptedNames)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to parse accepted_members")
 	}
@@ -1037,21 +1039,21 @@ func scanRuleHistoryRow(rec *ruleHistoryRecord, leaderIDStr *string, cohortNames
 //   - Recovery path (standby before pg_promote): the node is read-only, so no
 //     concurrent writes to current_rule are possible.
 //
-// The action lock (checked separately via AssertActionLockHeld) ensures no
+// The action lock (checked separately via actionlock.AssertActionLockHeld) ensures no
 // concurrent goroutine in this process can also hold this proof.
 type priorRuleWritesDrainedKey struct{}
 
-// withPriorRuleWritesDrained returns a derived context carrying proof that any
+// WithPriorRuleWritesDrained returns a derived context carrying proof that any
 // in-flight rule writes from the previous action lock holder have been resolved.
 // Called by readCurrentRuleLocked; callers must not stamp the context themselves.
-func withPriorRuleWritesDrained(ctx context.Context) context.Context {
+func WithPriorRuleWritesDrained(ctx context.Context) context.Context {
 	return context.WithValue(ctx, priorRuleWritesDrainedKey{}, struct{}{})
 }
 
-// assertPriorRuleWritesDrained returns an error if the context does not carry
+// AssertPriorRuleWritesDrained returns an error if the context does not carry
 // proof that prior rule writes have been drained. Called automatically via
 // readCurrentRuleLocked; callers must not stamp the context themselves.
-func assertPriorRuleWritesDrained(ctx context.Context) error {
+func AssertPriorRuleWritesDrained(ctx context.Context) error {
 	if _, ok := ctx.Value(priorRuleWritesDrainedKey{}).(struct{}); !ok {
 		return errors.New("SetPolicy requires prior rule writes to be drained (call readCurrentRuleLocked first)")
 	}

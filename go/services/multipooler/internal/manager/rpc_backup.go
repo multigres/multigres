@@ -32,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
@@ -95,7 +96,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 // backupLockedInner performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
 func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
 	if err := topoclient.AssertBackupLockHeld(ctx, pm.shardKey()); err != nil {
@@ -283,7 +284,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 
 // restoreFromBackupLocked performs the restore. Caller must hold the action lock.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
@@ -459,7 +460,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 
 // getBackupsLocked retrieves backup information. Caller must hold the action lock.
 func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 

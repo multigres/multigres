@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -54,7 +55,7 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 // expireBackupsLocked runs pgbackrest expire. Caller must hold the action lock.
 // Returns the IDs of backups that were removed.
 func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides map[string]string) ([]string, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 

@@ -37,6 +37,8 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/tools/ctxutil"
@@ -75,7 +77,7 @@ type MultiPoolerManager struct {
 	topoClient topoclient.Store
 	// Deprecated: use servicePoolerID instead.
 	serviceID       *clustermetadatapb.ID
-	servicePoolerID poolerID
+	servicePoolerID consensus.ReplicaID
 	replTracker     *heartbeat.ReplTracker
 	pubsubListener  *pubsub.Listener
 	pgctldClient    pgctldpb.PgCtldClient
@@ -92,7 +94,7 @@ type MultiPoolerManager struct {
 	// This lock can be held for long periods of time (hours),
 	// like in the case of a restore. This lock must be obtained
 	// first before other mutexes.
-	actionLock *ActionLock
+	actionLock *actionlock.ActionLock
 
 	// Multipooler record from topology and startup state
 
@@ -113,9 +115,9 @@ type MultiPoolerManager struct {
 	record         *poolerRecord
 	state          ManagerState
 	stateError     error
-	consensusState *ConsensusState
+	consensusState *consensus.ConsensusState
 	topoLoaded     bool
-	rules          ruleStorer
+	rules          consensus.RuleStorer
 	ctx            context.Context
 	cancel         context.CancelFunc
 	loadTimeout    time.Duration
@@ -246,7 +248,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
-	svcPoolerID, err := newPoolerID(multiPooler.Id)
+	svcPoolerID, err := consensus.NewReplicaID(multiPooler.Id)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
 	}
@@ -288,7 +290,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		serviceID:              multiPooler.Id,
 		servicePoolerID:        svcPoolerID,
 		record:                 newPoolerRecord(logger, config.TopoClient, multiPooler),
-		actionLock:             NewActionLock(),
+		actionLock:             actionlock.NewActionLock(),
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
 		pgMonitorRetryInterval: monitorRetryInterval,
@@ -313,7 +315,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
-	pm.consensusState = NewConsensusState(pm.record.PoolerDir(), pm.serviceID)
+	pm.consensusState = consensus.NewConsensusState(pm.record.PoolerDir(), pm.serviceID)
 	if config.ConsensusEnabled {
 		if _, err := pm.consensusState.Load(); err != nil {
 			cancel()
@@ -328,7 +330,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	pm.rules = newRuleStore(pm.logger, pm.qsc.InternalQueryService(), newSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
+	pm.rules = consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -360,10 +362,10 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 // DoUpdateRule applies a rule update to the manager's rule store and returns
 // the new position. This is used by the gRPC handler to implement rule updates
 // via the API.
-func (pm *MultiPoolerManager) DoUpdateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+func (pm *MultiPoolerManager) DoUpdateRule(ctx context.Context, update *consensus.RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	ruleWriteCtx, ruleWriteSpan := telemetry.Tracer().Start(ctx, "consensus/rule-write")
 	defer ruleWriteSpan.End()
-	return pm.rules.updateRule(ruleWriteCtx, update)
+	return pm.rules.UpdateRule(ruleWriteCtx, update)
 }
 
 // query executes a query using the internal query service and returns the result.
@@ -1373,7 +1375,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	pm.broadcastHealth()
 
 	// TODO: this defer fires before configureReplicationAfterPromotion and
-	// rules.updateRule in the caller, so multiorch sees PRIMARY status while sync
+	// rules.UpdateRule in the caller, so multiorch sees PRIMARY status while sync
 	// replication is not yet configured and rule history has not been written. If
 	// we want the PROMOTING window to cover the full promotion path (including the
 	// sync standby ack gate), the defer should move to the caller instead.
@@ -1658,7 +1660,7 @@ const (
 	remedialActionReconcileGUC
 	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
 	// topology says REPLICA, but primary_conninfo doesn't match the primary
-	// recorded in ConsensusState.ReplicationPrimary (the most recent
+	// recorded in consensus.ConsensusState.ReplicationPrimary (the most recent
 	// SetTermPrimary/Propose). Reconciles the GUC so this replica points at the right
 	// primary regardless of how it got out of sync (failed SetTermPrimary apply,
 	// hand edit, snapshot restore, etc.).
@@ -1954,7 +1956,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 		// Pooler type already matches; check for a stale GUC that needs re-applying.
 		// Only reconcile the GUC when actually running as primary: synchronous_standby_names
 		// has no effect on a standby, and setting it there leaks state.
-		if currentState.isPrimary && pm.rules.hasInconsistentGUC(ctx) {
+		if currentState.isPrimary && pm.rules.HasInconsistentGUC(ctx) {
 			return remedialActionReconcileGUC
 		}
 		return remedialActionNone
@@ -1984,7 +1986,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 // Caller must hold the action lock.
 func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
 	// Assert that the action lock is held
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
 		return
 	}
@@ -2098,7 +2100,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionReconcileGUC:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
-		if err := pm.rules.reconcileGUC(ctx, !state.isPrimary); err != nil {
+		if err := pm.rules.ReconcileGUC(ctx, !state.isPrimary); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
 		}
 	}
@@ -2216,10 +2218,11 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
+	revokedBelowTerm, _ := pm.consensusState.GetInconsistentCurrentTermNumber()
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", pm.consensusState.revocation.GetRevokedBelowTerm())
+		"term", revokedBelowTerm)
 
 	return nil
 }

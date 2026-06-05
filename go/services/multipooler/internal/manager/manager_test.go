@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -336,8 +337,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				initialTerm := &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm: tt.currentTerm,
 				}
-				setupCS := NewConsensusState(poolerDir, nil)
-				require.NoError(t, setupCS.setRevocation(initialTerm))
+				setupCS := consensus.NewConsensusState(poolerDir, nil)
+				require.NoError(t, setupCS.WriteRevocationFile(initialTerm))
 			}
 
 			// Create the database in topology with backup location
@@ -371,7 +372,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
-			manager.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+			manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 			// Start and wait for ready
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -964,7 +965,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
 			}
 			if tt.seedRevocation != nil {
-				require.NoError(t, pm.consensusState.setRevocation(tt.seedRevocation))
+				require.NoError(t, pm.consensusState.WriteRevocationFile(tt.seedRevocation))
 				_, err := pm.consensusState.Load()
 				require.NoError(t, err)
 			}

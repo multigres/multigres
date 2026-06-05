@@ -33,6 +33,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/timer"
@@ -105,13 +107,13 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		record:       newRecordFromProto(multipoolerProto),
 		state:        ManagerStateReady,
 		backupConfig: backupConfig,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		logger:       slog.Default(),
 		pgMonitor:    monitorRunner,
-		// ConsensusState is the canonical home for the recorded primary
+		// consensus.ConsensusState is the canonical home for the recorded primary
 		// (replacing the former pm.primaryHost/Port/PoolerID fields). Backup
 		// tests seed it via setBackupPrimary below.
-		consensusState: NewConsensusState(poolerDir, multipoolerID),
+		consensusState: consensus.NewConsensusState(poolerDir, multipoolerID),
 	}
 	return pm
 }
@@ -1273,7 +1275,7 @@ exit 0
 				}),
 				state:                ManagerStateReady,
 				backupConfig:         backupConfig,
-				actionLock:           NewActionLock(),
+				actionLock:           actionlock.NewActionLock(),
 				logger:               slog.Default(),
 				pgMonitor:            timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 				pgBackRestConfigPath: configPath,

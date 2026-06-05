@@ -144,7 +144,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 
 	// The initial row (term=0, empty cohort) was already inserted by
-	// createRuleTables via createSidecarSchema above. This signals to multiorch
+	// CreateRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
 
 	// Race for the backup lease. Only the lease holder creates the backup;

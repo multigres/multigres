@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // fakeTopoStore is a minimal poolerTopoStore for testing.
@@ -79,11 +80,11 @@ func newTestPoolerProto(poolerType clustermetadatapb.PoolerType, status clusterm
 	}
 }
 
-// newActionLockedCtx returns a context that satisfies AssertActionLockHeld,
+// newActionLockedCtx returns a context that satisfies actionlock.AssertActionLockHeld,
 // and releases the lock automatically when the test ends.
 func newActionLockedCtx(t *testing.T) context.Context {
 	t.Helper()
-	al := NewActionLock()
+	al := actionlock.NewActionLock()
 	ctx, err := al.Acquire(t.Context(), "test")
 	require.NoError(t, err)
 	t.Cleanup(func() { al.Release(ctx) })

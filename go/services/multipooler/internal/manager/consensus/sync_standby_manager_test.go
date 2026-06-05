@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"context"
@@ -28,17 +28,18 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // newTestSSM creates a postgresqlSyncStandbyManager backed by the given mock query service.
 func newTestSSM(mockQS *mock.QueryService) *postgresqlSyncStandbyManager {
-	return newSyncStandbyManager(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQS, nil)
+	return NewSyncStandbyManager(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQS, nil)
 }
 
-// withTestActionLock returns a context that satisfies AssertActionLockHeld.
+// withTestActionLock returns a context that satisfies actionlock.AssertActionLockHeld.
 func withTestActionLock(t *testing.T) context.Context {
 	t.Helper()
-	lock := NewActionLock()
+	lock := actionlock.NewActionLock()
 	ctx, err := lock.Acquire(t.Context(), "test")
 	require.NoError(t, err)
 	t.Cleanup(func() { lock.Release(ctx) })
@@ -75,7 +76,7 @@ func TestSetPolicy_SkipsQueriesWhenCached(t *testing.T) {
 	ssm.lastSyncCommit = "on"
 	ssm.lastStandbyNames = `ANY 1 ("zone1_standby-1")`
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.NoError(t, err)
 	// No queries should have been issued — cache already held the correct values.
@@ -87,7 +88,7 @@ func TestSetPolicy_AppliesWhenCacheMisses(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	addSetPolicyExpectations(mockQS)
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	require.NoError(t, ssm.SetPolicy(ctx, ssmTestPolicyWithCohort()))
 	require.NoError(t, mockQS.ExpectationsWereMet())
 
@@ -101,7 +102,7 @@ func TestSetPolicy_SecondCallHitsCache(t *testing.T) {
 
 	// First call writes; second call hits cache and issues no queries.
 	addSetPolicyExpectations(mockQS)
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	require.NoError(t, ssm.SetPolicy(ctx, ssmTestPolicyWithCohort()))
 	require.NoError(t, mockQS.ExpectationsWereMet())
 
@@ -115,7 +116,7 @@ func TestSetPolicy_ErrorLeavesCache(t *testing.T) {
 	ssm := newTestSSM(mockQS)
 	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_commit", errors.New("postgres is down"))
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "postgres is down")
@@ -190,7 +191,7 @@ func TestSetPolicy_NoEligibleStandbys(t *testing.T) {
 		Cohort: ssmTestCohort(),
 	}
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, pc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no eligible standbys")
@@ -208,7 +209,7 @@ func TestSetPolicy_ComputeGUCFails(t *testing.T) {
 		Cohort: ssmTestCohort(),
 	}
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, pc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient cohort members")
@@ -220,7 +221,7 @@ func TestSetPolicy_SetStandbyNamesFails(t *testing.T) {
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_commit", mock.MakeQueryResult(nil, nil))
 	mockQS.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("standby names rejected"))
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "standby names rejected")
@@ -238,7 +239,7 @@ func TestSetPolicy_ReloadFails(t *testing.T) {
 	mockQS.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 	expectReloadConfigFailure(mockQS, errors.New("reload exploded"))
 
-	ctx := withPriorRuleWritesDrained(withTestActionLock(t))
+	ctx := WithPriorRuleWritesDrained(withTestActionLock(t))
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reload exploded")
@@ -283,7 +284,7 @@ func TestClear_RecoveryCheckFails(t *testing.T) {
 
 func TestSetPolicy_RequiresActionLock(t *testing.T) {
 	ssm := newTestSSM(mock.NewQueryService())
-	ctx := withPriorRuleWritesDrained(t.Context())
+	ctx := WithPriorRuleWritesDrained(t.Context())
 	err := ssm.SetPolicy(ctx, ssmTestPolicyWithCohort())
 	assert.EqualError(t, err, "SetPolicy: context does not hold an action lock")
 }

@@ -21,10 +21,10 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
 // Regex for parsing synchronous_standby_names format: METHOD NUM (member1, member2, ...)
@@ -36,26 +36,6 @@ type SyncStandbyConfig struct {
 	Method     multipoolermanagerdata.SynchronousMethod // FIRST or ANY
 	NumSync    int32                                    // Number of synchronous standbys
 	StandbyIDs []*clustermetadatapb.ID                  // List of standby IDs
-}
-
-// parseApplicationName parses a postgres replication application_name back
-// into a clustermetadata ID. Application names are always set by multipoolers
-// (postgres replication clients), so Component is always MULTIPOOLER.
-// Format: {cell}_{name}
-// Example: "us-west_replica-1" -> ID{Component: MULTIPOOLER, Cell: "us-west", Name: "replica-1"}
-//
-// For decoding non-pooler IDs that happen to share the cell_name encoding
-// (e.g. coordinator_id in rule_history), use topoclient.SplitClusterID directly.
-func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
-	cell, name, err := topoclient.SplitClusterID(appName)
-	if err != nil {
-		return nil, err
-	}
-	return &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      cell,
-		Name:      name,
-	}, nil
 }
 
 // parseSynchronousStandbyNames parses a PostgreSQL synchronous_standby_names string
@@ -123,7 +103,7 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 		part = strings.Trim(part, `"`)
 		if part != "" {
 			// Parse application name back to ID
-			id, err := parseApplicationName(part)
+			id, err := consensus.ParseApplicationName(part)
 			if err != nil {
 				return nil, mterrors.Wrap(err, fmt.Sprintf("failed to parse application name %q", part))
 			}

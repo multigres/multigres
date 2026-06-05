@@ -22,6 +22,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
 func TestParseApplicationName(t *testing.T) {
@@ -84,7 +85,7 @@ func TestParseApplicationName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseApplicationName(tt.appName)
+			result, err := consensus.ParseApplicationName(tt.appName)
 
 			if tt.expectError {
 				require.Error(t, err, "Should return error for invalid format")

@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // assertRecent fails the test if ts is nil or older than 5 seconds ago.
@@ -97,7 +98,7 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		config:         &Config{},
 		pgctldClient:   pgctldClient,
 		healthStreamer: newHealthStreamer(logger, id, "tg", "0"),
-		actionLock:     NewActionLock(),
+		actionLock:     actionlock.NewActionLock(),
 		// Match the production default set by topoclient.NewMultiPooler so
 		// the record's LifecycleStatus reads as STARTING from the start.
 		// (Real boot wires this in via NewMultiPoolerManager(multiPooler).)

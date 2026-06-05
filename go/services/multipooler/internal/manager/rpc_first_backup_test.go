@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -191,7 +192,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			PoolerDir: poolerDir,
@@ -234,7 +235,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			PoolerDir: poolerDir,
@@ -283,7 +284,7 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{}, // InitDataDir returns UNAVAILABLE
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			PoolerDir: poolerDir,
@@ -331,7 +332,7 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			PoolerDir: poolerDir,
@@ -393,7 +394,7 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			PoolerDir: poolerDir,

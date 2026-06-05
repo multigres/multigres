@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -53,14 +54,14 @@ func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
 	m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", reloadErr)
 }
 
-// mustPoolerIDFromAppName constructs a poolerID from a "cell_name" application name string.
+// mustPoolerIDFromAppName constructs a consensus.ReplicaID from a "cell_name" application name string.
 // Panics if parsing or construction fails; for use in tests only.
-func mustPoolerIDFromAppName(appName string) poolerID {
-	id, err := parseApplicationName(appName)
+func mustPoolerIDFromAppName(appName string) consensus.ReplicaID {
+	id, err := consensus.ParseApplicationName(appName)
 	if err != nil {
 		panic(err)
 	}
-	pid, err := newPoolerID(id)
+	pid, err := consensus.NewReplicaID(id)
 	if err != nil {
 		panic(err)
 	}
@@ -140,15 +141,15 @@ func TestNewPoolerID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := newPoolerID(tt.id)
+			result, err := consensus.NewReplicaID(tt.id)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.id, result.id)
+				assert.Equal(t, tt.id, result.ID())
 			}
-			assert.Equal(t, tt.expectedAppName, result.appName)
+			assert.Equal(t, tt.expectedAppName, result.AppName())
 		})
 	}
 }
@@ -189,19 +190,19 @@ func TestPoolerIDFromAppName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := poolerIDFromAppName(tt.appName)
+			result, err := consensus.NewReplicaIDFromAppName(tt.appName)
 			if tt.expectError {
 				require.Error(t, err)
 				// Best-effort ID is always returned: caller can include it rather than drop the member
-				require.NotNil(t, result.id)
-				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
-				assert.Equal(t, tt.expectedName, result.id.Name, "Name should preserve raw appName")
+				require.NotNil(t, result.ID())
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.ID().Component)
+				assert.Equal(t, tt.expectedName, result.ID().Name, "Name should preserve raw appName")
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
-				assert.Equal(t, tt.expectedCell, result.id.Cell)
-				assert.Equal(t, tt.expectedName, result.id.Name)
-				assert.Equal(t, tt.appName, result.appName)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.ID().Component)
+				assert.Equal(t, tt.expectedCell, result.ID().Cell)
+				assert.Equal(t, tt.expectedName, result.ID().Name)
+				assert.Equal(t, tt.appName, result.AppName())
 			}
 		})
 	}
@@ -213,15 +214,15 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			{Cell: "zone2", Name: "replica-2"},
 		}
-		result, err := toPoolerIDs(ids)
+		result, err := consensus.ToReplicaIDs(ids)
 		require.NoError(t, err)
 		require.Len(t, result, 2)
-		assert.Equal(t, "zone1_replica-1", result[0].appName)
-		assert.Equal(t, "zone2_replica-2", result[1].appName)
+		assert.Equal(t, "zone1_replica-1", result[0].AppName())
+		assert.Equal(t, "zone2_replica-2", result[1].AppName())
 	})
 
 	t.Run("nil slice", func(t *testing.T) {
-		result, err := toPoolerIDs(nil)
+		result, err := consensus.ToReplicaIDs(nil)
 		require.NoError(t, err)
 		assert.Empty(t, result)
 	})
@@ -231,13 +232,13 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			nil,
 		}
-		result, err := toPoolerIDs(ids)
+		result, err := consensus.ToReplicaIDs(ids)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ids[1]")
 		// Full slice returned despite the error.
 		require.Len(t, result, 2)
-		assert.Equal(t, "zone1_replica-1", result[0].appName)
-		assert.Equal(t, "<nil>", result[1].appName)
+		assert.Equal(t, "zone1_replica-1", result[0].AppName())
+		assert.Equal(t, "<nil>", result[1].AppName())
 	})
 
 	t.Run("first error is reported when multiple entries are invalid", func(t *testing.T) {
@@ -246,47 +247,47 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			nil,
 		}
-		result, err := toPoolerIDs(ids)
+		result, err := consensus.ToReplicaIDs(ids)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ids[0]") // first error, not ids[2]
 		require.Len(t, result, 3)
-		assert.Equal(t, "<nil>", result[0].appName)
-		assert.Equal(t, "zone1_replica-1", result[1].appName)
-		assert.Equal(t, "<nil>", result[2].appName)
+		assert.Equal(t, "<nil>", result[0].AppName())
+		assert.Equal(t, "zone1_replica-1", result[1].AppName())
+		assert.Equal(t, "<nil>", result[2].AppName())
 	})
 }
 
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
 		name     string
-		names    []poolerID
+		names    []consensus.ReplicaID
 		expected string
 	}{
 		{
 			name:     "empty list",
-			names:    []poolerID{},
+			names:    []consensus.ReplicaID{},
 			expected: "",
 		},
 		{
 			name:     "single standby",
-			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
+			names:    []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected: `"zone1_replica-1"`,
 		},
 		{
 			name:     "multiple standbys",
-			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
+			names:    []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected: `"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"`,
 		},
 		{
 			name:     "two standbys",
-			names:    []poolerID{mustPoolerIDFromAppName("east_standby-a"), mustPoolerIDFromAppName("west_standby-b")},
+			names:    []consensus.ReplicaID{mustPoolerIDFromAppName("east_standby-a"), mustPoolerIDFromAppName("west_standby-b")},
 			expected: `"east_standby-a", "west_standby-b"`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, formatStandbyList(tt.names))
+			assert.Equal(t, tt.expected, consensus.FormatStandbyList(tt.names))
 		})
 	}
 }
@@ -296,7 +297,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 		name        string
 		method      multipoolermanagerdatapb.SynchronousMethod
 		numSync     int32
-		names       []poolerID
+		names       []consensus.ReplicaID
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -305,7 +306,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "empty standby list returns empty string",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []poolerID{},
+			names:       []consensus.ReplicaID{},
 			expected:    "",
 			expectError: false,
 		},
@@ -313,7 +314,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with single standby",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
+			names:       []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    `FIRST 1 ("zone1_replica-1")`,
 			expectError: false,
 		},
@@ -321,7 +322,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     2,
-			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
+			names:       []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected:    `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
 			expectError: false,
 		},
@@ -329,7 +330,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     1,
-			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2")},
+			names:       []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2")},
 			expected:    `ANY 1 ("zone1_replica-1", "zone2_replica-2")`,
 			expectError: false,
 		},
@@ -337,7 +338,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with three standbys and numSync=2",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     2,
-			names:       []poolerID{mustPoolerIDFromAppName("a_1"), mustPoolerIDFromAppName("b_2"), mustPoolerIDFromAppName("c_3")},
+			names:       []consensus.ReplicaID{mustPoolerIDFromAppName("a_1"), mustPoolerIDFromAppName("b_2"), mustPoolerIDFromAppName("c_3")},
 			expected:    `ANY 2 ("a_1", "b_2", "c_3")`,
 			expectError: false,
 		},
@@ -345,7 +346,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "invalid method returns error",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
 			numSync:     1,
-			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
+			names:       []consensus.ReplicaID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    "",
 			expectError: true,
 			errorMsg:    "invalid synchronous method",
@@ -354,7 +355,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := buildSynchronousStandbyNamesValue(tt.method, tt.numSync, tt.names)
+			result, err := consensus.BuildSynchronousStandbyNamesValue(tt.method, tt.numSync, tt.names)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -480,7 +481,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			names, err := validateStandbyIDs(tt.standbyIDs)
+			names, err := consensus.ValidateStandbyIDs(tt.standbyIDs)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -500,51 +501,51 @@ func TestApplyAddOperation(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		current  []poolerID
-		incoming []poolerID
-		expected []poolerID
+		current  []consensus.ReplicaID
+		incoming []consensus.ReplicaID
+		expected []consensus.ReplicaID
 	}{
 		{
 			name:     "add to empty list",
-			current:  []poolerID{},
-			incoming: []poolerID{s1},
-			expected: []poolerID{s1},
+			current:  []consensus.ReplicaID{},
+			incoming: []consensus.ReplicaID{s1},
+			expected: []consensus.ReplicaID{s1},
 		},
 		{
 			name:     "add new standby to existing list",
-			current:  []poolerID{s1},
-			incoming: []poolerID{s2},
-			expected: []poolerID{s1, s2},
+			current:  []consensus.ReplicaID{s1},
+			incoming: []consensus.ReplicaID{s2},
+			expected: []consensus.ReplicaID{s1, s2},
 		},
 		{
 			name:     "add multiple new standbys",
-			current:  []poolerID{s1},
-			incoming: []poolerID{s2, s3},
-			expected: []poolerID{s1, s2, s3},
+			current:  []consensus.ReplicaID{s1},
+			incoming: []consensus.ReplicaID{s2, s3},
+			expected: []consensus.ReplicaID{s1, s2, s3},
 		},
 		{
 			name:     "idempotent - add existing standby",
-			current:  []poolerID{s1, s2},
-			incoming: []poolerID{s1},
-			expected: []poolerID{s1, s2},
+			current:  []consensus.ReplicaID{s1, s2},
+			incoming: []consensus.ReplicaID{s1},
+			expected: []consensus.ReplicaID{s1, s2},
 		},
 		{
 			name:     "idempotent - add mix of existing and new",
-			current:  []poolerID{s1, s2},
-			incoming: []poolerID{s2, s3},
-			expected: []poolerID{s1, s2, s3},
+			current:  []consensus.ReplicaID{s1, s2},
+			incoming: []consensus.ReplicaID{s2, s3},
+			expected: []consensus.ReplicaID{s1, s2, s3},
 		},
 		{
 			name:     "add empty list does nothing",
-			current:  []poolerID{s1},
-			incoming: []poolerID{},
-			expected: []poolerID{s1},
+			current:  []consensus.ReplicaID{s1},
+			incoming: []consensus.ReplicaID{},
+			expected: []consensus.ReplicaID{s1},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyAddOperation(tt.current, tt.incoming)
+			result := consensus.ApplyAddOperation(tt.current, tt.incoming)
 			assert.ElementsMatch(t, tt.expected, result)
 		})
 	}
@@ -557,57 +558,57 @@ func TestApplyRemoveOperation(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		current  []poolerID
-		remove   []poolerID
-		expected []poolerID
+		current  []consensus.ReplicaID
+		remove   []consensus.ReplicaID
+		expected []consensus.ReplicaID
 	}{
 		{
 			name:     "remove from single item list",
-			current:  []poolerID{s1},
-			remove:   []poolerID{s1},
-			expected: []poolerID{},
+			current:  []consensus.ReplicaID{s1},
+			remove:   []consensus.ReplicaID{s1},
+			expected: []consensus.ReplicaID{},
 		},
 		{
 			name:     "remove one from multiple",
-			current:  []poolerID{s1, s2, s3},
-			remove:   []poolerID{s2},
-			expected: []poolerID{s1, s3},
+			current:  []consensus.ReplicaID{s1, s2, s3},
+			remove:   []consensus.ReplicaID{s2},
+			expected: []consensus.ReplicaID{s1, s3},
 		},
 		{
 			name:     "remove multiple standbys",
-			current:  []poolerID{s1, s2, s3},
-			remove:   []poolerID{s1, s3},
-			expected: []poolerID{s2},
+			current:  []consensus.ReplicaID{s1, s2, s3},
+			remove:   []consensus.ReplicaID{s1, s3},
+			expected: []consensus.ReplicaID{s2},
 		},
 		{
 			name:     "idempotent - remove non-existent standby",
-			current:  []poolerID{s1, s2},
-			remove:   []poolerID{s3},
-			expected: []poolerID{s1, s2},
+			current:  []consensus.ReplicaID{s1, s2},
+			remove:   []consensus.ReplicaID{s3},
+			expected: []consensus.ReplicaID{s1, s2},
 		},
 		{
 			name:     "idempotent - remove mix of existing and non-existent",
-			current:  []poolerID{s1, s2},
-			remove:   []poolerID{s2, s3},
-			expected: []poolerID{s1},
+			current:  []consensus.ReplicaID{s1, s2},
+			remove:   []consensus.ReplicaID{s2, s3},
+			expected: []consensus.ReplicaID{s1},
 		},
 		{
 			name:     "remove empty list does nothing",
-			current:  []poolerID{s1, s2},
-			remove:   []poolerID{},
-			expected: []poolerID{s1, s2},
+			current:  []consensus.ReplicaID{s1, s2},
+			remove:   []consensus.ReplicaID{},
+			expected: []consensus.ReplicaID{s1, s2},
 		},
 		{
 			name:     "remove from empty list",
-			current:  []poolerID{},
-			remove:   []poolerID{s1},
-			expected: []poolerID{},
+			current:  []consensus.ReplicaID{},
+			remove:   []consensus.ReplicaID{s1},
+			expected: []consensus.ReplicaID{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyRemoveOperation(tt.current, tt.remove)
+			result := consensus.ApplyRemoveOperation(tt.current, tt.remove)
 			assert.ElementsMatch(t, tt.expected, result)
 		})
 	}
@@ -857,7 +858,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		name              string
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
-		names             []poolerID
+		names             []consensus.ReplicaID
 		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
@@ -865,7 +866,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "FIRST method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell1_pooler2")},
+			names:             []consensus.ReplicaID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell1_pooler2")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -875,7 +876,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "ANY method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:           2,
-			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell2_pooler2"), mustPoolerIDFromAppName("cell2_pooler3")},
+			names:             []consensus.ReplicaID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell2_pooler2"), mustPoolerIDFromAppName("cell2_pooler3")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -885,7 +886,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "db exec error",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1")},
+			names:             []consensus.ReplicaID{mustPoolerIDFromAppName("cell1_pooler1")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("exec error"))
 			},
@@ -1108,7 +1109,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := validateSyncReplicationParams(tt.numSync, tt.standbyIDs)
+			_, err := consensus.ValidateSyncReplicationParams(tt.numSync, tt.standbyIDs)
 
 			if tt.expectError {
 				require.Error(t, err)

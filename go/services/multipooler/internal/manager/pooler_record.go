@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 const (
@@ -147,7 +148,7 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 // desired state. Fields not exposed in MutablePoolerRecordState (Id,
 // ShardKey, PoolerDir, etc.) cannot be touched.
 //
-// ctx must carry an action lock (see AssertActionLockHeld). The action lock
+// ctx must carry an action lock (see actionlock.AssertActionLockHeld). The action lock
 // serialises state transitions across the whole manager — RPC handlers
 // (promotion, demotion, type change) and lifecycle paths (Open, closeLocked)
 // all reach Mutate via StateManager.SetState with an action-locked ctx
@@ -157,7 +158,7 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 // fn must not block or call back into poolerRecord; it should perform
 // simple field assignments only.
 func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordState)) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	r.applyMutation(fn)

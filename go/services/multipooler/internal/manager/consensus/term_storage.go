@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"fmt"
@@ -24,16 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
-
-// postgresDataDir returns the PostgreSQL data directory path from PGDATA env var
-func postgresDataDir() string {
-	return os.Getenv(constants.PgDataDirEnvVar)
-}
-
-// multigresDataDir returns the multigres-specific subdirectory within PGDATA
-func multigresDataDir() string {
-	return filepath.Join(postgresDataDir(), constants.MultigresMarkerDirectory)
-}
 
 // consensusTermPath returns the path to the consensus term file
 func (cs *ConsensusState) consensusTermPath() string {
@@ -90,4 +80,16 @@ func (cs *ConsensusState) setRevocation(revocation *clustermetadatapb.TermRevoca
 	}
 
 	return nil
+}
+
+// ReadRevocationFile retrieves the current term revocation directly from disk,
+// bypassing the in-memory cache. Used by tests to verify on-disk state.
+func (cs *ConsensusState) ReadRevocationFile() (*clustermetadatapb.TermRevocation, error) {
+	return cs.getRevocation()
+}
+
+// WriteRevocationFile saves the term revocation directly to disk without updating
+// the in-memory cache. Used by tests to set up on-disk state before Load().
+func (cs *ConsensusState) WriteRevocationFile(revocation *clustermetadatapb.TermRevocation) error {
+	return cs.setRevocation(revocation)
 }

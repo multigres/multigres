@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // SyncStandbyManager owns all writes to the synchronous_standby_names GUC.
@@ -41,7 +42,7 @@ type SyncStandbyManager interface {
 	//
 	// ctx must carry either a ruleRowLock token (from lockCurrentRule on a
 	// primary) or a prePromote token (from lockCurrentRule on a standby), both
-	// of which are set automatically by ruleStore.updateRule.
+	// of which are set automatically by ruleStore.UpdateRule.
 	SetPolicy(ctx context.Context, pc commonconsensus.PolicyWithCohort) error
 
 	// Clear resets synchronous_standby_names to its default (empty) value and
@@ -72,7 +73,7 @@ type postgresqlSyncStandbyManager struct {
 	lastStandbyNames string // serialised GUC string ("FIRST 1 (…)"); empty = unknown
 }
 
-func newSyncStandbyManager(logger *slog.Logger, qs executor.InternalQueryService, localID *clustermetadatapb.ID) *postgresqlSyncStandbyManager {
+func NewSyncStandbyManager(logger *slog.Logger, qs executor.InternalQueryService, localID *clustermetadatapb.ID) *postgresqlSyncStandbyManager {
 	return &postgresqlSyncStandbyManager{logger: logger, qs: qs, localID: localID}
 }
 
@@ -96,8 +97,8 @@ func (s *postgresqlSyncStandbyManager) setSynchronousCommit(ctx context.Context,
 	return nil
 }
 
-func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []poolerID) error {
-	value, err := buildSynchronousStandbyNamesValue(method, numSync, names)
+func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []ReplicaID) error {
+	value, err := BuildSynchronousStandbyNamesValue(method, numSync, names)
 	if err != nil {
 		return err
 	}
@@ -113,10 +114,10 @@ func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, meth
 }
 
 func (s *postgresqlSyncStandbyManager) reloadConfig(ctx context.Context) error {
-	if err := reloadPostgresConfig(ctx, s.logger, s.qs); err != nil {
+	if err := ReloadPostgresConfig(ctx, s.logger, s.qs); err != nil {
 		return err
 	}
-	// reloadPostgresConfig confirms postmaster has re-read the config, but pooled
+	// ReloadPostgresConfig confirms postmaster has re-read the config, but pooled
 	// backends pick up SIGHUP asynchronously. Sleep briefly so the next WAL write
 	// is unlikely to land on a backend still using the old GUC values.
 	select {
@@ -131,7 +132,7 @@ func (s *postgresqlSyncStandbyManager) reloadConfig(ctx context.Context) error {
 // A zero wantCommit means the policy produced no eligible standbys.
 type computedGUC struct {
 	cfg          *commonconsensus.SyncReplicationConfig
-	standbyNames []poolerID
+	standbyNames []ReplicaID
 	wantCommit   string
 	wantStandby  string
 }
@@ -144,7 +145,7 @@ func (s *postgresqlSyncStandbyManager) computeGUC(pc commonconsensus.PolicyWithC
 	if err != nil {
 		return computedGUC{}, fmt.Errorf("build GUC config: %w", err)
 	}
-	standbyNames, err := validateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
+	standbyNames, err := ValidateSyncReplicationParams(int32(cfg.NumSync), cfg.SyncStandbyIDs)
 	if err != nil {
 		return computedGUC{}, err
 	}
@@ -155,7 +156,7 @@ func (s *postgresqlSyncStandbyManager) computeGUC(pc commonconsensus.PolicyWithC
 	if err != nil {
 		return computedGUC{}, err
 	}
-	wantStandby, err := buildSynchronousStandbyNamesValue(cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
+	wantStandby, err := BuildSynchronousStandbyNamesValue(cfg.SyncMethod, int32(cfg.NumSync), standbyNames)
 	if err != nil {
 		return computedGUC{}, err
 	}
@@ -220,11 +221,11 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc common
 // desired values haven't changed. This is safe because postgresqlSyncStandbyManager is the sole
 // writer of synchronous_commit and synchronous_standby_names.
 func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonconsensus.PolicyWithCohort) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return fmt.Errorf("SetPolicy: %w", err)
 	}
 
-	if err := assertPriorRuleWritesDrained(ctx); err != nil {
+	if err := AssertPriorRuleWritesDrained(ctx); err != nil {
 		return fmt.Errorf("SetPolicy: %w", err)
 	}
 
@@ -264,7 +265,7 @@ func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonc
 // in-memory cache. Called during demotion so that commits do not block on standbys
 // that are no longer connected to this node.
 func (s *postgresqlSyncStandbyManager) Clear(ctx context.Context) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 

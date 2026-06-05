@@ -29,6 +29,8 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
@@ -41,7 +43,7 @@ import (
 //   - rule: max of the observed position's rule and the rule from the most
 //     recent SetTermPrimary/Propose RPC.
 //   - primary: the contact info from the most recent SetTermPrimary/Propose, since
-//     observePosition cannot carry it.
+//     ObservePosition cannot carry it.
 //
 // Result is left nil only when neither source has any information.
 func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
@@ -91,7 +93,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 		return nil, fmt.Errorf("failed to read consensus term: %w", err)
 	}
 
-	pos, err := pm.rules.observePosition(ctx)
+	pos, err := pm.rules.ObservePosition(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
@@ -102,7 +104,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 // the ruleStore's cached position. Never queries postgres or disk.
 //
 // The action lock must be held by the caller, which prevents concurrent term updates.
-// Returns nil if no position has been cached yet (i.e. observePosition or updateRule
+// Returns nil if no position has been cached yet (i.e. ObservePosition or UpdateRule
 // has never been called).
 func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.ConsensusStatus, error) {
 	revocation, err := pm.consensusState.GetInconsistentRevocation()
@@ -110,7 +112,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() (*clustermetadatapb.Con
 		return nil, err
 	}
 
-	pos := pm.rules.cachedPosition()
+	pos := pm.rules.CachedPosition()
 	if pos == nil {
 		return nil, nil
 	}
@@ -131,13 +133,13 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 		return nil, err
 	}
 
-	pos, err := pm.rules.observePosition(ctx)
+	pos, err := pm.rules.ObservePosition(ctx)
 	if err != nil {
 		// Postgres is unreachable — fall back to the last observed position
 		// cached in memory. May be stale, but preserves visibility into the
 		// most recent rule across postgres restarts and crashes.
-		pm.logger.DebugContext(ctx, "observePosition failed; falling back to cached rule position", "error", err)
-		pos = pm.rules.cachedPosition()
+		pm.logger.DebugContext(ctx, "ObservePosition failed; falling back to cached rule position", "error", err)
+		pos = pm.rules.CachedPosition()
 	}
 	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusState.GetReplicationPrimary()), nil
 }
@@ -258,7 +260,7 @@ func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.Leaders
 // signal without waiting for the next periodic snapshot.
 // Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term int64) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	pm.mu.Lock()
@@ -275,7 +277,7 @@ func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term 
 // this node is appointed as primary at a new term.
 // Requires the action lock (ctx must be an action-lock context).
 func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	pm.mu.Lock()
@@ -557,25 +559,25 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if reason == "" {
 		reason = "propose"
 	}
-	ruleUpdate := newRuleUpdate(
+	ruleUpdate := consensus.NewRuleUpdate(
 		revokedBelowTerm,
 		proposedRule.GetCoordinatorId(),
 		"promotion",
 		reason,
 		proposedRule.GetCreationTime().AsTime()).
-		withLeader(pm.serviceID).
-		withCohort(proposedRule.GetCohortMembers()).
-		withDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
-		withAcceptedMembers(req.GetAcceptedNodeIds()).
-		withWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
-		withPromotionHook(func(hookCtx context.Context) error {
+		WithLeader(pm.serviceID).
+		WithCohort(proposedRule.GetCohortMembers()).
+		WithDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
+		WithAcceptedMembers(req.GetAcceptedNodeIds()).
+		WithWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
+		WithPromotionHook(func(hookCtx context.Context) error {
 			if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
 			}
 			return pm.promoteStandbyToPrimary(hookCtx, state)
 		})
 	if req.GetProposal().GetSkipOutgoingQuorum() {
-		ruleUpdate.withSkipOutgoingQuorum()
+		ruleUpdate.WithSkipOutgoingQuorum()
 	}
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "propose failed: could not write rule")
@@ -584,9 +586,9 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		LeaderID:   pm.serviceID,
 		LeaderTerm: revokedBelowTerm,
 	})
-	// IMPORTANT: updateTopologyAfterPromotion must only be called after updateRule
+	// IMPORTANT: updateTopologyAfterPromotion must only be called after UpdateRule
 	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
-	// updateRule is the durability gate: it waits for sync-standby acknowledgment.
+	// UpdateRule is the durability gate: it waits for sync-standby acknowledgment.
 	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after propose", "error", err)
 	}
@@ -600,7 +602,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm)
 
 	// Step 4: Return ConsensusStatus. The cache was warmed by getConsensusStatus in step 1
-	// and updated by updateRule (leader path); the replica position is unchanged.
+	// and updated by UpdateRule (leader path); the replica position is unchanged.
 	cs, err := pm.getCachedConsensusStatus()
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to build consensus status")
@@ -713,7 +715,7 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 
 	// Observe the freshest view of our rule. SetTermPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
-	selfPos, err := pm.rules.observePosition(ctx)
+	selfPos, err := pm.rules.ObservePosition(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to observe local position")
 	}

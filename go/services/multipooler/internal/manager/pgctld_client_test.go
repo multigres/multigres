@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // TestProtectedPgctldClient_StateChangingOperationsRequireLock verifies that all
@@ -95,7 +96,7 @@ func TestProtectedPgctldClient_ReadOnlyOperationsNoLockRequired(t *testing.T) {
 // succeed when the action lock is held.
 func TestProtectedPgctldClient_WithLockHeld(t *testing.T) {
 	ctx := context.Background()
-	actionLock := NewActionLock()
+	actionLock := actionlock.NewActionLock()
 
 	// Acquire the lock
 	lockCtx, err := actionLock.Acquire(ctx, "test")

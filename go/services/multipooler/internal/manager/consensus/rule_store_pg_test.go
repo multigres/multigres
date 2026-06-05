@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"context"
@@ -37,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	testutils "github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
@@ -195,7 +196,7 @@ func TestMain(m *testing.M) {
 }
 
 // startSharedPostgres initialises and starts a dedicated postgres instance.
-// It sets up the multigres schema via createRuleTables so tests do not need to.
+// It sets up the multigres schema via CreateRuleTables so tests do not need to.
 func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 	t.Helper()
 	// Use /tmp explicitly so the unix socket path stays under the 104-byte macOS limit.
@@ -288,8 +289,8 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
-	if err := rs.createRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()); err != nil {
+	rs := NewRuleStore(logger, qs, noopSyncStandbyManager{})
+	if err := rs.CreateRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
 		return nil, fmt.Errorf("create rule tables: %w", err)
 	}
@@ -309,7 +310,7 @@ func newTestRuleStore(ctx context.Context, t *testing.T) (*ruleStore, *client.Co
 	conn, err := pgTestFixture.newClientConn(ctx)
 	require.NoError(t, err)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
+	rs := NewRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
 	return rs, conn
 }
 
@@ -326,8 +327,8 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rs := newRuleStore(logger, qs, noopSyncStandbyManager{})
-	require.NoError(t, rs.createRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()))
+	rs := NewRuleStore(logger, qs, noopSyncStandbyManager{})
+	require.NoError(t, rs.CreateRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()))
 }
 
 // skipIfNoPG lazily starts the shared postgres fixture on first call and skips
@@ -360,13 +361,13 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 	rs, conn := newTestRuleStore(ctx, t)
 	defer conn.Close()
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos, "fresh state should still return a position with the current LSN")
 	assert.Equal(t, int64(0), pos.GetRule().GetRuleNumber().GetCoordinatorTerm(), "fresh initial row has coordinator_term=0")
 	assert.NotEmpty(t, pos.GetLsn(), "fresh state should include the current WAL LSN")
 
-	// The initial row written by createRuleTables must carry the bootstrap durability policy.
+	// The initial row written by CreateRuleTables must carry the bootstrap durability policy.
 	dp := pos.GetRule().GetDurabilityPolicy()
 	require.NotNil(t, dp, "initial row must carry the bootstrap durability policy")
 	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
@@ -382,12 +383,12 @@ func TestRuleStorePG_ObservePosition_InitialRowMissing(t *testing.T) {
 	rs, conn := newTestRuleStore(ctx, t)
 	defer conn.Close()
 
-	// Wipe the initial row that resetRuleStoreTables just inserted. observePosition
+	// Wipe the initial row that resetRuleStoreTables just inserted. ObservePosition
 	// must surface a specific error rather than returning a nil position.
 	_, err := conn.Query(ctx, "DELETE FROM multigres.current_rule")
 	require.NoError(t, err)
 
-	_, err = rs.observePosition(ctx)
+	_, err = rs.ObservePosition(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "current_rule initial row missing for shard 0")
 }
@@ -403,14 +404,14 @@ func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testin
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
 
 	// Write a rule without specifying a durability policy — the initial row's policy must carry forward.
-	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
+	_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
 	require.NoError(t, err)
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 
 	dp := pos.GetRule().GetDurabilityPolicy()
-	require.NotNil(t, dp, "initial policy must carry forward through updateRule without withDurabilityPolicy")
+	require.NotNil(t, dp, "initial policy must carry forward through UpdateRule without WithDurabilityPolicy")
 	assert.Equal(t, testBootstrapPolicy().PolicyName, dp.PolicyName)
 	assert.Equal(t, testBootstrapPolicy().QuorumType, dp.QuorumType)
 	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
@@ -425,9 +426,9 @@ func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
 	defer conn.Close()
 
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	update := newRuleUpdate(1, coordinatorID, "promotion", "initial primary", time.Now())
+	update := NewRuleUpdate(1, coordinatorID, "promotion", "initial primary", time.Now())
 
-	pos, err := rs.updateRule(ctx, update)
+	pos, err := rs.UpdateRule(ctx, update)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(1), pos.Rule.RuleNumber.CoordinatorTerm)
@@ -445,11 +446,11 @@ func TestRuleStorePG_UpdateRule_SameTermIncrementsSubterm(t *testing.T) {
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
 	now := time.Now()
 
-	pos1, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
+	pos1, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), pos1.Rule.RuleNumber.LeaderSubterm)
 
-	pos2, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "second", now))
+	pos2, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", "second", now))
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.LeaderSubterm, "second write in same term increments subterm")
 }
@@ -467,12 +468,12 @@ func TestRuleStorePG_UpdateRule_NewTermResetsSubterm(t *testing.T) {
 
 	// Establish term 1 with a few subterms.
 	for range 3 {
-		_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "setup", now))
+		_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", "setup", now))
 		require.NoError(t, err)
 	}
 
 	// Advance to term 2: subterm must reset to 0.
-	pos, err := rs.updateRule(ctx, newRuleUpdate(2, coordinatorID, "promotion", "new coordinator", now))
+	pos, err := rs.UpdateRule(ctx, NewRuleUpdate(2, coordinatorID, "promotion", "new coordinator", now))
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), pos.Rule.RuleNumber.CoordinatorTerm)
 	assert.Equal(t, int64(0), pos.Rule.RuleNumber.LeaderSubterm, "new term resets subterm to 0")
@@ -490,11 +491,11 @@ func TestRuleStorePG_UpdateRule_StaleTermRejected(t *testing.T) {
 	now := time.Now()
 
 	// Advance to term 2.
-	_, err := rs.updateRule(ctx, newRuleUpdate(2, coordinatorID, "promotion", "initial", now))
+	_, err := rs.UpdateRule(ctx, NewRuleUpdate(2, coordinatorID, "promotion", "initial", now))
 	require.NoError(t, err)
 
 	// Attempt to write with stale term 1.
-	_, err = rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "stale", now))
+	_, err = rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", "stale", now))
 	require.Error(t, err, "writing with a stale term must fail")
 	assert.EqualError(t, err, "rule update rejected for term 1: current rule is at term 2")
 }
@@ -515,14 +516,14 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	}
 	now := time.Now()
 
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(3, coordinatorID, "promotion", "bootstrap", now).
-			withLeader(leaderID).
-			withCohort(cohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(3, coordinatorID, "promotion", "bootstrap", now).
+			WithLeader(leaderID).
+			WithCohort(cohort),
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(3), pos.Rule.RuleNumber.CoordinatorTerm)
@@ -564,13 +565,13 @@ func TestRuleStorePG_UpdateRule_HistoryFields(t *testing.T) {
 	op := "replication_config"
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(5, coordinatorID, "promotion", "bootstrap failover", now).
-			withLeader(leaderID).
-			withCohort(cohort).
-			withWALPosition(walPos).
-			withOperation(op).
-			withAcceptedMembers(accepted),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(5, coordinatorID, "promotion", "bootstrap failover", now).
+			WithLeader(leaderID).
+			WithCohort(cohort).
+			WithWALPosition(walPos).
+			WithOperation(op).
+			WithAcceptedMembers(accepted),
 	)
 	require.NoError(t, err)
 
@@ -621,15 +622,15 @@ func TestRuleStorePG_UpdateRule_CASSuccess(t *testing.T) {
 	now := time.Now()
 
 	// Write the first rule so we know the exact term/subterm.
-	pos1, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
+	pos1, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
 	term := pos1.Rule.RuleNumber.CoordinatorTerm  // 1
 	subterm := pos1.Rule.RuleNumber.LeaderSubterm // 0
 
 	// CAS: only proceed if current rule is still (term=1, subterm=0).
-	pos2, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "config_change", "cas write", now).
-			withPreviousRule(term, subterm),
+	pos2, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "config_change", "cas write", now).
+			WithPreviousRule(term, subterm),
 	)
 	require.NoError(t, err, "CAS should succeed when term/subterm match")
 	assert.Equal(t, int64(1), pos2.Rule.RuleNumber.LeaderSubterm, "subterm should advance to 1")
@@ -647,13 +648,13 @@ func TestRuleStorePG_UpdateRule_CASConflict(t *testing.T) {
 	now := time.Now()
 
 	// Write once to advance past the initial row's coordinates.
-	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "first", now))
+	_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "first", now))
 	require.NoError(t, err)
 
 	// CAS with stale coordinates should fail with errRuleConflict.
-	_, err = rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "config_change", "stale cas", now).
-			withPreviousRule(0, 0), // initial-row coordinates no longer current
+	_, err = rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "config_change", "stale cas", now).
+			WithPreviousRule(0, 0), // initial-row coordinates no longer current
 	)
 	require.ErrorIs(t, err, errRuleConflict, "CAS with wrong term/subterm must return errRuleConflict")
 }
@@ -670,13 +671,13 @@ func TestRuleStorePG_UpdateRule_HistoryRecorded(t *testing.T) {
 	now := time.Now()
 
 	for i := range 5 {
-		_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", fmt.Sprintf("write %d", i), now))
+		_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", fmt.Sprintf("write %d", i), now))
 		require.NoError(t, err)
 	}
 
 	records, err := rs.queryRuleHistory(ctx, 10)
 	require.NoError(t, err)
-	assert.Len(t, records, 5, "every updateRule call must append a rule_history row")
+	assert.Len(t, records, 5, "every UpdateRule call must append a rule_history row")
 }
 
 func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
@@ -691,7 +692,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
 
-	lock := NewActionLock()
+	lock := actionlock.NewActionLock()
 	for i := range goroutines {
 		wg.Add(1)
 		go func(idx int) {
@@ -712,9 +713,9 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 			defer conn.Close()
 
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			rs := newRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
-			_, errs[idx] = rs.updateRule(gCtx,
-				newRuleUpdate(1, coordinatorID, "config_change",
+			rs := NewRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
+			_, errs[idx] = rs.UpdateRule(gCtx,
+				NewRuleUpdate(1, coordinatorID, "config_change",
 					fmt.Sprintf("concurrent write %d", idx), now),
 			)
 		}(i)
@@ -734,7 +735,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, records, goroutines, "every concurrent write must produce a history row")
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(1), pos.Rule.RuleNumber.CoordinatorTerm)
@@ -764,19 +765,19 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
 	now := time.Now()
 	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
-			withDurabilityPolicy(policy).
-			withCohort(cohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			WithDurabilityPolicy(policy).
+			WithCohort(cohort),
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 
 	dp := pos.Rule.GetDurabilityPolicy()
-	require.NotNil(t, dp, "durability policy must be persisted and returned by observePosition")
+	require.NotNil(t, dp, "durability policy must be persisted and returned by ObservePosition")
 	assert.Equal(t, "MULTI_CELL_AT_LEAST_2", dp.PolicyName)
 	assert.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N, dp.QuorumType)
 	assert.Equal(t, int32(2), dp.RequiredCount)
@@ -804,20 +805,20 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) 
 	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
 	// Write rule with durability policy.
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
-			withDurabilityPolicy(policy).
-			withCohort(cohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			WithDurabilityPolicy(policy).
+			WithCohort(cohort),
 	)
 	require.NoError(t, err)
 
 	// Write another rule without specifying durability policy; it must be preserved via COALESCE.
-	_, err = rs.updateRule(ctx,
-		newRuleUpdate(7, coordinatorID, "config_change", "update", now),
+	_, err = rs.UpdateRule(ctx,
+		NewRuleUpdate(7, coordinatorID, "config_change", "update", now),
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.observePosition(ctx)
+	pos, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 
@@ -847,10 +848,10 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyInHistory(t *testing.T) {
 	now := time.Now()
 	bootstrapRuleState(ctx, t, rs, policy, cohort)
 
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
-			withDurabilityPolicy(policy).
-			withCohort(cohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			WithDurabilityPolicy(policy).
+			WithCohort(cohort),
 	)
 	require.NoError(t, err)
 
@@ -883,12 +884,12 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing
 	}
 	now := time.Now()
 
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(7, coordinatorID, "promotion", "initial", now).
-			withDurabilityPolicy(policy).
-			withCohort(singleCellCohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(7, coordinatorID, "promotion", "initial", now).
+			WithDurabilityPolicy(policy).
+			WithCohort(singleCellCohort),
 	)
-	require.Error(t, err, "updateRule must reject a cohort that cannot satisfy the durability policy")
+	require.Error(t, err, "UpdateRule must reject a cohort that cannot satisfy the durability policy")
 	assert.EqualError(t, err, "cohort cannot achieve durability policy: durability not achievable: proposed cohort spans 1 cells, required 2")
 }
 
@@ -909,11 +910,11 @@ func testPoolerID(t *testing.T, cell, name string) *clustermetadatapb.ID {
 func bootstrapRuleState(ctx context.Context, t *testing.T, rs *ruleStore, policy *clustermetadatapb.DurabilityPolicy, cohort []*clustermetadatapb.ID) {
 	t.Helper()
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-bootstrap")
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "promotion", "bootstrap", time.Now()).
-			withDurabilityPolicy(policy).
-			withCohort(cohort).
-			withSkipOutgoingQuorum(),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "bootstrap", time.Now()).
+			WithDurabilityPolicy(policy).
+			WithCohort(cohort).
+			WithSkipOutgoingQuorum(),
 	)
 	require.NoError(t, err)
 }
@@ -933,8 +934,8 @@ func newTestRuleStoreWithRealSSM(t *testing.T, localID *clustermetadatapb.ID) (*
 	t.Cleanup(func() { ssmConn.Close() })
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ssm := newSyncStandbyManager(logger, &connQueryService{conn: ssmConn}, localID)
-	rs := newRuleStore(logger, &connQueryService{conn: rsConn}, ssm)
+	ssm := NewSyncStandbyManager(logger, &connQueryService{conn: ssmConn}, localID)
+	rs := NewRuleStore(logger, &connQueryService{conn: rsConn}, ssm)
 	return rs, ssm
 }
 
@@ -955,9 +956,9 @@ func resetGUCSettings(t *testing.T) {
 }
 
 // TestRuleStorePG_HasInconsistentGUC_FalseBeforeAnyObservation verifies that
-// hasInconsistentGUC returns false when no position has been observed yet.
+// HasInconsistentGUC returns false when no position has been observed yet.
 // A nil cache means we cannot compute the desired GUC, so we should not
-// report inconsistency — the monitor will call observePosition first.
+// report inconsistency — the monitor will call ObservePosition first.
 func TestRuleStorePG_HasInconsistentGUC_FalseBeforeAnyObservation(t *testing.T) {
 	skipIfNoPG(t)
 	resetRuleStoreTables(t.Context(), t)
@@ -965,7 +966,7 @@ func TestRuleStorePG_HasInconsistentGUC_FalseBeforeAnyObservation(t *testing.T) 
 	localID := testPoolerID(t, "zone1", "primary-1")
 	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
 
-	assert.False(t, rs.hasInconsistentGUC(t.Context()), "nil cache should not report inconsistency before any observePosition call")
+	assert.False(t, rs.HasInconsistentGUC(t.Context()), "nil cache should not report inconsistency before any ObservePosition call")
 }
 
 // TestRuleStorePG_GUCReconciliation verifies the full detect-and-fix cycle:
@@ -973,10 +974,10 @@ func TestRuleStorePG_HasInconsistentGUC_FalseBeforeAnyObservation(t *testing.T) 
 //  1. Bootstrap a rule with a real durability policy using noopSyncStandbyManager
 //     (simulating a prior process that committed a rule without updating GUC cache).
 //  2. Create a fresh ruleStore with a real postgresqlSyncStandbyManager (cold cache).
-//  3. After observePosition() the cache has the rule but SSM has no cached GUC,
-//     so hasInconsistentGUC() should return true.
-//  4. reconcileGUC() should succeed and apply the GUC.
-//  5. hasInconsistentGUC() should return false afterwards.
+//  3. After ObservePosition() the cache has the rule but SSM has no cached GUC,
+//     so HasInconsistentGUC() should return true.
+//  4. ReconcileGUC() should succeed and apply the GUC.
+//  5. HasInconsistentGUC() should return false afterwards.
 func TestRuleStorePG_GUCReconciliation(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
@@ -1003,37 +1004,37 @@ func TestRuleStorePG_GUCReconciliation(t *testing.T) {
 	// New ruleStore with a real SSM — cold cache.
 	rs, ssm := newTestRuleStoreWithRealSSM(t, localID)
 
-	// Warm the rule cache via observePosition without touching GUC.
-	_, err := rs.observePosition(ctx)
+	// Warm the rule cache via ObservePosition without touching GUC.
+	_, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 
 	// Cold SSM cache: postgres has the correct values but cache is empty, so
 	// NeedsApply queries postgres and returns true (cache != desired).
-	assert.True(t, rs.hasInconsistentGUC(ctx), "cold SSM cache with a committed rule should be inconsistent")
+	assert.True(t, rs.HasInconsistentGUC(ctx), "cold SSM cache with a committed rule should be inconsistent")
 
-	// reconcileGUC should apply the GUC and populate the SSM cache.
-	require.NoError(t, rs.reconcileGUC(ctx, false /* inRecovery */))
+	// ReconcileGUC should apply the GUC and populate the SSM cache.
+	require.NoError(t, rs.ReconcileGUC(ctx, false /* inRecovery */))
 
-	// After reconcileGUC, NeedsApply queries postgres and finds it already matches.
+	// After ReconcileGUC, NeedsApply queries postgres and finds it already matches.
 	needs, err := ssm.NeedsApply(ctx, commonconsensus.PolicyWithCohort{
 		Policy: mustNewPolicyFromProto(t, policy),
 		Cohort: cohort,
 	})
 	require.NoError(t, err)
-	assert.False(t, needs, "postgres should already have desired GUC after reconcileGUC")
+	assert.False(t, needs, "postgres should already have desired GUC after ReconcileGUC")
 
-	// hasInconsistentGUC should now return false — no spurious re-applies.
-	assert.False(t, rs.hasInconsistentGUC(ctx), "hasInconsistentGUC should be false after reconcileGUC")
+	// HasInconsistentGUC should now return false — no spurious re-applies.
+	assert.False(t, rs.HasInconsistentGUC(ctx), "HasInconsistentGUC should be false after ReconcileGUC")
 }
 
 // TestRuleStorePG_GUCDriftDetectedAndHealed verifies the full detect-and-fix cycle
 // when the GUC is changed outside the manager (e.g. manual ALTER SYSTEM + reload):
 //
-//  1. Establish a known-good GUC state via reconcileGUC.
+//  1. Establish a known-good GUC state via ReconcileGUC.
 //  2. Corrupt the live GUC via a separate connection.
-//  3. hasInconsistentGUC detects the drift by querying postgres.
-//  4. reconcileGUC restores the correct values.
-//  5. hasInconsistentGUC returns false.
+//  3. HasInconsistentGUC detects the drift by querying postgres.
+//  4. ReconcileGUC restores the correct values.
+//  5. HasInconsistentGUC returns false.
 func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
@@ -1056,13 +1057,13 @@ func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	bootstrapRuleState(ctx, t, bootstrapRS, policy, cohort)
 
 	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
-	_, err := rs.observePosition(ctx)
+	_, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
-	require.NoError(t, rs.reconcileGUC(ctx, false))
-	require.False(t, rs.hasInconsistentGUC(ctx), "precondition: GUC should be consistent after initial reconcile")
+	require.NoError(t, rs.ReconcileGUC(ctx, false))
+	require.False(t, rs.HasInconsistentGUC(ctx), "precondition: GUC should be consistent after initial reconcile")
 
 	// Corrupt the live GUC behind the manager's back.
-	// Also reset synchronous_commit to 'local' so the reconcileGUC healing step can
+	// Also reset synchronous_commit to 'local' so the ReconcileGUC healing step can
 	// commit without blocking — in production actual standbys are present, but in
 	// tests we have none.
 	corruptConn, err := pgTestFixture.newClientConn(t.Context())
@@ -1074,18 +1075,18 @@ func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	_, err = corruptQS.Query(t.Context(), "ALTER SYSTEM SET synchronous_commit = 'local'")
 	require.NoError(t, err)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	require.NoError(t, reloadPostgresConfig(t.Context(), logger, corruptQS))
+	require.NoError(t, ReloadPostgresConfig(t.Context(), logger, corruptQS))
 
-	// hasInconsistentGUC queries postgres and detects the drift.
-	assert.True(t, rs.hasInconsistentGUC(ctx), "drift should be detected after external GUC change")
+	// HasInconsistentGUC queries postgres and detects the drift.
+	assert.True(t, rs.HasInconsistentGUC(ctx), "drift should be detected after external GUC change")
 
-	// reconcileGUC restores the correct value.
-	require.NoError(t, rs.reconcileGUC(ctx, false))
+	// ReconcileGUC restores the correct value.
+	require.NoError(t, rs.ReconcileGUC(ctx, false))
 
-	assert.False(t, rs.hasInconsistentGUC(ctx), "GUC should be consistent after reconcileGUC heals the drift")
+	assert.False(t, rs.HasInconsistentGUC(ctx), "GUC should be consistent after ReconcileGUC heals the drift")
 }
 
-// TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked verifies that reconcileGUC
+// TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked verifies that ReconcileGUC
 // fails immediately (FOR UPDATE NOWAIT) when another transaction holds the
 // current_rule row lock, leaving the SSM cache unchanged.
 func TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked(t *testing.T) {
@@ -1124,10 +1125,10 @@ func TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked(t *testing.T) {
 
 	// FOR UPDATE NOWAIT should fail immediately rather than blocking.
 	start := time.Now()
-	err = rs.reconcileGUC(ctx, false /* inRecovery */)
+	err = rs.ReconcileGUC(ctx, false /* inRecovery */)
 	elapsed := time.Since(start)
 
-	require.Error(t, err, "reconcileGUC should fail when current_rule is locked")
+	require.Error(t, err, "ReconcileGUC should fail when current_rule is locked")
 	assert.Less(t, elapsed, 500*time.Millisecond, "NOWAIT should fail fast, not block (got %v)", elapsed)
 
 	// SSM cache must be unchanged: no GUC should have been applied.
@@ -1136,10 +1137,10 @@ func TestRuleStorePG_ReconcileGUC_FailsWhenRuleIsLocked(t *testing.T) {
 		Cohort: cohort,
 	})
 	require.NoError(t, err2)
-	assert.True(t, needs, "SSM cache must remain cold after a failed reconcileGUC")
+	assert.True(t, needs, "SSM cache must remain cold after a failed ReconcileGUC")
 }
 
-// TestRuleStorePG_UpdateRule_FailsWhenRuleIsLocked verifies that updateRule
+// TestRuleStorePG_UpdateRule_FailsWhenRuleIsLocked verifies that UpdateRule
 // fails immediately (FOR UPDATE NOWAIT) when another transaction holds the
 // current_rule row lock. The error must mention the lock contention.
 func TestRuleStorePG_UpdateRule_FailsWhenRuleIsLocked(t *testing.T) {
@@ -1161,13 +1162,13 @@ func TestRuleStorePG_UpdateRule_FailsWhenRuleIsLocked(t *testing.T) {
 	require.NoError(t, err)
 
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	_, err = rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "promotion", "locked", time.Now()))
+	_, err = rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "locked", time.Now()))
 
 	require.Error(t, err)
 	assert.EqualError(t, err, "failed to read current_rule: ERROR: could not obtain lock on row in relation \"current_rule\"")
 }
 
-// TestRuleStorePG_ReconcileGUC_RequiresActionLock verifies that reconcileGUC
+// TestRuleStorePG_ReconcileGUC_RequiresActionLock verifies that ReconcileGUC
 // returns an error when called without the action lock.
 func TestRuleStorePG_ReconcileGUC_RequiresActionLock(t *testing.T) {
 	skipIfNoPG(t)
@@ -1176,12 +1177,12 @@ func TestRuleStorePG_ReconcileGUC_RequiresActionLock(t *testing.T) {
 	localID := testPoolerID(t, "zone1", "primary-1")
 	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
 
-	err := rs.reconcileGUC(t.Context(), false)
+	err := rs.ReconcileGUC(t.Context(), false)
 	require.Error(t, err)
-	assert.EqualError(t, err, "reconcileGUC: context does not hold an action lock")
+	assert.EqualError(t, err, "ReconcileGUC: context does not hold an action lock")
 }
 
-// TestRuleStorePG_UpdateRule_RequiresActionLock verifies that updateRule returns
+// TestRuleStorePG_UpdateRule_RequiresActionLock verifies that UpdateRule returns
 // an error when called without the action lock.
 func TestRuleStorePG_UpdateRule_RequiresActionLock(t *testing.T) {
 	skipIfNoPG(t)
@@ -1191,14 +1192,14 @@ func TestRuleStorePG_UpdateRule_RequiresActionLock(t *testing.T) {
 	defer conn.Close()
 
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	_, err := rs.updateRule(t.Context(), newRuleUpdate(1, coordinatorID, "promotion", "no lock", time.Now()))
+	_, err := rs.UpdateRule(t.Context(), NewRuleUpdate(1, coordinatorID, "promotion", "no lock", time.Now()))
 	require.Error(t, err)
-	assert.EqualError(t, err, "updateRule: context does not hold an action lock")
+	assert.EqualError(t, err, "UpdateRule: context does not hold an action lock")
 }
 
 // newTestRuleStoreWithFailingSSM creates a ruleStore backed by the shared
 // postgres fixture and a SyncStandbyManager that returns the given errors from
-// SetPolicy in order. Used by GUC-failure tests to exercise updateRule's
+// SetPolicy in order. Used by GUC-failure tests to exercise UpdateRule's
 // pre-promote / pre-write / post-write error paths.
 func newTestRuleStoreWithFailingSSM(t *testing.T, setPolicyErrs []error) (*ruleStore, *failingSyncStandbyManager) {
 	t.Helper()
@@ -1207,7 +1208,7 @@ func newTestRuleStoreWithFailingSSM(t *testing.T, setPolicyErrs []error) (*ruleS
 	t.Cleanup(func() { conn.Close() })
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ssm := &failingSyncStandbyManager{setPolicyErrs: setPolicyErrs}
-	rs := newRuleStore(logger, &connQueryService{conn: conn}, ssm)
+	rs := NewRuleStore(logger, &connQueryService{conn: conn}, ssm)
 	return rs, ssm
 }
 
@@ -1218,7 +1219,7 @@ func TestRuleStorePG_UpdateRule_PreWriteGUCFails(t *testing.T) {
 
 	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{errors.New("alter system failed")})
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre-write GUC")
 	assert.Contains(t, err.Error(), "alter system failed")
@@ -1232,9 +1233,9 @@ func TestRuleStorePG_UpdateRule_PrePromoteGUCFails(t *testing.T) {
 	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{errors.New("alter system failed")})
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
 	hookCalled := false
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
-			withPromotionHook(func(context.Context) error {
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			WithPromotionHook(func(context.Context) error {
 				hookCalled = true
 				return nil
 			}),
@@ -1252,9 +1253,9 @@ func TestRuleStorePG_UpdateRule_PromotionHookFails(t *testing.T) {
 
 	rs, _ := newTestRuleStoreWithFailingSSM(t, nil) // SetPolicy always succeeds
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
-			withPromotionHook(func(context.Context) error {
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			WithPromotionHook(func(context.Context) error {
 				return errors.New("pg_promote refused")
 			}),
 	)
@@ -1271,7 +1272,7 @@ func TestRuleStorePG_UpdateRule_PostWriteGUCFails(t *testing.T) {
 	// First SetPolicy (pre-write) succeeds, second (post-write) fails.
 	rs, _ := newTestRuleStoreWithFailingSSM(t, []error{nil, errors.New("post-write alter failed")})
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	_, err := rs.updateRule(ctx, newRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "post-write GUC")
 	assert.Contains(t, err.Error(), "post-write alter failed")
@@ -1286,12 +1287,12 @@ func TestRuleStorePG_UpdateRule_InvalidLeaderID(t *testing.T) {
 	defer conn.Close()
 
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
-	// Underscore in Name is rejected by newPoolerID (underscores are the
+	// Underscore in Name is rejected by NewReplicaID (underscores are the
 	// cell_name delimiter).
 	badLeader := &clustermetadatapb.ID{Cell: "zone1", Name: "bad_name"}
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
-			withLeader(badLeader),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			WithLeader(badLeader),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid leader ID")
@@ -1311,9 +1312,9 @@ func TestRuleStorePG_UpdateRule_InvalidCohortID(t *testing.T) {
 		{Cell: "zone1", Name: "good"},
 		{Cell: "zone1", Name: "bad_name"},
 	}
-	_, err := rs.updateRule(ctx,
-		newRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
-			withCohort(badCohort),
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "test", time.Now()).
+			WithCohort(badCohort),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid cohort member ID")
@@ -1327,18 +1328,18 @@ func TestRuleStorePG_ReconcileGUC_InvalidPolicy(t *testing.T) {
 	rs, conn := newTestRuleStore(ctx, t)
 	defer conn.Close()
 
-	// Bypass updateRule (which validates) and write QUORUM_TYPE_UNKNOWN
+	// Bypass UpdateRule (which validates) and write QUORUM_TYPE_UNKNOWN
 	// directly. The string is a valid enum entry so buildPoolerPosition
-	// accepts it, but NewPolicyFromProto rejects it inside reconcileGUC.
+	// accepts it, but NewPolicyFromProto rejects it inside ReconcileGUC.
 	qs := &connQueryService{conn: conn}
 	_, err := qs.QueryArgs(ctx,
 		"UPDATE multigres.current_rule SET durability_quorum_type = 'QUORUM_TYPE_UNKNOWN' WHERE shard_id = $1",
 		[]byte("0"))
 	require.NoError(t, err)
 
-	err = rs.reconcileGUC(ctx, false /* inRecovery */)
+	err = rs.ReconcileGUC(ctx, false /* inRecovery */)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reconcileGUC: invalid durability policy")
+	assert.Contains(t, err.Error(), "ReconcileGUC: invalid durability policy")
 }
 
 func TestRuleStorePG_ReadCurrentRule_ParseFailureFromBogusQuorumType(t *testing.T) {
@@ -1358,7 +1359,7 @@ func TestRuleStorePG_ReadCurrentRule_ParseFailureFromBogusQuorumType(t *testing.
 		[]byte("0"))
 	require.NoError(t, err)
 
-	_, err = rs.observePosition(ctx)
+	_, err = rs.ObservePosition(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse current_rule")
 }

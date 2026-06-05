@@ -33,6 +33,8 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -47,7 +49,7 @@ var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 // path reads one field but stores the other, the assertion catches it.
 var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
-func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules ruleStorer) (*MultiPoolerManager, string) {
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultiPoolerManager, string) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -112,7 +114,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 
 	// Initialize consensus state
 	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.consensusState = consensus.NewConsensusState(tmpDir, serviceID)
 	pm.mu.Unlock()
 
 	return pm, tmpDir
@@ -384,7 +386,7 @@ func TestRecruit(t *testing.T) {
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
-			err := pm.consensusState.setRevocation(tt.initialRevocation)
+			err := pm.consensusState.WriteRevocationFile(tt.initialRevocation)
 			require.NoError(t, err)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
@@ -412,7 +414,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted, err := pm.consensusState.getRevocation()
+			persisted, err := pm.consensusState.ReadRevocationFile()
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
@@ -703,15 +705,15 @@ func TestPropose(t *testing.T) {
 			},
 			postCheck: func(t *testing.T, pm *MultiPoolerManager, rs *fakeRuleStore) {
 				update := rs.assertPromoteRecorded(t)
-				assert.Equal(t, int64(7), update.termNumber)
-				assert.True(t, proto.Equal(coordinatorA, update.coordinatorID))
-				assert.True(t, proto.Equal(selfID, update.leaderID))
-				assert.Len(t, update.cohortMembers, 2)
+				assert.Equal(t, int64(7), update.GetTermNumber())
+				assert.True(t, proto.Equal(coordinatorA, update.GetCoordinatorID()))
+				assert.True(t, proto.Equal(selfID, update.GetLeaderID()))
+				assert.Len(t, update.GetCohortMembers(), 2)
 				// walPosition comes from beforeStatus.GetCurrentPosition().GetLsn(),
 				// which is the rule store's cached LSN at the time of the Propose call.
-				assert.Equal(t, makeRulePosition(0).Lsn, update.walPosition)
-				assert.Nil(t, update.durabilityPolicy)
-				assert.Empty(t, update.acceptedMembers)
+				assert.Equal(t, makeRulePosition(0).Lsn, update.GetWALPosition())
+				assert.Nil(t, update.GetDurabilityPolicy())
+				assert.Empty(t, update.GetAcceptedMembers())
 
 				state := pm.healthStreamer.getState()
 				require.NotNil(t, state.LeaderObservation)
@@ -734,10 +736,10 @@ func TestPropose(t *testing.T) {
 			},
 		},
 		{
-			// GUC application (syncStandby.SetPolicy inside updateRule) fails before
+			// GUC application (syncStandby.SetPolicy inside UpdateRule) fails before
 			// pg_promote is called. Propose must return an error without promoting, since
 			// a misconfigured GUC would allow the primary to accept writes without the
-			// required sync acknowledgment. GUC application now lives inside updateRule,
+			// required sync acknowledgment. GUC application now lives inside UpdateRule,
 			// so we simulate the failure via fakeRuleStore.updateErr.
 			name:        "LeaderGUCFailure",
 			initialTerm: recruitedTerm,
@@ -745,7 +747,7 @@ func TestPropose(t *testing.T) {
 			req:         makeLeaderReq(),
 			setupMocks: func(m *mock.QueryService) {
 				expectStandbyReadyMocks(m)
-				// checkPromotionState: standby. updateRule then fails (no pg_promote called).
+				// checkPromotionState: standby. UpdateRule then fails (no pg_promote called).
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 					mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
@@ -862,7 +864,7 @@ func TestPropose(t *testing.T) {
 
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
-			err := pm.consensusState.setRevocation(tt.initialTerm)
+			err := pm.consensusState.WriteRevocationFile(tt.initialTerm)
 			require.NoError(t, err)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
@@ -947,7 +949,7 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 		logger:         logger,
 		serviceID:      id,
 		healthStreamer: streamer,
-		actionLock:     NewActionLock(),
+		actionLock:     actionlock.NewActionLock(),
 	}
 
 	// Subscribe so we can observe broadcasts.

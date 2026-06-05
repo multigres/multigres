@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package consensus
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // ConsensusState manages the in-memory and on-disk consensus state for this node.
@@ -130,7 +131,7 @@ func (cs *ConsensusState) Load() (int64, error) {
 // GetCurrentTermNumber returns the current term.
 // Returns 0 if state has not been loaded.
 func (cs *ConsensusState) GetCurrentTermNumber(ctx context.Context) (int64, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return 0, err
 	}
 	return cs.GetInconsistentCurrentTermNumber()
@@ -171,7 +172,7 @@ func (cs *ConsensusState) GetInconsistentRevocation() (*clustermetadatapb.TermRe
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
 // Returns empty string if no coordinator was accepted.
 func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
 	cs.mu.Lock()
@@ -186,7 +187,7 @@ func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error)
 // GetRevocation returns a copy of the current term revocation.
 // Returns nil if state has not been loaded.
 func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb.TermRevocation, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 	cs.mu.Lock()
@@ -205,7 +206,7 @@ func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb
 // with the current in-memory revocation (read under the mutex), so the check
 // reflects the actual locked state rather than a potentially stale snapshot.
 func (cs *ConsensusState) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	cs.mu.Lock()
@@ -227,7 +228,7 @@ func (cs *ConsensusState) AcceptRevocation(ctx context.Context, status *clusterm
 // Returns error if newTerm < currentTerm.
 // Idempotent: succeeds without changes if newTerm == currentTerm.
 func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	cs.mu.Lock()

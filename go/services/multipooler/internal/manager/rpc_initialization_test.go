@@ -30,6 +30,8 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -55,8 +57,8 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	}
 	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
 	require.NoError(t, err)
-	// Swap in a fake rule store so tests that exercise observePosition /
-	// cachedPosition don't crash on the real store's nil query service.
+	// Swap in a fake rule store so tests that exercise ObservePosition /
+	// CachedPosition don't crash on the real store's nil query service.
 	pm.rules = &fakeRuleStore{}
 	return pm
 }
@@ -282,7 +284,7 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		config:       &Config{},
 		record:       newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()}),
 	}
@@ -539,7 +541,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 					Type: tt.poolerType,
 				}),
 			}
-			pm.consensusState = NewConsensusState("", nil)
+			pm.consensusState = consensus.NewConsensusState("", nil)
 			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
 			pm.rules = &fakeRuleStore{inconsistentGUC: tt.inconsistentGUC}
 			tt.state.primaryTerm = tt.primaryTerm
@@ -555,7 +557,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 	}
 
 	// Acquire lock before calling takeRemedialAction
@@ -575,7 +577,7 @@ func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}),
@@ -601,7 +603,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 	}
 
 	// Acquire lock before calling takeRemedialAction
@@ -626,7 +628,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 	}
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
@@ -647,7 +649,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 	}
 
 	// Acquire lock before calling takeRemedialAction
@@ -669,7 +671,7 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: mockPgctld,
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
@@ -712,7 +714,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	record := newPoolerRecord(slog.Default(), ts, multipooler)
 	return &MultiPoolerManager{
 		logger:            slog.Default(),
-		actionLock:        NewActionLock(),
+		actionLock:        actionlock.NewActionLock(),
 		record:            record,
 		serviceID:         multipooler.Id,
 		topoClient:        ts,
@@ -783,15 +785,14 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			}
 			pm := newRemedialActionTestManager(t, multipooler)
 
-			cs := NewConsensusState("", nil)
-			cs.mu.Lock()
-			cs.revocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1}
-			cs.mu.Unlock()
+			cs := consensus.NewConsensusState(t.TempDir(), nil)
 			pm.consensusState = cs
 
 			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 			require.NoError(t, err)
 			defer pm.actionLock.Release(lockCtx)
+
+			require.NoError(t, cs.UpdateTermAndSave(lockCtx, 1))
 
 			if tc.resignedBefore != 0 {
 				require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
@@ -810,13 +811,13 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 	frs := &fakeRuleStore{}
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 		rules:      frs,
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		}),
 	}
-	pm.consensusState = NewConsensusState("", nil)
+	pm.consensusState = consensus.NewConsensusState("", nil)
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -824,7 +825,7 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 
 	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{isPrimary: true})
 
-	assert.True(t, frs.reconcileGUCCalled, "reconcileGUC should have been called")
+	assert.True(t, frs.reconcileGUCCalled, "ReconcileGUC should have been called")
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 }
 
@@ -834,7 +835,7 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
@@ -854,7 +855,7 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
@@ -869,7 +870,7 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}

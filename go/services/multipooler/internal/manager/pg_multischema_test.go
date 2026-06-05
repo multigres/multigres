@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 
@@ -76,7 +77,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	}
 
 	svcID := &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"}
-	svcPoolerID, err := newPoolerID(svcID)
+	svcPoolerID, err := consensus.NewReplicaID(svcID)
 	if err != nil {
 		panic(err)
 	}
@@ -90,7 +91,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
 	}
-	pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+	pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	return pm, mockQueryService
 }

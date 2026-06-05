@@ -167,7 +167,7 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			// The only postgres call SetTermPrimary must make in the no-op path is
-			// observePosition, which is handled by the fakeRuleStore — no SQL
+			// ObservePosition, which is handled by the fakeRuleStore — no SQL
 			// at all should hit the mock query service.
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
 
@@ -303,7 +303,7 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 
 	// Seed an initial revocation so we can verify SetTermPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
-	require.NoError(t, pm.consensusState.setRevocation(
+	require.NoError(t, pm.consensusState.WriteRevocationFile(
 		&clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 	))
 	_, err := pm.consensusState.Load()
@@ -332,7 +332,7 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetTermPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetTermPrimary.
-	rev, err := pm.consensusState.getRevocation()
+	rev, err := pm.consensusState.ReadRevocationFile()
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetTermPrimary must not bump revoked_below_term — that's a coordinator responsibility")
@@ -382,7 +382,7 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
-			require.NoError(t, pm.consensusState.setRevocation(
+			require.NoError(t, pm.consensusState.WriteRevocationFile(
 				&clustermetadatapb.TermRevocation{
 					RevokedBelowTerm: tt.revokedBelow,
 					OutgoingRule:     tt.outgoing,
@@ -428,7 +428,7 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 
 	// Revocation at term 5 with outgoing_rule at term 1; an incoming rule
 	// at term 3 is below revoked_below_term but strictly above outgoing_rule.
-	require.NoError(t, pm.consensusState.setRevocation(
+	require.NoError(t, pm.consensusState.WriteRevocationFile(
 		&clustermetadatapb.TermRevocation{
 			RevokedBelowTerm: 5,
 			OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -460,7 +460,7 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 }
 
 // TestSetTermPrimary_ApplyPathErrors covers the post-revocation-check error
-// paths in SetTermPrimary: observePosition, isPrimary, and the standby branch's
+// paths in SetTermPrimary: ObservePosition, isPrimary, and the standby branch's
 // setPrimaryConnInfoLocked. Each case drives the handler past validation and
 // the revocation gate, then injects a failure at a single downstream step
 // and asserts the error is propagated (wrapped) to the caller.
@@ -472,7 +472,7 @@ func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		// ruleStore overrides the default fakeRuleStore. Used to inject
-		// observePosition failures.
+		// ObservePosition failures.
 		ruleStore *fakeRuleStore
 		// setupMocks runs after the default fakeRuleStore (if used) but before
 		// the SetTermPrimary call, to inject postgres-query failures.
@@ -480,7 +480,7 @@ func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
 		expectErrMatch string
 	}{
 		{
-			// observePosition fails: SetTermPrimary cannot decide whether the
+			// ObservePosition fails: SetTermPrimary cannot decide whether the
 			// incoming rule is higher than the recorded one. Caller learns about
 			// the failure rather than silently dropping the SetTermPrimary.
 			name: "ObservePositionFails",
