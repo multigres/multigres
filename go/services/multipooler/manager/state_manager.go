@@ -41,25 +41,29 @@ type StateAware interface {
 // The current state lives in the poolerRecord (Type, ServingStatus, and
 // CurrentLeadership), which is the source of truth for topology.
 //
-// On SetState, the manager derives PoolerType and CurrentLeadership from
-// the caller-supplied ShardRule, fans out OnStateChange to all registered
-// components in parallel, waits for completion, then updates the record
-// via Mutate. The Mutate also schedules an asynchronous publish so callers
-// cannot forget to reflect the new state to etcd.
+// On SetState, the manager reads the latest known ShardRule (via the
+// injected latestRule callback), derives PoolerType and CurrentLeadership
+// from it, fans out OnStateChange to all registered components in parallel,
+// waits for completion, then updates the record via Mutate. The Mutate
+// also schedules an asynchronous publish so callers cannot forget to
+// reflect the new state to etcd.
 //
-// Type derivation:
+// Callers do NOT pass a rule to SetState. The contract is "consensusState
+// and rule_store are the source of truth; SetState reflects what they
+// currently say." Code paths that learn of a new rule (e.g. SetTermPrimary
+// receiving an RPC) must record it via the appropriate path
+// (consensusState.RecordTermPrimary, rule_store updates) before calling
+// SetState. Closing this loop in the StateManager prevents accidents
+// where a caller passes a stale or hand-rolled rule and publishes a
+// LeaderObservation that doesn't reflect actual cluster state.
+//
+// Type derivation (inside deriveTypeAndObs):
 //   - rule names this pooler as leader → PRIMARY (CurrentLeadership set)
 //   - rule exists but names someone else as leader → REPLICA. (Cohort
 //     membership is not consulted: a pooler replicating from the leader
 //     but not in the cohort is an observer; observers and cohort replicas
 //     both publish as REPLICA.)
 //   - rule == nil → UNKNOWN
-//
-// Callers choose the source of the rule explicitly: read from rule_store
-// (durable, lags RPCs by postgres apply time), from consensusState (in
-// memory, updated immediately by RPCs), or from a freshly-received RPC
-// payload. Each call site knows which source reflects ground truth at
-// that moment — there is no single blessed source.
 type StateManager struct {
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -68,19 +72,28 @@ type StateManager struct {
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
 	record *poolerRecord
 
+	// latestRule returns the most-current rule the pooler knows about.
+	// Called at the top of every SetState to derive Type + CurrentLeadership.
+	latestRule func() *clustermetadatapb.ShardRule
+
 	// Registered components that react to state changes.
 	components []StateAware
 }
 
-// NewStateManager creates a new StateManager.
+// NewStateManager creates a new StateManager. latestRule is the function
+// the manager calls to fetch "the current rule this pooler knows about"
+// whenever SetState fires; in production this points at the manager's
+// latestRule() helper (which merges consensusState and rule_store).
 func NewStateManager(
 	logger *slog.Logger,
 	record *poolerRecord,
+	latestRule func() *clustermetadatapb.ShardRule,
 	components ...StateAware,
 ) *StateManager {
 	return &StateManager{
 		logger:     logger,
 		record:     record,
+		latestRule: latestRule,
 		components: components,
 	}
 }
@@ -106,23 +119,26 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 }
 
 // SetState transitions all components to the target state and updates the
-// record. PoolerType and CurrentLeadership are derived from rule (see type
-// docs for the derivation rules); only the serving status is independently
-// caller-controlled.
+// record. PoolerType and CurrentLeadership are derived from the current
+// latestRule() value (see type docs); only the serving status is
+// caller-controlled. To transition under a new rule, write it through
+// consensusState / rule_store first; SetState picks it up.
 //
-// rule may be nil when the pooler has not yet substantiated any role —
-// that yields Type=UNKNOWN, which callers MUST pair with NOT_SERVING.
-// Passing (nil, SERVING) returns an error rather than silently downgrading:
-// a pooler with no rule substantiated cannot honestly claim to serve, and
-// the caller is in a better position than SetState to log the reason.
+// When latestRule returns nil the pooler has not yet substantiated any
+// role — Type derives to UNKNOWN, which callers MUST pair with
+// NOT_SERVING. Requesting SERVING with no rule observed returns an error
+// rather than silently downgrading: a pooler with no rule substantiated
+// cannot honestly claim to serve, and the caller is in a better position
+// than SetState to log the reason.
 //
 // Returns an error if any component fails to transition. No-op if the
 // derived Type, CurrentLeadership, and the requested ServingStatus all
 // match the current record.
-func (ssm *StateManager) SetState(ctx context.Context, rule *clustermetadatapb.ShardRule, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (ssm *StateManager) SetState(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
+	rule := ssm.latestRule()
 	newType, newObs := deriveTypeAndObs(rule, ssm.record.Id())
 	if newType == clustermetadatapb.PoolerType_UNKNOWN && servingStatus != clustermetadatapb.PoolerServingStatus_NOT_SERVING {
 		return fmt.Errorf("SetState: cannot request servingStatus=%s with no rule observed (Type=UNKNOWN must be paired with NOT_SERVING)", servingStatus)

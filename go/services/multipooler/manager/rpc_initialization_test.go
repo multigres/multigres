@@ -716,7 +716,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		record:            record,
 		serviceID:         multipooler.Id,
 		topoClient:        ts,
-		servingState:      NewStateManager(slog.Default(), record),
+		servingState:      NewStateManager(slog.Default(), record, func() *clustermetadatapb.ShardRule { return nil }),
 		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 	}
 }

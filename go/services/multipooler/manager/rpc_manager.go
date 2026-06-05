@@ -646,7 +646,7 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 	// Use the serving state manager to transition components and update the pooler record.
 	// The serving status stays SERVING during type changes (the node remains available). Mutate
 	// inside StateManager schedules an async publish to topology.
-	if err := pm.servingState.SetState(ctx, pm.latestRule(), clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state")
 	}
 
