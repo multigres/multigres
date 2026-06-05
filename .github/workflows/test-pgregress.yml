@@ -63,6 +63,15 @@ jobs:
           # Both are enabled only when the contrib extension suite runs.
           sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev
 
+      # Rust toolchain for the external extension suite's pgrx-based extensions
+      # (pg_graphql is a Rust crate built with cargo-pgrx). The harness installs
+      # the pinned cargo-pgrx version itself (see ensureCargoPgrx); this step only
+      # needs to put a recent stable cargo/rustc on PATH.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+
       - name: Build
         run: make build
 

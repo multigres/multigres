@@ -144,20 +144,27 @@ as catalog entries move to `covered` and their suites run.
 The external suite runs the pg_regress suites of extensions that live **outside**
 the PostgreSQL source tree (separate repositories), executed through
 multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
-pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), and `pgmq`
-(tembo-io message queue). `externalSpecs` also holds build-only dependencies that
-are installed but not tested on their own — `pg_partman`, which pgmq's
-partitioned-queue tests require (see `DependsOn` below).
+pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), `pgmq` (tembo-io
+message queue), and `pg_graphql` (Supabase GraphQL). `externalSpecs` also holds
+build-only dependencies that are installed but not tested on their own —
+`pg_partman`, which pgmq's partitioned-queue tests require (see `DependsOn`
+below).
 
 How it works, and how it differs from the contrib suite:
 
-- **Build**: each external extension is a [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
-  module. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
+- **Build**: most external extensions are [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
+  modules. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
   the per-run build root, then runs `make && make install` with
   `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
   against the exact server ABI the cluster runs (the same guarantee the suite
-  gives `regress.so`). Both pgvector and pg_cron need only a C compiler — no
-  extra system libs.
+  gives `regress.so`). pgvector, pg_cron, and pgmq need only a C compiler — no
+  extra system libs. Rust extensions (`BuildSystem: "pgrx"`, e.g. pg_graphql) are
+  built with [cargo-pgrx](https://github.com/pgcentralfoundation/pgrx) instead:
+  the harness installs the pinned `cargo-pgrx` (it must match the crate's `pgrx`
+  dependency), then `cargo pgrx init --pgNN <pg_config>` adopts the from-source
+  server and `cargo pgrx install --pg-config <pg_config>` builds and installs the
+  extension into it. CI provisions the Rust toolchain; the from-source server
+  guarantees the same ABI as the PGXS path.
 - **Test execution**: unlike contrib we cannot use `make installcheck`. Under
   PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
   PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
@@ -178,9 +185,25 @@ How it works, and how it differs from the contrib suite:
 Extensions diverge from the pgvector baseline in a few ways, captured as fields
 on `ExternalExtension` (`extensions.go`):
 
-- **`BuildSubdir`** — where the PGXS `Makefile` lives in the checkout. pgvector
-  and pg_cron keep it at the repo root (`""`); pgmq keeps the extension under
-  `pgmq-extension/`, so it builds there.
+- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make) or `"pgrx"`
+  (cargo-pgrx, Rust). pg_graphql is `pgrx`; everything else is PGXS.
+- **`PgrxVersion`** — for `pgrx` extensions, the pinned `cargo-pgrx` CLI version.
+  It must equal the crate's `pgrx` dependency (pg_graphql 1.6.1 → `0.16.1`) or the
+  build is refused. Ignored for PGXS.
+- **`BuildSubdir`** — where the build entry point (PGXS `Makefile` or pgrx crate)
+  lives in the checkout. pgvector and pg_cron keep it at the repo root (`""`);
+  pgmq keeps the extension under `pgmq-extension/`, so it builds there.
+- **`FixturesFile`** — a SQL file (relative to `TestSubdir`) the harness loads
+  through multigateway with `psql` before the suite, mirroring the extension's own
+  runner. pg_graphql's `bin/installcheck` runs `psql -f test/fixtures.sql` first
+  (it `CREATE`s the extension and sets the `graphql` schema comment), so the
+  harness does too. Empty for extensions whose `.sql` files are self-contained.
+- **`ContribDeps`** — contrib modules (by directory name) the harness installs
+  with `InstallContribModules` before the suite, because the suite `CREATE`s them.
+  pg_graphql's tests `create extension citext`, so it sets
+  `ContribDeps: {"citext"}`; without it an external-only run fails those tests
+  with "extension citext is not available". A full run has already installed all
+  of contrib, so the targeted install is a no-op.
 - **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
   checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
   root (`.`); pgmq keeps them under `pgmq-extension/test`.
@@ -225,8 +248,9 @@ on `ExternalExtension` (`extensions.go`):
 Enrolling another external extension is a small catalog edit: add its
 `externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
 `ExtensionCatalog` row to `StatusCovered`. The catalog and report update
-automatically. Extensions that need toolchains the harness doesn't provision
-(Rust: `pg_graphql`, `wrappers`) or that the pooler blocks by design (outbound
+automatically. PGXS and Rust/pgrx extensions are both supported (CI provisions
+the Rust toolchain); extensions that need other toolchains the harness doesn't
+provision (e.g. `wrappers`) or that the pooler blocks by design (outbound
 connections) stay `StatusExternal` / `StatusUnsupported`.
 
 Regenerate the patches after an output change with:
