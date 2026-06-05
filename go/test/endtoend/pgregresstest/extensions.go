@@ -91,12 +91,13 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pg_graphql", KindExternal, StatusExternal, "Rust"},
 	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
+	{"pg_partman", KindExternal, StatusUnsupported, "ships a pgTAP suite, not pg_regress; built and installed as a build dependency of pgmq (create_partitioned → create_parent)"},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
 	{"pgaudit", KindExternal, StatusExternal, ""},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusExternal, "depends on pgcrypto"},
-	{"pgmq", KindExternal, StatusExternal, ""},
+	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
 	{"pgsodium", KindExternal, StatusExternal, "libsodium"},
 	{"pgtap", KindExternal, StatusExternal, ""},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
@@ -120,10 +121,17 @@ type ExternalExtension struct {
 	Repo string
 	Tag  string
 
+	// BuildSubdir is the directory within the checkout that holds the PGXS
+	// Makefile, relative to the clone root. pgvector and pg_cron keep it at the
+	// repo root (""), so the harness builds there; pgmq keeps the extension under
+	// pgmq-extension/, so it uses "pgmq-extension". Empty means the repo root.
+	BuildSubdir string
+
 	// TestSubdir is the directory within the checkout that holds the shipped
 	// pg_regress fixtures (sql/ + expected/), relative to the clone root.
 	// pgvector keeps them under test/; pg_cron keeps them at the repo root, so
-	// it uses "." (filepath.Join collapses it back to the clone root).
+	// it uses "." (filepath.Join collapses it back to the clone root). pgmq keeps
+	// them under pgmq-extension/test, alongside its BuildSubdir.
 	TestSubdir string
 
 	// CreateExtension controls whether the harness pre-creates the extension
@@ -163,6 +171,15 @@ type ExternalExtension struct {
 	// shared_preload_libraries = 'pg_cron' or CREATE EXTENSION errors out. Empty
 	// for extensions that need nothing beyond the stock cluster (pgvector).
 	ServerConfigFile string
+
+	// DependsOn names other externalSpecs the harness must clone, build, and
+	// install before this extension's suite runs, because the suite CREATEs those
+	// extensions too. They are build-only: installed so CREATE EXTENSION resolves,
+	// but not tested on their own (they need not ship a pg_regress suite). pgmq's
+	// base.sql creates partitioned queues via pg_partman's create_parent, so pgmq
+	// DependsOn pg_partman. ExternalBuildList orders dependencies before the
+	// extensions that need them. Empty for self-contained extensions (pgvector).
+	DependsOn []string
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
@@ -184,6 +201,30 @@ var externalSpecs = map[string]ExternalExtension{
 		// CONNECT-privilege checks run for real. See ScratchDatabases.
 		ScratchDatabases: []string{"pgcron_dbno", "pgcron_dbyes"},
 	},
+	// pg_partman is a build-only dependency of pgmq, never tested on its own (it
+	// ships a pgTAP suite, not pg_regress — see its StatusUnsupported catalog
+	// entry). pgmq.create_partitioned calls partman's create_parent, which works
+	// without the background worker, so no ServerConfigFile is needed; the PGXS
+	// Makefile is at the repo root, so BuildSubdir stays empty.
+	"pg_partman": {
+		Name: "pg_partman", Repo: "https://github.com/pgpartman/pg_partman", Tag: "v5.4.3",
+	},
+	"pgmq": {
+		Name: "pgmq", Repo: "https://github.com/tembo-io/pgmq", Tag: "v1.11.1",
+		// The extension lives under pgmq-extension/ (PGXS Makefile + test/), not at
+		// the repo root, so both the build and the fixtures hang off that subdir.
+		BuildSubdir: "pgmq-extension", TestSubdir: "pgmq-extension/test",
+		// Every test file CREATEs the extension itself (the topic/fifo files open
+		// with DROP EXTENSION IF EXISTS pgmq CASCADE; CREATE EXTENSION pgmq), so the
+		// harness must not preload it.
+		CreateExtension: false,
+		// base.sql creates partitioned queues via pg_partman's create_parent and
+		// CREATEs pg_partman directly; install it first. (base.sql also calls
+		// pgmq.create_unlogged, whose CREATE UNLOGGED TABLE runs as dynamic SQL
+		// inside a plpgsql function — the gateway only sees the SELECT, so the
+		// top-level unlogged-table rejection does not fire and it succeeds.)
+		DependsOn: []string{"pg_partman"},
+	},
 }
 
 // CoveredExternalExtensions returns the external extensions the suite builds and
@@ -201,6 +242,35 @@ func CoveredExternalExtensions() []ExternalExtension {
 		}
 	}
 	return exts
+}
+
+// ExternalBuildList returns every external extension the suite must clone, build,
+// and install: the extensions selected for this run (ExternalModules, which
+// honors PGEXTERNAL_TESTS) plus their build-only dependencies (DependsOn), with
+// each dependency ordered before the extension that needs it and every entry
+// deduplicated. Dependencies are resolved through externalSpecs. The build phase
+// iterates this so a narrowed run (e.g. PGEXTERNAL_TESTS="pgmq") builds only the
+// selected extensions and their deps; the test phase iterates ExternalModules
+// (dependencies ship no pg_regress suite we run).
+func ExternalBuildList() []ExternalExtension {
+	var out []ExternalExtension
+	seen := map[string]bool{}
+	add := func(spec ExternalExtension) {
+		if seen[spec.Name] {
+			return
+		}
+		seen[spec.Name] = true
+		out = append(out, spec)
+	}
+	for _, e := range ExternalModules() {
+		for _, dep := range e.DependsOn {
+			if spec, ok := externalSpecs[dep]; ok {
+				add(spec)
+			}
+		}
+		add(e)
+	}
+	return out
 }
 
 // CheckExternalSpecs verifies every covered external extension has a build spec.
