@@ -153,11 +153,13 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Phase 2d: Clone, build, and install external extensions (only when that
 	// suite will run). Each is a PGXS module living outside the PostgreSQL source
 	// tree (e.g. pgvector); it is built against the just-installed PostgreSQL so
-	// its .so matches the running server's ABI.
+	// its .so matches the running server's ABI. ExternalBuildList includes the
+	// covered extensions plus their build-only dependencies (e.g. pg_partman for
+	// pgmq), ordered so dependencies install first.
 	if runExternal {
 		t.Logf("Phase 2d: Installing external extensions...")
-		for _, ext := range CoveredExternalExtensions() {
-			if _, err := builder.InstallExternalExtension(t, buildCtx, ext.Name, ext.Repo, ext.Tag); err != nil {
+		for _, ext := range ExternalBuildList() {
+			if _, err := builder.InstallExternalExtension(t, buildCtx, ext.Name, ext.Repo, ext.Tag, ext.BuildSubdir); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)
 			}
 		}

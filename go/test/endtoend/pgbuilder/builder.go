@@ -249,7 +249,13 @@ func (b *Builder) InstallContrib(t *testing.T, ctx context.Context) error {
 // ABI-consistency guarantee Build provides for regress.so). The checkout is
 // per-run, so a shallow clone happens once per invocation; pinning the tag keeps
 // the suite reproducible.
-func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, name, repo, tag string) (string, error) {
+//
+// buildSubdir is the directory within the checkout that holds the PGXS Makefile,
+// relative to the clone root. It is empty for extensions whose Makefile sits at
+// the repo root (pgvector, pg_cron) and set when it lives in a subdirectory
+// (pgmq: "pgmq-extension"). The returned path is always the clone root, so the
+// caller resolves the extension's TestSubdir against it independently.
+func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, name, repo, tag, buildSubdir string) (string, error) {
 	t.Helper()
 
 	if err := os.MkdirAll(b.ExternalDir, 0o755); err != nil {
@@ -270,9 +276,11 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, na
 	}
 
 	pgConfig := filepath.Join(b.BinDir(), "pg_config")
+	// The PGXS Makefile may live in a subdirectory of the checkout (pgmq).
+	buildDir := filepath.Join(cloneDir, buildSubdir)
 
 	t.Logf("Building external extension %s with PGXS (PG_CONFIG=%s)...", name, pgConfig)
-	makeCmd := executil.Command(ctx, "make", "-C", cloneDir, "-j", "4", "PG_CONFIG="+pgConfig)
+	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4", "PG_CONFIG="+pgConfig)
 	makeCmd.Stdout = os.Stdout
 	makeCmd.Stderr = os.Stderr
 	if err := makeCmd.Run(); err != nil {
@@ -280,7 +288,7 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, na
 	}
 
 	t.Logf("Installing external extension %s into %s...", name, b.InstallDir)
-	installCmd := executil.Command(ctx, "make", "-C", cloneDir, "PG_CONFIG="+pgConfig, "install")
+	installCmd := executil.Command(ctx, "make", "-C", buildDir, "PG_CONFIG="+pgConfig, "install")
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {

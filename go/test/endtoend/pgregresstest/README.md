@@ -143,8 +143,11 @@ as catalog entries move to `covered` and their suites run.
 
 The external suite runs the pg_regress suites of extensions that live **outside**
 the PostgreSQL source tree (separate repositories), executed through
-multigateway. pgvector is the first: catalog name `vector`, pinned to a tag in
-`externalSpecs` (`extensions.go`).
+multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
+pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), and `pgmq`
+(tembo-io message queue). `externalSpecs` also holds build-only dependencies that
+are installed but not tested on their own — `pg_partman`, which pgmq's
+partitioned-queue tests require (see `DependsOn` below).
 
 How it works, and how it differs from the contrib suite:
 
@@ -153,28 +156,78 @@ How it works, and how it differs from the contrib suite:
   the per-run build root, then runs `make && make install` with
   `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
   against the exact server ABI the cluster runs (the same guarantee the suite
-  gives `regress.so`). pgvector needs only a C compiler — no extra system libs.
+  gives `regress.so`). Both pgvector and pg_cron need only a C compiler — no
+  extra system libs.
 - **Test execution**: unlike contrib we cannot use `make installcheck`. Under
   PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
   PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
   not installed. The harness instead invokes the `pg_regress` it built directly,
   with the same flags the contrib suite relies on
   (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
-  DATABASE) plus the extension's `--inputdir`/`--load-extension`. The test list
-  is derived from `test/sql/*.sql`, mirroring the extension's
-  `REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql))`.
+  DATABASE) plus the extension's `--inputdir`. The test list is derived from
+  `<TestSubdir>/sql/*.sql`, mirroring the extension's
+  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`.
 - **Per-extension isolation** and **verification** work exactly like contrib:
   the `public` schema is reset on the primary between extensions, and results go
   through the same patch pipeline (`PGREGRESS_PATCH_MODE`). Genuine
   multigres-specific output differences are captured under
   `testdata/pg17/patches/external/<ext>/`.
 
-Enrolling another external extension is a two-line change: add its
-`externalSpecs` entry (repo + pinned tag) and flip its `ExtensionCatalog` row to
-`StatusCovered`. The catalog and report update automatically. Extensions that
-need toolchains the harness doesn't provision (Rust: `pg_graphql`, `wrappers`)
-or that the pooler blocks by design (outbound connections) stay `StatusExternal`
-/ `StatusUnsupported`.
+### Per-extension knobs
+
+Extensions diverge from the pgvector baseline in a few ways, captured as fields
+on `ExternalExtension` (`extensions.go`):
+
+- **`BuildSubdir`** — where the PGXS `Makefile` lives in the checkout. pgvector
+  and pg_cron keep it at the repo root (`""`); pgmq keeps the extension under
+  `pgmq-extension/`, so it builds there.
+- **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
+  checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
+  root (`.`); pgmq keeps them under `pgmq-extension/test`.
+- **`DependsOn`** — other `externalSpecs` the harness clones, builds, and installs
+  first because the suite `CREATE`s them too. They are build-only (not tested on
+  their own, so they need not ship a pg_regress suite). pgmq's `base.sql` creates
+  partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
+  `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
+  dependencies before their dependents.
+- **`CreateExtension`** — whether the harness pre-creates the extension through
+  multigateway (and passes `--load-extension`) before the run. pgvector's
+  fixtures assume it already exists (they open with a bare
+  `CREATE TABLE ... vector(3)`), so `true`. pg_cron's fixtures create and drop
+  the extension themselves (`CREATE EXTENSION pg_cron VERSION '1.0'` is the first
+  statement), so `false` — preloading would make that statement fail with
+  "already exists".
+- **`ServerConfigFile`** — a `postgresql.conf` snippet under
+  `testdata/pg17/external/` the cluster must apply before postgres starts, for
+  extensions needing server-level config the pooled query path can't set.
+  pg_cron's background worker requires `shared_preload_libraries = 'pg_cron'`
+  (`pg_cron.conf`), or `CREATE EXTENSION pg_cron` errors out. The snippet is
+  appended at initdb time and only when the external suite runs (the library it
+  loads is only installed then), so regression/isolation-only runs are
+  unaffected. Note: with the shared cluster, a `ServerConfigFile` applied for a
+  combined `RUN_EXTENDED_QUERY_SERVING_TESTS` run is in effect for the other
+  suites too; pg_cron's launcher is idle with no scheduled jobs.
+- **`ScratchDatabases`** — databases the harness creates directly on the primary
+  (bypassing the gateway) before the suite and drops afterward. This is a
+  **test-only** accommodation, not a product capability: multigres is
+  one-database-per-instance and the gateway blocks `CREATE`/`DROP DATABASE` by
+  design (adding a database is a provisioning operation, see
+  `docs/query_serving/unsafe_statement_rejection.md`). It exists because some
+  suites reference other databases purely as _metadata_ — pg_cron passes a DB
+  name to `cron.schedule_in_database` / `alter_job(database := ...)` and reads
+  its ACL from the shared `pg_database` catalog, all over the same `postgres`
+  connection, never opening a session against it. Creating the physical database
+  is enough to make those catalog/privilege checks run for real; the suite's own
+  `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
+  left in pg_cron's patch). Don't use this to fake reachability of a feature
+  multigres genuinely blocks — only for name/metadata references like the above.
+
+Enrolling another external extension is a small catalog edit: add its
+`externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
+`ExtensionCatalog` row to `StatusCovered`. The catalog and report update
+automatically. Extensions that need toolchains the harness doesn't provision
+(Rust: `pg_graphql`, `wrappers`) or that the pooler blocks by design (outbound
+connections) stay `StatusExternal` / `StatusUnsupported`.
 
 Regenerate the patches after an output change with:
 

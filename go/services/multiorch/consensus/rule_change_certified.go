@@ -26,6 +26,7 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ApplyCertifiedRuleChange installs a new shard rule using a fully-populated
@@ -167,9 +168,9 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 		wg.Go(func() {
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 			defer cancel()
-			resp, err := c.rpcClient.ConsensusStatus(rpcCtx, p, &consensusdatapb.StatusRequest{})
+			resp, err := c.rpcClient.Status(rpcCtx, p, &multipoolermanagerdatapb.StatusRequest{})
 			if err != nil {
-				c.logger.WarnContext(ctx, "shard ConsensusStatus probe failed",
+				c.logger.WarnContext(ctx, "shard Status probe failed",
 					"pooler", p.GetId().GetName(), "error", err)
 				return
 			}

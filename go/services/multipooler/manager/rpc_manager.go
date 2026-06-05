@@ -511,7 +511,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		withPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
 			expectedOutgoingRule.GetLeaderSubterm())
-	if _, err := pm.rules.updateRule(ctx, standbyUpdate); err != nil {
+	if _, err := pm.DoUpdateRule(ctx, standbyUpdate); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 

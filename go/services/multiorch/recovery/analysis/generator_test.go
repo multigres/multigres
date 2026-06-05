@@ -894,7 +894,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -923,7 +924,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -988,7 +990,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1017,7 +1020,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType:        clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1061,7 +1065,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 			},
 		})
 
-		// Replica is unreachable
+		// Replica was previously healthy but is now unreachable (stream disconnected).
+		// StreamSnapshotsReceived > 0 distinguishes this from a brand-new pooler.
 		ps.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
@@ -1075,7 +1080,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: false, // Replica unreachable
+			IsLastCheckValid:        false, // Replica unreachable
+			StreamSnapshotsReceived: 1,     // Was previously healthy
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			},
@@ -1166,7 +1172,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1220,7 +1227,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 						Shard:      "shard1",
 					},
 				},
-				IsLastCheckValid: true,
+				IsLastCheckValid:        true,
+				StreamSnapshotsReceived: 1,
 				Status: &multipoolermanagerdatapb.Status{
 					PoolerType: clustermetadatapb.PoolerType_REPLICA,
 					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1277,7 +1285,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1338,7 +1347,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1402,7 +1412,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1461,7 +1472,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 					Shard:      "shard1",
 				},
 			},
-			IsLastCheckValid: true,
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 1,
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -1481,6 +1493,74 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.True(t, analysis.ReplicasConnectedToLeader, "should be true when last_msg_receive_time is nil")
+	})
+
+	t.Run("new pooler with no health data does not count against connected replicas", func(t *testing.T) {
+		// Regression test for the startup race: PoolerWatcher adds a pooler to the
+		// store before its health stream delivers the first snapshot
+		// (StreamSnapshotsReceived==0). If the recovery tick fires in that window,
+		// the new pooler must not be counted as a "disconnected replica" —
+		// otherwise it would make allReplicasConnectedToLeader return false and
+		// disable the LeaderIsDeadAnalyzer suppression window, risking a
+		// premature failover.
+		ps := store.NewPoolerStore(nil, slog.Default())
+
+		now := time.Now()
+
+		// Leader is transiently unreachable (pooler down, postgres still running).
+		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
+			IsLastCheckValid:        false,
+			StreamSnapshotsReceived: 5,
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+				PostgresReady: false,
+			},
+		})
+
+		// Existing replica: healthy and actively streaming WAL from the leader.
+		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+			},
+			IsLastCheckValid:        true,
+			StreamSnapshotsReceived: 10,
+			Status: &multipoolermanagerdatapb.Status{
+				PoolerType: clustermetadatapb.PoolerType_REPLICA,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					LastReceiveLsn:     "0/1234567",
+					WalReceiverStatus:  "streaming",
+					LastMsgReceiveTime: timestamppb.New(now.Add(-5 * time.Second)),
+					PrimaryConnInfo:    &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary-host", Port: 5432},
+				},
+			},
+		})
+
+		// New pooler just added by PoolerWatcher: no health data yet
+		// (StreamSnapshotsReceived==0, IsLastCheckValid==false).
+		ps.Set("multipooler-cell2-replica2", &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "replica2"},
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+			},
+			// IsLastCheckValid and StreamSnapshotsReceived are both zero — brand new pooler.
+		})
+
+		gen := NewAnalysisGenerator(ps, nil)
+		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+		require.NoError(t, err)
+
+		// replica1 is connected; replica2 has never reported health and must not
+		// count against the connected-replicas check.
+		assert.True(t, sa.ReplicasConnectedToLeader,
+			"new pooler with StreamSnapshotsReceived==0 must not count as a disconnected replica")
 	})
 }
 

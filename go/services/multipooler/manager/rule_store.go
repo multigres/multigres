@@ -24,6 +24,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -31,6 +34,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // ruleStorer is the interface for reading and writing the current shard rule.
@@ -662,10 +666,21 @@ func (rs *ruleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) 
 		}
 	}
 
-	// Write the rule. The remote-operation timeout applies because this write must be
-	// acknowledged by synchronous standbys; a timeout indicates replication is not functioning.
-	execCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	// Write the rule. This write blocks until a sync-standby WAL ack arrives.
+	// For promotions the ack only arrives after the full SetTermPrimary round-trip
+	// (Recruit clears all replication; standbys reconnect only after SetTermPrimary,
+	// including optional pg_rewind). For primary-side cohort changes standbys are
+	// already streaming and the ack is nearly immediate. RuleWriteTimeout covers
+	// both cases.
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
+
+	if isPromotion {
+		var ackSpan trace.Span
+		execCtx, ackSpan = telemetry.Tracer().Start(execCtx, "consensus/standby-ack",
+			trace.WithAttributes(attribute.Bool("is_promotion", true)))
+		defer ackSpan.End()
+	}
 
 	result, err := rs.queryService.QueryArgs(execCtx, `
 		WITH
