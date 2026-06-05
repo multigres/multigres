@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
@@ -572,9 +573,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MultiOrchInstances: make(map[string]*ProcessInstance),
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
-		Timings:            &TimingCollector{},
 	}
-	t.Cleanup(func() { setup.Timings.Report(t) })
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler
 	// shares the same CA / server cert. Done before the per-pooler loop so the
@@ -634,7 +633,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
 	// Use setup.ctx for process lifetime, passed ctx only for tracing
-	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart, setup.Timings)
+	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -1121,7 +1120,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
-				setup.Timings.Record("shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
+				testtiming.Record(t, "shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1301,7 +1300,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool, tc *TimingCollector) {
+func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance, deferMultipoolerStart bool) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startMultipoolerInstances")
@@ -1348,8 +1347,10 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			t.Fatalf("failed to start multipooler for %s: %v", inst.Name, err)
 		}
 
-		// Wait for multipooler to be ready
-		WaitForManagerReady(t, multipooler, tc)
+		// Wait for multipooler to be ready, recording how long it took.
+		start := time.Now()
+		WaitForManagerReady(t, multipooler)
+		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1685,7 +1686,9 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		if err := inst.Multipooler.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start multipooler %s: %v", name, err)
 		}
-		WaitForManagerReady(t, inst.Multipooler, s.Timings)
+		start := time.Now()
+		WaitForManagerReady(t, inst.Multipooler)
+		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 

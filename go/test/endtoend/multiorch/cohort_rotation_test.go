@@ -137,7 +137,7 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 			"failed to start pgctld for %s", name)
 		require.NoError(t, inst.Multipooler.Start(ctx, t),
 			"failed to start multipooler for %s", name)
-		shardsetup.WaitForManagerReady(t, inst.Multipooler, nil)
+		shardsetup.WaitForManagerReady(t, inst.Multipooler)
 		t.Logf("New pooler %s started; awaiting cohort admission", name)
 	}
 
