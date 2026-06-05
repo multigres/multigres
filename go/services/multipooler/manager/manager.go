@@ -464,7 +464,7 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// streamer) and Mutates the record. The publisher (if running, started
 	// by StartTopoRegistration) picks it up and writes to etcd.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), targetServingStatus); err != nil {
+	if err := pm.servingState.SetState(ctx, pm.latestRule(), targetServingStatus); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
 }
@@ -554,7 +554,7 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 	// running) picks up the Mutate and writes NOT_SERVING to etcd —
 	// pausing the manager intentionally still reflects in topology so
 	// callers see the pooler is not serving queries.
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.servingState.SetState(ctx, pm.latestRule(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
 	}
 
@@ -812,6 +812,35 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 // getCurrentTermNumber returns the current consensus term number.
 func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
 	return pm.consensusState.GetCurrentTermNumber(ctx)
+}
+
+// latestRule returns the higher-numbered rule between consensusState's
+// recorded replicationPrimary and rule_store's cached position, either
+// of which may be nil. Used by callers that need "the freshest rule
+// this pooler knows about" — RPCs update consensusState first; postgres
+// WAL replay populates rule_store first; the two can briefly disagree.
+// Returns nil if both sources are empty (cold boot before any
+// observation or RPC).
+func (pm *MultiPoolerManager) latestRule() *clustermetadatapb.ShardRule {
+	var consensusRule *clustermetadatapb.ShardRule
+	if pm.consensusState != nil {
+		consensusRule = pm.consensusState.GetReplicationPrimary().GetRule()
+	}
+	var storeRule *clustermetadatapb.ShardRule
+	if pm.rules != nil {
+		storeRule = pm.rules.cachedPosition().GetRule()
+	}
+
+	if consensusRule == nil {
+		return storeRule
+	}
+	if storeRule == nil {
+		return consensusRule
+	}
+	if commonconsensus.CompareRuleNumbers(consensusRule.GetRuleNumber(), storeRule.GetRuleNumber()) >= 0 {
+		return consensusRule
+	}
+	return storeRule
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -1121,7 +1150,7 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 	// Use the serving state manager to transition components.
 	// This updates query service, heartbeat, and the pooler record. Mutate
 	// inside StateManager schedules an async publish to topology.
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.servingState.SetState(ctx, pm.latestRule(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
@@ -1461,7 +1490,10 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	}
 
 	// SetState is idempotent — if already at PRIMARY/SERVING it short-circuits.
-	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+	// Promotion runs after Recruit/Propose has updated consensusState with
+	// the rule under which this pooler is leader, so latestRule() will derive
+	// Type=PRIMARY and the matching CurrentLeadership observation.
+	if err := pm.servingState.SetState(ctx, pm.latestRule(), clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
 
@@ -1569,6 +1601,10 @@ func (pm *MultiPoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_DRAINED
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		// Clear CurrentLeadership to keep the Type ↔ leader-observation
+		// invariant. DRAINED implies not-leader; lingering leadership data
+		// would also be misleading to consumers reading the record.
+		s.CurrentLeadership = nil
 		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
 			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
 			Reason:  "pooler shutdown",

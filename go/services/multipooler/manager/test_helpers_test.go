@@ -31,6 +31,10 @@ func newRecordFromProto(mp *clustermetadatapb.MultiPooler) *poolerRecord {
 // setPoolerTypeForTest mutates the pooler type on the manager's record while
 // holding the manager's action lock. Used by tests that need to put the
 // manager into a specific topology state before exercising an RPC.
+//
+// Keeps the Type ↔ CurrentLeadership invariant satisfied by also writing a
+// LeaderObservation that names this pooler when transitioning to PRIMARY,
+// and clearing it otherwise.
 func setPoolerTypeForTest(t *testing.T, pm *MultiPoolerManager, poolerType clustermetadatapb.PoolerType) {
 	t.Helper()
 	ctx, err := pm.actionLock.Acquire(t.Context(), "test-set-type")
@@ -38,5 +42,13 @@ func setPoolerTypeForTest(t *testing.T, pm *MultiPoolerManager, poolerType clust
 	defer pm.actionLock.Release(ctx)
 	require.NoError(t, pm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
 		s.Type = poolerType
+		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+			s.CurrentLeadership = &clustermetadatapb.LeaderObservation{
+				LeaderId:         pm.record.Id(),
+				LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			}
+		} else {
+			s.CurrentLeadership = nil
+		}
 	}))
 }

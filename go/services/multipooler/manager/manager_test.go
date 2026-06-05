@@ -1033,9 +1033,14 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	resume := pm.Pause(lockCtx)
 
 	// Mutate to PRIMARY while paused. The publisher should still pick this
-	// up and reflect it in topology.
+	// up and reflect it in topology. Set CurrentLeadership too — Mutate's
+	// invariant requires Type=PRIMARY and CurrentLeadership to move together.
 	require.NoError(t, pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_PRIMARY
+		s.CurrentLeadership = &clustermetadatapb.LeaderObservation{
+			LeaderId:         serviceID,
+			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		}
 	}))
 
 	require.Eventually(t, func() bool {

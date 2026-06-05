@@ -629,7 +629,12 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	return status, nil
 }
 
-// changeTypeLocked updates the pooler type without acquiring the action lock.
+// changeTypeLocked rebroadcasts the pooler's current type via the serving
+// state manager. Historically took an explicit poolerType argument; with
+// SetState now deriving Type from the latest known rule, the argument is
+// vestigial. PR 1B (UNKNOWN-at-boot + role discovery) will rewrite the
+// callers entirely.
+//
 // The caller MUST already hold the action lock.
 func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType clustermetadatapb.PoolerType) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
@@ -641,7 +646,7 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 	// Use the serving state manager to transition components and update the pooler record.
 	// The serving status stays SERVING during type changes (the node remains available). Mutate
 	// inside StateManager schedules an async publish to topology.
-	if err := pm.servingState.SetState(ctx, poolerType, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+	if err := pm.servingState.SetState(ctx, pm.latestRule(), clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state")
 	}
 
