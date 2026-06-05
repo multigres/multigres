@@ -263,6 +263,19 @@ func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.Mu
 	return conn.managerClient.ExpireBackups(ctx, request)
 }
 
+// VerifyBackups runs pgbackrest verify against the full stanza.
+func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.VerifyBackups(ctx, request)
+}
+
 //
 // Manager Service Methods - PostgreSQL Restart Control
 //

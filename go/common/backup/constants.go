@@ -38,10 +38,18 @@ const (
 	RestoreTimeout = 30 * time.Minute
 	// VerifyTimeout is the maximum time allowed for backup verification
 	VerifyTimeout = 10 * time.Minute
+	// StanzaVerifyTimeout is the maximum time allowed for a full-stanza
+	// verify (no --set). Larger than VerifyTimeout because verify walks
+	// every backup + WAL segment in the repository.
+	StanzaVerifyTimeout = 60 * time.Minute
 	// InfoTimeout is the maximum time allowed for querying backup information
 	InfoTimeout = 30 * time.Second
 	// ValidationTimeout is the maximum time allowed for S3 bucket validation
 	ValidationTimeout = 10 * time.Second
 	// ExpireTimeout is the maximum time allowed for a backup expiration operation
 	ExpireTimeout = 10 * time.Minute
+	// CheckTimeout bounds `pgbackrest check`. check forces a WAL switch and
+	// waits for the segment to reach the repo, so it is short — but allow
+	// headroom for archive-push latency to a remote (S3) repo.
+	CheckTimeout = 2 * time.Minute
 )

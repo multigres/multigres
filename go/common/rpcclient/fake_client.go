@@ -437,6 +437,17 @@ func (f *FakeClient) ExpireBackups(ctx context.Context, pooler *clustermetadatap
 	return &multipoolermanagerdatapb.ExpireBackupsResponse{}, nil
 }
 
+func (f *FakeClient) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("VerifyBackups", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	return &multipoolermanagerdatapb.VerifyBackupsResponse{}, nil
+}
+
 //
 // Manager Service Methods - Timeline Repair
 //

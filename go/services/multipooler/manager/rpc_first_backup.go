@@ -164,6 +164,16 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			return mterrors.Wrap(err, "failed to create pgbackrest stanza")
 		}
 
+		// Prove the archive pipeline works end-to-end before declaring the
+		// shard bootstrapped. configureArchiveMode wrote archive_command
+		// above; `check` forces a WAL switch and confirms the segment reaches
+		// the repo, so a misconfigured archive_command (bad creds, wrong
+		// path) fails cluster creation now rather than silently surviving
+		// until a restore needs WAL that was never archived.
+		if err := pm.runPgBackRestCheck(leaseCtx); err != nil {
+			return mterrors.Wrap(err, "pgbackrest archive check failed")
+		}
+
 		if _, err := pm.backupLocked(leaseCtx, true, "full", "", nil); err != nil {
 			return mterrors.Wrap(err, "failed to create initial backup")
 		}
