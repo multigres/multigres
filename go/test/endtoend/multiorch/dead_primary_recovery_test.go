@@ -20,9 +20,11 @@
 package multiorch
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -421,6 +423,54 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		t.Logf("Rule history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
 			termNumber, leaderID, coordinatorID, reason)
+	})
+
+	// Verify the leader appointments themselves were fast. The coordinator stamps
+	// each successful promotion with recruit_ms (Run start → leader selected) and
+	// propose_ms (leader selected → commit), measuring the appointment itself —
+	// independent of the (much larger) detection + grace-period cost that precedes
+	// it. Tracking the two phases separately matters because they can slow down
+	// for different reasons: a laggy node during recruit vs. a slow postgres
+	// promotion during propose. Any of the multiorchs may have been coordinator
+	// for a given failover, so we aggregate promotion events across all logs.
+	t.Run("verify appointment timing", func(t *testing.T) {
+		var events []map[string]any
+		for name, mo := range setup.MultiOrchInstances {
+			data, err := os.ReadFile(mo.LogFile)
+			require.NoError(t, err, "should be able to read multiorch %s log", name)
+			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
+		}
+
+		promotions := shardsetup.FindEvents(events, "primary.promotion", "success")
+		require.GreaterOrEqual(t, len(promotions), 3,
+			"expected at least 3 successful promotions across multiorch logs after the failovers")
+
+		// Per-phase regression guards, separate because the phases have very
+		// different baselines and failure modes. Both exclude the failure-
+		// detection grace period that dominates the test's overall 30s budget.
+		//
+		// Recruit needs a few round trips + WAL replay stabilizing.
+		// Propose needs pg_promote() to succeed and the rule entry to replicate.
+		// The test bounds are deliberately tight to catch regressions that would
+		// make a simpler failover slow.
+		const (
+			maxRecruit = 500 * time.Millisecond
+			maxPropose = 3 * time.Second
+		)
+		for _, p := range promotions {
+			recruitMs, ok := p["recruit_ms"].(float64)
+			require.True(t, ok, "successful promotion must record recruit_ms: %v", p)
+			proposeMs, ok := p["propose_ms"].(float64)
+			require.True(t, ok, "successful promotion must record propose_ms: %v", p)
+			recruit := time.Duration(recruitMs) * time.Millisecond
+			propose := time.Duration(proposeMs) * time.Millisecond
+			t.Logf("Leader appointment (new_primary=%v, proposed_term=%v): recruit=%v, propose=%v",
+				p["new_primary"], p["proposed_term"], recruit, propose)
+			assert.Less(t, recruit, maxRecruit,
+				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
+			assert.Less(t, propose, maxPropose,
+				"propose phase for %v should be fast (took %v)", p["new_primary"], propose)
+		}
 	})
 
 	// Verify all successful writes are present on all multipoolers (all should be healthy now)
