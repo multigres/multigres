@@ -175,16 +175,18 @@ func TestConnectionConfig_TCPOnly(t *testing.T) {
 
 func TestManagerStats(t *testing.T) {
 	stats := ManagerStats{
-		UserPools: make(map[string]UserPoolStats),
+		UserPools: make(map[poolKey]UserPoolStats),
 	}
 
 	// Add some user pool stats.
-	stats.UserPools["user1"] = UserPoolStats{Username: "user1"}
-	stats.UserPools["user2"] = UserPoolStats{Username: "user2"}
+	key1 := poolKey{database: "db", user: "user1"}
+	key2 := poolKey{database: "db", user: "user2"}
+	stats.UserPools[key1] = UserPoolStats{Username: "user1"}
+	stats.UserPools[key2] = UserPoolStats{Username: "user2"}
 
 	assert.Len(t, stats.UserPools, 2)
-	assert.Contains(t, stats.UserPools, "user1")
-	assert.Contains(t, stats.UserPools, "user2")
+	assert.Contains(t, stats.UserPools, key1)
+	assert.Contains(t, stats.UserPools, key2)
 }
 
 func TestUserPoolStats(t *testing.T) {

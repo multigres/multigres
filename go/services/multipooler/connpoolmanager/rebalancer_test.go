@@ -92,11 +92,11 @@ func TestManager_RebalanceWithUsers(t *testing.T) {
 	ctx := context.Background()
 
 	// Create some user pools
-	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
+	conn1, err := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
+	conn2, err := manager.GetRegularConn(ctx, "", "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -105,8 +105,8 @@ func TestManager_RebalanceWithUsers(t *testing.T) {
 
 	// Verify both users still have pools
 	assert.Equal(t, 2, manager.UserPoolCount())
-	assert.True(t, manager.HasUserPool("user1"))
-	assert.True(t, manager.HasUserPool("user2"))
+	assert.True(t, manager.HasUserPool("", "user1"))
+	assert.True(t, manager.HasUserPool("", "user2"))
 }
 
 func TestManager_GarbageCollectInactivePools_ManualTest(t *testing.T) {
@@ -122,7 +122,7 @@ func TestManager_GarbageCollectInactivePools_ManualTest(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "inactive-user", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "inactive-user", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -131,7 +131,7 @@ func TestManager_GarbageCollectInactivePools_ManualTest(t *testing.T) {
 	// Manually set lastActivity to a time far in the past
 	// Default inactive timeout is 5 minutes
 	pools := manager.userPoolsSnapshot.Load()
-	pool := (*pools)["inactive-user"]
+	pool := (*pools)[poolKey{database: manager.resolveDatabase(""), user: "inactive-user"}]
 	// Set activity to 10 minutes ago
 	pool.lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
 
@@ -140,7 +140,7 @@ func TestManager_GarbageCollectInactivePools_ManualTest(t *testing.T) {
 
 	// Pool should have been removed
 	assert.Equal(t, 0, manager.UserPoolCount())
-	assert.False(t, manager.HasUserPool("inactive-user"))
+	assert.False(t, manager.HasUserPool("", "inactive-user"))
 }
 
 func TestManager_GarbageCollectPreservesActivePool(t *testing.T) {
@@ -154,7 +154,7 @@ func TestManager_GarbageCollectPreservesActivePool(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "active-user", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "active-user", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -163,7 +163,7 @@ func TestManager_GarbageCollectPreservesActivePool(t *testing.T) {
 
 	// Pool should still exist (activity is recent)
 	assert.Equal(t, 1, manager.UserPoolCount())
-	assert.True(t, manager.HasUserPool("active-user"))
+	assert.True(t, manager.HasUserPool("", "active-user"))
 }
 
 func TestManager_GarbageCollectMixedPools(t *testing.T) {
@@ -177,11 +177,11 @@ func TestManager_GarbageCollectMixedPools(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two user pools
-	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
+	conn1, err := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
+	conn2, err := manager.GetRegularConn(ctx, "", "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
@@ -189,18 +189,18 @@ func TestManager_GarbageCollectMixedPools(t *testing.T) {
 
 	// Set user2 as inactive (10 minutes ago)
 	pools := manager.userPoolsSnapshot.Load()
-	(*pools)["user2"].lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+	(*pools)[poolKey{database: manager.resolveDatabase(""), user: "user2"}].lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
 
 	// Keep user1 active
-	(*pools)["user1"].lastActivity.Store(time.Now().UnixNano())
+	(*pools)[poolKey{database: manager.resolveDatabase(""), user: "user1"}].lastActivity.Store(time.Now().UnixNano())
 
 	// Trigger garbage collection
 	manager.garbageCollectInactivePools(ctx)
 
 	// Only user1 should remain
 	assert.Equal(t, 1, manager.UserPoolCount())
-	assert.True(t, manager.HasUserPool("user1"))
-	assert.False(t, manager.HasUserPool("user2"))
+	assert.True(t, manager.HasUserPool("", "user1"))
+	assert.False(t, manager.HasUserPool("", "user2"))
 }
 
 func TestManager_RebalancerLoop(t *testing.T) {
@@ -214,7 +214,7 @@ func TestManager_RebalancerLoop(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -252,13 +252,13 @@ func TestManager_DemandTrackersCreated(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user pool
-	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
 	// Get the pool and verify stats include demand fields
 	pools := manager.userPoolsSnapshot.Load()
-	pool := (*pools)["testuser"]
+	pool := (*pools)[poolKey{database: manager.resolveDatabase(""), user: "testuser"}]
 	require.NotNil(t, pool)
 
 	// Demand trackers should be created since default config has valid durations

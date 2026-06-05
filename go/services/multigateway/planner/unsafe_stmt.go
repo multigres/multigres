@@ -21,11 +21,19 @@ import (
 
 // planUnsupportedStmt rejects Tier 2 statements — server-level operations
 // that should not be available through a shared connection pooler in a
-// hosted environment: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, CREATE
-// LANGUAGE, CREATE SUBSCRIPTION, CREATE FOREIGN DATA WRAPPER, CREATE SERVER.
-// These change the server itself, affect tenant isolation, or open outbound
-// connections to external hosts, and there is no "inspect the body"
-// mitigation that could make them safe.
+// hosted environment: LOAD, ALTER SYSTEM, CREATE LANGUAGE, CREATE
+// SUBSCRIPTION, CREATE FOREIGN DATA WRAPPER, CREATE SERVER. These change the
+// server itself, affect tenant isolation, or open outbound connections to
+// external hosts, and there is no "inspect the body" mitigation that could
+// make them safe.
+//
+// CREATE DATABASE / DROP DATABASE are NOT rejected: the multipooler is
+// database-aware (it holds connection pools keyed by (database, user) on a
+// single PostgreSQL instance), so a newly created database is immediately
+// reachable by reconnecting with that dbname. CREATE/DROP DATABASE run on a
+// regular pooled connection like any other statement; PostgreSQL enforces
+// the usual constraints (not inside a transaction block, not while connected
+// to the database being dropped).
 //
 // Tier 1 statements (DO, CREATE FUNCTION / PROCEDURE, CREATE TRIGGER,
 // CREATE RULE, CREATE EVENT TRIGGER) embed procedural-language code. They
@@ -48,14 +56,6 @@ func planUnsupportedStmt(stmt ast.Stmt) error {
 	case ast.T_AlterSystemStmt:
 		return mterrors.NewFeatureNotSupported(
 			"ALTER SYSTEM is not supported: modifying server configuration is not permitted through the connection pooler")
-
-	case ast.T_CreatedbStmt:
-		return mterrors.NewFeatureNotSupported(
-			"CREATE DATABASE is not supported through the connection pooler")
-
-	case ast.T_DropdbStmt:
-		return mterrors.NewFeatureNotSupported(
-			"DROP DATABASE is not supported through the connection pooler")
 
 	case ast.T_CreatePLangStmt:
 		return mterrors.NewFeatureNotSupported(

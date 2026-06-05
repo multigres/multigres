@@ -60,12 +60,13 @@ func (m *Manager) rebalance(ctx context.Context) {
 		return
 	}
 
-	// 1. Collect demands from all user pools
+	// 1. Collect demands from all pools. The FairShareAllocator keys by a flat
+	// string, so encode each (database, user) key via poolKey.String().
 	regularDemands := make(map[string]int64, len(*pools))
 	reservedDemands := make(map[string]int64, len(*pools))
-	for user, pool := range *pools {
-		regularDemands[user] = pool.RegularDemand()
-		reservedDemands[user] = pool.ReservedDemand()
+	for key, pool := range *pools {
+		regularDemands[key.String()] = pool.RegularDemand()
+		reservedDemands[key.String()] = pool.ReservedDemand()
 	}
 
 	// 2. Compute fair allocations
@@ -73,20 +74,22 @@ func (m *Manager) rebalance(ctx context.Context) {
 	reservedAllocs := m.reservedAllocator.Allocate(reservedDemands)
 
 	// 3. Apply new capacities to each pool
-	for user, pool := range *pools {
-		regularCap := regularAllocs[user]
-		reservedCap := reservedAllocs[user]
+	for key, pool := range *pools {
+		regularCap := regularAllocs[key.String()]
+		reservedCap := reservedAllocs[key.String()]
 
 		m.logger.DebugContext(ctx, "rebalance user",
-			"user", user,
-			"regular_demand", regularDemands[user],
-			"reserved_demand", reservedDemands[user],
+			"user", key.user,
+			"database", key.database,
+			"regular_demand", regularDemands[key.String()],
+			"reserved_demand", reservedDemands[key.String()],
 			"regular_cap", regularCap,
 			"reserved_cap", reservedCap)
 
 		if err := pool.SetCapacity(ctx, regularCap, reservedCap); err != nil {
 			m.logger.WarnContext(ctx, "failed to set capacity",
-				"user", user,
+				"user", key.user,
+				"database", key.database,
 				"regular_cap", regularCap,
 				"reserved_cap", reservedCap,
 				"error", err)
@@ -114,14 +117,14 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	cutoff := now - inactiveTimeout.Nanoseconds()
 
 	// Find inactive pools
-	var inactiveUsers []string
-	for user, pool := range *pools {
+	var inactiveKeys []poolKey
+	for key, pool := range *pools {
 		if pool.LastActivity() < cutoff {
-			inactiveUsers = append(inactiveUsers, user)
+			inactiveKeys = append(inactiveKeys, key)
 		}
 	}
 
-	if len(inactiveUsers) == 0 {
+	if len(inactiveKeys) == 0 {
 		return
 	}
 
@@ -136,12 +139,12 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 	}
 
 	// Create new map without inactive pools
-	newPools := make(map[string]*UserPool, len(*pools)-len(inactiveUsers))
+	newPools := make(map[poolKey]*UserPool, len(*pools)-len(inactiveKeys))
 	maps.Copy(newPools, *pools)
 
 	var closedCount int
-	for _, user := range inactiveUsers {
-		pool, ok := newPools[user]
+	for _, key := range inactiveKeys {
+		pool, ok := newPools[key]
 		if !ok {
 			continue
 		}
@@ -153,11 +156,12 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 
 		// Close and remove the pool
 		pool.Close()
-		delete(newPools, user)
+		delete(newPools, key)
 		closedCount++
 
 		m.logger.InfoContext(ctx, "garbage collected inactive user pool",
-			"user", user,
+			"user", key.user,
+			"database", key.database,
 			"inactive_duration", time.Duration(now-pool.LastActivity()))
 	}
 

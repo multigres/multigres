@@ -134,7 +134,7 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 				defer wg.Done()
 				<-ready // Wait for signal to start
 
-				conn, err := manager.GetRegularConn(ctx, user, nil, nil)
+				conn, err := manager.GetRegularConn(ctx, "", user, nil, nil)
 				if err == nil {
 					mu.Lock()
 					connsByUser[user] = append(connsByUser[user], conn)
@@ -155,9 +155,9 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 		if len(stats.UserPools) != 3 {
 			return false
 		}
-		capA = stats.UserPools["userA"].Regular.Capacity
-		capB = stats.UserPools["userB"].Regular.Capacity
-		capC = stats.UserPools["userC"].Regular.Capacity
+		capA = stats.UserPools[poolKey{database: server.ClientConfig().Database, user: "userA"}].Regular.Capacity
+		capB = stats.UserPools[poolKey{database: server.ClientConfig().Database, user: "userB"}].Regular.Capacity
+		capC = stats.UserPools[poolKey{database: server.ClientConfig().Database, user: "userC"}].Regular.Capacity
 		totalCap := capA + capB + capC
 		return totalCap == 9
 	}, 5*time.Second, 50*time.Millisecond, "rebalancer should converge on total capacity = 9")
@@ -213,7 +213,7 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 			go func(u string, shouldRelease bool) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
+				conn, err := manager.GetRegularConn(ctx, "", u, nil, nil)
 				if err == nil {
 					if !shouldRelease {
 						mu.Lock()
@@ -250,7 +250,7 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	// Now add a 3rd user during load
 	for range 4 {
 		wg.Go(func() {
-			conn, err := manager.GetRegularConn(ctx, "user3", nil, nil)
+			conn, err := manager.GetRegularConn(ctx, "", "user3", nil, nil)
 			if err == nil {
 				mu.Lock()
 				conns["user3"] = append(conns["user3"], conn)
@@ -316,15 +316,15 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 	ctx := context.Background()
 
 	// Create 3 users
-	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
+	conn1, err := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
+	conn2, err := manager.GetRegularConn(ctx, "", "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	conn3, err := manager.GetRegularConn(ctx, "user3", nil, nil)
+	conn3, err := manager.GetRegularConn(ctx, "", "user3", nil, nil)
 	require.NoError(t, err)
 	conn3.Recycle()
 
@@ -339,11 +339,11 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 			case <-done:
 				return
 			default:
-				conn, _ := manager.GetRegularConn(ctx, "user1", nil, nil)
+				conn, _ := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 				if conn != nil {
 					conn.Recycle()
 				}
-				conn, _ = manager.GetRegularConn(ctx, "user2", nil, nil)
+				conn, _ = manager.GetRegularConn(ctx, "", "user2", nil, nil)
 				if conn != nil {
 					conn.Recycle()
 				}
@@ -358,9 +358,9 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "user3 should be garbage collected")
 	close(done)
 
-	assert.True(t, manager.HasUserPool("user1"))
-	assert.True(t, manager.HasUserPool("user2"))
-	assert.False(t, manager.HasUserPool("user3"))
+	assert.True(t, manager.HasUserPool("", "user1"))
+	assert.True(t, manager.HasUserPool("", "user2"))
+	assert.False(t, manager.HasUserPool("", "user3"))
 }
 
 // TestDynamicAllocation_CapacityExhaustion tests fair distribution
@@ -395,7 +395,7 @@ func TestDynamicAllocation_CapacityExhaustion(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
+				conn, err := manager.GetRegularConn(ctx, "", u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)
@@ -474,7 +474,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 				case <-done:
 					return
 				default:
-					conn, _ := manager.GetRegularConn(ctx, "user1", nil, nil)
+					conn, _ := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 					if conn != nil {
 						time.Sleep(50 * time.Millisecond) // Hold connection briefly
 						conn.Recycle()
@@ -500,7 +500,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
+				conn, err := manager.GetRegularConn(ctx, "", u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)
@@ -519,7 +519,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 	require.Eventually(t, func() bool {
 		stats := manager.Stats()
 		capacityMu.Lock()
-		user1Capacity = stats.UserPools["user1"].Regular.Capacity
+		user1Capacity = stats.UserPools[poolKey{database: server.ClientConfig().Database, user: "user1"}].Regular.Capacity
 		capacityMu.Unlock()
 		return user1Capacity < 16
 	}, 5*time.Second, 50*time.Millisecond, "user1 capacity should decrease when shared with other users")
@@ -544,7 +544,7 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 	var finalUser1Capacity int64
 	require.Eventually(t, func() bool {
 		stats := manager.Stats()
-		finalUser1Capacity = stats.UserPools["user1"].Regular.Capacity
+		finalUser1Capacity = stats.UserPools[poolKey{database: server.ClientConfig().Database, user: "user1"}].Regular.Capacity
 		return finalUser1Capacity > user1Capacity
 	}, 5*time.Second, 50*time.Millisecond, "remaining user should get more capacity after others leave")
 	t.Logf("user1 capacity alone: %d (was %d with 4 users)", finalUser1Capacity, user1Capacity)
@@ -590,7 +590,7 @@ func TestDynamicAllocation_GracefulDegradation(t *testing.T) {
 			go func(u string) {
 				defer wg.Done()
 				<-ready
-				conn, err := manager.GetRegularConn(ctx, u, nil, nil)
+				conn, err := manager.GetRegularConn(ctx, "", u, nil, nil)
 				if err == nil {
 					mu.Lock()
 					conns[u] = append(conns[u], conn)

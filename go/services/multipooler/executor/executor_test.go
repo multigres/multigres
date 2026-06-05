@@ -133,19 +133,19 @@ func (m *stubPoolManager) CloseForReopen()                                      
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
 func (m *stubPoolManager) GetAdminConn(context.Context) (admin.PooledConn, error)  { return nil, nil }
-func (m *stubPoolManager) GetRegularConn(context.Context, string, []byte, []byte) (regular.PooledConn, error) {
+func (m *stubPoolManager) GetRegularConn(context.Context, string, string, []byte, []byte) (regular.PooledConn, error) {
 	return nil, nil
 }
 
-func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string]string, string, []byte, []byte) (regular.PooledConn, error) {
+func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string]string, string, string, []byte, []byte) (regular.PooledConn, error) {
 	return nil, nil
 }
 
-func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	return nil, errors.New("not implemented in test stub")
 }
 
-func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) {
+func (m *stubPoolManager) GetReservedConn(int64, string, string) (*reserved.Conn, bool) {
 	return m.reservedConn, m.reservedConnOK
 }
 

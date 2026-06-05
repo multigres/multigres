@@ -325,6 +325,13 @@ message ExecuteOptions {
   // functions can map virtual PIDs (visible to clients) back to real
   // backend PIDs via pg_stat_activity.
   uint32 client_connection_id = 8;
+
+  // database is the PostgreSQL database the client connected to (from the
+  // startup packet). A single multipooler serves many logical databases on
+  // the same PostgreSQL instance; this selects which (database, user)
+  // connection pool the query runs on. When empty, the multipooler falls
+  // back to its configured default database.
+  string database = 9;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

@@ -50,7 +50,7 @@ func TestManagerNewLogicalReplicationConn(t *testing.T) {
 	defer mgr.Close()
 
 	const user = "test_user"
-	conn, err := mgr.NewLogicalReplicationConn(context.Background(), user, nil, nil)
+	conn, err := mgr.NewLogicalReplicationConn(context.Background(), "", user, nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseError)
 
@@ -61,7 +61,7 @@ func TestManagerNewLogicalReplicationConn(t *testing.T) {
 
 	// The factory must create a per-user pool, not place the replication conn
 	// on the shared admin pool.
-	assert.True(t, mgr.HasUserPool(user),
+	assert.True(t, mgr.HasUserPool("", user),
 		"replication conn must be checked out from the user's pool, not the admin pool")
 }
 
@@ -84,16 +84,16 @@ func TestManager_LogicalReplicationSharesReservedCap(t *testing.T) {
 
 	// Force the per-user pool into existence and pin its reserved cap to 2
 	// so the test is deterministic regardless of the default reservedRatio.
-	pool, err := mgr.getOrCreateUserPool(user, nil, nil)
+	pool, err := mgr.getOrCreateUserPool("", user, nil, nil)
 	require.NoError(t, err)
 	// Pin reserved cap to 2. Regular cap is irrelevant for this test —
 	// reserved conns and replication conns share the reserved pool only.
 	require.NoError(t, pool.SetCapacity(ctx, 4, 2))
 
 	// Fill the reserved cap with transactional reserved conns.
-	r1, err := mgr.NewReservedConn(ctx, nil, user, nil, nil)
+	r1, err := mgr.NewReservedConn(ctx, nil, "", user, nil, nil)
 	require.NoError(t, err)
-	r2, err := mgr.NewReservedConn(ctx, nil, user, nil, nil)
+	r2, err := mgr.NewReservedConn(ctx, nil, "", user, nil, nil)
 	require.NoError(t, err)
 
 	// Sanity-check that the rebalancer hasn't moved the reserved cap out
@@ -106,7 +106,7 @@ func TestManager_LogicalReplicationSharesReservedCap(t *testing.T) {
 	// the test fails fast rather than hanging if cap-sharing is broken.
 	shortCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
-	blocked, err := mgr.NewLogicalReplicationConn(shortCtx, user, nil, nil)
+	blocked, err := mgr.NewLogicalReplicationConn(shortCtx, "", user, nil, nil)
 	require.Error(t, err, "replication conn must not be created while the user's reserved cap is full")
 	// Pin the failure mode to the cap-acquire timeout path. The underlying
 	// connpool returns ErrTimeout when waitForConn() exits due to ctx
@@ -119,7 +119,7 @@ func TestManager_LogicalReplicationSharesReservedCap(t *testing.T) {
 	// Releasing one reserved conn must free a slot and unblock replication.
 	r1.Release(reserved.ReleaseCommit)
 
-	rl, err := mgr.NewLogicalReplicationConn(ctx, user, nil, nil)
+	rl, err := mgr.NewLogicalReplicationConn(ctx, "", user, nil, nil)
 	require.NoError(t, err, "releasing a reserved conn must let a replication conn through")
 	require.NotNil(t, rl)
 	defer rl.Release(reserved.ReleaseError)

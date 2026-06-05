@@ -94,6 +94,25 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
+// newExecuteOptions builds the ExecuteOptions fields common to every outbound
+// query RPC from the session connection and state: SCRAM passthrough keys, the
+// PostgreSQL user, the target database, the virtual PID, and session settings.
+//
+// Forwarding Database on every path is load-bearing: the multipooler keys its
+// connection pools by (database, user), so a request that omitted it would fall
+// back to the pooler's default database and could run against the wrong logical
+// database. Callers set request-specific fields (MaxRows, ReservedConnectionId,
+// PreparedStatement) on the returned value.
+func newExecuteOptions(conn *server.Conn, state *handler.MultiGatewayConnectionState) *querypb.ExecuteOptions {
+	return &querypb.ExecuteOptions{
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		Database:           conn.Database(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
+	}
+}
+
 // buildTarget constructs a routing target from the given tableGroup and shard.
 // When the connection arrived on the replica-reads port (state.TargetReplica()),
 // the target's PoolerType is set to REPLICA; otherwise PRIMARY.
@@ -178,13 +197,8 @@ func (sc *ScatterConn) StreamExecute(
 
 	target := sc.buildTarget(tableGroup, shard, state)
 
-	eo := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-		PreparedStatement:  preparedStatement,
-	}
+	eo := newExecuteOptions(conn, state)
+	eo.PreparedStatement = preparedStatement
 
 	ss := state.GetMatchingShardState(target)
 
@@ -364,13 +378,8 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Create target for routing
 	target := sc.buildTarget(tableGroup, shard, state)
 
-	eo := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		MaxRows:            uint64(maxRows),
-		SessionSettings:    state.GetSessionSettings(),
-	}
+	eo := newExecuteOptions(conn, state)
+	eo.MaxRows = uint64(maxRows)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
@@ -412,12 +421,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		sc.logger.DebugContext(ctx, "creating reserved connection for portal",
 			"reasons", protoutil.ReasonsString(reasons))
 
-		noopEo := &querypb.ExecuteOptions{
-			UserAuth:           userAuthFrom(conn),
-			User:               conn.User(),
-			ClientConnectionId: conn.ConnectionID(),
-			SessionSettings:    state.GetSessionSettings(),
-		}
+		noopEo := newExecuteOptions(conn, state)
 		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
@@ -489,12 +493,7 @@ func (sc *ScatterConn) Describe(
 	// Create target for routing
 	target := sc.buildTarget(tableGroup, shard, state)
 
-	eo := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-	}
+	eo := newExecuteOptions(conn, state)
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
 	if portalInfo != nil {
@@ -598,13 +597,8 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		eo := &querypb.ExecuteOptions{
-			UserAuth:             userAuthFrom(conn),
-			User:                 conn.User(),
-			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-		}
+		eo := newExecuteOptions(conn, state)
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
 		if err != nil {
@@ -704,13 +698,8 @@ func (sc *ScatterConn) DiscardTempTables(
 			continue
 		}
 
-		eo := &querypb.ExecuteOptions{
-			UserAuth:             userAuthFrom(conn),
-			User:                 conn.User(),
-			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-		}
+		eo := newExecuteOptions(conn, state)
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
 		if err != nil {
@@ -797,12 +786,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 		Shard:      shard,
 	}
 
-	execOptions := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-	}
+	execOptions := newExecuteOptions(conn, state)
 
 	// Reuse an existing reserved connection (e.g. one already held by a
 	// transaction or temp-table reservation) so the COPY runs on the same
@@ -870,13 +854,8 @@ func (sc *ScatterConn) CopyOutStream(
 		return nil, errors.New("no active COPY connection")
 	}
 
-	copyOptions := &querypb.ExecuteOptions{
-		UserAuth:             userAuthFrom(conn),
-		User:                 conn.User(),
-		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-	}
+	copyOptions := newExecuteOptions(conn, state)
+	copyOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 	result, reservedState, err := sc.gateway.CopyOutStream(ctx, target, copyOptions, onMessage)
 	sc.applyReservedState(conn, state, target, reservedState)
@@ -922,12 +901,7 @@ func (sc *ScatterConn) CopyInitiate(
 	}
 
 	// Create execute options
-	execOptions := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-	}
+	execOptions := newExecuteOptions(conn, state)
 
 	// If there's already a reserved connection for this target (e.g., in a transaction),
 	// pass its ID so CopyReady reuses it instead of creating a new one.
@@ -1008,13 +982,8 @@ func (sc *ScatterConn) CopySendData(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &querypb.ExecuteOptions{
-		UserAuth:             userAuthFrom(conn),
-		User:                 conn.User(),
-		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-	}
+	copyOptions := newExecuteOptions(conn, state)
+	copyOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 	// Send data via gateway
 	if err := sc.gateway.CopySendData(ctx, target, data, copyOptions); err != nil {
@@ -1066,13 +1035,8 @@ func (sc *ScatterConn) CopyFinalize(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &querypb.ExecuteOptions{
-		UserAuth:             userAuthFrom(conn),
-		User:                 conn.User(),
-		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-	}
+	copyOptions := newExecuteOptions(conn, state)
+	copyOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
@@ -1135,13 +1099,8 @@ func (sc *ScatterConn) CopyAbort(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &querypb.ExecuteOptions{
-		UserAuth:             userAuthFrom(conn),
-		User:                 conn.User(),
-		ClientConnectionId:   conn.ConnectionID(),
-		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-	}
+	copyOptions := newExecuteOptions(conn, state)
+	copyOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 	// Abort the COPY operation via gateway
 	reservedState, err := sc.gateway.CopyAbort(ctx, target, "operation aborted by client", copyOptions)
@@ -1172,13 +1131,8 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 			continue
 		}
 
-		eo := &querypb.ExecuteOptions{
-			UserAuth:             userAuthFrom(conn),
-			User:                 conn.User(),
-			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
-		}
+		eo := newExecuteOptions(conn, state)
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
 		if err != nil {

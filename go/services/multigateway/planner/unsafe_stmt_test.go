@@ -49,16 +49,14 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 			wantMessage: "ALTER SYSTEM is not supported",
 		},
 		{
-			name:        "CREATE DATABASE",
-			stmt:        &ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"},
-			wantErr:     true,
-			wantMessage: "CREATE DATABASE is not supported",
+			name:    "CREATE DATABASE is allowed",
+			stmt:    &ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"},
+			wantErr: false,
 		},
 		{
-			name:        "DROP DATABASE",
-			stmt:        &ast.DropdbStmt{BaseNode: ast.BaseNode{Tag: ast.T_DropdbStmt}, Dbname: "test"},
-			wantErr:     true,
-			wantMessage: "DROP DATABASE is not supported",
+			name:    "DROP DATABASE is allowed",
+			stmt:    &ast.DropdbStmt{BaseNode: ast.BaseNode{Tag: ast.T_DropdbStmt}, Dbname: "test"},
+			wantErr: false,
 		},
 		{
 			name:        "CREATE LANGUAGE",
@@ -287,11 +285,6 @@ func TestPlanRejectsUnsafeStatements(t *testing.T) {
 			name: "ALTER SYSTEM rejected through Plan",
 			sql:  "ALTER SYSTEM SET max_connections = 200",
 			stmt: &ast.AlterSystemStmt{BaseNode: ast.BaseNode{Tag: ast.T_AlterSystemStmt}},
-		},
-		{
-			name: "CREATE DATABASE rejected through Plan",
-			sql:  "CREATE DATABASE foo",
-			stmt: &ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "foo"},
 		},
 	}
 

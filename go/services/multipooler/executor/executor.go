@@ -157,6 +157,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	e.logger.DebugContext(ctx, "executing query",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
@@ -166,7 +167,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
 			return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
@@ -209,7 +210,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, database, user, clientKey, serverKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -265,6 +266,7 @@ func (e *Executor) StreamExecute(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	reasons := protoutil.GetReasons(reservationOptions)
 	e.logger.DebugContext(ctx, "stream executing query",
 		"tablegroup", target.TableGroup,
@@ -277,7 +279,7 @@ func (e *Executor) StreamExecute(
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
@@ -326,7 +328,7 @@ func (e *Executor) StreamExecute(
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, database, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -369,6 +371,7 @@ func (e *Executor) reserveAndStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	var settings map[string]string
 	if options != nil {
 		settings = e.sessionSettingsForPool(options.SessionSettings)
@@ -403,7 +406,7 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Create a reserved connection
 	clientKey, serverKey := scramKeysFromOptions(options)
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reservedOpts...)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, database, user, clientKey, serverKey, reservedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
@@ -594,6 +597,7 @@ func (e *Executor) PortalStreamExecute(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	var settings map[string]string
 	if options != nil {
 		settings = e.sessionSettingsForPool(options.SessionSettings)
@@ -622,12 +626,12 @@ func (e *Executor) PortalStreamExecute(
 	// 1. ReservedConnectionId is already set (e.g., from transaction or previous portal)
 	// 2. MaxRows > 0 (portal may be suspended and need resumption)
 	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 {
-		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
+		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, database, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
 	// Use regular connection for non-suspended execution with no existing reservation
 	clientKey, serverKey := scramKeysFromOptions(options)
-	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, includeDescribe, clientKey, serverKey, paramFormats, resultFormats, options, callback)
+	return e.portalExecuteWithRegular(ctx, preparedStatement, portal, settings, user, database, includeDescribe, clientKey, serverKey, paramFormats, resultFormats, options, callback)
 }
 
 // portalExecuteWithReserved executes a portal using a reserved connection.
@@ -638,6 +642,7 @@ func (e *Executor) portalExecuteWithReserved(
 	options *query.ExecuteOptions,
 	settings map[string]string,
 	user string,
+	database string,
 	maxRows int32,
 	includeDescribe bool,
 	paramFormats, resultFormats []int16,
@@ -648,7 +653,7 @@ func (e *Executor) portalExecuteWithReserved(
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
@@ -661,7 +666,7 @@ func (e *Executor) portalExecuteWithReserved(
 		// below is a no-op for the new-conn path because connState
 		// dedupes by canonical name.
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, database, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))
@@ -726,13 +731,14 @@ func (e *Executor) portalExecuteWithRegular(
 	portal *query.Portal,
 	settings map[string]string,
 	user string,
+	database string,
 	includeDescribe bool,
 	clientKey, serverKey []byte,
 	paramFormats, resultFormats []int16,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, database, user, clientKey, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -782,6 +788,7 @@ func (e *Executor) Describe(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	var settings map[string]string
 	if options != nil {
 		settings = e.sessionSettingsForPool(options.SessionSettings)
@@ -798,7 +805,7 @@ func (e *Executor) Describe(
 	// Acquire the connection: reserved (transactional) or regular (pooled).
 	var conn *regular.Conn
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
@@ -812,7 +819,7 @@ func (e *Executor) Describe(
 		conn = reservedConn.Conn()
 	} else {
 		clientKey, serverKey := scramKeysFromOptions(options)
-		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, database, user, clientKey, serverKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 		}
@@ -930,6 +937,7 @@ func (e *Executor) CopyReady(
 	reservationOptions *query.ReservationOptions,
 ) (int16, []int16, *query.ReservedState, error) {
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	var settings map[string]string
 	if options != nil {
 		settings = e.sessionSettingsForPool(options.SessionSettings)
@@ -948,7 +956,7 @@ func (e *Executor) CopyReady(
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			return 0, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
@@ -1018,7 +1026,7 @@ func (e *Executor) CopyReady(
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, database, user, clientKey, serverKey, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}
@@ -1058,9 +1066,10 @@ func (e *Executor) CopySendData(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok || reservedConn == nil {
 		return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
@@ -1099,9 +1108,10 @@ func (e *Executor) CopyFinalize(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok || reservedConn == nil {
 		return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
@@ -1202,9 +1212,10 @@ func (e *Executor) CopyAbort(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok || reservedConn == nil {
 		// Already cleaned up — return zero state
 		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
@@ -1288,6 +1299,7 @@ func (e *Executor) CopyOutReady(
 	reservationOptions *query.ReservationOptions,
 ) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 	var settings map[string]string
 	if options != nil {
 		settings = e.sessionSettingsForPool(options.SessionSettings)
@@ -1306,7 +1318,7 @@ func (e *Executor) CopyOutReady(
 	)
 
 	if options != nil && options.ReservedConnectionId > 0 {
-		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 		if reservedConn == nil {
 			return 0, nil, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
@@ -1345,7 +1357,7 @@ func (e *Executor) CopyOutReady(
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(validate))
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, database, user, clientKey, serverKey, reserved.WithValidate(validate))
 		if err != nil {
 			return 0, nil, notices, nil, err
 		}
@@ -1391,7 +1403,8 @@ func (e *Executor) CopyOutStream(
 	}
 
 	user := e.getUserFromOptions(options)
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	database := e.getDatabaseFromOptions(options)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok || reservedConn == nil {
 		return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
@@ -1485,6 +1498,17 @@ func (e *Executor) getUserFromOptions(options *query.ExecuteOptions) string {
 	return "postgres"
 }
 
+// getDatabaseFromOptions extracts the target database from ExecuteOptions. It
+// selects which (database, user) connection pool the query runs on. An empty
+// value (older gateways, internal requests) is passed through to the pool
+// manager, which resolves it to the multipooler's configured default database.
+func (e *Executor) getDatabaseFromOptions(options *query.ExecuteOptions) string {
+	if options != nil {
+		return options.GetDatabase()
+	}
+	return ""
+}
+
 // scramKeysFromOptions returns the SCRAM passthrough keys carried on the
 // request, or (nil, nil) if no keys were forwarded. The connpoolmanager
 // consults the passthrough flag before consuming them, so it is always safe
@@ -1549,6 +1573,7 @@ func (e *Executor) ConcludeTransaction(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
 	e.logger.DebugContext(ctx, "conclude transaction",
 		"user", user,
@@ -1556,7 +1581,7 @@ func (e *Executor) ConcludeTransaction(
 		"conclusion", conclusion.String())
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok {
 		// Connection destroyed — return zero state so gateway clears its tracking
 		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
@@ -1637,13 +1662,14 @@ func (e *Executor) DiscardTempTables(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
 	e.logger.DebugContext(ctx, "discard temp tables",
 		"user", user,
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok {
 		// Connection destroyed — return zero state so gateway clears its tracking
 		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
@@ -1690,8 +1716,9 @@ func (e *Executor) ReleaseReservedConnection(
 	}
 
 	user := e.getUserFromOptions(options)
+	database := e.getDatabaseFromOptions(options)
 
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), database, user)
 	if !ok || reservedConn == nil {
 		// Already cleaned up or timed out
 		return nil

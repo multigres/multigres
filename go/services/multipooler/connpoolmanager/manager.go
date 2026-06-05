@@ -45,6 +45,23 @@ const (
 	maxPoolClosedRetries = 4
 )
 
+// poolKey identifies a connection pool by the (database, user) pair it serves.
+// A single multipooler process holds pools for many logical databases on the
+// same PostgreSQL instance (CREATE DATABASE plus clients connecting to a
+// database other than the configured default), so the database is part of the
+// pool identity, not just the user.
+type poolKey struct {
+	database string
+	user     string
+}
+
+// String renders the key for use as a flat map key (demand/allocation maps in
+// the rebalancer) and for log lines. The NUL separator cannot appear in a
+// PostgreSQL identifier, so the encoding is unambiguous.
+func (k poolKey) String() string {
+	return k.database + "\x00" + k.user
+}
+
 // ErrManagerClosed is returned by connection-acquisition paths when the
 // manager is closed. withReopenRetry treats it as transient (waits for the
 // paired Open, then retries) while a reopen window is open, and as terminal
@@ -102,10 +119,11 @@ type Manager struct {
 	settingsCache *connstate.SettingsCache // Shared settings cache for all users
 	metrics       *Metrics                 // OpenTelemetry metrics
 
-	// userPoolsSnapshot holds an atomic pointer to an immutable map of user pools.
-	// This enables lock-free reads on the hot path (existing users).
-	// The map is replaced atomically via copy-on-write when new users are added.
-	userPoolsSnapshot atomic.Pointer[map[string]*UserPool]
+	// userPoolsSnapshot holds an atomic pointer to an immutable map of pools
+	// keyed by (database, user). This enables lock-free reads on the hot path
+	// (existing pools). The map is replaced atomically via copy-on-write when a
+	// new (database, user) pool is added.
+	userPoolsSnapshot atomic.Pointer[map[poolKey]*UserPool]
 
 	// createMu serializes user pool creation (cold path only).
 	// This mutex is only acquired when a new user pool needs to be created.
@@ -165,7 +183,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 
 	m.ctx = ctx
 	m.connConfig = connConfig
-	emptyPools := make(map[string]*UserPool)
+	emptyPools := make(map[poolKey]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
 
 	// Initialize zeroCh as closed: starts at zero lent connections (drained).
@@ -183,7 +201,10 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	if source == pwSourceNone {
 		panic("connpoolmanager: Open called before ResolvePgPassword; no password source configured")
 	}
-	adminClientConfig := m.buildClientConfig(m.config.PgUser(), adminPassword)
+	// The admin pool connects to the configured default database. It is used
+	// for instance-wide maintenance (kill/cancel backend, credential queries),
+	// none of which are database-specific.
+	adminClientConfig := m.buildClientConfig(m.connConfig.Database, m.config.PgUser(), adminPassword)
 
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
@@ -247,12 +268,12 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // SSLMode/TLSConfig from the ConnectionConfig propagate to every dial built by
 // this manager. They are honored only on TCP connections (libpq parity); the
 // client startup code skips SSLRequest when SocketFile is set.
-func (m *Manager) buildClientConfig(user, password string) *client.Config {
+func (m *Manager) buildClientConfig(database, user, password string) *client.Config {
 	return &client.Config{
 		SocketFile:  m.connConfig.SocketFile,
 		Host:        m.connConfig.Host,
 		Port:        m.connConfig.Port,
-		Database:    m.connConfig.Database,
+		Database:    database,
 		User:        user,
 		Password:    password,
 		SSLMode:     m.connConfig.SSLMode,
@@ -267,7 +288,7 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // using those keys. Absent keys fall back to the empty-password path, which
 // only succeeds against a pg_hba.conf that still trusts the local socket for
 // the dialing user — the template's narrow admin-user trust exception.
-func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte) *client.Config {
+func (m *Manager) buildUserClientConfig(database, user string, clientKey, serverKey []byte) *client.Config {
 	// If SCRAM passthrough keys are present, use them — no password needed.
 	// Otherwise we need a password to authenticate. When the requested user
 	// matches the configured admin user, fall back to the admin password
@@ -287,12 +308,24 @@ func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte
 			password = pw
 		}
 	}
-	cfg := m.buildClientConfig(user, password)
+	cfg := m.buildClientConfig(database, user, password)
 	if len(clientKey) > 0 && len(serverKey) > 0 {
 		cfg.ScramClientKey = clientKey
 		cfg.ScramServerKey = serverKey
 	}
 	return cfg
+}
+
+// resolveDatabase maps an empty database request to the multipooler's
+// configured default database. Internal callers (heartbeat reads, the logical
+// replication listener) pass "" because they are not tied to any client
+// session; they should land on the default-database pool rather than create a
+// distinct "" pool.
+func (m *Manager) resolveDatabase(database string) string {
+	if database == "" {
+		return m.connConfig.Database
+	}
+	return database
 }
 
 // getOrCreateUserPool returns the pool for the given user, creating it if needed.
@@ -308,14 +341,15 @@ func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte
 // (user, password) in PostgreSQL's SCRAM scheme, so cached keys stay valid
 // until the user's password rotates; password rotation is surfaced via SCRAM
 // auth failure on the next dial.
-func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) (*UserPool, error) {
+func (m *Manager) getOrCreateUserPool(database, user string, clientKey, serverKey []byte) (*UserPool, error) {
 	if user == "" {
 		return nil, errors.New("user cannot be empty")
 	}
+	key := poolKey{database: m.resolveDatabase(database), user: user}
 
 	// Hot path: atomic load + map lookup (no lock)
 	if pools := m.userPoolsSnapshot.Load(); pools != nil {
-		if pool, ok := (*pools)[user]; ok {
+		if pool, ok := (*pools)[key]; ok {
 			return pool, nil
 		}
 	}
@@ -331,19 +365,19 @@ func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) 
 	// Cold path: need to create a new user pool.
 	// Use the manager's lifecycle context so the pool is tied to the manager's
 	// lifetime, not the caller's request context.
-	return m.createUserPoolSlow(m.ctx, user, clientKey, serverKey)
+	return m.createUserPoolSlow(m.ctx, key, clientKey, serverKey)
 }
 
 // createUserPoolSlow creates a new user pool. This is the cold path that requires
 // acquiring the createMu mutex.
-func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey, serverKey []byte) (*UserPool, error) {
+func (m *Manager) createUserPoolSlow(ctx context.Context, key poolKey, clientKey, serverKey []byte) (*UserPool, error) {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
 	// Double-check after acquiring lock
 	pools := m.userPoolsSnapshot.Load()
 	if pools != nil {
-		if pool, ok := (*pools)[user]; ok {
+		if pool, ok := (*pools)[key]; ok {
 			return pool, nil
 		}
 	}
@@ -368,17 +402,18 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 	onReserve := func() { m.lentAdd(1) }
 	onRelease := func() { m.lentAdd(-1) }
 
-	// Create new user pool with per-user pool names for metric cardinality.
-	// Note: Including username in pool names enables per-user monitoring but increases
-	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
-	// Create new user pool with initial capacity. The rebalancer will adjust
-	// the capacity based on demand within a few seconds.
+	// Create new pool with per-(database, user) pool names for metric
+	// cardinality. Including both in the name keeps pools for the same user on
+	// different databases distinct in monitoring. If cardinality becomes an
+	// issue with many databases/users, we can make it configurable.
+	// The rebalancer adjusts capacity based on demand within a few seconds.
 	userConnectTimeout := 2 * m.config.DialTimeout()
+	nameSuffix := key.user + "@" + key.database
 	pool, err := NewUserPool(ctx, &UserPoolConfig{
-		ClientConfig: m.buildUserClientConfig(user, clientKey, serverKey),
+		ClientConfig: m.buildUserClientConfig(key.database, key.user, clientKey, serverKey),
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
-			Name:            "regular:" + user,
+			Name:            "regular:" + nameSuffix,
 			Capacity:        initialRegularCap,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
@@ -387,7 +422,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 			Logger:          m.logger,
 		},
 		ReservedPoolConfig: &connpool.Config{
-			Name:            "reserved:" + user,
+			Name:            "reserved:" + nameSuffix,
 			Capacity:        initialReservedCap,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
@@ -405,17 +440,17 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		OnRelease:                 onRelease,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
+		return nil, fmt.Errorf("create user pool for %q on %q: %w", key.user, key.database, err)
 	}
 
 	// Copy-on-write: create new map with the new pool
-	newPools := make(map[string]*UserPool, len(currentPools)+1)
+	newPools := make(map[poolKey]*UserPool, len(currentPools)+1)
 	maps.Copy(newPools, currentPools)
-	newPools[user] = pool
+	newPools[key] = pool
 
 	// Atomic publish
 	m.userPoolsSnapshot.Store(&newPools)
-	m.logger.InfoContext(ctx, "created user pool", "user", user, "total_users", len(newPools))
+	m.logger.InfoContext(ctx, "created user pool", "user", key.user, "database", key.database, "total_pools", len(newPools))
 
 	return pool, nil
 }
@@ -467,13 +502,13 @@ func (m *Manager) teardownLocked() {
 
 	// Close all user pools
 	if pools := m.userPoolsSnapshot.Load(); pools != nil {
-		for user, pool := range *pools {
+		for key, pool := range *pools {
 			pool.Close()
-			m.logger.Debug("closed user pool", "user", user)
+			m.logger.Debug("closed user pool", "user", key.user, "database", key.database)
 		}
 	}
 	// Clear the snapshot
-	emptyPools := make(map[string]*UserPool)
+	emptyPools := make(map[poolKey]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
 
 	// Close shared admin pool last
@@ -538,8 +573,8 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 // first-time pool creation for the user; subsequent calls reuse the existing
 // pool regardless of the keys they pass. The caller must call Recycle() on
 // the returned connection to return it to the pool.
-func (m *Manager) GetRegularConn(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
-	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
+func (m *Manager) GetRegularConn(ctx context.Context, database, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
+	return withReopenRetry(ctx, m, database, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConn(ctx)
 	})
 }
@@ -547,9 +582,9 @@ func (m *Manager) GetRegularConn(ctx context.Context, user string, clientKey, se
 // GetRegularConnWithSettings is GetRegularConn that additionally applies
 // per-session settings. Settings are converted via the shared SettingsCache
 // for consistent bucket assignment.
-func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
+func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, database, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
+	return withReopenRetry(ctx, m, database, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConnWithSettings(ctx, s)
 	})
 }
@@ -563,9 +598,9 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // values configure validate-with-retry behavior. Key-consumption semantics
 // match GetRegularConn. The caller must call Release() when done with the
 // connection.
-func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, database, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+	return withReopenRetry(ctx, m, database, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewReservedConn(ctx, s, opts...)
 	})
 }
@@ -574,8 +609,8 @@ func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]strin
 // replication mode (replication=database) and tagged with
 // ReasonLogicalReplication, on the specified user's reserved pool. SCRAM
 // passthrough key semantics match NewReservedConn.
-func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
-	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+func (m *Manager) NewLogicalReplicationConn(ctx context.Context, database, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
+	return withReopenRetry(ctx, m, database, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewLogicalReplicationConn(ctx)
 	})
 }
@@ -590,7 +625,7 @@ func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, cl
 // Callers should still retry against whatever the snapshot now holds: the
 // racing caller's fresh pool is the right target, and if the entry is gone
 // getOrCreateUserPool creates a new one.
-func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
+func (m *Manager) evictUserPool(key poolKey, stale *UserPool) bool {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
@@ -598,17 +633,17 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 	if pools == nil {
 		return false
 	}
-	current, ok := (*pools)[user]
+	current, ok := (*pools)[key]
 	if !ok || current != stale {
 		return false
 	}
 
-	newPools := make(map[string]*UserPool, len(*pools)-1)
-	for u, p := range *pools {
-		if u == user {
+	newPools := make(map[poolKey]*UserPool, len(*pools)-1)
+	for k, p := range *pools {
+		if k == key {
 			continue
 		}
-		newPools[u] = p
+		newPools[k] = p
 	}
 	m.userPoolsSnapshot.Store(&newPools)
 
@@ -616,7 +651,7 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 	// but Close is cheap and racing creators already passed the double-check
 	// by now, so finishing synchronously keeps invariants simple.
 	stale.Close()
-	m.logger.InfoContext(m.ctx, "evicted user pool after stale credentials detected", "user", user)
+	m.logger.InfoContext(m.ctx, "evicted user pool after stale credentials detected", "user", key.user, "database", key.database)
 	return true
 }
 
@@ -650,13 +685,14 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 // getOrCreateUserPool so that a first-time pool creation triggered during
 // this call (including after an eviction or reopen swap) gets the session's
 // keys.
-func withReopenRetry[T any](ctx context.Context, m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
+func withReopenRetry[T any](ctx context.Context, m *Manager, database, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
 	var zero T
 	authRetried := false
+	key := poolKey{database: m.resolveDatabase(database), user: user}
 
 	for closedAttempts := 0; ; {
 		var err error
-		pool, lookupErr := m.getOrCreateUserPool(user, clientKey, serverKey)
+		pool, lookupErr := m.getOrCreateUserPool(database, user, clientKey, serverKey)
 		if lookupErr != nil {
 			err = lookupErr
 		} else {
@@ -675,7 +711,7 @@ func withReopenRetry[T any](ctx context.Context, m *Manager, user string, client
 					return zero, opErr
 				}
 				authRetried = true
-				m.evictUserPool(user, pool)
+				m.evictUserPool(key, pool)
 				continue
 			}
 			err = opErr
@@ -785,16 +821,17 @@ func (m *Manager) reopenWaitCh() <-chan struct{} {
 	return m.reopenDone
 }
 
-// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
-// Returns nil, false if the user pool doesn't exist, the connection is not found, or has timed out.
-func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bool) {
+// GetReservedConn retrieves an existing reserved connection by ID for the
+// specified (database, user) pool. Returns nil, false if the pool doesn't
+// exist, the connection is not found, or has timed out.
+func (m *Manager) GetReservedConn(connID int64, database, user string) (*reserved.Conn, bool) {
 	// Lock-free read via atomic snapshot
 	pools := m.userPoolsSnapshot.Load()
 	if pools == nil {
 		return nil, false
 	}
 
-	pool, ok := (*pools)[user]
+	pool, ok := (*pools)[poolKey{database: m.resolveDatabase(database), user: user}]
 	if !ok {
 		return nil, false
 	}
@@ -825,14 +862,14 @@ func (m *Manager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, s
 func (m *Manager) Stats() ManagerStats {
 	pools := m.userPoolsSnapshot.Load()
 
-	var userPoolStats map[string]UserPoolStats
+	var userPoolStats map[poolKey]UserPoolStats
 	if pools != nil {
-		userPoolStats = make(map[string]UserPoolStats, len(*pools))
-		for user, pool := range *pools {
-			userPoolStats[user] = pool.Stats()
+		userPoolStats = make(map[poolKey]UserPoolStats, len(*pools))
+		for key, pool := range *pools {
+			userPoolStats[key] = pool.Stats()
 		}
 	} else {
-		userPoolStats = make(map[string]UserPoolStats)
+		userPoolStats = make(map[poolKey]UserPoolStats)
 	}
 
 	return ManagerStats{
@@ -843,8 +880,8 @@ func (m *Manager) Stats() ManagerStats {
 
 // ManagerStats holds statistics for all managed pools.
 type ManagerStats struct {
-	Admin     connpool.PoolStats       // Shared admin pool stats
-	UserPools map[string]UserPoolStats // Per-user pool stats
+	Admin     connpool.PoolStats        // Shared admin pool stats
+	UserPools map[poolKey]UserPoolStats // Per-(database, user) pool stats
 }
 
 // lentAdd adjusts the lent connection count by n.
@@ -922,12 +959,12 @@ func (m *Manager) UserPoolCount() int {
 	return len(*pools)
 }
 
-// HasUserPool returns whether a pool exists for the given user.
-func (m *Manager) HasUserPool(user string) bool {
+// HasUserPool returns whether a pool exists for the given (database, user).
+func (m *Manager) HasUserPool(database, user string) bool {
 	pools := m.userPoolsSnapshot.Load()
 	if pools == nil {
 		return false
 	}
-	_, ok := (*pools)[user]
+	_, ok := (*pools)[poolKey{database: m.resolveDatabase(database), user: user}]
 	return ok
 }

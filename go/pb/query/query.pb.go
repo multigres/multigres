@@ -1111,8 +1111,14 @@ type ExecuteOptions struct {
 	// functions can map virtual PIDs (visible to clients) back to real
 	// backend PIDs via pg_stat_activity.
 	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// database is the PostgreSQL database the client connected to (from the
+	// startup packet). A single multipooler serves many logical databases on
+	// the same PostgreSQL instance; this selects which (database, user)
+	// connection pool the query runs on. When empty, the multipooler falls
+	// back to its configured default database.
+	Database      string `protobuf:"bytes,9,opt,name=database,proto3" json:"database,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1192,6 +1198,13 @@ func (x *ExecuteOptions) GetClientConnectionId() uint32 {
 		return x.ClientConnectionId
 	}
 	return 0
+}
+
+func (x *ExecuteOptions) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1442,7 +1455,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xb9\x03\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xd5\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1450,7 +1463,8 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12G\n" +
 	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12,\n" +
 	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
-	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x1aB\n" +
+	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12\x1a\n" +
+	"\bdatabase\x18\t \x01(\tR\bdatabase\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +

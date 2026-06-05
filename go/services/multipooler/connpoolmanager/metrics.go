@@ -388,7 +388,7 @@ func (m *Metrics) RegisterManagerCallbacks(
 			var totalWaitTime float64
 			var totalGetCount int64
 
-			for user, userStats := range stats.UserPools {
+			for key, userStats := range stats.UserPools {
 				// Regular pool: server connections
 				totalActive += userStats.Regular.Borrowed
 				totalIdle += userStats.Regular.Idle
@@ -405,8 +405,11 @@ func (m *Metrics) RegisterManagerCallbacks(
 				totalWaitTime += userStats.WaitTime.Seconds()
 				totalGetCount += userStats.GetCount
 
-				// Per-user pool capacity and current connections.
-				userAttr := metric.WithAttributes(attribute.String("user", user))
+				// Per-(database, user) pool capacity and current connections.
+				userAttr := metric.WithAttributes(
+					attribute.String("user", key.user),
+					attribute.String("database", key.database),
+				)
 
 				if m.poolCapacity != nil {
 					capacity := userStats.Regular.Capacity + userStats.Reserved.RegularPool.Capacity

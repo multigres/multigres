@@ -90,7 +90,7 @@ func TestManager_Close(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a connection to create a user pool.
-	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 
@@ -152,7 +152,7 @@ func TestManager_GetRegularConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Get a regular connection for a user.
-	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -162,7 +162,7 @@ func TestManager_GetRegularConn(t *testing.T) {
 	conn.Recycle()
 
 	// Verify user pool was created.
-	assert.True(t, manager.HasUserPool("testuser"))
+	assert.True(t, manager.HasUserPool("", "testuser"))
 }
 
 func TestManager_GetRegularConn_EmptyUser(t *testing.T) {
@@ -176,7 +176,7 @@ func TestManager_GetRegularConn_EmptyUser(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty user should error.
-	_, err := manager.GetRegularConn(ctx, "", nil, nil)
+	_, err := manager.GetRegularConn(ctx, "", "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user cannot be empty")
 }
@@ -192,7 +192,7 @@ func TestManager_GetRegularConn_ClosedManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Closed manager should error.
-	_, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	_, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is closed")
 }
@@ -215,7 +215,7 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	}
 
 	// Get a connection with settings.
-	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "testuser", nil, nil)
+	conn, err := manager.GetRegularConnWithSettings(ctx, settings, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -239,7 +239,7 @@ func TestManager_NewReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, nil, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -266,7 +266,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	}
 
 	// Create a reserved connection with settings.
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, settings, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -304,7 +304,7 @@ func TestWithReopenRetry_RetriesOnReopen(t *testing.T) {
 	ctx := context.Background()
 
 	calls := 0
-	result, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(ctx, manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		if calls == 1 {
 			// Simulate reopenConnections running mid-flight: close the pools as
@@ -345,7 +345,7 @@ func TestWithReopenRetry_WaitsForReopenThenRetries(t *testing.T) {
 	}()
 
 	calls := 0
-	result, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	result, err := withReopenRetry(ctx, manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 99, nil
 	})
@@ -367,7 +367,7 @@ func TestWithReopenRetry_SurfacesGenuineClose(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		// Genuine shutdown racing the op: terminal Close, no reopen window.
 		manager.Close()
@@ -393,7 +393,7 @@ func TestWithReopenRetry_FailsFastOnPreClosedManager(t *testing.T) {
 	manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 0, nil
 	})
@@ -415,7 +415,7 @@ func TestWithReopenRetry_RetriesErrPoolClosedUpToCap(t *testing.T) {
 	defer manager.Close()
 
 	calls := 0
-	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 0, connpool.ErrPoolClosed
 	})
@@ -442,7 +442,7 @@ func TestWithReopenRetry_ReopenWaitHonorsContextCancellation(t *testing.T) {
 	defer cancel()
 
 	calls := 0
-	_, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(ctx, manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 0, connpool.ErrPoolClosed
 	})
@@ -480,7 +480,7 @@ func TestWithReopenRetry_TerminalCloseDuringReopenWakesWaiter(t *testing.T) {
 		// Close below, well before this would fire.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err := withReopenRetry(ctx, manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+		_, err := withReopenRetry(ctx, manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 			calls++
 			return 0, nil
 		})
@@ -518,7 +518,7 @@ func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
 
 	var seenPools []*UserPool
 	calls := 0
-	result, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(pool *UserPool) (int, error) {
+	result, err := withReopenRetry(context.Background(), manager, "", "testuser", nil, nil, func(pool *UserPool) (int, error) {
 		calls++
 		seenPools = append(seenPools, pool)
 		if calls == 1 {
@@ -535,8 +535,8 @@ func TestWithReopenRetry_EvictsStalePoolOnAuthError(t *testing.T) {
 
 	snap := manager.userPoolsSnapshot.Load()
 	require.NotNil(t, snap, "snapshot must be loaded after retry")
-	assert.True(t, manager.HasUserPool("testuser"), "user pool must be present in fresh snapshot")
-	assert.NotSame(t, seenPools[0], (*snap)["testuser"], "the original stale pool must no longer be in the snapshot")
+	assert.True(t, manager.HasUserPool("", "testuser"), "user pool must be present in fresh snapshot")
+	assert.NotSame(t, seenPools[0], (*snap)[poolKey{database: manager.resolveDatabase(""), user: "testuser"}], "the original stale pool must no longer be in the snapshot")
 }
 
 // TestWithReopenRetry_SurfacesPersistentAuthError ensures that if the retry
@@ -554,7 +554,7 @@ func TestWithReopenRetry_SurfacesPersistentAuthError(t *testing.T) {
 	authErr := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
 
 	calls := 0
-	_, err := withReopenRetry(context.Background(), manager, "testuser", nil, nil, func(_ *UserPool) (int, error) {
+	_, err := withReopenRetry(context.Background(), manager, "", "testuser", nil, nil, func(_ *UserPool) (int, error) {
 		calls++
 		return 0, fmt.Errorf("dial failed: %w", authErr)
 	})
@@ -578,21 +578,21 @@ func TestEvictUserPool_RemovesFromSnapshotAndCloses(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm up: create a user pool.
-	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	stale, err := manager.getOrCreateUserPool("", "testuser", nil, nil)
 	require.NoError(t, err)
-	require.True(t, manager.HasUserPool("testuser"))
+	require.True(t, manager.HasUserPool("", "testuser"))
 
-	evicted := manager.evictUserPool("testuser", stale)
+	evicted := manager.evictUserPool(poolKey{database: manager.resolveDatabase(""), user: "testuser"}, stale)
 	assert.True(t, evicted, "eviction of the current pool should return true")
-	assert.False(t, manager.HasUserPool("testuser"), "pool must be removed from snapshot")
+	assert.False(t, manager.HasUserPool("", "testuser"), "pool must be removed from snapshot")
 
 	// Subsequent acquire must produce a different pool instance.
-	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	fresh, err := manager.getOrCreateUserPool("", "testuser", nil, nil)
 	require.NoError(t, err)
 	assert.NotSame(t, stale, fresh, "post-eviction acquire must build a fresh pool")
 
 	// Real acquisition must still work against the fresh pool.
-	conn, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn.Recycle()
 }
@@ -609,18 +609,18 @@ func TestEvictUserPool_NoOpOnRacingEviction(t *testing.T) {
 	manager := newTestManager(t, server)
 	defer manager.Close()
 
-	stale, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	stale, err := manager.getOrCreateUserPool("", "testuser", nil, nil)
 	require.NoError(t, err)
 
 	// Racing goroutine already evicted + recreated.
-	require.True(t, manager.evictUserPool("testuser", stale))
-	fresh, err := manager.getOrCreateUserPool("testuser", nil, nil)
+	require.True(t, manager.evictUserPool(poolKey{database: manager.resolveDatabase(""), user: "testuser"}, stale))
+	fresh, err := manager.getOrCreateUserPool("", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotSame(t, stale, fresh)
 
 	// Late caller still holding the stale reference must not clobber fresh.
-	assert.False(t, manager.evictUserPool("testuser", stale), "stale reference must not evict the fresh pool")
-	assert.True(t, manager.HasUserPool("testuser"), "fresh pool must remain in the snapshot")
+	assert.False(t, manager.evictUserPool(poolKey{database: manager.resolveDatabase(""), user: "testuser"}, stale), "stale reference must not evict the fresh pool")
+	assert.True(t, manager.HasUserPool("", "testuser"), "fresh pool must remain in the snapshot")
 }
 
 // TestManager_NewReservedConn_SurvivesReopen exercises the end-to-end path:
@@ -638,7 +638,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm up: create a user pool.
-	c1, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	c1, err := manager.NewReservedConn(ctx, nil, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	c1.Release(reserved.ReleaseCommit)
 
@@ -652,7 +652,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	})
 
 	// Reserved-conn acquisition must succeed against the fresh pool.
-	c2, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	c2, err := manager.NewReservedConn(ctx, nil, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c2)
 	c2.Release(reserved.ReleaseCommit)
@@ -669,12 +669,12 @@ func TestManager_GetReservedConn(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a reserved connection.
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, nil, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	connID := conn.ConnID()
 
 	// Retrieve by ID.
-	retrieved, ok := manager.GetReservedConn(connID, "testuser")
+	retrieved, ok := manager.GetReservedConn(connID, "", "testuser")
 	require.True(t, ok)
 	assert.Equal(t, connID, retrieved.ConnID())
 
@@ -690,7 +690,7 @@ func TestManager_GetReservedConn_NotFound(t *testing.T) {
 	defer manager.Close()
 
 	// Non-existent connection ID.
-	_, ok := manager.GetReservedConn(999999, "testuser")
+	_, ok := manager.GetReservedConn(999999, "", "testuser")
 	assert.False(t, ok)
 }
 
@@ -703,7 +703,7 @@ func TestManager_GetReservedConn_UserNotFound(t *testing.T) {
 	defer manager.Close()
 
 	// No user pools exist yet.
-	_, ok := manager.GetReservedConn(1, "unknownuser")
+	_, ok := manager.GetReservedConn(1, "", "unknownuser")
 	assert.False(t, ok)
 }
 
@@ -723,19 +723,19 @@ func TestManager_Stats(t *testing.T) {
 	assert.Empty(t, stats.UserPools)
 
 	// Create some user pools.
-	conn1, err := manager.GetRegularConn(ctx, "user1", nil, nil)
+	conn1, err := manager.GetRegularConn(ctx, "", "user1", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "user2", nil, nil)
+	conn2, err := manager.GetRegularConn(ctx, "", "user2", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
 	// Verify stats include user pools.
 	stats = manager.Stats()
 	assert.Len(t, stats.UserPools, 2)
-	assert.Contains(t, stats.UserPools, "user1")
-	assert.Contains(t, stats.UserPools, "user2")
+	assert.Contains(t, stats.UserPools, poolKey{database: manager.resolveDatabase(""), user: "user1"})
+	assert.Contains(t, stats.UserPools, poolKey{database: manager.resolveDatabase(""), user: "user2"})
 }
 
 func TestManager_UserPoolReuse(t *testing.T) {
@@ -749,15 +749,15 @@ func TestManager_UserPoolReuse(t *testing.T) {
 	ctx := context.Background()
 
 	// Get connections for the same user multiple times.
-	conn1, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn1, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn2, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	conn3, err := manager.GetRegularConn(ctx, "testuser", nil, nil)
+	conn3, err := manager.GetRegularConn(ctx, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	conn3.Recycle()
 
@@ -782,7 +782,7 @@ func TestManager_ConcurrentUserPoolCreation(t *testing.T) {
 	// Concurrently create connections for the same user.
 	for range numGoroutines {
 		wg.Go(func() {
-			conn, err := manager.GetRegularConn(ctx, "concurrent-user", nil, nil)
+			conn, err := manager.GetRegularConn(ctx, "", "concurrent-user", nil, nil)
 			if err != nil {
 				errs <- err
 				return
@@ -822,7 +822,7 @@ func TestManager_ConcurrentDifferentUsers(t *testing.T) {
 		go func(userNum int) {
 			defer wg.Done()
 			user := "user" + string(rune('A'+userNum))
-			conn, err := manager.GetRegularConn(ctx, user, nil, nil)
+			conn, err := manager.GetRegularConn(ctx, "", user, nil, nil)
 			if err != nil {
 				t.Errorf("unexpected error for %s: %v", user, err)
 				return
@@ -854,12 +854,12 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	}
 
 	// Get connections with the same settings multiple times.
-	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "user1", nil, nil)
+	conn1, err := manager.GetRegularConnWithSettings(ctx, settings, "", "user1", nil, nil)
 	require.NoError(t, err)
 	settings1 := conn1.Conn.Settings()
 	conn1.Recycle()
 
-	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "user2", nil, nil)
+	conn2, err := manager.GetRegularConnWithSettings(ctx, settings, "", "user2", nil, nil)
 	require.NoError(t, err)
 	settings2 := conn2.Conn.Settings()
 	conn2.Recycle()
@@ -884,7 +884,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 
 	// Create a reserved connection with initial settings.
 	initialSettings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -914,7 +914,7 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	ctx := context.Background()
 
 	settings := map[string]string{"search_path": "public"}
-	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, settings, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -939,7 +939,7 @@ func TestManager_ApplySettingsToConn_NilSettings(t *testing.T) {
 
 	ctx := context.Background()
 
-	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, nil, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -964,7 +964,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 
 	// Create a reserved connection with two settings.
 	initialSettings := map[string]string{"search_path": "public", "work_mem": "256MB"}
-	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "", "testuser", nil, nil)
 	require.NoError(t, err)
 	defer conn.Release(reserved.ReleaseCommit)
 
@@ -1002,7 +1002,7 @@ func BenchmarkManager_GetUserPool_HotPath(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first (cold path)
-	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -1013,7 +1013,7 @@ func BenchmarkManager_GetUserPool_HotPath(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			// This should only do: atomic load + map lookup
-			if !manager.HasUserPool("benchuser") {
+			if !manager.HasUserPool("", "benchuser") {
 				b.Fatal("user pool should exist")
 			}
 		}
@@ -1041,7 +1041,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	defer manager.Close()
 
 	// Create the user pool first
-	conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
+	conn, err := manager.GetRegularConn(ctx, "", "benchuser", nil, nil)
 	if err != nil {
 		b.Fatalf("failed to create user pool: %v", err)
 	}
@@ -1050,7 +1050,7 @@ func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
 	// Benchmark getting connections for existing user
 	b.ResetTimer()
 	for b.Loop() {
-		conn, err := manager.GetRegularConn(ctx, "benchuser", nil, nil)
+		conn, err := manager.GetRegularConn(ctx, "", "benchuser", nil, nil)
 		if err != nil {
 			b.Fatalf("failed to get connection: %v", err)
 		}
@@ -1071,7 +1071,7 @@ func TestBuildUserClientConfig_KeysApplied(t *testing.T) {
 	defer manager.Close()
 
 	ck, sk := bytes32(1), bytes32(2)
-	cfg := manager.buildUserClientConfig("alice", ck, sk)
+	cfg := manager.buildUserClientConfig("", "alice", ck, sk)
 
 	assert.Equal(t, ck, cfg.ScramClientKey)
 	assert.Equal(t, sk, cfg.ScramServerKey)
@@ -1094,7 +1094,7 @@ func TestBuildUserClientConfig_NilKeys_FallsBack(t *testing.T) {
 	manager.Open(context.Background(), &ConnectionConfig{Database: "db"})
 	defer manager.Close()
 
-	cfg := manager.buildUserClientConfig("alice", nil, nil)
+	cfg := manager.buildUserClientConfig("", "alice", nil, nil)
 
 	assert.Nil(t, cfg.ScramClientKey)
 	assert.Nil(t, cfg.ScramServerKey)
