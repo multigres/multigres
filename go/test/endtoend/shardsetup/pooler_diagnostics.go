@@ -140,6 +140,25 @@ func EventuallyPoolerCondition(
 	}, timeout, tick, msgAndArgs...)
 }
 
+// TimedEventuallyPoolerCondition is EventuallyPoolerCondition that also records elapsed
+// time to tc. tc may be nil, in which case timing is not recorded.
+func TimedEventuallyPoolerCondition(
+	t *testing.T,
+	tc *TimingCollector,
+	label string,
+	poolers []*MultipoolerInstance,
+	timeout, tick time.Duration,
+	condition func(r PoolerStatusResult) (bool, string),
+	msgAndArgs ...any,
+) {
+	t.Helper()
+	start := time.Now()
+	EventuallyPoolerCondition(t, poolers, timeout, tick, condition, msgAndArgs...)
+	if tc != nil {
+		tc.Record(label, time.Since(start), timeout)
+	}
+}
+
 // RequirePoolerCondition fetches status for each pooler once and immediately fails the
 // test if any pooler does not satisfy condition. Diagnostics for all failing poolers are
 // included in the failure message. Use this after RequireRecovery or similar operations
@@ -201,6 +220,7 @@ func WaitForHigherTermPrimary(t *testing.T, setup *ShardSetup, oldTerm int64, mi
 
 // WaitForNewPrimary polls all multipoolers in setup until one other than oldPrimaryName
 // reports IsInitialized + PoolerType_PRIMARY + PostgresReady, then returns its name.
+// Elapsed time is recorded to setup.Timings when non-nil.
 // Fails the test if no new primary is elected within timeout.
 func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
@@ -210,7 +230,8 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		poolers = append(poolers, inst)
 	}
 
-	return EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+	start := time.Now()
+	name := EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
 		func(statuses []PoolerStatusResult) (string, bool, string) {
 			for _, r := range statuses {
 				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
@@ -226,6 +247,10 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		},
 		"new primary not elected within %v", timeout,
 	)
+	if setup.Timings != nil {
+		setup.Timings.Record(fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), timeout)
+	}
+	return name
 }
 
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,

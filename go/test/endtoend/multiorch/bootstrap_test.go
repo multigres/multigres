@@ -355,7 +355,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
-		shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
+		shardsetup.TimedEventuallyPoolerCondition(t, setup.Timings, "standby auto-restore",
+			[]*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
 			func(r shardsetup.PoolerStatusResult) (bool, string) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"

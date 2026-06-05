@@ -14,11 +14,11 @@
 # limitations under the License.
 #
 # Reads integration-test-results.jsonl (go test -json output), extracts
-# startup timing rows emitted by shardsetup.TimingCollector, and writes a
-# mean±95%CI / p50/p95/p99 markdown table to $GITHUB_STEP_SUMMARY.
+# timing rows emitted by shardsetup.TimingCollector, and writes a
+# mean±99.9%CI / p50/p95/p99 markdown table to $GITHUB_STEP_SUMMARY.
 #
-# Usage: python3 .github/scripts/startup-timing-summary.py
-"""Summarise startup timing stats from integration test output into a markdown table."""
+# Usage: python3 .github/scripts/timing-summary.py
+"""Summarise timing stats from integration test output into a markdown table."""
 
 # pylint: disable=invalid-name  # script filename uses hyphens (conventional for CLI scripts)
 
@@ -30,47 +30,47 @@ import sys
 from collections import defaultdict
 from typing import IO
 
-# t-distribution critical values at the 97.5th percentile (for a 95% two-sided
+# t-distribution critical values at the 99.95th percentile (for a 99.9% two-sided
 # CI on the mean), keyed by degrees of freedom (n-1).  Values are taken from
-# standard t-tables.  For df > 120 the normal approximation 1.960 is used.
-_T_CRIT_97_5: dict[int, float] = {
-    1: 12.706,
-    2: 4.303,
-    3: 3.182,
-    4: 2.776,
-    5: 2.571,
-    6: 2.447,
-    7: 2.365,
-    8: 2.306,
-    9: 2.262,
-    10: 2.228,
-    12: 2.179,
-    15: 2.131,
-    20: 2.086,
-    25: 2.060,
-    30: 2.042,
-    40: 2.021,
-    60: 2.000,
-    120: 1.980,
+# standard t-tables.  For df > 120 the normal approximation 3.291 is used.
+_T_CRIT_99_95: dict[int, float] = {
+    1: 636.619,
+    2: 31.598,
+    3: 12.924,
+    4: 8.610,
+    5: 6.869,
+    6: 5.959,
+    7: 5.408,
+    8: 5.041,
+    9: 4.781,
+    10: 4.587,
+    12: 4.318,
+    15: 4.073,
+    20: 3.850,
+    25: 3.725,
+    30: 3.646,
+    40: 3.551,
+    60: 3.460,
+    120: 3.373,
 }
 
 
-def t_crit_95(df: int) -> float:
-    """Return the 97.5th-percentile t critical value for the given degrees of freedom.
+def t_crit_999(df: int) -> float:
+    """Return the 99.95th-percentile t critical value for the given degrees of freedom.
 
     Uses the nearest entry with df' ≤ df (conservative — slightly widens the
-    interval).  Falls back to the normal-distribution value 1.960 for df > 120.
+    interval).  Falls back to the normal-distribution value 3.291 for df > 120.
     """
     if df >= 120:
-        return 1.960
-    for k in sorted(_T_CRIT_97_5, reverse=True):
+        return 3.291
+    for k in sorted(_T_CRIT_99_95, reverse=True):
         if df >= k:
-            return _T_CRIT_97_5[k]
-    return _T_CRIT_97_5[1]
+            return _T_CRIT_99_95[k]
+    return _T_CRIT_99_95[1]
 
 
-def mean_ci_95(values: list[float]) -> tuple[float, float]:
-    """Return (mean, half_width) for a 95% CI on the mean, assuming normality.
+def mean_ci_999(values: list[float]) -> tuple[float, float]:
+    """Return (mean, half_width) for a 99.9% CI on the mean, assuming normality.
 
     For n=1 the half-width is 0.0 (a CI cannot be computed from a single sample).
     """
@@ -79,16 +79,19 @@ def mean_ci_95(values: list[float]) -> tuple[float, float]:
     if n < 2:
         return mean, 0.0
     variance = sum((x - mean) ** 2 for x in values) / (n - 1)
-    margin = t_crit_95(n - 1) * math.sqrt(variance) / math.sqrt(n)
+    margin = t_crit_999(n - 1) * math.sqrt(variance) / math.sqrt(n)
     return mean, margin
 
 
 def clean_label(label: str) -> str:
     """Normalise labels that vary by pooler instance.
 
-    "manager ready: pooler-N" → "manager ready"
+    "manager ready: pooler-N"          → "manager ready"
+    "failover: pooler-N → new primary" → "failover"
     """
-    return re.sub(r": pooler-\d+$", "", label).strip()
+    label = re.sub(r": pooler-\d+$", "", label)
+    label = re.sub(r": pooler-\d+ →.*$", "", label)
+    return label.strip()
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -135,7 +138,7 @@ def format_cell(elapsed_seconds: float, limit_seconds: float) -> str:
 def format_ci_cell(mean_s: float, margin_s: float, limit_s: float, n: int) -> str:
     """Format a mean±CI cell as 'Xs ±Ys (P%, n=N)'.
 
-    Shows the mean elapsed time, the 95% CI half-width, the mean as a
+    Shows the mean elapsed time, the 99.9% CI half-width, the mean as a
     percentage of the timeout, and the sample size so the reliability of the
     interval is immediately visible.
     """
@@ -215,15 +218,15 @@ def main() -> None:
         )  # pylint: disable=consider-using-with
 
     try:
-        out.write("## Startup Timing\n\n")
+        out.write("## Timing Summary\n\n")
         out.write(
-            "| Operation | Timeout | mean ±95%CI | min | p50 | p95 | p99 | max |\n"
+            "| Operation | Timeout | mean ±99.9%CI | min | p50 | p95 | p99 | max |\n"
         )
         out.write("|---|---|---|---|---|---|---|---|\n")
         for label in sorted(data):
             vals = data[label]
             limit_s = parse_duration_seconds(limits[label])
-            mean_s, margin_s = mean_ci_95(vals)
+            mean_s, margin_s = mean_ci_999(vals)
             p50v = percentile(vals, 50)
             p95v = percentile(vals, 95)
             p99v = percentile(vals, 99)

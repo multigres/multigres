@@ -60,7 +60,7 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 	for _, name := range expected {
 		expectedSet[name] = struct{}{}
 	}
-	require.Eventually(t, func() bool {
+	shardsetup.TimedEventually(t, setup.Timings, "cohort convergence", func() bool {
 		members := fetchLeaderCohort(t, setup)
 		if len(members) != len(expected) {
 			return false

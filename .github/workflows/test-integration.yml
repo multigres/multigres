@@ -86,9 +86,11 @@ jobs:
           previous-step-outcome: ${{ steps.integration-tests.outcome }}
           allow-quarantine: "true"
 
-      - name: Write startup timing to summary
+      - name: Write timing summary
         if: ${{ !cancelled() }}
-        run: python3 .github/scripts/startup-timing-summary.py
+        run: |
+          sudo apt-get install -y python3-scipy
+          python3 .github/scripts/timing-summary.py
 
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
