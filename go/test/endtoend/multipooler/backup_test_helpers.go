@@ -24,8 +24,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,6 +167,64 @@ func createAndVerifyBackup(t *testing.T, client multipoolermanagerpb.MultiPooler
 
 	t.Logf("%s backup created successfully with ID: %s", backupType, resp.BackupId)
 	return resp.BackupId
+}
+
+// corruptBackupDataFile overwrites a backup data file in the filesystem
+// pgBackRest repo so that `pgbackrest verify` detects a checksum mismatch. It
+// registers a t.Cleanup that restores the original bytes, leaving the shared
+// stanza healthy for subsequent tests (verify is read-only, so a byte-for-byte
+// restore fully reverts the corruption).
+//
+// Only valid for the filesystem backend — the S3 backend keeps blobs inside
+// s3mock rather than on a path we can edit. The stanza name is the fixed
+// "multigres" used by MultiPoolerManager.stanzaName().
+func corruptBackupDataFile(t *testing.T, tempDir string) {
+	t.Helper()
+
+	backupRoot := filepath.Join(tempDir, "backup-repo", "backup", "multigres")
+
+	// Pick the largest non-manifest file under a backup set. Manifests carry
+	// their own copy/checksum and corrupting them yields a different error
+	// class; a data file (bundled small files or pg_data/*) is checksum-verified
+	// against the manifest, so corrupting it is the cleanest "invalid backup".
+	var target string
+	var targetSize int64
+	err := filepath.WalkDir(backupRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || strings.HasPrefix(d.Name(), "backup.manifest") {
+			return nil
+		}
+		// Track the largest data file seen. A failed Info() (or a zero-length
+		// file) simply isn't a candidate; keep walking either way. Size() starts
+		// the comparison at 0, so empty files are naturally excluded.
+		if info, statErr := d.Info(); statErr == nil && info.Size() > targetSize {
+			target = path
+			targetSize = info.Size()
+		}
+		return nil
+	})
+	require.NoError(t, err, "walk backup repo at %s", backupRoot)
+	require.NotEmpty(t, target, "no backup data file found under %s to corrupt", backupRoot)
+
+	original, err := os.ReadFile(target)
+	require.NoError(t, err, "read backup file %s", target)
+	t.Cleanup(func() {
+		if err := os.WriteFile(target, original, 0o600); err != nil {
+			t.Logf("warning: failed to restore corrupted backup file %s: %v", target, err)
+		}
+	})
+
+	// Flip every byte so the stored checksum can never match, keeping the file
+	// length unchanged so the failure is a checksum mismatch rather than a
+	// truncation/size error.
+	corrupted := make([]byte, len(original))
+	for i, b := range original {
+		corrupted[i] = b ^ 0xFF
+	}
+	require.NoError(t, os.WriteFile(target, corrupted, 0o600), "corrupt backup file %s", target)
+	t.Logf("Corrupted backup data file for verify test: %s (%d bytes)", target, targetSize)
 }
 
 // listAndFindBackup lists backups and finds a specific backup by ID.

@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
@@ -24,6 +25,13 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
+
+// verifyStanzaErrorRe matches the per-stanza status line pgBackRest prints when
+// `verify` finds problems (a corrupt/partial backup or a missing/invalid WAL
+// segment). pgBackRest exits 0 even when it reports these — the failure is only
+// visible in the output — so we scan for it explicitly. A healthy repo prints
+// "status: ok".
+var verifyStanzaErrorRe = regexp.MustCompile(`(?m)^\s*status: error`)
 
 // VerifyResult is the in-process return type for VerifyBackups. The gRPC
 // service layer maps this onto the proto VerifyBackupsResponse.
@@ -35,11 +43,18 @@ type VerifyResult struct {
 // VerifyBackups runs `pgbackrest verify` against the full stanza (no --set),
 // validating every backup file and WAL segment in the repository.
 //
+// pgBackRest exits 0 even when verify finds a corrupt/partial backup or an
+// invalid WAL segment — it reports the problem in its output and as a stanza
+// "status: error" line. We scan for that and return an error, so a corrupt
+// repository surfaces as a failed RPC rather than a success carrying buried
+// error text.
+//
 // Concurrency: verify is read-only against the S3 repo and takes no action
-// lock and no backup lease. The only edge case is verify running while expire
-// is deleting backups on the same stanza — verify may emit a transient
-// "missing file" warning. This is not corruption; re-running verify clears
-// the warning.
+// lock and no backup lease. The one benign edge case is verify running while
+// expire is deleting backups on the same stanza — verify may report a transient
+// "missing file". This is not corruption; re-running verify clears it. Because
+// it still trips the stanza "status: error" check, such a run returns an error
+// and the caller should retry.
 func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*VerifyResult, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -71,6 +86,14 @@ func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*VerifyResult,
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed: %v\nOutput: %s", err, string(output)))
+	}
+	// pgBackRest exits 0 even when it finds corruption, so inspect the output
+	// for the stanza-level error status it prints alongside invalid backups or
+	// WAL segments.
+	if verifyStanzaErrorRe.Match(output) {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest verify found problems in stanza %s\nOutput: %s",
+				pm.stanzaName(), string(output)))
 	}
 	return &VerifyResult{Duration: duration, RawOutput: string(output)}, nil
 }

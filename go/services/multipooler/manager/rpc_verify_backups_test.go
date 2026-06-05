@@ -23,8 +23,9 @@ import (
 
 func TestVerifyBackups(t *testing.T) {
 	// VerifyBackups requires a running pgbackrest with a valid stanza.
-	// The actual invocation is tested by integration tests (endtoend/multipooler).
-	// This test validates the precondition checks.
+	// The actual invocation, including the corrupt-backup negative path, is
+	// tested by integration tests (endtoend/multipooler). This test validates
+	// the precondition checks.
 
 	t.Run("fails when not ready", func(t *testing.T) {
 		pm := &MultiPoolerManager{}
@@ -32,4 +33,40 @@ func TestVerifyBackups(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "manager is in unknown state")
 	})
+}
+
+// TestVerifyStanzaErrorDetection covers the parser that turns pgBackRest's
+// exit-0-but-reported-error output into a failed RPC. pgBackRest's verify
+// command exits 0 even when it finds a corrupt backup or invalid WAL, so the
+// stanza "status: error" line is the signal we key on.
+func TestVerifyStanzaErrorDetection(t *testing.T) {
+	tests := []struct {
+		name      string
+		output    string
+		wantError bool
+	}{
+		{
+			name:      "healthy stanza",
+			output:    "INFO: stanza: multigres\n    status: ok\n",
+			wantError: false,
+		},
+		{
+			name: "corrupt backup",
+			output: "INFO: invalid checksum '20260605-112558F/pg_data/base/1/2838.zst'\n" +
+				"INFO: stanza: multigres\n    status: error\n" +
+				"      backup: 20260605-112558F, status: invalid, total files checked: 999, total valid files: 998\n" +
+				"        checksum invalid: 1\n",
+			wantError: true,
+		},
+		{
+			name:      "empty output",
+			output:    "",
+			wantError: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.wantError, verifyStanzaErrorRe.MatchString(tc.output))
+		})
+	}
 }
