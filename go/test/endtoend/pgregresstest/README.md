@@ -144,7 +144,10 @@ as catalog entries move to `covered` and their suites run.
 The external suite runs the pg_regress suites of extensions that live **outside**
 the PostgreSQL source tree (separate repositories), executed through
 multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
-pinned to a tag: `vector` (pgvector) and `pg_cron` (Citus pg_cron).
+pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), and `pgmq`
+(tembo-io message queue). `externalSpecs` also holds build-only dependencies that
+are installed but not tested on their own — `pg_partman`, which pgmq's
+partitioned-queue tests require (see `DependsOn` below).
 
 How it works, and how it differs from the contrib suite:
 
@@ -175,9 +178,18 @@ How it works, and how it differs from the contrib suite:
 Extensions diverge from the pgvector baseline in a few ways, captured as fields
 on `ExternalExtension` (`extensions.go`):
 
+- **`BuildSubdir`** — where the PGXS `Makefile` lives in the checkout. pgvector
+  and pg_cron keep it at the repo root (`""`); pgmq keeps the extension under
+  `pgmq-extension/`, so it builds there.
 - **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
   checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
-  root (`.`).
+  root (`.`); pgmq keeps them under `pgmq-extension/test`.
+- **`DependsOn`** — other `externalSpecs` the harness clones, builds, and installs
+  first because the suite `CREATE`s them too. They are build-only (not tested on
+  their own, so they need not ship a pg_regress suite). pgmq's `base.sql` creates
+  partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
+  `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
+  dependencies before their dependents.
 - **`CreateExtension`** — whether the harness pre-creates the extension through
   multigateway (and passes `--load-extension`) before the run. pgvector's
   fixtures assume it already exists (they open with a bare
