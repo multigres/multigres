@@ -87,7 +87,7 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"index_advisor", KindExternal, StatusExternal, "depends on hypopg"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"pg_cron", KindExternal, StatusExternal, ""},
+	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
 	{"pg_graphql", KindExternal, StatusExternal, "Rust"},
 	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
@@ -112,21 +112,78 @@ var ExtensionCatalog = []ExtensionInfo{
 }
 
 // ExternalExtension describes one external (non-contrib) extension wired into
-// the external suite: its catalog name plus the git coordinates the harness
-// clones and builds it from.
+// the external suite: its catalog name, the git coordinates the harness clones
+// and builds it from, and a few knobs for the places extensions diverge from
+// the pgvector baseline (test layout, extension lifecycle, server config).
 type ExternalExtension struct {
 	Name string
 	Repo string
 	Tag  string
+
+	// TestSubdir is the directory within the checkout that holds the shipped
+	// pg_regress fixtures (sql/ + expected/), relative to the clone root.
+	// pgvector keeps them under test/; pg_cron keeps them at the repo root, so
+	// it uses "." (filepath.Join collapses it back to the clone root).
+	TestSubdir string
+
+	// CreateExtension controls whether the harness pre-creates the extension
+	// through multigateway (and passes pg_regress --load-extension) before the
+	// suite runs. pgvector's fixtures assume it already exists (they open with a
+	// bare CREATE TABLE ... vector(3) and never CREATE EXTENSION), so it needs
+	// the preload. pg_cron's fixtures manage the extension themselves
+	// (CREATE EXTENSION pg_cron VERSION '1.0' is the first statement, then they
+	// DROP and recreate it at a newer version), so preloading would make that
+	// first statement fail with "extension already exists" — it must be false.
+	CreateExtension bool
+
+	// ScratchDatabases names databases the harness creates directly on the
+	// primary (bypassing multigateway, like the public-schema reset) before the
+	// suite runs and drops afterward. This is a TEST-ONLY accommodation, NOT a
+	// product capability: multigres is one-database-per-postgres-instance by
+	// design (multigateway blocks CREATE/DROP DATABASE as Tier 2 statements;
+	// adding a database is a provisioning operation that brings up a new
+	// cluster, see docs/query_serving/unsafe_statement_rejection.md). pg_cron's
+	// test, though, uses other databases purely as *metadata*: it passes their
+	// names to cron.schedule_in_database / cron.alter_job(database := ...) and
+	// reads their ACLs from the shared pg_database catalog, all over the same
+	// `postgres` connection — it never opens a session against them (nothing in
+	// the multigres stack does; only pg_cron's in-process launcher would, and
+	// the test doesn't wait for it). So creating the physical databases here is
+	// enough to make those catalog/privilege checks run for real, while the
+	// test's own CREATE/DROP DATABASE statements still hit the gateway block
+	// (the only lines left in the patch). Reusable for any extension whose suite
+	// references databases by name without connecting to them.
+	ScratchDatabases []string
+
+	// ServerConfigFile, when non-empty, names a postgresql.conf snippet under
+	// testdata/pg<major>/external/ that the cluster must apply before postgres
+	// starts (appended at initdb time, last-write-wins over the template). Use
+	// it for extensions that need server-level configuration the pooled query
+	// path can't set, e.g. pg_cron's background worker requires
+	// shared_preload_libraries = 'pg_cron' or CREATE EXTENSION errors out. Empty
+	// for extensions that need nothing beyond the stock cluster (pgvector).
+	ServerConfigFile string
 }
 
-// externalSpecs holds the build coordinates (git repo + pinned tag) for every
-// external extension the harness can build. An ExtensionCatalog entry with
-// Kind==KindExternal can only be StatusCovered if it also has a spec here; the
-// pinned tag keeps the suite reproducible (and matches the pgvector ABI the
-// from-source PostgreSQL was built against). Keyed by catalog Name.
+// externalSpecs holds the build coordinates (git repo + pinned tag) and the
+// per-extension knobs for every external extension the harness can build. An
+// ExtensionCatalog entry with Kind==KindExternal can only be StatusCovered if it
+// also has a spec here; the pinned tag keeps the suite reproducible (and matches
+// the ABI the from-source PostgreSQL was built against). Keyed by catalog Name.
 var externalSpecs = map[string]ExternalExtension{
-	"vector": {Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1"},
+	"vector": {
+		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
+		TestSubdir: "test", CreateExtension: true,
+	},
+	"pg_cron": {
+		Name: "pg_cron", Repo: "https://github.com/citusdata/pg_cron", Tag: "v1.6.4",
+		TestSubdir: ".", CreateExtension: false, ServerConfigFile: "pg_cron.conf",
+		// pg_cron-test.sql references pgcron_dbno/pgcron_dbyes by name (it REVOKEs
+		// CONNECT on one and schedules/alters jobs targeting both) but never
+		// connects to them; front-load them on the primary so those metadata and
+		// CONNECT-privilege checks run for real. See ScratchDatabases.
+		ScratchDatabases: []string{"pgcron_dbno", "pgcron_dbyes"},
+	},
 }
 
 // CoveredExternalExtensions returns the external extensions the suite builds and
