@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -386,9 +387,8 @@ func TestRecruit(t *testing.T) {
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
-			err := pm.consensusState.WriteRevocationFile(tt.initialRevocation)
-			require.NoError(t, err)
-			_, err = pm.consensusState.Load()
+			consensustest.SeedTerm(t, tmpDir, tt.initialRevocation)
+			_, err := pm.consensusState.Load()
 			require.NoError(t, err)
 
 			if tt.makeFilesystemReadOnly {
@@ -414,7 +414,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted, err := pm.consensusState.ReadRevocationFile()
+			persisted, err := pm.consensusState.GetInconsistentRevocation()
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
@@ -862,11 +862,10 @@ func TestPropose(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			tt.setupMocks(mockQueryService)
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
-			err := pm.consensusState.WriteRevocationFile(tt.initialTerm)
-			require.NoError(t, err)
-			_, err = pm.consensusState.Load()
+			consensustest.SeedTerm(t, tmpDir, tt.initialTerm)
+			_, err := pm.consensusState.Load()
 			require.NoError(t, err)
 
 			if tt.preRun != nil {

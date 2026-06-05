@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -337,8 +338,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				initialTerm := &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm: tt.currentTerm,
 				}
-				setupCS := consensus.NewConsensusState(poolerDir, nil)
-				require.NoError(t, setupCS.WriteRevocationFile(initialTerm))
+				consensustest.SeedTerm(t, poolerDir, initialTerm)
 			}
 
 			// Create the database in topology with backup location
@@ -959,13 +959,13 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				}
 			}
 
-			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
 				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
 			}
 			if tt.seedRevocation != nil {
-				require.NoError(t, pm.consensusState.WriteRevocationFile(tt.seedRevocation))
+				consensustest.SeedTerm(t, tmpDir, tt.seedRevocation)
 				_, err := pm.consensusState.Load()
 				require.NoError(t, err)
 			}

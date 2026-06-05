@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -42,13 +43,6 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
-
-// setTermForTest writes the consensus term file directly for testing.
-func setTermForTest(t *testing.T, poolerDir string, term *clustermetadatapb.TermRevocation) {
-	t.Helper()
-	cs := consensus.NewConsensusState(poolerDir, nil)
-	require.NoError(t, cs.WriteRevocationFile(term), "failed to write term file")
-}
 
 // addDatabaseToTopo creates a database in the topology with a backup location
 func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
@@ -782,7 +776,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &clustermetadatapb.TermRevocation{
+	consensustest.SeedTerm(t, poolerDir, &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm: 5,
 	})
 

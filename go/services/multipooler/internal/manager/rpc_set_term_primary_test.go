@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -299,13 +300,11 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000"}}))
 
-	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
 	// Seed an initial revocation so we can verify SetTermPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
-	require.NoError(t, pm.consensusState.WriteRevocationFile(
-		&clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
-	))
+	consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 
@@ -332,7 +331,7 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetTermPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetTermPrimary.
-	rev, err := pm.consensusState.ReadRevocationFile()
+	rev, err := pm.consensusState.GetInconsistentRevocation()
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetTermPrimary must not bump revoked_below_term — that's a coordinator responsibility")
@@ -380,14 +379,12 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
-			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
-			require.NoError(t, pm.consensusState.WriteRevocationFile(
-				&clustermetadatapb.TermRevocation{
-					RevokedBelowTerm: tt.revokedBelow,
-					OutgoingRule:     tt.outgoing,
-				},
-			))
+			consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: tt.revokedBelow,
+				OutgoingRule:     tt.outgoing,
+			})
 			_, err := pm.consensusState.Load()
 			require.NoError(t, err)
 
@@ -424,16 +421,14 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
 	const selfRuleTerm = 10
-	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(selfRuleTerm)})
+	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(selfRuleTerm)})
 
 	// Revocation at term 5 with outgoing_rule at term 1; an incoming rule
 	// at term 3 is below revoked_below_term but strictly above outgoing_rule.
-	require.NoError(t, pm.consensusState.WriteRevocationFile(
-		&clustermetadatapb.TermRevocation{
-			RevokedBelowTerm: 5,
-			OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-		},
-	))
+	consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 5,
+		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+	})
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 

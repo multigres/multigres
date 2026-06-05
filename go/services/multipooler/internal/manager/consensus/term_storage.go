@@ -81,15 +81,3 @@ func (cs *ConsensusState) setRevocation(revocation *clustermetadatapb.TermRevoca
 
 	return nil
 }
-
-// ReadRevocationFile retrieves the current term revocation directly from disk,
-// bypassing the in-memory cache. Used by tests to verify on-disk state.
-func (cs *ConsensusState) ReadRevocationFile() (*clustermetadatapb.TermRevocation, error) {
-	return cs.getRevocation()
-}
-
-// WriteRevocationFile saves the term revocation directly to disk without updating
-// the in-memory cache. Used by tests to set up on-disk state before Load().
-func (cs *ConsensusState) WriteRevocationFile(revocation *clustermetadatapb.TermRevocation) error {
-	return cs.setRevocation(revocation)
-}
