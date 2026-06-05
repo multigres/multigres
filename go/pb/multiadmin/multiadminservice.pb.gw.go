@@ -429,6 +429,33 @@ func local_request_MultiAdminService_ExpireBackups_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
+func request_MultiAdminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq VerifyBackupsRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.VerifyBackups(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiAdminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq VerifyBackupsRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.VerifyBackups(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 var filter_MultiAdminService_GetPoolerStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"pooler_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
 
 func request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -697,6 +724,83 @@ func local_request_MultiAdminService_GetGatewayConsolidator_0(ctx context.Contex
 	return msg, metadata, err
 }
 
+func request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq ApplyCertifiedRuleChangeRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["shard_key.database"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+	}
+	val, ok = pathParams["shard_key.table_group"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+	}
+	val, ok = pathParams["shard_key.shard"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+	}
+	msg, err := client.ApplyCertifiedRuleChange(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq ApplyCertifiedRuleChangeRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	val, ok := pathParams["shard_key.database"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.database")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.database", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.database", err)
+	}
+	val, ok = pathParams["shard_key.table_group"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.table_group")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.table_group", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.table_group", err)
+	}
+	val, ok = pathParams["shard_key.shard"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "shard_key.shard")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "shard_key.shard", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "shard_key.shard", err)
+	}
+	msg, err := server.ApplyCertifiedRuleChange(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 // RegisterMultiAdminServiceHandlerServer registers the http handlers for service MultiAdminService to "mux".
 // UnaryRPC     :call MultiAdminServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -943,6 +1047,26 @@ func RegisterMultiAdminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		}
 		forward_MultiAdminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiAdminService_VerifyBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1022,6 +1146,26 @@ func RegisterMultiAdminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -1267,6 +1411,23 @@ func RegisterMultiAdminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_MultiAdminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiAdminService_VerifyBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1335,6 +1496,23 @@ func RegisterMultiAdminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	return nil
 }
 
@@ -1351,10 +1529,12 @@ var (
 	pattern_MultiAdminService_GetBackupJobStatus_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "jobs", "job_id"}, ""))
 	pattern_MultiAdminService_GetBackups_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
 	pattern_MultiAdminService_ExpireBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "expire"}, ""))
+	pattern_MultiAdminService_VerifyBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "verify"}, ""))
 	pattern_MultiAdminService_GetPoolerStatus_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "status"}, ""))
 	pattern_MultiAdminService_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-restarts"}, ""))
 	pattern_MultiAdminService_GetGatewayQueries_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "queries"}, ""))
 	pattern_MultiAdminService_GetGatewayConsolidator_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "consolidator"}, ""))
+	pattern_MultiAdminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "rule-change"}, ""))
 )
 
 var (
@@ -1370,8 +1550,10 @@ var (
 	forward_MultiAdminService_GetBackupJobStatus_0         = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetBackups_0                 = runtime.ForwardResponseMessage
 	forward_MultiAdminService_ExpireBackups_0              = runtime.ForwardResponseMessage
+	forward_MultiAdminService_VerifyBackups_0              = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetPoolerStatus_0            = runtime.ForwardResponseMessage
 	forward_MultiAdminService_SetPostgresRestartsEnabled_0 = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetGatewayQueries_0          = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetGatewayConsolidator_0     = runtime.ForwardResponseMessage
+	forward_MultiAdminService_ApplyCertifiedRuleChange_0   = runtime.ForwardResponseMessage
 )

@@ -97,8 +97,8 @@
   },
   {
     "comment": "rowsecurity - Statement 23",
-    "query": "CREATE OR REPLACE FUNCTION f_leak(text) RETURNS bool COST 0.0000001 LANGUAGE plpgsql AS 'BEGIN RAISE NOTICE ''f_leak =\u003e %'', $1; RETURN true; END'",
-    "expected": "CREATE OR REPLACE FUNCTION f_leak (TEXT) RETURNS BOOLEAN COST 0.0000001 LANGUAGE plpgsql AS $$BEGIN RAISE NOTICE 'f_leak =\u003e %', $1; RETURN true; END$$"
+    "query": "CREATE OR REPLACE FUNCTION f_leak(text) RETURNS bool COST 0.0000001 LANGUAGE plpgsql AS 'BEGIN RAISE NOTICE ''f_leak => %'', $1; RETURN true; END'",
+    "expected": "CREATE OR REPLACE FUNCTION f_leak (TEXT) RETURNS BOOLEAN COST 0.0000001 LANGUAGE plpgsql AS $$BEGIN RAISE NOTICE 'f_leak => %', $1; RETURN true; END$$"
   },
   {
     "comment": "rowsecurity - Statement 24",
@@ -159,23 +159,23 @@
   },
   {
     "comment": "rowsecurity - Statement 36",
-    "query": "CREATE POLICY p1 ON document AS PERMISSIVE USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
-    "expected": "CREATE POLICY p1 ON document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+    "query": "CREATE POLICY p1 ON document AS PERMISSIVE USING (dlevel <= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY p1 ON document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel <= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
   },
   {
     "comment": "rowsecurity - Statement 37",
-    "query": "CREATE POLICY p1 ON document AS UGLY USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "query": "CREATE POLICY p1 ON document AS UGLY USING (dlevel <= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
     "error": "parse error at position 36: unrecognized row security option"
   },
   {
     "comment": "rowsecurity - Statement 38",
-    "query": "CREATE POLICY p2r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c\u003e 44 AND cid \u003c 50)",
-    "expected": "CREATE POLICY p2r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c\u003e 44 AND cid \u003c 50 )"
+    "query": "CREATE POLICY p2r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid <> 44 AND cid < 50)",
+    "expected": "CREATE POLICY p2r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid <> 44 AND cid < 50 )"
   },
   {
     "comment": "rowsecurity - Statement 39",
-    "query": "CREATE POLICY p1r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c\u003e 44)",
-    "expected": "CREATE POLICY p1r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c\u003e 44 )"
+    "query": "CREATE POLICY p1r ON document AS RESTRICTIVE TO regress_rls_dave USING (cid <> 44)",
+    "expected": "CREATE POLICY p1r ON document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid <> 44 )"
   },
   {
     "comment": "rowsecurity - Statement 40",
@@ -486,13 +486,13 @@
   },
   {
     "comment": "rowsecurity - Statement 106",
-    "query": "CREATE POLICY pp1 ON part_document AS PERMISSIVE USING (dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
-    "expected": "CREATE POLICY pp1 ON part_document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel \u003c= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+    "query": "CREATE POLICY pp1 ON part_document AS PERMISSIVE USING (dlevel <= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY pp1 ON part_document AS PERMISSIVE FOR all TO PUBLIC USING ( dlevel <= (SELECT seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
   },
   {
     "comment": "rowsecurity - Statement 107",
-    "query": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE TO regress_rls_dave USING (cid \u003c 55)",
-    "expected": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid \u003c 55 )"
+    "query": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE TO regress_rls_dave USING (cid < 55)",
+    "expected": "CREATE POLICY pp1r ON part_document AS RESTRICTIVE FOR all TO regress_rls_dave USING ( cid < 55 )"
   },
   {
     "comment": "rowsecurity - Statement 108",
@@ -529,8 +529,8 @@
   },
   {
     "comment": "rowsecurity - Statement 116",
-    "query": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE USING (cid \u003c 55)",
-    "expected": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE FOR all TO PUBLIC USING ( cid \u003c 55 )"
+    "query": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE USING (cid < 55)",
+    "expected": "CREATE POLICY pp3 ON part_document_satire AS RESTRICTIVE FOR all TO PUBLIC USING ( cid < 55 )"
   },
   {
     "comment": "rowsecurity - Statement 117",
@@ -561,8 +561,8 @@
   },
   {
     "comment": "rowsecurity - Statement 123",
-    "query": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE USING ((SELECT dlevel \u003c= seclv FROM uaccount WHERE pguser = current_user))",
-    "expected": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE FOR all TO PUBLIC USING ( (SELECT dlevel \u003c= seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
+    "query": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE USING ((SELECT dlevel <= seclv FROM uaccount WHERE pguser = current_user))",
+    "expected": "CREATE POLICY pp3 ON part_document AS RESTRICTIVE FOR all TO PUBLIC USING ( (SELECT dlevel <= seclv FROM uaccount WHERE pguser = CURRENT_USER) )"
   },
   {
     "comment": "rowsecurity - Statement 124",
@@ -777,8 +777,8 @@
   },
   {
     "comment": "rowsecurity - Statement 169",
-    "query": "PREPARE p1(int) AS SELECT * FROM t1 WHERE a \u003c= $1",
-    "expected": "PREPARE p1 ( INT ) AS SELECT * FROM t1 WHERE a \u003c= $1"
+    "query": "PREPARE p1(int) AS SELECT * FROM t1 WHERE a <= $1",
+    "expected": "PREPARE p1 ( INT ) AS SELECT * FROM t1 WHERE a <= $1"
   },
   {
     "comment": "rowsecurity - Statement 170",
@@ -938,8 +938,8 @@
   },
   {
     "comment": "rowsecurity - Statement 202",
-    "query": "CREATE VIEW bv1 WITH (security_barrier) AS SELECT * FROM b1 WHERE a \u003e 0 WITH CHECK OPTION",
-    "expected": "CREATE VIEW bv1 WITH ( security_barrier) AS SELECT * FROM b1 WHERE a \u003e 0 WITH CHECK OPTION"
+    "query": "CREATE VIEW bv1 WITH (security_barrier) AS SELECT * FROM b1 WHERE a > 0 WITH CHECK OPTION",
+    "expected": "CREATE VIEW bv1 WITH ( security_barrier) AS SELECT * FROM b1 WHERE a > 0 WITH CHECK OPTION"
   },
   {
     "comment": "rowsecurity - Statement 203",
@@ -1093,8 +1093,8 @@
   },
   {
     "comment": "rowsecurity - Statement 236",
-    "query": "CREATE POLICY p3 ON document FOR UPDATE USING (cid = (SELECT cid from category WHERE cname = 'novel')) WITH CHECK (dlevel \u003e 0)",
-    "expected": "CREATE POLICY p3 ON document AS PERMISSIVE FOR update TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') ) WITH CHECK ( dlevel \u003e 0 )"
+    "query": "CREATE POLICY p3 ON document FOR UPDATE USING (cid = (SELECT cid from category WHERE cname = 'novel')) WITH CHECK (dlevel > 0)",
+    "expected": "CREATE POLICY p3 ON document AS PERMISSIVE FOR update TO PUBLIC USING ( cid = (SELECT cid FROM category WHERE cname = 'novel') ) WITH CHECK ( dlevel > 0 )"
   },
   {
     "comment": "rowsecurity - Statement 237",
@@ -1133,13 +1133,13 @@
   },
   {
     "comment": "rowsecurity - Statement 244",
-    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE",
-    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE"
+    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes <> '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes <> '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "rowsecurity - Statement 245",
-    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING",
-    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes \u003c\u003e '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING"
+    "query": "MERGE INTO document d USING (SELECT 4 as sdid) s ON did = s.sdid WHEN MATCHED AND dnotes <> '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO document AS d USING (SELECT 4 AS sdid) AS s ON did = s.sdid WHEN MATCHED AND dnotes <> '' THEN UPDATE SET dnotes = dnotes || ' notes added by merge ' WHEN MATCHED THEN DO NOTHING"
   },
   {
     "comment": "rowsecurity - Statement 246",
@@ -1379,8 +1379,8 @@
   },
   {
     "comment": "rowsecurity - Statement 297",
-    "query": "CREATE POLICY p4 ON x1 FOR DELETE USING (a \u003c 8)",
-    "expected": "CREATE POLICY p4 ON x1 AS PERMISSIVE FOR delete TO PUBLIC USING ( a \u003c 8 )"
+    "query": "CREATE POLICY p4 ON x1 FOR DELETE USING (a < 8)",
+    "expected": "CREATE POLICY p4 ON x1 AS PERMISSIVE FOR delete TO PUBLIC USING ( a < 8 )"
   },
   {
     "comment": "rowsecurity - Statement 298",
@@ -1419,8 +1419,8 @@
   },
   {
     "comment": "rowsecurity - Statement 306",
-    "query": "CREATE POLICY p2 ON y1 FOR SELECT USING (a \u003e 2)",
-    "expected": "CREATE POLICY p2 ON y1 AS PERMISSIVE FOR select TO PUBLIC USING ( a \u003e 2 )"
+    "query": "CREATE POLICY p2 ON y1 FOR SELECT USING (a > 2)",
+    "expected": "CREATE POLICY p2 ON y1 AS PERMISSIVE FOR select TO PUBLIC USING ( a > 2 )"
   },
   {
     "comment": "rowsecurity - Statement 307",
@@ -1703,8 +1703,8 @@
   },
   {
     "comment": "rowsecurity - Statement 368",
-    "query": "CREATE POLICY comment_1 ON comment USING (blog_id \u003c 4)",
-    "expected": "CREATE POLICY comment_1 ON comment AS PERMISSIVE FOR all TO PUBLIC USING ( blog_id \u003c 4 )"
+    "query": "CREATE POLICY comment_1 ON comment USING (blog_id < 4)",
+    "expected": "CREATE POLICY comment_1 ON comment AS PERMISSIVE FOR all TO PUBLIC USING ( blog_id < 4 )"
   },
   {
     "comment": "rowsecurity - Statement 369",
@@ -1956,8 +1956,8 @@
   },
   {
     "comment": "rowsecurity - Statement 426",
-    "query": "CREATE POLICY coll_p ON coll_t USING (c \u003c ('foo'::text COLLATE \"C\"))",
-    "expected": "CREATE POLICY coll_p ON coll_t AS PERMISSIVE FOR all TO PUBLIC USING ( c \u003c (CAST('foo' AS TEXT) COLLATE \"C\") )"
+    "query": "CREATE POLICY coll_p ON coll_t USING (c < ('foo'::text COLLATE \"C\"))",
+    "expected": "CREATE POLICY coll_p ON coll_t AS PERMISSIVE FOR all TO PUBLIC USING ( c < (CAST('foo' AS TEXT) COLLATE \"C\") )"
   },
   {
     "comment": "rowsecurity - Statement 427",
@@ -2254,13 +2254,13 @@
   },
   {
     "comment": "rowsecurity - Statement 493",
-    "query": "CREATE POLICY p1 ON r1 FOR SELECT USING (a \u003c 20)",
-    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR select TO PUBLIC USING ( a \u003c 20 )"
+    "query": "CREATE POLICY p1 ON r1 FOR SELECT USING (a < 20)",
+    "expected": "CREATE POLICY p1 ON r1 AS PERMISSIVE FOR select TO PUBLIC USING ( a < 20 )"
   },
   {
     "comment": "rowsecurity - Statement 494",
-    "query": "CREATE POLICY p2 ON r1 FOR UPDATE USING (a \u003c 20) WITH CHECK (true)",
-    "expected": "CREATE POLICY p2 ON r1 AS PERMISSIVE FOR update TO PUBLIC USING ( a \u003c 20 ) WITH CHECK ( TRUE )"
+    "query": "CREATE POLICY p2 ON r1 FOR UPDATE USING (a < 20) WITH CHECK (true)",
+    "expected": "CREATE POLICY p2 ON r1 AS PERMISSIVE FOR update TO PUBLIC USING ( a < 20 ) WITH CHECK ( TRUE )"
   },
   {
     "comment": "rowsecurity - Statement 495",
@@ -2311,8 +2311,8 @@
   },
   {
     "comment": "rowsecurity - Statement 506",
-    "query": "CREATE POLICY dep_p1 ON dep1 TO regress_rls_bob USING (c1 \u003e (select max(dep2.c1) from dep2))",
-    "expected": "CREATE POLICY dep_p1 ON dep1 AS PERMISSIVE FOR all TO regress_rls_bob USING ( c1 \u003e (SELECT MAX(dep2.c1) FROM dep2) )"
+    "query": "CREATE POLICY dep_p1 ON dep1 TO regress_rls_bob USING (c1 > (select max(dep2.c1) from dep2))",
+    "expected": "CREATE POLICY dep_p1 ON dep1 AS PERMISSIVE FOR all TO regress_rls_bob USING ( c1 > (SELECT MAX(dep2.c1) FROM dep2) )"
   },
   {
     "comment": "rowsecurity - Statement 507",
@@ -2484,22 +2484,22 @@
   },
   {
     "comment": "rowsecurity - Statement 544",
-    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak =\u003e %, %'', $1, $2; RETURN $1 \u003c $2; END' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak =\u003e %, %', $1, $2; RETURN $1 \u003c $2; END$$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION op_leak(int, int) RETURNS bool AS 'BEGIN RAISE NOTICE ''op_leak => %, %'', $1, $2; RETURN $1 < $2; END' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION op_leak (INT, INT) RETURNS BOOLEAN AS $$BEGIN RAISE NOTICE 'op_leak => %, %', $1, $2; RETURN $1 < $2; END$$ LANGUAGE plpgsql"
   },
   {
     "comment": "rowsecurity - Statement 545",
-    "query": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
-    "expected": "CREATE OPERATOR \u003c\u003c\u003c (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
+    "query": "CREATE OPERATOR <<< (procedure = op_leak, leftarg = int, rightarg = int, restrict = scalarltsel)",
+    "expected": "CREATE OPERATOR <<< (procedure = op_leak, leftarg = INT, rightarg = INT, restrict = scalarltsel)"
   },
   {
     "comment": "rowsecurity - Statement 546",
-    "query": "SELECT * FROM rls_tbl WHERE a \u003c\u003c\u003c 1000"
+    "query": "SELECT * FROM rls_tbl WHERE a <<< 1000"
   },
   {
     "comment": "rowsecurity - Statement 547",
-    "query": "DROP OPERATOR \u003c\u003c\u003c (int, int)",
-    "expected": "DROP OPERATOR \u003c\u003c\u003c(INT, INT)"
+    "query": "DROP OPERATOR <<< (int, int)",
+    "expected": "DROP OPERATOR <<<(INT, INT)"
   },
   {
     "comment": "rowsecurity - Statement 548",
@@ -2513,8 +2513,8 @@
   },
   {
     "comment": "rowsecurity - Statement 550",
-    "query": "CREATE POLICY p1 ON rls_tbl USING (rls_tbl \u003e= ROW(1,1,1))",
-    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( rls_tbl \u003e= ROW(1, 1, 1) )"
+    "query": "CREATE POLICY p1 ON rls_tbl USING (rls_tbl >= ROW(1,1,1))",
+    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( rls_tbl >= ROW(1, 1, 1) )"
   },
   {
     "comment": "rowsecurity - Statement 551",
@@ -2730,23 +2730,23 @@
   },
   {
     "comment": "rowsecurity - Statement 595",
-    "query": "CREATE POLICY p1 ON rls_tbl USING (c1 \u003e 5)",
-    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( c1 \u003e 5 )"
+    "query": "CREATE POLICY p1 ON rls_tbl USING (c1 > 5)",
+    "expected": "CREATE POLICY p1 ON rls_tbl AS PERMISSIVE FOR all TO PUBLIC USING ( c1 > 5 )"
   },
   {
     "comment": "rowsecurity - Statement 596",
-    "query": "CREATE POLICY p2 ON rls_tbl FOR SELECT USING (c1 \u003c= 3)",
-    "expected": "CREATE POLICY p2 ON rls_tbl AS PERMISSIVE FOR select TO PUBLIC USING ( c1 \u003c= 3 )"
+    "query": "CREATE POLICY p2 ON rls_tbl FOR SELECT USING (c1 <= 3)",
+    "expected": "CREATE POLICY p2 ON rls_tbl AS PERMISSIVE FOR select TO PUBLIC USING ( c1 <= 3 )"
   },
   {
     "comment": "rowsecurity - Statement 597",
-    "query": "CREATE POLICY p3 ON rls_tbl FOR UPDATE USING (c1 \u003c= 3) WITH CHECK (c1 \u003e 5)",
-    "expected": "CREATE POLICY p3 ON rls_tbl AS PERMISSIVE FOR update TO PUBLIC USING ( c1 \u003c= 3 ) WITH CHECK ( c1 \u003e 5 )"
+    "query": "CREATE POLICY p3 ON rls_tbl FOR UPDATE USING (c1 <= 3) WITH CHECK (c1 > 5)",
+    "expected": "CREATE POLICY p3 ON rls_tbl AS PERMISSIVE FOR update TO PUBLIC USING ( c1 <= 3 ) WITH CHECK ( c1 > 5 )"
   },
   {
     "comment": "rowsecurity - Statement 598",
-    "query": "CREATE POLICY p4 ON rls_tbl FOR DELETE USING (c1 \u003c= 3)",
-    "expected": "CREATE POLICY p4 ON rls_tbl AS PERMISSIVE FOR delete TO PUBLIC USING ( c1 \u003c= 3 )"
+    "query": "CREATE POLICY p4 ON rls_tbl FOR DELETE USING (c1 <= 3)",
+    "expected": "CREATE POLICY p4 ON rls_tbl AS PERMISSIVE FOR delete TO PUBLIC USING ( c1 <= 3 )"
   },
   {
     "comment": "rowsecurity - Statement 599",
@@ -2763,8 +2763,8 @@
   },
   {
     "comment": "rowsecurity - Statement 602",
-    "query": "CREATE POLICY p1 ON rls_tbl_force USING (c1 = 5) WITH CHECK (c1 \u003c 5)",
-    "expected": "CREATE POLICY p1 ON rls_tbl_force AS PERMISSIVE FOR all TO PUBLIC USING ( c1 = 5 ) WITH CHECK ( c1 \u003c 5 )"
+    "query": "CREATE POLICY p1 ON rls_tbl_force USING (c1 = 5) WITH CHECK (c1 < 5)",
+    "expected": "CREATE POLICY p1 ON rls_tbl_force AS PERMISSIVE FOR all TO PUBLIC USING ( c1 = 5 ) WITH CHECK ( c1 < 5 )"
   },
   {
     "comment": "rowsecurity - Statement 603",
@@ -2773,8 +2773,8 @@
   },
   {
     "comment": "rowsecurity - Statement 604",
-    "query": "CREATE POLICY p3 ON rls_tbl_force FOR UPDATE USING (c1 = 8) WITH CHECK (c1 \u003e= 5)",
-    "expected": "CREATE POLICY p3 ON rls_tbl_force AS PERMISSIVE FOR update TO PUBLIC USING ( c1 = 8 ) WITH CHECK ( c1 \u003e= 5 )"
+    "query": "CREATE POLICY p3 ON rls_tbl_force FOR UPDATE USING (c1 = 8) WITH CHECK (c1 >= 5)",
+    "expected": "CREATE POLICY p3 ON rls_tbl_force AS PERMISSIVE FOR update TO PUBLIC USING ( c1 = 8 ) WITH CHECK ( c1 >= 5 )"
   },
   {
     "comment": "rowsecurity - Statement 605",

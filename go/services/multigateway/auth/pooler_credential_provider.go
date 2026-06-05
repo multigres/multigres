@@ -1,0 +1,150 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package auth provides authentication utilities for multigateway.
+package auth
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"google.golang.org/grpc/codes"
+
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+)
+
+// CredentialLookupRecorder is the metric sink for credential-lookup latency
+// and rate. It is a subset of pgprotocol/server.AuthMetricsRecorder kept
+// aligned with that interface — drift between the two would silently no-op
+// metric emission. Declared here (not imported from the server package) to
+// avoid the import cycle that pulling the multigateway package into
+// go/services/multigateway/auth would create. A nil receiver is acceptable —
+// the gateway init wires a real implementation, but tests and the trust-auth
+// path can leave it unset.
+type CredentialLookupRecorder interface {
+	RecordCredentialLookup(ctx context.Context, d time.Duration)
+}
+
+// PoolerSystemClient is the interface for system-level operations on multipooler.
+// This is used for authentication and other tasks that act as the system rather
+// than as a specific user, bypassing per-user connection pools.
+// PoolerGateway implements this with full failover buffering support.
+type PoolerSystemClient interface {
+	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
+}
+
+// PoolerCredentialProvider implements server.CredentialProvider by fetching
+// per-role authentication data from multipooler via gRPC. A single
+// GetAuthCredentials RPC returns both the SCRAM hash (for the SASL handshake)
+// and the rolreplication flag (for the post-auth replication-role gate), so
+// the gateway does not need a second round-trip to admit a replication
+// connection.
+type PoolerCredentialProvider struct {
+	client  PoolerSystemClient
+	metrics CredentialLookupRecorder
+}
+
+// NewPoolerCredentialProvider creates a new PoolerCredentialProvider.
+// The client is typically a PoolerGateway, which handles pooler selection
+// and failover buffering internally. metrics is optional — pass nil to
+// disable mg.gateway.auth.credential_lookup.* recording (e.g. in tests).
+func NewPoolerCredentialProvider(client PoolerSystemClient, metrics CredentialLookupRecorder) *PoolerCredentialProvider {
+	return &PoolerCredentialProvider{
+		client:  client,
+		metrics: metrics,
+	}
+}
+
+// GetCredentials retrieves the SCRAM-SHA-256 hash and rolreplication flag
+// for a user from multipooler.
+//
+// Returns scram.ErrUserNotFound if the user does not exist or has no
+// password, scram.ErrLoginDisabled for NOLOGIN roles, or
+// scram.ErrPasswordExpired for roles whose rolvaliduntil has elapsed. The
+// gateway uses these sentinels to emit the matching native-PG error with
+// the correct SQLSTATE.
+//
+// Login-disabled and password-expired rejections are carried from the pooler
+// as a PgDiagnostic attached to the gRPC status; we match on SQLSTATE rather
+// than gRPC code because codes.PermissionDenied / codes.Unauthenticated are
+// also used by gRPC auth interceptors for mTLS / authz failures, so keying
+// on code alone would misclassify those transport errors as user auth errors.
+func (p *PoolerCredentialProvider) GetCredentials(ctx context.Context, username, database string) (*server.Credentials, error) {
+	// Time every lookup — success and failure both feed
+	// mg.gateway.auth.credential_lookup.duration so the future
+	// password-hash cache work has a baseline including tail-latency
+	// from pooler failover events. Increment the rate counter on the
+	// same defer to keep the two signals correlated.
+	start := time.Now()
+	defer func() {
+		if p.metrics != nil {
+			p.metrics.RecordCredentialLookup(ctx, time.Since(start))
+		}
+	}()
+
+	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
+		Database: database,
+		Username: username,
+	})
+	if err != nil {
+		// App-level auth rejections travel as PgDiagnostic (via RPCError
+		// details). Transport-level failures — mTLS handshake errors, authz
+		// middleware rejections — don't carry a PgDiagnostic and fall through
+		// to the generic wrap below. This keeps the two layers distinct even
+		// when the underlying gRPC code happens to collide.
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			switch diag.Code {
+			case mterrors.PgSSInvalidAuthSpec:
+				return nil, scram.ErrLoginDisabled
+			case mterrors.PgSSAuthFailed:
+				return nil, scram.ErrPasswordExpired
+			}
+		}
+		// User-not-found keeps the gRPC-code mapping: it's returned as a
+		// plain codes.NotFound (no PgDiagnostic) and NotFound isn't used by
+		// typical auth middleware, so the collision risk is negligible.
+		if mterrors.Code(err) == mtrpcpb.Code(codes.NotFound) {
+			return nil, scram.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to get auth credentials: %w", err)
+	}
+
+	// User exists but has no password set.
+	if resp.ScramHash == "" {
+		return nil, scram.ErrUserNotFound
+	}
+
+	// Parse the SCRAM hash.
+	hash, err := scram.ParseScramSHA256Hash(resp.ScramHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse SCRAM hash: %w", err)
+	}
+
+	return &server.Credentials{
+		Hash:              hash,
+		IsReplicationRole: resp.IsReplicationRole,
+	}, nil
+}
+
+// Ensure PoolerCredentialProvider implements server.CredentialProvider so
+// the init.go ListenerConfig assignment fails at compile time if the
+// interface drifts.
+var _ server.CredentialProvider = (*PoolerCredentialProvider)(nil)

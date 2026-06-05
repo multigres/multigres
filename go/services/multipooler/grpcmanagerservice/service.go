@@ -143,6 +143,18 @@ func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermana
 	}, nil
 }
 
+// VerifyBackups runs a full-stanza pgbackrest verify.
+func (s *managerService) VerifyBackups(ctx context.Context, req *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+	result, err := s.manager.VerifyBackups(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.VerifyBackupsResponse{
+		Duration:  durationpb.New(result.Duration),
+		RawOutput: result.RawOutput,
+	}, nil
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
 func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)

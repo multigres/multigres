@@ -25,6 +25,7 @@ import (
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
 	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSConnectionFailure       = "08006" // connection_failure
 	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
 	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
 	PgSSActiveTransaction       = "25001" // active_sql_transaction
@@ -33,6 +34,8 @@ const (
 	PgSSAuthFailed              = "28P01" // invalid_password
 	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
+	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled
@@ -52,6 +55,15 @@ func NewQueryCanceled() *PgDiagnostic {
 func NewStatementTimeout() *PgDiagnostic {
 	return NewPgError("ERROR", PgSSQueryCanceled,
 		"canceling statement due to statement timeout", "")
+}
+
+// NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
+// expiry during the startup phase (SSLRequest, StartupMessage, or SCRAM
+// exchange). SQLSTATE 08006 (connection_failure), severity FATAL — matches
+// the way native PostgreSQL closes the connection when the timeout fires.
+func NewAuthenticationTimeout() *PgDiagnostic {
+	return NewPgError("FATAL", PgSSConnectionFailure,
+		"canceling authentication due to timeout", "")
 }
 
 // MTError defines a Multigres-specific error code for conditions that have no
@@ -190,6 +202,15 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	}
 }
 
+// NewParseError returns a *PgDiagnostic for a SQL parse/syntax failure, carrying
+// SQLSTATE 42601 (syntax_error) — PostgreSQL's class for parse-stage errors. The
+// parser produces these so a malformed statement surfaces to clients with the
+// same SQLSTATE PostgreSQL itself would send, rather than an opaque internal
+// error. This is the single source of truth for the parse-error SQLSTATE.
+func NewParseError(message string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError, message, "")
+}
+
 // NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
 // ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
 // (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a
@@ -225,6 +246,13 @@ func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
 func NewInvalidPortalError(name string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSInvalidCursorName,
 		fmt.Sprintf("portal \"%s\" does not exist", name), "")
+}
+
+// NewDuplicatePreparedStatementError creates a PgDiagnostic for a PREPARE
+// that reuses an existing statement name. SQLSTATE 42P05.
+func NewDuplicatePreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSDuplicatePreparedStmt,
+		fmt.Sprintf("prepared statement \"%s\" already exists", name), "")
 }
 
 // IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic

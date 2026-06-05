@@ -417,8 +417,6 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 			})
 
 			t.Run("cursor via DECLARE and FETCH", func(t *testing.T) {
-				t.Skip("Cursors require transaction management which is not yet implemented")
-
 				tableName := fmt.Sprintf("cursor_test_%d", time.Now().UnixNano())
 
 				// Create and populate table
@@ -482,6 +480,647 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 
 				err = tx.Commit(ctx)
 				require.NoError(t, err)
+			})
+
+			// MUL-389: DECLARE … WITH HOLD promotes the cursor to session-level
+			// state that must survive COMMIT. Without backend pinning, the
+			// reserved connection is released to the pool when the transaction
+			// commits and the next FETCH lands on a different backend, raising
+			// `cursor "x" does not exist`. This test exercises the full
+			// gateway-managed pin / release lifecycle.
+			t.Run("cursor WITH HOLD survives COMMIT", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_cursor_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur"
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s SCROLL CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err, "failed to declare WITH HOLD cursor")
+
+				rows, err := tx.Query(ctx, "FETCH 1 FROM "+cursorName)
+				require.NoError(t, err, "failed to fetch from WITH HOLD cursor inside txn")
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got, "expected first row inside transaction")
+
+				require.NoError(t, tx.Commit(ctx), "COMMIT should succeed and leave WITH HOLD cursor open")
+
+				// Acceptance #1: FETCH after COMMIT must still see the cursor.
+				rows, err = conn.Query(ctx, "FETCH FROM "+cursorName)
+				require.NoError(t, err, "failed to fetch from WITH HOLD cursor AFTER COMMIT — cursor was lost")
+				got = nil
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{2}, got, "WITH HOLD cursor must continue from row 2 after COMMIT")
+
+				// Acceptance #3: CLOSE on the HOLD cursor releases the backend
+				// pin. A follow-up FETCH on the (now-closed) cursor errors.
+				// Use Exec — pgx.Query is lazy and would defer the error
+				// past require.Error.
+				_, err = conn.Exec(ctx, "CLOSE "+cursorName)
+				require.NoError(t, err, "failed to close WITH HOLD cursor")
+
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "cursor should not exist after CLOSE")
+			})
+
+			// MUL-389 follow-up: WITH HOLD declared via the extended query
+			// protocol (Parse/Bind/Execute) must also pin the backend.
+			// Without PlanPortal dispatch for T_DeclareCursorStmt, the
+			// extended-protocol DECLARE would land on a pooled connection
+			// and the cursor would be lost on COMMIT.
+			t.Run("cursor WITH HOLD via extended protocol", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_ext_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur_ext"
+				declStmt := "decl_hold_ext"
+				closeStmt := "close_hold_ext"
+
+				// Forcing Parse/Bind/Execute by prepared name routes the
+				// statement through PlanPortal — the exact code path the
+				// reviewer flagged.
+				_, err = conn.Prepare(ctx, declStmt, fmt.Sprintf("DECLARE %s SCROLL CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err)
+				_, err = conn.Prepare(ctx, closeStmt, "CLOSE "+cursorName)
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, declStmt)
+				require.NoError(t, err, "extended-protocol DECLARE WITH HOLD failed")
+
+				rows, err := tx.Query(ctx, "FETCH 1 FROM "+cursorName)
+				require.NoError(t, err)
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got)
+
+				require.NoError(t, tx.Commit(ctx), "COMMIT after extended-protocol DECLARE WITH HOLD")
+
+				rows, err = conn.Query(ctx, "FETCH FROM "+cursorName)
+				require.NoError(t, err, "cursor lost after COMMIT — extended-protocol DECLARE bypassed HoldCursorRoute")
+				got = nil
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{2}, got)
+
+				_, err = conn.Exec(ctx, closeStmt)
+				require.NoError(t, err, "extended-protocol CLOSE failed")
+
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "cursor should not exist after CLOSE")
+			})
+
+			// MUL-389 follow-up: explicit ROLLBACK must close WITH HOLD
+			// cursors (PG semantics: ROLLBACK drops every open cursor).
+			t.Run("WITH HOLD closed by explicit ROLLBACK", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_rb_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur_rb"
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err)
+				require.NoError(t, tx.Rollback(ctx))
+
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "WITH HOLD cursor must be closed by explicit ROLLBACK")
+				var n int
+				require.NoError(t, conn.QueryRow(ctx, "SELECT 1").Scan(&n))
+				assert.Equal(t, 1, n)
+			})
+
+			// MUL-389 follow-up: CLOSE ALL must drop every HOLD pin.
+			t.Run("CLOSE ALL releases all HOLD cursors", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_ca_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				for _, name := range []string{"hc1", "hc2", "hc3"} {
+					_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", name, tableName))
+					require.NoError(t, err, "DECLARE %s WITH HOLD failed", name)
+				}
+				require.NoError(t, tx.Commit(ctx))
+
+				// All three should still be open post-COMMIT.
+				for _, name := range []string{"hc1", "hc2", "hc3"} {
+					_, err = conn.Exec(ctx, "FETCH FROM "+name)
+					require.NoError(t, err, "%s should survive COMMIT", name)
+				}
+
+				_, err = conn.Exec(ctx, "CLOSE ALL")
+				require.NoError(t, err)
+
+				for _, name := range []string{"hc1", "hc2", "hc3"} {
+					_, err = conn.Exec(ctx, "FETCH FROM "+name)
+					require.Error(t, err, "%s should be closed after CLOSE ALL", name)
+				}
+				var n int
+				require.NoError(t, conn.QueryRow(ctx, "SELECT 1").Scan(&n))
+				assert.Equal(t, 1, n)
+			})
+
+			// MUL-389 follow-up: DISCARD ALL closes every cursor. The
+			// gateway handles DISCARD ALL locally and releases the reserved
+			// connection (pinned by the HOLD cursor) back to the pool, so
+			// the multipooler's portal pin set drains alongside PG's wipe.
+			t.Run("DISCARD ALL releases HOLD cursor pins", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_da_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE hold_cur_da CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", tableName))
+				require.NoError(t, err)
+				require.NoError(t, tx.Commit(ctx))
+
+				_, err = conn.Exec(ctx, "DISCARD ALL")
+				require.NoError(t, err, "DISCARD ALL should succeed even with a HOLD cursor open")
+
+				_, err = conn.Exec(ctx, "FETCH FROM hold_cur_da")
+				require.Error(t, err, "HOLD cursor must be closed by DISCARD ALL")
+				// pgx's stmtcache holds prepared-statement names that PG
+				// dropped on DISCARD ALL — a regular conn.Exec for
+				// `SELECT 1` reuses the cache and tries to Bind a
+				// no-longer-prepared name. Use Ping (simple protocol,
+				// no cache) to verify the session is still alive without
+				// tripping the cache.
+				require.NoError(t, conn.Ping(ctx),
+					"session must be usable after DISCARD ALL on a session with HOLD cursors")
+			})
+
+			// MUL-389 follow-up: ROLLBACK TO SAVEPOINT must close any HOLD
+			// cursor declared inside the rolled-back sub-transaction, and
+			// leave cursors declared before the savepoint open.
+			t.Run("ROLLBACK TO SAVEPOINT closes sub-txn HOLD cursors", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_sp_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE hold_before CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", tableName))
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, "SAVEPOINT sp1")
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE hold_after CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", tableName))
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT sp1")
+				require.NoError(t, err)
+
+				require.NoError(t, tx.Commit(ctx))
+
+				// `hold_before` survives — declared before the savepoint.
+				rows, err := conn.Query(ctx, "FETCH 1 FROM hold_before")
+				require.NoError(t, err)
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got)
+
+				// `hold_after` was declared inside the rolled-back
+				// subtransaction → must be gone.
+				_, err = conn.Exec(ctx, "FETCH FROM hold_after")
+				require.Error(t, err, "HOLD cursor declared inside rolled-back subtxn must be closed")
+
+				_, err = conn.Exec(ctx, "CLOSE hold_before")
+				require.NoError(t, err)
+			})
+
+			// MUL-389 follow-up: PostgreSQL's `CLOSE` is *not*
+			// transactional — a cursor explicitly CLOSE'd inside a
+			// sub-transaction stays closed after ROLLBACK TO. Verify
+			// the gateway agrees: a follow-up FETCH must error, and
+			// the gateway's HOLD-cursor tracking must drop the entry
+			// (no stale ReasonPortal pin lingering past COMMIT).
+			t.Run("CLOSE inside savepoint survives ROLLBACK TO", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_cs_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE hold_cs CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", tableName))
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, "SAVEPOINT sp_cs")
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, "CLOSE hold_cs")
+				require.NoError(t, err)
+
+				// ROLLBACK TO does NOT undo the CLOSE — PG keeps the
+				// cursor closed.
+				_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT sp_cs")
+				require.NoError(t, err)
+
+				require.NoError(t, tx.Commit(ctx))
+
+				_, err = conn.Exec(ctx, "FETCH FROM hold_cs")
+				require.Error(t, err, "CLOSE must survive ROLLBACK TO — cursor stays closed")
+
+				require.NoError(t, conn.Ping(ctx),
+					"session must be usable after the CLOSE/ROLLBACK TO sequence")
+			})
+
+			// MUL-389 follow-up: HOLD cursor + temp table in the same
+			// transaction — both ReasonPortal and ReasonTempTable must
+			// survive COMMIT, with HOLD cursor still readable and temp
+			// table still queryable.
+			t.Run("WITH HOLD + temp table survive COMMIT together", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_tt_test_%d", time.Now().UnixNano())
+				tempName := fmt.Sprintf("tt_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("CREATE TEMP TABLE %s (j int)", tempName))
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (42)", tempName))
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE hold_tt CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", tableName))
+				require.NoError(t, err)
+				require.NoError(t, tx.Commit(ctx))
+
+				// HOLD cursor survives.
+				rows, err := conn.Query(ctx, "FETCH 1 FROM hold_tt")
+				require.NoError(t, err)
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got)
+
+				// Temp table survives on the same backend.
+				var v int
+				require.NoError(t, conn.QueryRow(ctx, "SELECT j FROM "+tempName).Scan(&v))
+				assert.Equal(t, 42, v)
+
+				_, err = conn.Exec(ctx, "CLOSE hold_tt")
+				require.NoError(t, err)
+			})
+
+			// MUL-389 follow-up: DECLARE WITH HOLD outside an explicit
+			// transaction must not leak a reserved connection. PG itself
+			// allows the statement under extended-protocol autocommit
+			// (the implicit txn wraps the single Parse/Bind/Execute/Sync
+			// cycle); whether the cursor survives the autocommit boundary
+			// is up to PG. Either way, the gateway must clean up — no
+			// reserved backend lingering, and the session must continue
+			// to serve queries normally.
+			t.Run("WITH HOLD outside txn does not leak reservation", func(t *testing.T) {
+				cursorName := fmt.Sprintf("c_outside_%d", time.Now().UnixNano())
+				if _, err := conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT 1", cursorName)); err == nil {
+					// PG accepted the DECLARE — best-effort cleanup so the
+					// next iteration sees a clean session. The cursor may
+					// or may not exist at this point depending on PG's
+					// implicit-commit semantics.
+					_, _ = conn.Exec(ctx, "CLOSE "+cursorName)
+				}
+
+				// The real assertion: session is still alive.
+				require.NoError(t, conn.Ping(ctx),
+					"session must be usable after DECLARE WITH HOLD outside a transaction")
+			})
+
+			// MUL-389 follow-up: a HOLD cursor declared *before* an explicit
+			// BEGIN block must survive a ROLLBACK of that block. PG only
+			// closes cursors created inside the transaction; cursors
+			// established earlier (under autocommit) persist. Multigres
+			// must mirror this by forwarding only the in-txn cursor names
+			// as release_portal_names on the ConcludeTransaction RPC.
+			t.Run("pre-BEGIN WITH HOLD survives explicit ROLLBACK", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_preb_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				preName := fmt.Sprintf("hold_pre_%d", time.Now().UnixNano())
+
+				// DECLARE under autocommit (no explicit BEGIN).
+				_, err = conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", preName, tableName))
+				if err != nil {
+					t.Skipf("backend rejected DECLARE WITH HOLD under autocommit: %v", err)
+				}
+
+				// Now open an explicit transaction and roll it back.
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, "SELECT 1")
+				require.NoError(t, err)
+				require.NoError(t, tx.Rollback(ctx))
+
+				// Pre-BEGIN cursor must still be readable on the same
+				// reserved backend. Drop the pgx stmtcache hop via Ping
+				// before the FETCH to avoid pre-existing prepared-stmt
+				// invalidation noise.
+				require.NoError(t, conn.Ping(ctx))
+
+				rows, err := conn.Query(ctx, "FETCH 1 FROM "+preName)
+				if err != nil {
+					t.Fatalf("pre-BEGIN HOLD cursor lost across explicit ROLLBACK: %v", err)
+				}
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got, "pre-BEGIN cursor should continue from row 1")
+
+				_, err = conn.Exec(ctx, "CLOSE "+preName)
+				require.NoError(t, err)
+			})
+
+			// MUL-389 follow-up: HOLD cursors split across the BEGIN
+			// boundary — one declared pre-BEGIN, one declared inside the
+			// txn. Explicit ROLLBACK closes only the inside-txn cursor.
+			t.Run("mixed pre/inside-txn HOLD on explicit ROLLBACK", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_mix_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				preName := fmt.Sprintf("hold_mix_pre_%d", time.Now().UnixNano())
+				insideName := fmt.Sprintf("hold_mix_in_%d", time.Now().UnixNano())
+
+				_, err = conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", preName, tableName))
+				if err != nil {
+					t.Skipf("backend rejected DECLARE WITH HOLD under autocommit: %v", err)
+				}
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", insideName, tableName))
+				require.NoError(t, err)
+				require.NoError(t, tx.Rollback(ctx))
+
+				require.NoError(t, conn.Ping(ctx))
+
+				// Pre-BEGIN cursor survives.
+				rows, err := conn.Query(ctx, "FETCH 1 FROM "+preName)
+				require.NoError(t, err, "pre-BEGIN cursor must survive ROLLBACK of the outer txn")
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got)
+
+				// Inside-txn cursor is gone.
+				_, err = conn.Exec(ctx, "FETCH FROM "+insideName)
+				require.Error(t, err, "cursor declared inside the txn must be closed by ROLLBACK")
+
+				_, err = conn.Exec(ctx, "CLOSE "+preName)
+				require.NoError(t, err)
+			})
+
+			// MUL-389 follow-up: a HOLD cursor declared BEFORE an explicit
+			// BEGIN must survive when that block fails and COMMIT triggers
+			// PG's implicit ROLLBACK. Mirrors the explicit-ROLLBACK
+			// pre-BEGIN test but exercises the implicit-rollback path in
+			// executeCommit, which had a state-ordering bug where
+			// RollbackTransaction wiped the savepoint stack before
+			// RestoreOpenHoldCursorsToBeginSnapshot could read it.
+			t.Run("pre-BEGIN WITH HOLD survives failed-txn COMMIT", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_prefail_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,5)", tableName))
+				require.NoError(t, err)
+
+				preName := fmt.Sprintf("hold_prefail_%d", time.Now().UnixNano())
+
+				_, err = conn.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", preName, tableName))
+				if err != nil {
+					t.Skipf("backend rejected DECLARE WITH HOLD under autocommit: %v", err)
+				}
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+				_, err = tx.Exec(ctx, "SELECT 1/0")
+				require.Error(t, err, "division by zero must abort the transaction")
+				// COMMIT on a failed txn is rewritten to ROLLBACK by PG.
+				// pgx Commit() may surface a non-nil error for the
+				// non-COMMIT tag; that's expected and not a failure.
+				_ = tx.Commit(ctx)
+
+				require.NoError(t, conn.Ping(ctx))
+
+				rows, err := conn.Query(ctx, "FETCH 1 FROM "+preName)
+				if err != nil {
+					t.Fatalf("pre-BEGIN HOLD cursor lost across failed-txn COMMIT: %v", err)
+				}
+				var got []int
+				for rows.Next() {
+					var v int
+					require.NoError(t, rows.Scan(&v))
+					got = append(got, v)
+				}
+				rows.Close()
+				require.NoError(t, rows.Err())
+				assert.Equal(t, []int{1}, got, "pre-BEGIN cursor should continue from row 1")
+
+				_, err = conn.Exec(ctx, "CLOSE "+preName)
+				require.NoError(t, err)
+			})
+
+			// MUL-389 follow-up: COMMIT issued on a failed transaction is
+			// rewritten by PostgreSQL into ROLLBACK and closes every cursor
+			// (including WITH HOLD). Multigateway must mirror this: drop
+			// the gateway's HOLD-cursor bookkeeping and release the
+			// multipooler-side portal pin so the reserved backend is
+			// returned to the pool.
+			t.Run("WITH HOLD released on COMMIT of failed transaction", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_fail_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur_fail"
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err)
+
+				// Poison the transaction with a guaranteed runtime error.
+				_, err = tx.Exec(ctx, "SELECT 1/0")
+				require.Error(t, err, "division by zero must abort the transaction")
+
+				// COMMIT on a failed txn is rewritten to ROLLBACK by PG.
+				// pgx's Commit() reports `pgx: ...` for any non-COMMIT
+				// command tag, so we accept either nil (when the driver
+				// already swallowed the rewrite into rollback semantics) or
+				// a non-nil error that does NOT indicate a leaked
+				// transaction. The assertion that matters: the next query
+				// must run on a healthy pooled connection.
+				_ = tx.Commit(ctx)
+
+				// After implicit-ROLLBACK the HOLD cursor must be gone
+				// (PG closes it) AND a follow-up query must succeed without
+				// the "current transaction is aborted" wrapper. Use Ping
+				// rather than a cached `SELECT 1` — pgx's stmtcache can
+				// hold names PG dropped at ROLLBACK and would surface a
+				// spurious 26000 error on the next prepared exec, masking
+				// the actual liveness signal we care about here.
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "WITH HOLD cursor must be closed by implicit ROLLBACK")
+				require.NoError(t, conn.Ping(ctx),
+					"session should be back to idle on a fresh pooled connection")
+			})
+
+			// MUL-389 follow-up: explicit-ROLLBACK variant of the failed-txn
+			// path. Mirrors the test above but ends with `tx.Rollback(ctx)`
+			// instead of the failed `tx.Commit(ctx)`, exercising
+			// executeRollback (not the implicit-rollback branch of
+			// executeCommit). Both code paths must release the reserved
+			// backend so the session can immediately serve queries on a
+			// fresh pooled connection.
+			t.Run("WITH HOLD released on explicit ROLLBACK after failure", func(t *testing.T) {
+				tableName := fmt.Sprintf("hold_failrb_test_%d", time.Now().UnixNano())
+
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (i int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
+				}()
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s SELECT generate_series(1,3)", tableName))
+				require.NoError(t, err)
+
+				cursorName := "hold_cur_failrb"
+
+				tx, err := conn.Begin(ctx)
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
+				require.NoError(t, err)
+
+				_, err = tx.Exec(ctx, "SELECT 1/0")
+				require.Error(t, err, "division by zero must abort the transaction")
+
+				require.NoError(t, tx.Rollback(ctx), "explicit ROLLBACK after a failed statement must succeed")
+
+				_, err = conn.Exec(ctx, "FETCH FROM "+cursorName)
+				require.Error(t, err, "WITH HOLD cursor must be closed by explicit ROLLBACK")
+				require.NoError(t, conn.Ping(ctx),
+					"session should be back to idle on a fresh pooled connection")
 			})
 
 			t.Run("transaction with prepared statements", func(t *testing.T) {

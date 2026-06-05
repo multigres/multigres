@@ -50,12 +50,14 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	}
 
 	multipooler := &clustermetadata.MultiPooler{
-		Id:         serviceID,
-		Database:   "testdb",
-		Hostname:   "localhost",
-		PortMap:    map[string]int32{"grpc": 8080},
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
+		Id:       serviceID,
+		Hostname: "localhost",
+		PortMap:  map[string]int32{"grpc": 8080},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
 	}
 
 	config := &manager.Config{
@@ -64,7 +66,7 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer pm.Shutdown()
+	defer pm.ShutdownForTest(t.Context())
 
 	// Do NOT start the manager - keep it in starting state
 	assert.Equal(t, manager.ManagerStateStarting, pm.GetState())

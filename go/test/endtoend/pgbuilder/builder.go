@@ -56,9 +56,19 @@ type Builder struct {
 	BuildDir string
 	// InstallDir is the per-invocation install prefix (contains bin/, lib/, share/).
 	InstallDir string
+	// ExternalDir is the per-invocation root under which external extensions
+	// (KindExternal, e.g. pgvector) are cloned and built as PGXS modules. It is
+	// per-run (under the same build root as BuildDir) so concurrent callers
+	// don't share a checkout, and is removed by Cleanup along with the build.
+	ExternalDir string
 	// OutputDir is a persistent per-invocation directory for caller-written artifacts
 	// (reports, diffs, etc.). pgbuilder itself does not write here.
 	OutputDir string
+	// ConfigureArgs are extra flags appended to ./configure. Callers set this
+	// before Build to enable optional features that some contrib extensions
+	// require (e.g. --with-uuid for uuid-ossp). Empty by default so existing
+	// callers (regression/isolation, sqllogictest) build unchanged.
+	ConfigureArgs []string
 }
 
 // New returns a Builder with unique per-invocation build and install directories
@@ -77,10 +87,11 @@ func New(t *testing.T) *Builder {
 	buildRoot := filepath.Join(cacheDir, "builds", timestamp)
 
 	return &Builder{
-		SourceDir:  filepath.Join(cacheDir, "source", "postgres"),
-		BuildDir:   filepath.Join(buildRoot, "build"),
-		InstallDir: filepath.Join(buildRoot, "install"),
-		OutputDir:  filepath.Join(cacheDir, "results", timestamp),
+		SourceDir:   filepath.Join(cacheDir, "source", "postgres"),
+		BuildDir:    filepath.Join(buildRoot, "build"),
+		InstallDir:  filepath.Join(buildRoot, "install"),
+		ExternalDir: filepath.Join(buildRoot, "external"),
+		OutputDir:   filepath.Join(cacheDir, "results", timestamp),
 	}
 }
 
@@ -164,12 +175,14 @@ func (b *Builder) Build(t *testing.T, ctx context.Context) error {
 	}
 
 	t.Logf("Configuring PostgreSQL with ./configure...")
-	configureCmd := executil.Command(ctx, filepath.Join(b.SourceDir, "configure"),
-		"--prefix="+b.InstallDir,
+	configureArgs := []string{
+		"--prefix=" + b.InstallDir,
 		"--enable-cassert=no",
 		"--enable-tap-tests=no",
 		"--without-icu",
-	)
+	}
+	configureArgs = append(configureArgs, b.ConfigureArgs...)
+	configureCmd := executil.Command(ctx, filepath.Join(b.SourceDir, "configure"), configureArgs...)
 	configureCmd.Dir = b.BuildDir
 	configureCmd.Stdout = os.Stdout
 	configureCmd.Stderr = os.Stderr
@@ -197,6 +210,93 @@ func (b *Builder) Build(t *testing.T, ctx context.Context) error {
 
 	t.Logf("PostgreSQL build completed successfully")
 	return nil
+}
+
+// InstallContrib builds and installs all configured contrib modules into
+// b.InstallDir. Must be called after Build().
+//
+// The top-level `make install` run by Build installs only the core server;
+// contrib extensions (citext, hstore, cube, ...) ship their own
+// .so/.control/.sql and must be installed separately before CREATE EXTENSION
+// can load them. contrib/Makefile already skips modules whose optional
+// dependencies (libxml, openssl, ...) were not enabled at configure time, so
+// this installs only what the --without-icu configure produced.
+func (b *Builder) InstallContrib(t *testing.T, ctx context.Context) error {
+	t.Helper()
+
+	contribDir := filepath.Join(b.BuildDir, "contrib")
+	t.Logf("Building and installing contrib modules from %s...", contribDir)
+
+	cmd := executil.Command(ctx, "make", "-C", contribDir, "-j", "4", "install")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("make -C contrib install failed: %w", err)
+	}
+
+	t.Logf("contrib modules installed to %s", b.InstallDir)
+	return nil
+}
+
+// InstallExternalExtension clones an external extension's repo at a pinned tag
+// into b.ExternalDir/<name>, builds it as a PGXS module against this builder's
+// from-source PostgreSQL, and installs it into b.InstallDir. It returns the
+// checkout directory so the caller can drive the extension's shipped pg_regress
+// suite (sql/ + expected/) from there. Must be called after Build().
+//
+// The build is pointed at the per-run install tree via PG_CONFIG so the
+// extension's .so links against the exact PostgreSQL the cluster runs (the same
+// ABI-consistency guarantee Build provides for regress.so). The checkout is
+// per-run, so a shallow clone happens once per invocation; pinning the tag keeps
+// the suite reproducible.
+//
+// buildSubdir is the directory within the checkout that holds the PGXS Makefile,
+// relative to the clone root. It is empty for extensions whose Makefile sits at
+// the repo root (pgvector, pg_cron) and set when it lives in a subdirectory
+// (pgmq: "pgmq-extension"). The returned path is always the clone root, so the
+// caller resolves the extension's TestSubdir against it independently.
+func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, name, repo, tag, buildSubdir string) (string, error) {
+	t.Helper()
+
+	if err := os.MkdirAll(b.ExternalDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create external dir: %w", err)
+	}
+	cloneDir := filepath.Join(b.ExternalDir, name)
+
+	t.Logf("Cloning external extension %s (%s) from %s...", name, tag, repo)
+	clone := executil.Command(ctx, "git", "clone",
+		"--depth=1",
+		"--branch", tag,
+		repo,
+		cloneDir)
+	var stderr bytes.Buffer
+	clone.Stderr = &stderr
+	if err := clone.Run(); err != nil {
+		return "", fmt.Errorf("failed to clone %s: %w (stderr: %s)", name, err, stderr.String())
+	}
+
+	pgConfig := filepath.Join(b.BinDir(), "pg_config")
+	// The PGXS Makefile may live in a subdirectory of the checkout (pgmq).
+	buildDir := filepath.Join(cloneDir, buildSubdir)
+
+	t.Logf("Building external extension %s with PGXS (PG_CONFIG=%s)...", name, pgConfig)
+	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4", "PG_CONFIG="+pgConfig)
+	makeCmd.Stdout = os.Stdout
+	makeCmd.Stderr = os.Stderr
+	if err := makeCmd.Run(); err != nil {
+		return "", fmt.Errorf("make %s failed: %w", name, err)
+	}
+
+	t.Logf("Installing external extension %s into %s...", name, b.InstallDir)
+	installCmd := executil.Command(ctx, "make", "-C", buildDir, "PG_CONFIG="+pgConfig, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		return "", fmt.Errorf("make %s install failed: %w", name, err)
+	}
+
+	t.Logf("External extension %s installed", name)
+	return cloneDir, nil
 }
 
 // Cleanup removes per-invocation build and install artifacts but leaves the

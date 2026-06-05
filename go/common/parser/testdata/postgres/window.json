@@ -34,11 +34,11 @@
   },
   {
     "comment": "window - Statement 8",
-    "query": "SELECT COUNT(*) OVER () FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT COUNT(*) OVER () FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 9",
-    "query": "SELECT COUNT(*) OVER w FROM tenk1 WHERE unique2 \u003c 10 WINDOW w AS ()"
+    "query": "SELECT COUNT(*) OVER w FROM tenk1 WHERE unique2 < 10 WINDOW w AS ()"
   },
   {
     "comment": "window - Statement 10",
@@ -46,38 +46,38 @@
   },
   {
     "comment": "window - Statement 11",
-    "query": "SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT SUM(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT SUM(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 12",
-    "query": "SELECT row_number() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT ROW_NUMBER() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT row_number() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT ROW_NUMBER() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 13",
-    "query": "SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT RANK() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT RANK() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 14",
-    "query": "SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT DENSE_RANK() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT DENSE_RANK() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 15",
-    "query": "SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT PERCENT_RANK() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT PERCENT_RANK() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 16",
-    "query": "SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT CUME_DIST() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT CUME_DIST() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 17",
-    "query": "SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT NTILE(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT NTILE(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 18",
@@ -86,63 +86,63 @@
   },
   {
     "comment": "window - Statement 19",
-    "query": "SELECT lag(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LAG(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lag(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LAG(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 20",
-    "query": "SELECT lag(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LAG(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lag(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LAG(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 21",
-    "query": "SELECT lag(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LAG(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lag(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LAG(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 22",
-    "query": "SELECT lag(ten, four, 0.7) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten",
-    "expected": "SELECT LAG(ten, four, 0.7) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten"
+    "query": "SELECT lag(ten, four, 0.7) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten",
+    "expected": "SELECT LAG(ten, four, 0.7) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten"
   },
   {
     "comment": "window - Statement 23",
-    "query": "SELECT lead(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LEAD(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lead(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LEAD(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 24",
-    "query": "SELECT lead(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LEAD(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lead(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LEAD(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 25",
-    "query": "SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LEAD(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LEAD(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 26",
-    "query": "SELECT lead(ten * 2, 1, -1.4) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten",
-    "expected": "SELECT LEAD(ten * 2, 1, -1.4) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten"
+    "query": "SELECT lead(ten * 2, 1, -1.4) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten",
+    "expected": "SELECT LEAD(ten * 2, 1, -1.4) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten"
   },
   {
     "comment": "window - Statement 27",
-    "query": "SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT FIRST_VALUE(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT FIRST_VALUE(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 28",
-    "query": "SELECT last_value(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT LAST_VALUE(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT last_value(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT LAST_VALUE(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 29",
-    "query": "SELECT last_value(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten)s ORDER BY four, ten",
-    "expected": "SELECT LAST_VALUE(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) AS s ORDER BY four, ten"
+    "query": "SELECT last_value(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten)s ORDER BY four, ten",
+    "expected": "SELECT LAST_VALUE(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) AS s ORDER BY four, ten"
   },
   {
     "comment": "window - Statement 30",
-    "query": "SELECT nth_value(ten, four + 1) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten)s",
-    "expected": "SELECT NTH_VALUE(ten, four + 1) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) AS s"
+    "query": "SELECT nth_value(ten, four + 1) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten)s",
+    "expected": "SELECT NTH_VALUE(ten, four + 1) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) AS s"
   },
   {
     "comment": "window - Statement 31",
@@ -151,23 +151,23 @@
   },
   {
     "comment": "window - Statement 32",
-    "query": "SELECT count(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1)s WHERE unique2 \u003c 10",
-    "expected": "SELECT COUNT(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1) AS s WHERE unique2 \u003c 10"
+    "query": "SELECT count(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1)s WHERE unique2 < 10",
+    "expected": "SELECT COUNT(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1) AS s WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 33",
-    "query": "SELECT (count(*) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY four ORDER BY ten))::varchar AS cntsum FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT CAST((COUNT(*) OVER (PARTITION BY four ORDER BY ten) + SUM(hundred) OVER (PARTITION BY four ORDER BY ten)) AS VARCHAR) AS cntsum FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT (count(*) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY four ORDER BY ten))::varchar AS cntsum FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT CAST((COUNT(*) OVER (PARTITION BY four ORDER BY ten) + SUM(hundred) OVER (PARTITION BY four ORDER BY ten)) AS VARCHAR) AS cntsum FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 34",
-    "query": "SELECT * FROM( SELECT count(*) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS total, count(*) OVER (PARTITION BY four ORDER BY ten) AS fourcount, sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM tenk1 )sub WHERE total \u003c\u003e fourcount + twosum",
-    "expected": "SELECT * FROM (SELECT COUNT(*) OVER (PARTITION BY four ORDER BY ten) + SUM(hundred) OVER (PARTITION BY two ORDER BY ten) AS total, COUNT(*) OVER (PARTITION BY four ORDER BY ten) AS fourcount, SUM(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM tenk1) AS sub WHERE total \u003c\u003e fourcount + twosum"
+    "query": "SELECT * FROM( SELECT count(*) OVER (PARTITION BY four ORDER BY ten) + sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS total, count(*) OVER (PARTITION BY four ORDER BY ten) AS fourcount, sum(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM tenk1 )sub WHERE total <> fourcount + twosum",
+    "expected": "SELECT * FROM (SELECT COUNT(*) OVER (PARTITION BY four ORDER BY ten) + SUM(hundred) OVER (PARTITION BY two ORDER BY ten) AS total, COUNT(*) OVER (PARTITION BY four ORDER BY ten) AS fourcount, SUM(hundred) OVER (PARTITION BY two ORDER BY ten) AS twosum FROM tenk1) AS sub WHERE total <> fourcount + twosum"
   },
   {
     "comment": "window - Statement 35",
-    "query": "SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 \u003c 10",
-    "expected": "SELECT AVG(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 \u003c 10"
+    "query": "SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 < 10",
+    "expected": "SELECT AVG(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 36",
@@ -186,8 +186,8 @@
   },
   {
     "comment": "window - Statement 39",
-    "query": "SELECT lead(ten, (SELECT two FROM tenk1 WHERE s.unique2 = unique2)) OVER (PARTITION BY four ORDER BY ten) FROM tenk1 s WHERE unique2 \u003c 10",
-    "expected": "SELECT LEAD(ten, (SELECT two FROM tenk1 WHERE s.unique2 = unique2)) OVER (PARTITION BY four ORDER BY ten) FROM tenk1 AS s WHERE unique2 \u003c 10"
+    "query": "SELECT lead(ten, (SELECT two FROM tenk1 WHERE s.unique2 = unique2)) OVER (PARTITION BY four ORDER BY ten) FROM tenk1 s WHERE unique2 < 10",
+    "expected": "SELECT LEAD(ten, (SELECT two FROM tenk1 WHERE s.unique2 = unique2)) OVER (PARTITION BY four ORDER BY ten) FROM tenk1 AS s WHERE unique2 < 10"
   },
   {
     "comment": "window - Statement 40",
@@ -201,8 +201,8 @@
   },
   {
     "comment": "window - Statement 42",
-    "query": "SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () FROM( SELECT *, CASE WHEN enroll_date \u003c '2008-01-01' THEN 2008 - extract(YEAR FROM enroll_date) END * 500 AS bonus, CASE WHEN AVG(salary) OVER (PARTITION BY depname) \u003c salary THEN 200 END AS depadj FROM empsalary )s",
-    "expected": "SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () FROM (SELECT *, CASE WHEN enroll_date \u003c '2008-01-01' THEN 2008 - extract(year FROM enroll_date) END * 500 AS bonus, CASE WHEN AVG(salary) OVER (PARTITION BY depname) \u003c salary THEN 200 END AS depadj FROM empsalary) AS s"
+    "query": "SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () FROM( SELECT *, CASE WHEN enroll_date < '2008-01-01' THEN 2008 - extract(YEAR FROM enroll_date) END * 500 AS bonus, CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM empsalary )s",
+    "expected": "SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () FROM (SELECT *, CASE WHEN enroll_date < '2008-01-01' THEN 2008 - extract(year FROM enroll_date) END * 500 AS bonus, CASE WHEN AVG(salary) OVER (PARTITION BY depname) < salary THEN 200 END AS depadj FROM empsalary) AS s"
   },
   {
     "comment": "window - Statement 43",
@@ -251,113 +251,113 @@
   },
   {
     "comment": "window - Statement 52",
-    "query": "SELECT sum(unique1) over (order by four range between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 53",
-    "query": "SELECT sum(unique1) over (rows between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 54",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 55",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude no others), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude no others), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 56",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 57",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 58",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 59",
-    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 60",
-    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 61",
-    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT FIRST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 62",
-    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 63",
-    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 64",
-    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT LAST_VALUE(unique1) OVER (ORDER BY four ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 65",
-    "query": "SELECT sum(unique1) over (rows between 2 preceding and 1 preceding), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 2 preceding and 1 preceding), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 66",
-    "query": "SELECT sum(unique1) over (rows between 1 following and 3 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 1 FOLLOWING AND 3 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 1 following and 3 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 1 FOLLOWING AND 3 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 67",
-    "query": "SELECT sum(unique1) over (rows between unbounded preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between unbounded preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 68",
-    "query": "SELECT sum(unique1) over (w range between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (order by four)",
-    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (ORDER BY four)"
+    "query": "SELECT sum(unique1) over (w range between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four)",
+    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (ORDER BY four)"
   },
   {
     "comment": "window - Statement 69",
-    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (order by four)",
-    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (ORDER BY four)"
+    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four)",
+    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (ORDER BY four)"
   },
   {
     "comment": "window - Statement 70",
-    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (order by four)",
-    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (ORDER BY four)"
+    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude group), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four)",
+    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (ORDER BY four)"
   },
   {
     "comment": "window - Statement 71",
-    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (order by four)",
-    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (ORDER BY four)"
+    "query": "SELECT sum(unique1) over (w range between unbounded preceding and current row exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four)",
+    "expected": "SELECT SUM(unique1) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (ORDER BY four)"
   },
   {
     "comment": "window - Statement 72",
-    "query": "SELECT first_value(unique1) over w, nth_value(unique1, 2) over w AS nth_2, last_value(unique1) over w, unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (order by four range between current row and unbounded following)",
-    "expected": "SELECT FIRST_VALUE(unique1) OVER w, NTH_VALUE(unique1, 2) OVER w AS nth_2, LAST_VALUE(unique1) OVER w, unique1, four FROM tenk1 WHERE unique1 \u003c 10 WINDOW w AS (ORDER BY four RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)"
+    "query": "SELECT first_value(unique1) over w, nth_value(unique1, 2) over w AS nth_2, last_value(unique1) over w, unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four range between current row and unbounded following)",
+    "expected": "SELECT FIRST_VALUE(unique1) OVER w, NTH_VALUE(unique1, 2) OVER w AS nth_2, LAST_VALUE(unique1) OVER w, unique1, four FROM tenk1 WHERE unique1 < 10 WINDOW w AS (ORDER BY four RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)"
   },
   {
     "comment": "window - Statement 73",
-    "query": "SELECT sum(unique1) over (order by unique1 rows (SELECT unique1 FROM tenk1 ORDER BY unique1 LIMIT 1) + 1 PRECEDING), unique1 FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY unique1 ROWS (SELECT unique1 FROM tenk1 ORDER BY unique1 LIMIT 1) + 1 PRECEDING), unique1 FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by unique1 rows (SELECT unique1 FROM tenk1 ORDER BY unique1 LIMIT 1) + 1 PRECEDING), unique1 FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY unique1 ROWS (SELECT unique1 FROM tenk1 ORDER BY unique1 LIMIT 1) + 1 PRECEDING), unique1 FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 74",
@@ -408,53 +408,53 @@
   },
   {
     "comment": "window - Statement 84",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 85",
-    "query": "SELECT sum(unique1) over (order by four desc range between 2::int8 preceding and 1::int2 preceding), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four DESC RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four desc range between 2::int8 preceding and 1::int2 preceding), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four DESC RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 86",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude no others), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude no others), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 87",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 88",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 89",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(1 AS SMALLINT) PRECEDING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 90",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 91",
-    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four RANGE BETWEEN CAST(2 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 92",
-    "query": "SELECT sum(unique1) over (partition by four order by unique1 range between 5::int8 preceding and 6::int2 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY four ORDER BY unique1 RANGE BETWEEN CAST(5 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by four order by unique1 range between 5::int8 preceding and 6::int2 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY four ORDER BY unique1 RANGE BETWEEN CAST(5 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 93",
-    "query": "SELECT sum(unique1) over (partition by four order by unique1 range between 5::int8 preceding and 6::int2 following exclude current row),unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY four ORDER BY unique1 RANGE BETWEEN CAST(5 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by four order by unique1 range between 5::int8 preceding and 6::int2 following exclude current row),unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY four ORDER BY unique1 RANGE BETWEEN CAST(5 AS BIGINT) PRECEDING AND CAST(6 AS SMALLINT) FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 94",
@@ -548,13 +548,13 @@
   },
   {
     "comment": "window - Statement 112",
-    "query": "CREATE FUNCTION unbounded_syntax_test1a(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END",
-    "expected": "CREATE FUNCTION unbounded_syntax_test1a (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN x PRECEDING AND x FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
+    "query": "CREATE FUNCTION unbounded_syntax_test1a(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 < 10; END",
+    "expected": "CREATE FUNCTION unbounded_syntax_test1a (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN x PRECEDING AND x FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10; END"
   },
   {
     "comment": "window - Statement 114",
-    "query": "CREATE FUNCTION unbounded_syntax_test1b(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$",
-    "expected": "CREATE FUNCTION unbounded_syntax_test1b (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
+    "query": "CREATE FUNCTION unbounded_syntax_test1b(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 < 10; $$",
+    "expected": "CREATE FUNCTION unbounded_syntax_test1b (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 < 10; $$"
   },
   {
     "comment": "window - Statement 115",
@@ -566,13 +566,13 @@
   },
   {
     "comment": "window - Statement 117",
-    "query": "CREATE FUNCTION unbounded_syntax_test2a(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END",
-    "expected": "CREATE FUNCTION unbounded_syntax_test2a (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
+    "query": "CREATE FUNCTION unbounded_syntax_test2a(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10; END",
+    "expected": "CREATE FUNCTION unbounded_syntax_test2a (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10; END"
   },
   {
     "comment": "window - Statement 118",
-    "query": "CREATE FUNCTION unbounded_syntax_test2b(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$",
-    "expected": "CREATE FUNCTION unbounded_syntax_test2b (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
+    "query": "CREATE FUNCTION unbounded_syntax_test2b(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10; $$",
+    "expected": "CREATE FUNCTION unbounded_syntax_test2b (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10; $$"
   },
   {
     "comment": "window - Statement 119",
@@ -593,18 +593,18 @@
   },
   {
     "comment": "window - Statement 123",
-    "query": "SELECT sum(unique1) over (rows between 1 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between 1 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 124",
-    "query": "SELECT sum(unique1) over (rows between unbounded(1) preceding and unbounded(1) following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN unbounded(1) PRECEDING AND unbounded(1) FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between unbounded(1) preceding and unbounded(1) following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN unbounded(1) PRECEDING AND unbounded(1) FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 125",
-    "query": "SELECT sum(unique1) over (rows between unbounded.x preceding and unbounded.x following), unique1, four FROM tenk1, (values (1)) as unbounded(x) WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN unbounded.x PRECEDING AND unbounded.x FOLLOWING), unique1, four FROM tenk1, (VALUES (1)) AS unbounded(x) WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (rows between unbounded.x preceding and unbounded.x following), unique1, four FROM tenk1, (values (1)) as unbounded(x) WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ROWS BETWEEN unbounded.x PRECEDING AND unbounded.x FOLLOWING), unique1, four FROM tenk1, (VALUES (1)) AS unbounded(x) WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 126",
@@ -972,83 +972,83 @@
   },
   {
     "comment": "window - Statement 199",
-    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 200",
-    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 201",
-    "query": "SELECT sum(unique1) over (order by four groups between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 202",
-    "query": "SELECT sum(unique1) over (order by four groups between 1 preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 1 preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 203",
-    "query": "SELECT sum(unique1) over (order by four groups between 1 following and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 1 following and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 204",
-    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and 2 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and 2 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 205",
-    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 preceding), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 preceding), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 206",
-    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 207",
-    "query": "SELECT sum(unique1) over (order by four groups between 0 preceding and 0 following), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 0 preceding and 0 following), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 208",
-    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude current row), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 209",
-    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude group), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 210",
-    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude ties), unique1, four FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (ORDER BY four GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 211",
-    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following),unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following),unique1, four, ten FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 212",
-    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude current row), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE CURRENT ROW), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude current row), unique1, four, ten FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE CURRENT ROW), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 213",
-    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude group), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE GROUP), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude group), unique1, four, ten FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE GROUP), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 214",
-    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude ties), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10",
-    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE TIES), unique1, four, ten FROM tenk1 WHERE unique1 \u003c 10"
+    "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude ties), unique1, four, ten FROM tenk1 WHERE unique1 < 10",
+    "expected": "SELECT SUM(unique1) OVER (PARTITION BY ten ORDER BY four GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING EXCLUDE TIES), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
     "comment": "window - Statement 215",
@@ -1177,13 +1177,13 @@
   },
   {
     "comment": "window - Statement 240",
-    "query": "SELECT * FROM empsalary WHERE row_number() OVER (ORDER BY salary) \u003c 10",
-    "expected": "SELECT * FROM empsalary WHERE ROW_NUMBER() OVER (ORDER BY salary) \u003c 10"
+    "query": "SELECT * FROM empsalary WHERE row_number() OVER (ORDER BY salary) < 10",
+    "expected": "SELECT * FROM empsalary WHERE ROW_NUMBER() OVER (ORDER BY salary) < 10"
   },
   {
     "comment": "window - Statement 241",
-    "query": "SELECT * FROM empsalary INNER JOIN tenk1 ON row_number() OVER (ORDER BY salary) \u003c 10",
-    "expected": "SELECT * FROM empsalary INNER JOIN tenk1 ON ROW_NUMBER() OVER (ORDER BY salary) \u003c 10"
+    "query": "SELECT * FROM empsalary INNER JOIN tenk1 ON row_number() OVER (ORDER BY salary) < 10",
+    "expected": "SELECT * FROM empsalary INNER JOIN tenk1 ON ROW_NUMBER() OVER (ORDER BY salary) < 10"
   },
   {
     "comment": "window - Statement 242",
@@ -1197,8 +1197,8 @@
   },
   {
     "comment": "window - Statement 244",
-    "query": "DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())) \u003e 10",
-    "expected": "DELETE FROM empsalary WHERE (RANK() OVER (ORDER BY random())) \u003e 10"
+    "query": "DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())) > 10",
+    "expected": "DELETE FROM empsalary WHERE (RANK() OVER (ORDER BY random())) > 10"
   },
   {
     "comment": "window - Statement 245",
@@ -1236,8 +1236,8 @@
   },
   {
     "comment": "window - Statement 252",
-    "query": "SELECT sum(salary), row_number() OVER (ORDER BY depname), sum( sum(salary) FILTER (WHERE enroll_date \u003e '2007-01-01') ) FILTER (WHERE depname \u003c\u003e 'sales') OVER (ORDER BY depname DESC) AS \"filtered_sum\", depname FROM empsalary GROUP BY depname",
-    "expected": "SELECT SUM(salary), ROW_NUMBER() OVER (ORDER BY depname), SUM(SUM(salary) FILTER (WHERE enroll_date \u003e '2007-01-01')) FILTER (WHERE depname \u003c\u003e 'sales') OVER (ORDER BY depname DESC) AS filtered_sum, depname FROM empsalary GROUP BY depname"
+    "query": "SELECT sum(salary), row_number() OVER (ORDER BY depname), sum( sum(salary) FILTER (WHERE enroll_date > '2007-01-01') ) FILTER (WHERE depname <> 'sales') OVER (ORDER BY depname DESC) AS \"filtered_sum\", depname FROM empsalary GROUP BY depname",
+    "expected": "SELECT SUM(salary), ROW_NUMBER() OVER (ORDER BY depname), SUM(SUM(salary) FILTER (WHERE enroll_date > '2007-01-01')) FILTER (WHERE depname <> 'sales') OVER (ORDER BY depname DESC) AS filtered_sum, depname FROM empsalary GROUP BY depname"
   },
   {
     "comment": "window - Statement 253",
@@ -1266,33 +1266,33 @@
   },
   {
     "comment": "window - Statement 258",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn \u003c 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn \u003c 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn < 3"
   },
   {
     "comment": "window - Statement 259",
-    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn \u003c 3",
-    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn \u003c 3"
+    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3",
+    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn < 3"
   },
   {
     "comment": "window - Statement 260",
-    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 3 \u003e rn",
-    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE 3 \u003e rn"
+    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 3 > rn",
+    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE 3 > rn"
   },
   {
     "comment": "window - Statement 261",
-    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 2 \u003e= rn",
-    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE 2 \u003e= rn"
+    "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 2 >= rn",
+    "expected": "SELECT * FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) AS emp WHERE 2 >= rn"
   },
   {
     "comment": "window - Statement 262",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, RANK() OVER (ORDER BY salary DESC) AS r FROM empsalary) AS emp WHERE r \u003c= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, RANK() OVER (ORDER BY salary DESC) AS r FROM empsalary) AS emp WHERE r <= 3"
   },
   {
     "comment": "window - Statement 263",
-    "query": "SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r \u003c= 3",
-    "expected": "SELECT * FROM (SELECT empno, salary, RANK() OVER (ORDER BY salary DESC) AS r FROM empsalary) AS emp WHERE r \u003c= 3"
+    "query": "SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r <= 3",
+    "expected": "SELECT * FROM (SELECT empno, salary, RANK() OVER (ORDER BY salary DESC) AS r FROM empsalary) AS emp WHERE r <= 3"
   },
   {
     "comment": "window - Statement 264",
@@ -1306,33 +1306,33 @@
   },
   {
     "comment": "window - Statement 266",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 267",
-    "query": "SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 268",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(empno) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(empno) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 269",
-    "query": "SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "SELECT * FROM (SELECT empno, salary, COUNT(empno) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "SELECT * FROM (SELECT empno, salary, COUNT(empno) OVER (ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 270",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c \u003e= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM empsalary) AS emp WHERE c \u003e= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c >= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM empsalary) AS emp WHERE c >= 3"
   },
   {
     "comment": "window - Statement 271",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER () c FROM empsalary) emp WHERE 11 \u003c= c",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER () AS c FROM empsalary) AS emp WHERE 11 \u003c= c"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER () c FROM empsalary) emp WHERE 11 <= c",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER () AS c FROM empsalary) AS emp WHERE 11 <= c"
   },
   {
     "comment": "window - Statement 272",
@@ -1341,28 +1341,28 @@
   },
   {
     "comment": "window - Statement 273",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn \u003c 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn \u003c 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn < 3"
   },
   {
     "comment": "window - Statement 274",
-    "query": "SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn \u003c 3",
-    "expected": "SELECT * FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn \u003c 3"
+    "query": "SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3",
+    "expected": "SELECT * FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn < 3"
   },
   {
     "comment": "window - Statement 275",
-    "query": "EXPLAIN (COSTS OFF) SELECT empno, depname FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn \u003c 3",
-    "expected": "EXPLAIN (COSTS false) SELECT empno, depname FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn \u003c 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT empno, depname FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3",
+    "expected": "EXPLAIN (COSTS false) SELECT empno, depname FROM (SELECT empno, depname, ROW_NUMBER() OVER (PARTITION BY depname ORDER BY empno) AS rn FROM empsalary) AS emp WHERE rn < 3"
   },
   {
     "comment": "window - Statement 276",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, depname, salary, COUNT(empno) OVER (PARTITION BY depname ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, depname, salary, COUNT(empno) OVER (PARTITION BY depname ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 277",
-    "query": "SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "SELECT * FROM (SELECT empno, depname, salary, COUNT(empno) OVER (PARTITION BY depname ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "SELECT * FROM (SELECT empno, depname, salary, COUNT(empno) OVER (PARTITION BY depname ORDER BY salary DESC) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 278",
@@ -1371,18 +1371,18 @@
   },
   {
     "comment": "window - Statement 279",
-    "query": "SELECT * FROM (SELECT row_number() OVER (PARTITION BY salary) AS rn, lead(depname) OVER (PARTITION BY salary) || ' Department' AS n_dep FROM empsalary) emp WHERE rn \u003c 1",
-    "expected": "SELECT * FROM (SELECT ROW_NUMBER() OVER (PARTITION BY salary) AS rn, LEAD(depname) OVER (PARTITION BY salary) || ' Department' AS n_dep FROM empsalary) AS emp WHERE rn \u003c 1"
+    "query": "SELECT * FROM (SELECT row_number() OVER (PARTITION BY salary) AS rn, lead(depname) OVER (PARTITION BY salary) || ' Department' AS n_dep FROM empsalary) emp WHERE rn < 1",
+    "expected": "SELECT * FROM (SELECT ROW_NUMBER() OVER (PARTITION BY salary) AS rn, LEAD(depname) OVER (PARTITION BY salary) || ' Department' AS n_dep FROM empsalary) AS emp WHERE rn < 1"
   },
   {
     "comment": "window - Statement 280",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn \u003c= 1 AND c1 \u003c= 3 AND nt \u003c 2",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT *, COUNT(salary) OVER (PARTITION BY depname || '') AS c1, ROW_NUMBER() OVER (PARTITION BY depname) AS rn, COUNT(*) OVER (PARTITION BY depname) AS c2, COUNT(*) OVER (PARTITION BY '' || depname) AS c3, NTILE(2) OVER (PARTITION BY depname) AS nt FROM empsalary) AS e WHERE rn \u003c= 1 AND c1 \u003c= 3 AND nt \u003c 2"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn <= 1 AND c1 <= 3 AND nt < 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT *, COUNT(salary) OVER (PARTITION BY depname || '') AS c1, ROW_NUMBER() OVER (PARTITION BY depname) AS rn, COUNT(*) OVER (PARTITION BY depname) AS c2, COUNT(*) OVER (PARTITION BY '' || depname) AS c3, NTILE(2) OVER (PARTITION BY depname) AS nt FROM empsalary) AS e WHERE rn <= 1 AND c1 <= 3 AND nt < 2"
   },
   {
     "comment": "window - Statement 281",
-    "query": "SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn \u003c= 1 AND c1 \u003c= 3 AND nt \u003c 2",
-    "expected": "SELECT * FROM (SELECT *, COUNT(salary) OVER (PARTITION BY depname || '') AS c1, ROW_NUMBER() OVER (PARTITION BY depname) AS rn, COUNT(*) OVER (PARTITION BY depname) AS c2, COUNT(*) OVER (PARTITION BY '' || depname) AS c3, NTILE(2) OVER (PARTITION BY depname) AS nt FROM empsalary) AS e WHERE rn \u003c= 1 AND c1 \u003c= 3 AND nt \u003c 2"
+    "query": "SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn <= 1 AND c1 <= 3 AND nt < 2",
+    "expected": "SELECT * FROM (SELECT *, COUNT(salary) OVER (PARTITION BY depname || '') AS c1, ROW_NUMBER() OVER (PARTITION BY depname) AS rn, COUNT(*) OVER (PARTITION BY depname) AS c2, COUNT(*) OVER (PARTITION BY '' || depname) AS c3, NTILE(2) OVER (PARTITION BY depname) AS nt FROM empsalary) AS e WHERE rn <= 1 AND c1 <= 3 AND nt < 2"
   },
   {
     "comment": "window - Statement 282",
@@ -1396,13 +1396,13 @@
   },
   {
     "comment": "window - Statement 284",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c \u003c= 3",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM empsalary) AS emp WHERE c \u003c= 3"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c <= 3",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS c FROM empsalary) AS emp WHERE c <= 3"
   },
   {
     "comment": "window - Statement 285",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary) c FROM empsalary) emp WHERE 3 \u003c= c",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary) AS c FROM empsalary) AS emp WHERE 3 \u003c= c"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary) c FROM empsalary) emp WHERE 3 <= c",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT empno, salary, COUNT(*) OVER (ORDER BY salary) AS c FROM empsalary) AS emp WHERE 3 <= c"
   },
   {
     "comment": "window - Statement 286",
@@ -1474,18 +1474,18 @@
   },
   {
     "comment": "window - Statement 300",
-    "query": "SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) s",
-    "expected": "SELECT nth_value_def(n =\u003e 2, val =\u003e ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) AS s"
+    "query": "SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s",
+    "expected": "SELECT nth_value_def(n => 2, val => ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) AS s"
   },
   {
     "comment": "window - Statement 301",
-    "query": "SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) s",
-    "expected": "SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 \u003c 10 ORDER BY four, ten) AS s"
+    "query": "SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s",
+    "expected": "SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) AS s"
   },
   {
     "comment": "window - Statement 302",
-    "query": "CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_msfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_minvfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE AGGREGATE logging_agg_nonstrict (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict );  CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI' );  CREATE FUNCTION logging_sfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_msfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_minvfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE AGGREGATE logging_agg_strict (text) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict );  CREATE AGGREGATE logging_agg_strict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI' );   SELECT p::text || ',' || i::text || ':' || COALESCE(v::text, 'NULL') AS row, logging_agg_nonstrict(v) over wnd as nstrict, logging_agg_nonstrict_initcond(v) over wnd as nstrict_init, logging_agg_strict(v::text) over wnd as strict, logging_agg_strict_initcond(v) over wnd as strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z') ) AS t(p, i, v) WINDOW wnd AS (PARTITION BY P ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT p::text || ',' || i::text || ':' || CASE WHEN f THEN COALESCE(v::text, 'NULL') ELSE '-' END as row, logging_agg_nonstrict(v) filter(where f) over wnd as nstrict_filt, logging_agg_nonstrict_initcond(v) filter(where f) over wnd as nstrict_init_filt, logging_agg_strict(v::text) filter(where f) over wnd as strict_filt, logging_agg_strict_initcond(v) filter(where f) over wnd as strict_init_filt FROM (VALUES (1, 1, true,  NULL), (1, 2, false, 'a'), (1, 3, true,  'b'), (1, 4, false, NULL), (1, 5, false, NULL), (1, 6, false, 'c'), (2, 1, false, NULL), (2, 2, true,  'x'), (3, 1, true,  'z') ) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) over wnd as inverse, logging_agg_strict(v::text || CASE WHEN random() \u003c 0 then '?' ELSE '' END) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;  SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) filter(where true) over wnd as inverse, logging_agg_strict(v::text) filter(where random() \u003e= 0) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;   SELECT logging_agg_strict(v::text) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i;       CREATE FUNCTION sum_int_randrestart_minvfunc(int4, int4) RETURNS int4 AS $$ SELECT CASE WHEN random() \u003c 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE SQL STRICT;  CREATE AGGREGATE sum_int_randomrestart (int4) ( stype = int4, sfunc = int4pl, mstype = int4, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc );  WITH vs AS ( SELECT i, (random() * 100)::int4 AS v FROM generate_series(1, 100) AS i ), sum_following AS ( SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs ) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3 FROM vs JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS ( ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING );       SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.5),(2,2.5),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);   SELECT  x ,avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_avg ,avg(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_avg ,sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_sum ,sum(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_sum FROM (VALUES (NULL::interval), ('infinity'::interval), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), ('-infinity'::interval), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), ('infinity'::interval), ('6 days'::interval), ('7 days'::interval), (NULL::interval), ('-infinity'::interval)) v(x);   SELECT x, avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);   SELECT x, sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);  SELECT i,SUM(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::money) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1.10'),(2,'2.20'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.1),(2,2.2),(3,NULL),(4,NULL)) t(i,v);  SELECT SUM(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.01),(2,2),(3,3)) v(i,n);  SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT VAR_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);   SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,3),(4,4)) t(i,v);   SELECT a, b, SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);      SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING),'999999999999999999999D9') FROM (VALUES(1,1e20),(2,1)) n(i,n);  SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1,true), (2,true), (3,false), (4,false), (5,true)) v(i,b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);         EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;     EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER () FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;      SELECT array_agg(i) OVER w FROM generate_series(1,5) i WINDOW w AS (ORDER BY i ROWS BETWEEN (('foo' \u003c 'foobar')::integer) PRECEDING AND CURRENT ROW);   CREATE FUNCTION pg_temp.f(group_size BIGINT) RETURNS SETOF integer[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE SQL STABLE",
-    "expected": "CREATE FUNCTION logging_sfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE FUNCTION logging_msfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE FUNCTION logging_minvfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE AGGREGATE logging_agg_nonstrict (anyelement) (stype = TEXT, sfunc = logging_sfunc_nonstrict, mstype = TEXT, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict); CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) (stype = TEXT, sfunc = logging_sfunc_nonstrict, mstype = TEXT, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI'); CREATE FUNCTION logging_sfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE FUNCTION logging_msfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE FUNCTION logging_minvfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE AGGREGATE logging_agg_strict (TEXT) (stype = TEXT, sfunc = logging_sfunc_strict, mstype = TEXT, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict); CREATE AGGREGATE logging_agg_strict_initcond (anyelement) (stype = TEXT, sfunc = logging_sfunc_strict, mstype = TEXT, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI'); SELECT CAST(p AS TEXT) || ',' || CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_nonstrict(v) OVER wnd AS nstrict, logging_agg_nonstrict_initcond(v) OVER wnd AS nstrict_init, logging_agg_strict(CAST(v AS TEXT)) OVER wnd AS strict, logging_agg_strict_initcond(v) OVER wnd AS strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z')) AS t(p, i, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i; SELECT CAST(p AS TEXT) || ',' || CAST(i AS TEXT) || ':' || CASE WHEN f THEN COALESCE(CAST(v AS TEXT), 'NULL') ELSE '-' END AS row, logging_agg_nonstrict(v) FILTER (WHERE f) OVER wnd AS nstrict_filt, logging_agg_nonstrict_initcond(v) FILTER (WHERE f) OVER wnd AS nstrict_init_filt, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE f) OVER wnd AS strict_filt, logging_agg_strict_initcond(v) FILTER (WHERE f) OVER wnd AS strict_init_filt FROM (VALUES (1, 1, TRUE, NULL), (1, 2, FALSE, 'a'), (1, 3, TRUE, 'b'), (1, 4, FALSE, NULL), (1, 5, FALSE, NULL), (1, 6, FALSE, 'c'), (2, 1, FALSE, NULL), (2, 2, TRUE, 'x'), (3, 1, TRUE, 'z')) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i; SELECT CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_strict(CAST(v AS TEXT)) OVER wnd AS inverse, logging_agg_strict(CAST(v AS TEXT) || CASE WHEN random() \u003c 0 THEN '?' ELSE '' END) OVER wnd AS noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i; SELECT CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE TRUE) OVER wnd AS inverse, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE random() \u003e= 0) OVER wnd AS noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i; SELECT logging_agg_strict(CAST(v AS TEXT)) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i; CREATE FUNCTION sum_int_randrestart_minvfunc (INT, INT) RETURNS INT AS $$ SELECT CASE WHEN random() \u003c 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE sql STRICT; CREATE AGGREGATE sum_int_randomrestart (INT) (stype = INT, sfunc = int4pl, mstype = INT, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc); WITH vs AS (SELECT i, CAST((random() * 100) AS INT) AS v FROM generate_series(1, 100) AS i), sum_following AS (SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100 * 3 + (vs.i - 1) * 3 = length(logging_agg_nonstrict(CAST('' AS TEXT)) OVER fwd) AS eq3 FROM vs INNER JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS (ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING); SELECT i, AVG(CAST(v AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.5), (2, 2.5), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS INTERVAL)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1 sec'), (2, '2 sec'), (3, NULL), (4, NULL)) AS t(i, v); SELECT x, AVG(x) OVER (ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS curr_next_avg, AVG(x) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS prev_curr_avg, SUM(x) OVER (ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS curr_next_sum, SUM(x) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS prev_curr_sum FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('infinity' AS INTERVAL)), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), (CAST('-infinity' AS INTERVAL)), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), (CAST('infinity' AS INTERVAL)), (CAST('6 days' AS INTERVAL)), (CAST('7 days' AS INTERVAL)), (CAST(NULL AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT x, AVG(x) OVER (ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('3 days' AS INTERVAL)), (CAST('infinity' AS TIMESTAMPTZ) - NOW()), (CAST('6 days' AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT x, SUM(x) OVER (ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('3 days' AS INTERVAL)), (CAST('infinity' AS TIMESTAMPTZ) - NOW()), (CAST('6 days' AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT i, SUM(CAST(v AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS money)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1.10'), (2, '2.20'), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INTERVAL)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1 sec'), (2, '2 sec'), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.1), (2, 2.2), (3, NULL), (4, NULL)) AS t(i, v); SELECT SUM(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.01), (2, 2), (3, 3)) AS v(i, n); SELECT i, COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT var_pop(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, 3), (4, 4)) AS t(i, v); SELECT a, b, SUM(b) OVER (ORDER BY a ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES (1, CAST(1 AS NUMERIC)), (2, 2), (3, 'NaN'), (4, 3), (5, 4)) AS t(a, b); SELECT to_char(SUM(CAST(n AS FLOAT8)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING), '999999999999999999999D9') FROM (VALUES (1, 1e20), (2, 1)) AS n(i, n); SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1, TRUE), (2, TRUE), (3, FALSE), (4, FALSE), (5, TRUE)) AS v(i, b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING); EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER () FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; SELECT array_agg(i) OVER w FROM generate_series(1, 5) AS i WINDOW w AS (ORDER BY i ROWS BETWEEN (CAST(('foo' \u003c 'foobar') AS INT)) PRECEDING AND CURRENT ROW); CREATE FUNCTION pg_temp.f (group_size BIGINT) RETURNS SETOF INT[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE sql STABLE"
+    "query": "CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_msfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_minvfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE AGGREGATE logging_agg_nonstrict (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict );  CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI' );  CREATE FUNCTION logging_sfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_msfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_minvfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE AGGREGATE logging_agg_strict (text) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict );  CREATE AGGREGATE logging_agg_strict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI' );   SELECT p::text || ',' || i::text || ':' || COALESCE(v::text, 'NULL') AS row, logging_agg_nonstrict(v) over wnd as nstrict, logging_agg_nonstrict_initcond(v) over wnd as nstrict_init, logging_agg_strict(v::text) over wnd as strict, logging_agg_strict_initcond(v) over wnd as strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z') ) AS t(p, i, v) WINDOW wnd AS (PARTITION BY P ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT p::text || ',' || i::text || ':' || CASE WHEN f THEN COALESCE(v::text, 'NULL') ELSE '-' END as row, logging_agg_nonstrict(v) filter(where f) over wnd as nstrict_filt, logging_agg_nonstrict_initcond(v) filter(where f) over wnd as nstrict_init_filt, logging_agg_strict(v::text) filter(where f) over wnd as strict_filt, logging_agg_strict_initcond(v) filter(where f) over wnd as strict_init_filt FROM (VALUES (1, 1, true,  NULL), (1, 2, false, 'a'), (1, 3, true,  'b'), (1, 4, false, NULL), (1, 5, false, NULL), (1, 6, false, 'c'), (2, 1, false, NULL), (2, 2, true,  'x'), (3, 1, true,  'z') ) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) over wnd as inverse, logging_agg_strict(v::text || CASE WHEN random() < 0 then '?' ELSE '' END) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;  SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) filter(where true) over wnd as inverse, logging_agg_strict(v::text) filter(where random() >= 0) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;   SELECT logging_agg_strict(v::text) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i;       CREATE FUNCTION sum_int_randrestart_minvfunc(int4, int4) RETURNS int4 AS $$ SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE SQL STRICT;  CREATE AGGREGATE sum_int_randomrestart (int4) ( stype = int4, sfunc = int4pl, mstype = int4, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc );  WITH vs AS ( SELECT i, (random() * 100)::int4 AS v FROM generate_series(1, 100) AS i ), sum_following AS ( SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs ) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3 FROM vs JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS ( ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING );       SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.5),(2,2.5),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);   SELECT  x ,avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_avg ,avg(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_avg ,sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_sum ,sum(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_sum FROM (VALUES (NULL::interval), ('infinity'::interval), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), ('-infinity'::interval), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), ('infinity'::interval), ('6 days'::interval), ('7 days'::interval), (NULL::interval), ('-infinity'::interval)) v(x);   SELECT x, avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);   SELECT x, sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);  SELECT i,SUM(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::money) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1.10'),(2,'2.20'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.1),(2,2.2),(3,NULL),(4,NULL)) t(i,v);  SELECT SUM(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.01),(2,2),(3,3)) v(i,n);  SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT VAR_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);   SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,3),(4,4)) t(i,v);   SELECT a, b, SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);      SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING),'999999999999999999999D9') FROM (VALUES(1,1e20),(2,1)) n(i,n);  SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1,true), (2,true), (3,false), (4,false), (5,true)) v(i,b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);         EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;     EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER () FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;      SELECT array_agg(i) OVER w FROM generate_series(1,5) i WINDOW w AS (ORDER BY i ROWS BETWEEN (('foo' < 'foobar')::integer) PRECEDING AND CURRENT ROW);   CREATE FUNCTION pg_temp.f(group_size BIGINT) RETURNS SETOF integer[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE SQL STABLE",
+    "expected": "CREATE FUNCTION logging_sfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE FUNCTION logging_msfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE FUNCTION logging_minvfunc_nonstrict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE sql IMMUTABLE; CREATE AGGREGATE logging_agg_nonstrict (anyelement) (stype = TEXT, sfunc = logging_sfunc_nonstrict, mstype = TEXT, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict); CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) (stype = TEXT, sfunc = logging_sfunc_nonstrict, mstype = TEXT, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI'); CREATE FUNCTION logging_sfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE FUNCTION logging_msfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE FUNCTION logging_minvfunc_strict (TEXT, anyelement) RETURNS TEXT AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE sql STRICT IMMUTABLE; CREATE AGGREGATE logging_agg_strict (TEXT) (stype = TEXT, sfunc = logging_sfunc_strict, mstype = TEXT, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict); CREATE AGGREGATE logging_agg_strict_initcond (anyelement) (stype = TEXT, sfunc = logging_sfunc_strict, mstype = TEXT, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI'); SELECT CAST(p AS TEXT) || ',' || CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_nonstrict(v) OVER wnd AS nstrict, logging_agg_nonstrict_initcond(v) OVER wnd AS nstrict_init, logging_agg_strict(CAST(v AS TEXT)) OVER wnd AS strict, logging_agg_strict_initcond(v) OVER wnd AS strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z')) AS t(p, i, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i; SELECT CAST(p AS TEXT) || ',' || CAST(i AS TEXT) || ':' || CASE WHEN f THEN COALESCE(CAST(v AS TEXT), 'NULL') ELSE '-' END AS row, logging_agg_nonstrict(v) FILTER (WHERE f) OVER wnd AS nstrict_filt, logging_agg_nonstrict_initcond(v) FILTER (WHERE f) OVER wnd AS nstrict_init_filt, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE f) OVER wnd AS strict_filt, logging_agg_strict_initcond(v) FILTER (WHERE f) OVER wnd AS strict_init_filt FROM (VALUES (1, 1, TRUE, NULL), (1, 2, FALSE, 'a'), (1, 3, TRUE, 'b'), (1, 4, FALSE, NULL), (1, 5, FALSE, NULL), (1, 6, FALSE, 'c'), (2, 1, FALSE, NULL), (2, 2, TRUE, 'x'), (3, 1, TRUE, 'z')) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i; SELECT CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_strict(CAST(v AS TEXT)) OVER wnd AS inverse, logging_agg_strict(CAST(v AS TEXT) || CASE WHEN random() < 0 THEN '?' ELSE '' END) OVER wnd AS noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i; SELECT CAST(i AS TEXT) || ':' || COALESCE(CAST(v AS TEXT), 'NULL') AS row, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE TRUE) OVER wnd AS inverse, logging_agg_strict(CAST(v AS TEXT)) FILTER (WHERE random() >= 0) OVER wnd AS noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i; SELECT logging_agg_strict(CAST(v AS TEXT)) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i; CREATE FUNCTION sum_int_randrestart_minvfunc (INT, INT) RETURNS INT AS $$ SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE sql STRICT; CREATE AGGREGATE sum_int_randomrestart (INT) (stype = INT, sfunc = int4pl, mstype = INT, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc); WITH vs AS (SELECT i, CAST((random() * 100) AS INT) AS v FROM generate_series(1, 100) AS i), sum_following AS (SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100 * 3 + (vs.i - 1) * 3 = length(logging_agg_nonstrict(CAST('' AS TEXT)) OVER fwd) AS eq3 FROM vs INNER JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS (ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING); SELECT i, AVG(CAST(v AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.5), (2, 2.5), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, AVG(CAST(v AS INTERVAL)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1 sec'), (2, '2 sec'), (3, NULL), (4, NULL)) AS t(i, v); SELECT x, AVG(x) OVER (ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS curr_next_avg, AVG(x) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS prev_curr_avg, SUM(x) OVER (ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS curr_next_sum, SUM(x) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS prev_curr_sum FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('infinity' AS INTERVAL)), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), (CAST('-infinity' AS INTERVAL)), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), (CAST('infinity' AS INTERVAL)), (CAST('6 days' AS INTERVAL)), (CAST('7 days' AS INTERVAL)), (CAST(NULL AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT x, AVG(x) OVER (ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('3 days' AS INTERVAL)), (CAST('infinity' AS TIMESTAMPTZ) - NOW()), (CAST('6 days' AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT x, SUM(x) OVER (ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (CAST(NULL AS INTERVAL)), (CAST('3 days' AS INTERVAL)), (CAST('infinity' AS TIMESTAMPTZ) - NOW()), (CAST('6 days' AS INTERVAL)), (CAST('-infinity' AS INTERVAL))) AS v(x); SELECT i, SUM(CAST(v AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS money)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1.10'), (2, '2.20'), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INTERVAL)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, '1 sec'), (2, '2 sec'), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.1), (2, 2.2), (3, NULL), (4, NULL)) AS t(i, v); SELECT SUM(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1.01), (2, 2), (3, 3)) AS v(i, n); SELECT i, COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT var_pop(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_pop(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT var_samp(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT variance(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_pop(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev_samp(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (1, NULL), (2, 600), (3, 470), (4, 170), (5, 430), (6, 300)) AS r(i, n); SELECT stddev(CAST(n AS BIGINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS SMALLINT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT stddev(CAST(n AS NUMERIC)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES (0, NULL), (1, 600), (2, 470), (3, 170), (4, 430), (5, 300)) AS r(i, n); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, NULL), (4, NULL)) AS t(i, v); SELECT i, SUM(CAST(v AS INT)) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES (1, 1), (2, 2), (3, 3), (4, 4)) AS t(i, v); SELECT a, b, SUM(b) OVER (ORDER BY a ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES (1, CAST(1 AS NUMERIC)), (2, 2), (3, 'NaN'), (4, 3), (5, 4)) AS t(a, b); SELECT to_char(SUM(CAST(n AS FLOAT8)) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING), '999999999999999999999D9') FROM (VALUES (1, 1e20), (2, 1)) AS n(i, n); SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1, TRUE), (2, TRUE), (3, FALSE), (4, FALSE), (5, TRUE)) AS v(i, b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING); EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER () FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; EXPLAIN (COSTS false) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.tenthous LIMIT 1; SELECT array_agg(i) OVER w FROM generate_series(1, 5) AS i WINDOW w AS (ORDER BY i ROWS BETWEEN (CAST(('foo' < 'foobar') AS INT)) PRECEDING AND CURRENT ROW); CREATE FUNCTION pg_temp.f (group_size BIGINT) RETURNS SETOF INT[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "window - Statement 303",

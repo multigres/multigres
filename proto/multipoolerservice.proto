@@ -237,6 +237,12 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -250,8 +256,18 @@ message CopyBidiExecuteRequest {
     FAIL = 3;      // Abort operation
   }
 
+  // Direction indicates whether the COPY operation streams data into the
+  // server (FROM STDIN) or out from the server (TO STDOUT). Set on INITIATE.
+  enum Direction {
+    FROM_STDIN = 0; // Default for back-compat: clients without this field set get FROM STDIN.
+    TO_STDOUT = 1;
+  }
+
   // phase indicates the current phase
   Phase phase = 1;
+
+  // direction indicates COPY ... FROM STDIN vs COPY ... TO STDOUT (INITIATE only).
+  Direction direction = 9;
 
   // query is the SQL command to execute (only for INITIATE phase)
   string query = 2;
@@ -313,6 +329,24 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+
+  // notices carries PostgreSQL NoticeResponse/InfoResponse diagnostics
+  // collected during this phase. Trigger RAISE NOTICE output, INFO progress
+  // messages, and other backend notices appear here so the gateway can
+  // forward them to the client as NoticeResponse frames between CopyData and
+  // CommandComplete. Populated on READY (notices seen before CopyInResponse /
+  // CopyOutResponse), DATA (notices interleaved with CopyData on COPY TO
+  // STDOUT), and RESULT (notices read between CopyDone and CommandComplete).
+  repeated query.PgDiagnostic notices = 11;
+
+  // error_diagnostic carries the structured PostgreSQL ErrorResponse for
+  // ERROR phase responses. When the error originates from PG (e.g.
+  // constraint violation, "column does not exist"), this preserves SQLSTATE,
+  // severity, DETAIL, HINT, position, etc., so the gateway can re-emit a
+  // verbatim ErrorResponse instead of a wrapped Go-formatted string.
+  // The `error` field above remains populated as a fallback for callers /
+  // log paths that only need the message text.
+  query.PgDiagnostic error_diagnostic = 12;
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
@@ -331,6 +365,9 @@ enum ReservationReason {
   RESERVATION_REASON_COPY = 8;         // 0b1000
   // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
   RESERVATION_REASON_LISTEN = 16;      // 0b10000
+  // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+  // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+  RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.
@@ -357,6 +394,25 @@ message ConcludeTransactionRequest {
 
   // conclusion specifies whether to COMMIT or ROLLBACK the transaction
   TransactionConclusion conclusion = 4;
+
+  // release_portal_names lists `DECLARE … WITH HOLD` cursor names that
+  // PostgreSQL would close as part of this ROLLBACK — typically the
+  // cursors declared inside the explicit transaction block. Used so the
+  // multipooler unpins exactly those portals (matching PG's behavior)
+  // instead of dropping every pin via ReleaseAllPortals.
+  //
+  // Honored only when conclusion == ROLLBACK and release_all_portals is
+  // false. Ignored on COMMIT (PG keeps every WITH HOLD cursor across
+  // COMMIT, so no pin should be released).
+  repeated string release_portal_names = 5;
+
+  // release_all_portals, when true on a ROLLBACK conclusion, asks the
+  // multipooler to drop every portal pin on the reserved connection
+  // (`ReleaseAllPortals` semantics). When false, only the names listed
+  // in release_portal_names are released. Default true preserves the
+  // historical behavior so old gateway clients that do not yet compute
+  // the per-txn diff keep working.
+  bool release_all_portals = 6;
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.

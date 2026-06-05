@@ -80,23 +80,23 @@
   },
   {
     "comment": "uuid - Statement 18",
-    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field \u003c\u003e '11111111111111111111111111111111'"
+    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field <> '11111111111111111111111111111111'"
   },
   {
     "comment": "uuid - Statement 19",
-    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field \u003c '22222222-2222-2222-2222-222222222222'"
+    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field < '22222222-2222-2222-2222-222222222222'"
   },
   {
     "comment": "uuid - Statement 20",
-    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field \u003c= '22222222-2222-2222-2222-222222222222'"
+    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field <= '22222222-2222-2222-2222-222222222222'"
   },
   {
     "comment": "uuid - Statement 21",
-    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field \u003e '22222222-2222-2222-2222-222222222222'"
+    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field > '22222222-2222-2222-2222-222222222222'"
   },
   {
     "comment": "uuid - Statement 22",
-    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field \u003e= '22222222-2222-2222-2222-222222222222'"
+    "query": "SELECT COUNT(*) FROM guid1 WHERE guid_field >= '22222222-2222-2222-2222-222222222222'"
   },
   {
     "comment": "uuid - Statement 23",

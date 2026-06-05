@@ -177,22 +177,22 @@
   {
     "comment": "cluster - Statement 43",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst"
   },
   {
     "comment": "cluster - Statement 44",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY a"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY a"
   },
   {
     "comment": "cluster - Statement 45",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY b",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY b"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY b"
   },
   {
     "comment": "cluster - Statement 46",
     "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY c",
-    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY c"
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR 30), length(d) FROM clstr_tst ORDER BY c"
   },
   {
     "comment": "cluster - Statement 47",
@@ -611,8 +611,8 @@
   },
   {
     "comment": "cluster - Statement 142",
-    "query": "select * from (select hundred, lag(hundred) over () as lhundred, thousand, lag(thousand) over () as lthousand, tenthous, lag(tenthous) over () as ltenthous from clstr_4) ss where row(hundred, thousand, tenthous) \u003c= row(lhundred, lthousand, ltenthous)",
-    "expected": "SELECT * FROM (SELECT hundred, LAG(hundred) OVER () AS lhundred, thousand, LAG(thousand) OVER () AS lthousand, tenthous, LAG(tenthous) OVER () AS ltenthous FROM clstr_4) AS ss WHERE ROW(hundred, thousand, tenthous) \u003c= ROW(lhundred, lthousand, ltenthous)"
+    "query": "select * from (select hundred, lag(hundred) over () as lhundred, thousand, lag(thousand) over () as lthousand, tenthous, lag(tenthous) over () as ltenthous from clstr_4) ss where row(hundred, thousand, tenthous) <= row(lhundred, lthousand, ltenthous)",
+    "expected": "SELECT * FROM (SELECT hundred, LAG(hundred) OVER () AS lhundred, thousand, LAG(thousand) OVER () AS lthousand, tenthous, LAG(tenthous) OVER () AS ltenthous FROM clstr_4) AS ss WHERE ROW(hundred, thousand, tenthous) <= ROW(lhundred, lthousand, ltenthous)"
   },
   {
     "comment": "cluster - Statement 143",
@@ -672,8 +672,8 @@
   },
   {
     "comment": "cluster - Statement 155",
-    "query": "WITH rows AS (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la \u003c a",
-    "expected": "WITH rows AS (SELECT ctid, LAG(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la \u003c a"
+    "query": "WITH rows AS (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la < a",
+    "expected": "WITH rows AS (SELECT ctid, LAG(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la < a"
   },
   {
     "comment": "cluster - Statement 156",
@@ -681,8 +681,8 @@
   },
   {
     "comment": "cluster - Statement 157",
-    "query": "WITH rows AS (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) \u003e upper(b)",
-    "expected": "WITH rows AS (SELECT ctid, LAG(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) \u003e upper(b)"
+    "query": "WITH rows AS (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) > upper(b)",
+    "expected": "WITH rows AS (SELECT ctid, LAG(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) > upper(b)"
   },
   {
     "comment": "cluster - Statement 158",

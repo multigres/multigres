@@ -56,7 +56,7 @@
   {
     "comment": "xid - Statement 13",
     "query": "select '1'::xid != '1'::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003c\u003e CAST('1' AS xid)"
+    "expected": "SELECT CAST('1' AS xid) <> CAST('1' AS xid)"
   },
   {
     "comment": "xid - Statement 14",
@@ -66,7 +66,7 @@
   {
     "comment": "xid - Statement 15",
     "query": "select '1'::xid8 != '1'::xid8",
-    "expected": "SELECT CAST('1' AS xid8) \u003c\u003e CAST('1' AS xid8)"
+    "expected": "SELECT CAST('1' AS xid8) <> CAST('1' AS xid8)"
   },
   {
     "comment": "xid - Statement 16",
@@ -76,47 +76,47 @@
   {
     "comment": "xid - Statement 17",
     "query": "select '1'::xid != '1'::xid8::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003c\u003e CAST(CAST('1' AS xid8) AS xid)"
+    "expected": "SELECT CAST('1' AS xid) <> CAST(CAST('1' AS xid8) AS xid)"
   },
   {
     "comment": "xid - Statement 18",
-    "query": "select '1'::xid \u003c '2'::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003c CAST('2' AS xid)"
+    "query": "select '1'::xid < '2'::xid",
+    "expected": "SELECT CAST('1' AS xid) < CAST('2' AS xid)"
   },
   {
     "comment": "xid - Statement 19",
-    "query": "select '1'::xid \u003c= '2'::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003c= CAST('2' AS xid)"
+    "query": "select '1'::xid <= '2'::xid",
+    "expected": "SELECT CAST('1' AS xid) <= CAST('2' AS xid)"
   },
   {
     "comment": "xid - Statement 20",
-    "query": "select '1'::xid \u003e '2'::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003e CAST('2' AS xid)"
+    "query": "select '1'::xid > '2'::xid",
+    "expected": "SELECT CAST('1' AS xid) > CAST('2' AS xid)"
   },
   {
     "comment": "xid - Statement 21",
-    "query": "select '1'::xid \u003e= '2'::xid",
-    "expected": "SELECT CAST('1' AS xid) \u003e= CAST('2' AS xid)"
+    "query": "select '1'::xid >= '2'::xid",
+    "expected": "SELECT CAST('1' AS xid) >= CAST('2' AS xid)"
   },
   {
     "comment": "xid - Statement 22",
-    "query": "select '1'::xid8 \u003c '2'::xid8, '2'::xid8 \u003c '2'::xid8, '2'::xid8 \u003c '1'::xid8",
-    "expected": "SELECT CAST('1' AS xid8) \u003c CAST('2' AS xid8), CAST('2' AS xid8) \u003c CAST('2' AS xid8), CAST('2' AS xid8) \u003c CAST('1' AS xid8)"
+    "query": "select '1'::xid8 < '2'::xid8, '2'::xid8 < '2'::xid8, '2'::xid8 < '1'::xid8",
+    "expected": "SELECT CAST('1' AS xid8) < CAST('2' AS xid8), CAST('2' AS xid8) < CAST('2' AS xid8), CAST('2' AS xid8) < CAST('1' AS xid8)"
   },
   {
     "comment": "xid - Statement 23",
-    "query": "select '1'::xid8 \u003c= '2'::xid8, '2'::xid8 \u003c= '2'::xid8, '2'::xid8 \u003c= '1'::xid8",
-    "expected": "SELECT CAST('1' AS xid8) \u003c= CAST('2' AS xid8), CAST('2' AS xid8) \u003c= CAST('2' AS xid8), CAST('2' AS xid8) \u003c= CAST('1' AS xid8)"
+    "query": "select '1'::xid8 <= '2'::xid8, '2'::xid8 <= '2'::xid8, '2'::xid8 <= '1'::xid8",
+    "expected": "SELECT CAST('1' AS xid8) <= CAST('2' AS xid8), CAST('2' AS xid8) <= CAST('2' AS xid8), CAST('2' AS xid8) <= CAST('1' AS xid8)"
   },
   {
     "comment": "xid - Statement 24",
-    "query": "select '1'::xid8 \u003e '2'::xid8, '2'::xid8 \u003e '2'::xid8, '2'::xid8 \u003e '1'::xid8",
-    "expected": "SELECT CAST('1' AS xid8) \u003e CAST('2' AS xid8), CAST('2' AS xid8) \u003e CAST('2' AS xid8), CAST('2' AS xid8) \u003e CAST('1' AS xid8)"
+    "query": "select '1'::xid8 > '2'::xid8, '2'::xid8 > '2'::xid8, '2'::xid8 > '1'::xid8",
+    "expected": "SELECT CAST('1' AS xid8) > CAST('2' AS xid8), CAST('2' AS xid8) > CAST('2' AS xid8), CAST('2' AS xid8) > CAST('1' AS xid8)"
   },
   {
     "comment": "xid - Statement 25",
-    "query": "select '1'::xid8 \u003e= '2'::xid8, '2'::xid8 \u003e= '2'::xid8, '2'::xid8 \u003e= '1'::xid8",
-    "expected": "SELECT CAST('1' AS xid8) \u003e= CAST('2' AS xid8), CAST('2' AS xid8) \u003e= CAST('2' AS xid8), CAST('2' AS xid8) \u003e= CAST('1' AS xid8)"
+    "query": "select '1'::xid8 >= '2'::xid8, '2'::xid8 >= '2'::xid8, '2'::xid8 >= '1'::xid8",
+    "expected": "SELECT CAST('1' AS xid8) >= CAST('2' AS xid8), CAST('2' AS xid8) >= CAST('2' AS xid8), CAST('2' AS xid8) >= CAST('1' AS xid8)"
   },
   {
     "comment": "xid - Statement 26",
@@ -260,8 +260,8 @@
   },
   {
     "comment": "xid - Statement 54",
-    "query": "select pg_current_xact_id() \u003e= pg_snapshot_xmin(pg_current_snapshot())",
-    "expected": "SELECT pg_current_xact_id() \u003e= pg_snapshot_xmin(pg_current_snapshot())"
+    "query": "select pg_current_xact_id() >= pg_snapshot_xmin(pg_current_snapshot())",
+    "expected": "SELECT pg_current_xact_id() >= pg_snapshot_xmin(pg_current_snapshot())"
   },
   {
     "comment": "xid - Statement 55",

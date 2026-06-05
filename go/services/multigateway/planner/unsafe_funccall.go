@@ -69,15 +69,36 @@ var funcBlocklist = map[string]string{
 	"cursor_to_xmlschema":        "cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 }
 
-// setConfigCall is one `set_config(name, value, is_local=false)` call the
-// planner accepted as a tracked session-state update. The planner mints one
-// per allowed position and uses the list to build the execution plan.
+// setConfigCall is one `set_config(name, value, is_local)` call the planner
+// accepted as a tracked session-state update. The planner mints one per
+// allowed position and uses the list to build the execution plan.
 //
-// Only is_local=false calls appear here: is_local=true is transaction-scoped,
-// PG handles it directly, and there is nothing for the pooler to track.
+// Two shapes:
+//   - all-literal: Name and Value carry the parsed strings, *Bind fields
+//     are nil. is_local was literal false (literal true short-circuits
+//     below and never produces a setConfigCall).
+//   - any-bound: at least one of NameBind/ValueBind/IsLocalBind is non-nil
+//     and points at the parser-produced ParamRef for that slot. Name/Value
+//     hold the parsed string for any slot that was NOT bound. The planner
+//     emits the deferred-resolution primitive that decodes the bound slots
+//     from the portal at execute time.
+//
+// `is_local=true` literals never produce a setConfigCall — validation
+// returns (nil, nil) early so the call goes to PG via Route only, with no
+// SessionSettings write. That's also why we don't need to carry a literal
+// is_local: any returned setConfigCall implies is_local was literal false
+// or bound, and the executor defaults to false when IsLocalBind is nil.
 type setConfigCall struct {
 	Name  string
 	Value string
+
+	NameBind    *ast.ParamRef
+	ValueBind   *ast.ParamRef
+	IsLocalBind *ast.ParamRef
+}
+
+func (sc setConfigCall) hasBoundParams() bool {
+	return sc.NameBind != nil || sc.ValueBind != nil || sc.IsLocalBind != nil
 }
 
 // expressionCheckResult carries the output of inspectExpressionFuncCalls.
@@ -229,57 +250,71 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 }
 
 // validateAcceptedSetConfig verifies that an allowed-position set_config
-// call has the expected literal arguments, and returns its (name, value)
-// when is_local=false. Returns (nil, nil) when is_local=true — allowed but
-// not tracked.
+// call has the expected arguments and builds the setConfigCall the planner
+// will turn into a SessionSettings tracking entry. Each slot may be a
+// literal A_Const or a *ast.ParamRef — the latter is recorded as a *Bind
+// for execute-time resolution from the portal's wire-protocol Bind values.
+// Anything else (non-const non-ParamRef expression) errors out.
 //
-// is_local is inspected first so that is_local=true calls bypass the
-// strict literal check on name/value: those calls are not tracked, and
-// the normalizer is allowed to parameterize their args (see
-// isPlannerLiteralFunc / normalizer.go) so the plan-cache fingerprint
-// stays stable across a hot path like PostgREST's per-request
-// set_config('request.jwt.claims', '<dynamic JSON>', true).
+// is_local is inspected first because a literal `true` short-circuits:
+// transaction-scoped calls are not tracked at all (PG executes them via
+// Route, the gateway holds no state for them), so name/value need not be
+// validated and the normalizer is allowed to parameterize their args (see
+// isPlannerLiteralFunc / normalizer.go) — keeps the plan-cache fingerprint
+// stable for hot patterns like PostgREST's set_config('request.jwt.claims',
+// '<dynamic JSON>', true).
+//
+// A bound is_local cannot be short-circuited at plan time — the decision
+// to track is deferred to executeSetWithBinds.
 func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	if fc.Args == nil || fc.Args.Len() != 3 {
 		return nil, mterrors.NewFeatureNotSupported(
 			"set_config requires three arguments: (name text, value text, is_local bool)")
 	}
 
-	isLocal, ok := constBoolArg(fc.Args.Items[2])
-	if !ok {
+	sc := &setConfigCall{}
+
+	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
+		sc.IsLocalBind = pr
+	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
+		if isLocal {
+			return nil, nil
+		}
+		// is_local literal false: fall through. No field to set — the
+		// returned setConfigCall represents false implicitly via the
+		// absence of IsLocalBind.
+	} else {
 		return nil, setConfigArgError(fc.Args.Items[2], "is_local")
 	}
-	if isLocal {
-		// is_local=true: PG executes it as a transaction-scoped call and
-		// the pooler does not track it. Name/value need not be literals
-		// here — they may have been normalized to ParamRef.
-		return nil, nil
-	}
 
-	name, ok := constStringArg(fc.Args.Items[0])
-	if !ok {
+	if pr, isParam := unwrapTypeCast(fc.Args.Items[0]).(*ast.ParamRef); isParam {
+		sc.NameBind = pr
+	} else if name, ok := constStringArg(fc.Args.Items[0]); ok {
+		sc.Name = name
+	} else {
 		return nil, setConfigArgError(fc.Args.Items[0], "name")
 	}
-	value, ok := constStringArg(fc.Args.Items[1])
-	if !ok {
+
+	if pr, isParam := unwrapTypeCast(fc.Args.Items[1]).(*ast.ParamRef); isParam {
+		sc.ValueBind = pr
+	} else if value, ok := constStringArg(fc.Args.Items[1]); ok {
+		sc.Value = value
+	} else {
 		return nil, setConfigArgError(fc.Args.Items[1], "value")
 	}
-	return &setConfigCall{Name: name, Value: value}, nil
+
+	return sc, nil
 }
 
 // setConfigArgError builds the user-facing rejection for a set_config
-// argument that wasn't a recognizable literal. ParamRef gets a distinct
-// message because the fix is to inline the value, not to rewrite the
-// expression — extended-protocol clients that Parse "SELECT
-// set_config($1,$2,$3)" then Bind hit this path and need to be told the
-// difference.
+// argument that was neither a literal nor a bound parameter. Bound
+// parameters are no longer rejected — they go through the deferred
+// resolution path in ApplySessionState. This error fires only on
+// expression-shaped args (column refs, function calls, casts of non-const
+// values, etc.) which can never be safely tracked.
 func setConfigArgError(arg ast.Node, which string) error {
-	if _, isParam := unwrapTypeCast(arg).(*ast.ParamRef); isParam {
-		return mterrors.NewFeatureNotSupported(
-			"set_config " + which + " argument must be a literal, not a bound parameter; inline the value into the query text")
-	}
 	return mterrors.NewFeatureNotSupported(
-		"set_config " + which + " argument must be a literal constant")
+		"set_config " + which + " argument must be a literal constant or a bound parameter")
 }
 
 // resolveFuncName returns the lowercased built-in name targeted by funcname,

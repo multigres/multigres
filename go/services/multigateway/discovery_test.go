@@ -105,11 +105,13 @@ func createTestPooler(name, cell, hostname, database, shard string, poolerType c
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   hostname,
-		Database:   database,
-		Shard:      shard,
-		Type:       poolerType,
-		TableGroup: constants.DefaultTableGroup,
+		Hostname: hostname,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      shard,
+		},
+		Type: poolerType,
 		PortMap: map[string]int32{
 			"grpc": 5432,
 		},
@@ -263,15 +265,15 @@ func TestPoolerDiscovery_VerifyPoolerDetails(t *testing.T) {
 	// Verify pooler1
 	require.Contains(t, poolerMap, "pooler1")
 	assert.Equal(t, "primary.example.com", poolerMap["pooler1"].Hostname)
-	assert.Equal(t, "mydb", poolerMap["pooler1"].Database)
-	assert.Equal(t, "shard-01", poolerMap["pooler1"].Shard)
+	assert.Equal(t, "mydb", poolerMap["pooler1"].GetShardKey().GetDatabase())
+	assert.Equal(t, "shard-01", poolerMap["pooler1"].GetShardKey().GetShard())
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, poolerMap["pooler1"].Type)
 
 	// Verify pooler2
 	require.Contains(t, poolerMap, "pooler2")
 	assert.Equal(t, "replica.example.com", poolerMap["pooler2"].Hostname)
-	assert.Equal(t, "mydb", poolerMap["pooler2"].Database)
-	assert.Equal(t, "shard-02", poolerMap["pooler2"].Shard)
+	assert.Equal(t, "mydb", poolerMap["pooler2"].GetShardKey().GetDatabase())
+	assert.Equal(t, "shard-02", poolerMap["pooler2"].GetShardKey().GetShard())
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, poolerMap["pooler2"].Type)
 }
 
@@ -636,12 +638,13 @@ func TestPoolerDiscovery_PoolerDeletion(t *testing.T) {
 	assert.Equal(t, "pooler2", poolers[0].Id.Name)
 }
 
-// TestPoolerDiscovery_NewPrimaryEvictsOldPrimary tests that when a new PRIMARY
-// pooler is discovered for the same TableGroup/Shard, any existing PRIMARY for
-// that TableGroup/Shard is evicted from the discovery cache.
-// This handles the failover case where a new PRIMARY comes up but the old
-// crashed PRIMARY's record hasn't been cleaned up yet.
-func TestPoolerDiscovery_NewPrimaryEvictsOldPrimary(t *testing.T) {
+// TestPoolerDiscovery_TwoPrimariesCoexistDuringFailover is the regression test
+// for the eviction bug in the failover archive. When a demoted-then-restarted
+// pooler re-asserts Type=PRIMARY in topology before multiorch corrects it,
+// discovery must NOT delete the actual leader from its cache. Both topology
+// entries coexist; the LoadBalancer arbitrates leader identity via
+// LeaderObservation term, not topology.
+func TestPoolerDiscovery_TwoPrimariesCoexistDuringFailover(t *testing.T) {
 	ctx := t.Context()
 	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 	defer store.Close()
@@ -649,92 +652,31 @@ func TestPoolerDiscovery_NewPrimaryEvictsOldPrimary(t *testing.T) {
 
 	pd := NewCellPoolerDiscovery(ctx, store, "test-cell", logger)
 
-	// Create old primary (simulating a crashed primary that hasn't been cleaned up)
-	oldPrimary := createTestPooler("old-primary", "test-cell", "old-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, oldPrimary))
+	// Create the stale "ex-primary" entry that hasn't been cleaned up yet.
+	stalePrimary := createTestPooler("stale-primary", "test-cell", "stale-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, stalePrimary))
 
 	pd.Start()
 	defer pd.Stop()
 
-	// Wait for initial discovery
 	waitForPoolerCount(t, pd, 1)
 
-	// Verify old primary is discovered
-	poolers := pd.GetPoolersForAdmin()
-	require.Len(t, poolers, 1)
-	assert.Equal(t, "old-primary", poolers[0].Id.Name)
-
-	// Now add a new primary for the same tablegroup/shard (simulating failover)
+	// New PRIMARY (real leader after failover) arrives in topology.
 	newPrimary := createTestPooler("new-primary", "test-cell", "new-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
 
-	// Wait for the new primary to be discovered and old one evicted
-	// The count should still be 1 because old primary gets evicted
-	waitForCondition(t, func() bool {
-		poolers := pd.GetPoolersForAdmin()
-		if len(poolers) != 1 {
-			return false
-		}
-		return poolers[0].Id.Name == "new-primary"
-	}, "Expected new-primary to replace old-primary")
-
-	// Verify only new primary is present
-	poolers = pd.GetPoolersForAdmin()
-	require.Len(t, poolers, 1)
-	assert.Equal(t, "new-primary", poolers[0].Id.Name)
-	assert.Equal(t, "new-host", poolers[0].Hostname)
-}
-
-// TestPoolerDiscovery_MultipleShardsPrimaryEviction tests that PRIMARY eviction
-// only affects poolers with the same TableGroup/Shard combination.
-func TestPoolerDiscovery_MultipleShardsPrimaryEviction(t *testing.T) {
-	ctx := t.Context()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-	defer store.Close()
-	logger := slog.Default()
-
-	pd := NewCellPoolerDiscovery(ctx, store, "test-cell", logger)
-
-	// Create primaries for different shards
-	primary1 := createTestPooler("primary-shard1", "test-cell", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	primary2 := createTestPooler("primary-shard2", "test-cell", "host2", "db1", "shard2", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, primary1))
-	require.NoError(t, store.CreateMultiPooler(ctx, primary2))
-
-	pd.Start()
-	defer pd.Stop()
-
-	// Wait for initial discovery
 	waitForPoolerCount(t, pd, 2)
 
-	// Add new primary only for shard1
-	newPrimary := createTestPooler("new-primary-shard1", "test-cell", "new-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
-
-	// Wait for the new primary to be discovered and old shard1 primary evicted
-	waitForCondition(t, func() bool {
-		poolers := pd.GetPoolersForAdmin()
-		if len(poolers) != 2 {
-			return false
-		}
-		names := make(map[string]bool)
-		for _, p := range poolers {
-			names[p.Id.Name] = true
-		}
-		// Should have new-primary-shard1 and primary-shard2, NOT primary-shard1
-		return names["new-primary-shard1"] && names["primary-shard2"] && !names["primary-shard1"]
-	}, "Expected new-primary-shard1 and primary-shard2 to be present")
-
-	// Verify the correct primaries are present
+	// Both entries must be present. Discovery does not eject either one based
+	// on Type; that's the LoadBalancer's job via LeaderObservation.
 	poolers := pd.GetPoolersForAdmin()
 	require.Len(t, poolers, 2)
-	names := make(map[string]bool)
+	names := make(map[string]bool, len(poolers))
 	for _, p := range poolers {
 		names[p.Id.Name] = true
 	}
-	assert.True(t, names["new-primary-shard1"], "Should have new-primary-shard1")
-	assert.True(t, names["primary-shard2"], "Should have primary-shard2")
-	assert.False(t, names["primary-shard1"], "Should NOT have old primary-shard1")
+	assert.True(t, names["new-primary"], "new-primary must be present")
+	assert.True(t, names["stale-primary"], "stale-primary must NOT be evicted by discovery")
 }
 
 // TestPoolerDiscovery_ReplicaDoesNotEvictPrimary tests that adding a REPLICA
@@ -773,60 +715,6 @@ func TestPoolerDiscovery_ReplicaDoesNotEvictPrimary(t *testing.T) {
 	}
 	assert.True(t, names["primary"], "Primary should still be present")
 	assert.True(t, names["replica"], "Replica should be present")
-}
-
-// TestPoolerDiscovery_EvictionCallsOnPoolerRemoved verifies that onPoolerRemoved
-// is called when a conflicting primary is evicted during failover.
-func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
-	ctx := t.Context()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
-	defer store.Close()
-	logger := slog.Default()
-
-	pd := NewCellPoolerDiscovery(ctx, store, "test-cell", logger)
-
-	// Track callback invocations
-	listener := &mockPoolerListener{}
-	pd.onPoolerChanged = listener.OnPoolerChanged
-	pd.onPoolerRemoved = listener.OnPoolerRemoved
-
-	// Create old primary
-	oldPrimary := createTestPooler("old-primary", "test-cell", "old-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, oldPrimary))
-
-	pd.Start()
-	defer pd.Stop()
-
-	// Wait for initial discovery
-	waitForPoolerCount(t, pd, 1)
-
-	// Clear the tracked callbacks (initial discovery triggers OnPoolerChanged)
-	listener.mu.Lock()
-	listener.changedPoolers = nil
-	listener.removedPoolers = nil
-	listener.mu.Unlock()
-
-	// Add new primary for the same tablegroup/shard (triggers eviction)
-	newPrimary := createTestPooler("new-primary", "test-cell", "new-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
-
-	// Wait for the new primary to be discovered and old one evicted
-	waitForCondition(t, func() bool {
-		poolers := pd.GetPoolersForAdmin()
-		if len(poolers) != 1 {
-			return false
-		}
-		return poolers[0].Id.Name == "new-primary"
-	}, "Expected new-primary to replace old-primary")
-
-	// Verify OnPoolerRemoved was called for the evicted old primary
-	removedPoolers := listener.getRemovedPoolers()
-	require.Len(t, removedPoolers, 1, "OnPoolerRemoved should be called for evicted primary")
-	assert.Equal(t, topoclient.MultiPoolerIDString(oldPrimary.Id), removedPoolers[0])
-
-	// Verify OnPoolerChanged was called for the new primary
-	changedPoolers := listener.getChangedPoolers()
-	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
 }
 
 // TestGlobalPoolerDiscovery_WatchDiscoversNewCells tests that the watch-based

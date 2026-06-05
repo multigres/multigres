@@ -165,13 +165,15 @@ func TestGatewayQuerySpanAttributes(t *testing.T) {
 		assert.False(t, found, "Transaction should not have db.tables_used")
 	})
 
-	// ApplySessionState: SET search_path is not gateway-managed, goes to postgres.
-	t.Run("ApplySessionState", func(t *testing.T) {
-		span := findSpanWithPlanType("ApplySessionState")
-		require.NotNil(t, span, "expected an ApplySessionState span")
+	// Sequence: SET search_path is not gateway-managed, so it is validated on a
+	// backend (set_config) and then tracked — planned as
+	// Sequence[ValidateSetting, ApplySessionState].
+	t.Run("Sequence", func(t *testing.T) {
+		span := findSpanWithPlanType("Sequence")
+		require.NotNil(t, span, "expected a Sequence span (SET search_path)")
 
 		_, found := shardsetup.FindSpanAttributeArray(span, "db.tables_used")
-		assert.False(t, found, "ApplySessionState should not have db.tables_used")
+		assert.False(t, found, "Sequence (SET) should not have db.tables_used")
 	})
 
 	// Multi-statement batch: the batch-level span should have no db.plan.type

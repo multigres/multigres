@@ -18,12 +18,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+)
+
+// Error type labels for mg.pooler.auth.credential_query.errors. Closed set,
+// driven by the failure modes in grpcpoolerservice.GetAuthCredentials so
+// the cardinality stays bounded. user_not_found / login_disabled /
+// password_expired are policy outcomes of a successful pg_authid query
+// (baseline traffic); pool_acquire_failed / db_error indicate operator
+// issues. All five are tagged on the counter so the success rate equals
+// duration_count - errors_total.
+const (
+	CredentialQueryErrorUserNotFound      = "user_not_found"
+	CredentialQueryErrorLoginDisabled     = "login_disabled"
+	CredentialQueryErrorPasswordExpired   = "password_expired"
+	CredentialQueryErrorPoolAcquireFailed = "pool_acquire_failed"
+	CredentialQueryErrorDB                = "db_error"
 )
 
 // Metrics holds OpenTelemetry metrics for connection pool management.
@@ -79,6 +96,21 @@ type Metrics struct {
 
 	// queriesPooledTotal is the total number of connections borrowed (Get() calls).
 	queriesPooledTotal metric.Int64ObservableCounter
+
+	// --- Auth-path metrics (mg.pooler.auth.*) ---
+
+	// authCredQueryDuration histograms the wall-clock duration of the
+	// admin-pool `SELECT rolpassword FROM pg_authid` lookup the gateway
+	// triggers via GetAuthCredentials. Covers admin-pool acquire +
+	// query + result decode end-to-end, so a tail rise here is the
+	// first signal that the admin pool is contended.
+	authCredQueryDuration metric.Float64Histogram
+
+	// authCredQueryErrors counts the failure modes of the credential
+	// query, labeled by error type (user_not_found / pool_acquire_failed
+	// / db_error). user_not_found is the legitimate-traffic baseline;
+	// the other two indicate operator issues.
+	authCredQueryErrors metric.Int64Counter
 }
 
 // NewMetrics initializes OpenTelemetry metrics for connection pool management.
@@ -229,11 +261,50 @@ func NewMetrics() (*Metrics, error) {
 		errs = append(errs, fmt.Errorf("mg.pooler.queries_pooled_total counter: %w", err))
 	}
 
+	// Auth credential-query latency histogram.
+	m.authCredQueryDuration, err = meter.Float64Histogram(
+		"mg.pooler.auth.credential_query.duration",
+		metric.WithDescription("Admin-pool SELECT rolpassword FROM pg_authid lookup duration"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.auth.credential_query.duration histogram: %w", err))
+		m.authCredQueryDuration = noop.Float64Histogram{}
+	}
+
+	// Auth credential-query error counter.
+	m.authCredQueryErrors, err = meter.Int64Counter(
+		"mg.pooler.auth.credential_query.errors",
+		metric.WithDescription("Credential-query failures labeled by error type"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.auth.credential_query.errors counter: %w", err))
+		m.authCredQueryErrors = noop.Int64Counter{}
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
 
 	return m, nil
+}
+
+// RecordCredentialQuery records a credential-query latency observation and,
+// when errorType is non-empty, bumps the corresponding error counter. Use
+// the CredentialQueryError* constants for errorType so the label set stays
+// closed. Safe to call on a nil receiver so the gRPC handler can stay
+// unconditional even when metric init failed.
+func (m *Metrics) RecordCredentialQuery(ctx context.Context, d time.Duration, errorType string) {
+	if m == nil {
+		return
+	}
+	m.authCredQueryDuration.Record(ctx, d.Seconds())
+	if errorType != "" {
+		m.authCredQueryErrors.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("error_type", errorType)))
+	}
 }
 
 // RegisterManagerCallbacks registers OTel observable callbacks that read pool statistics.

@@ -21,8 +21,8 @@
   },
   {
     "comment": "gin - Statement 5",
-    "query": "select gin_clean_pending_list('gin_test_idx')\u003e10 as many",
-    "expected": "SELECT gin_clean_pending_list('gin_test_idx') \u003e 10 AS many"
+    "query": "select gin_clean_pending_list('gin_test_idx')>10 as many",
+    "expected": "SELECT gin_clean_pending_list('gin_test_idx') > 10 AS many"
   },
   {
     "comment": "gin - Statement 6",
@@ -41,8 +41,8 @@
   },
   {
     "comment": "gin - Statement 9",
-    "query": "delete from gin_test_tbl where i @\u003e array[2]",
-    "expected": "DELETE FROM gin_test_tbl WHERE i @\u003e ARRAY[2]"
+    "query": "delete from gin_test_tbl where i @> array[2]",
+    "expected": "DELETE FROM gin_test_tbl WHERE i @> ARRAY[2]"
   },
   {
     "comment": "gin - Statement 10",
@@ -56,13 +56,13 @@
   },
   {
     "comment": "gin - Statement 12",
-    "query": "explain (costs off) select count(*) from gin_test_tbl where i @\u003e array[1, 999]",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gin_test_tbl WHERE i @\u003e ARRAY[1,999]"
+    "query": "explain (costs off) select count(*) from gin_test_tbl where i @> array[1, 999]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gin_test_tbl WHERE i @> ARRAY[1,999]"
   },
   {
     "comment": "gin - Statement 13",
-    "query": "select count(*) from gin_test_tbl where i @\u003e array[1, 999]",
-    "expected": "SELECT COUNT(*) FROM gin_test_tbl WHERE i @\u003e ARRAY[1,999]"
+    "query": "select count(*) from gin_test_tbl where i @> array[1, 999]",
+    "expected": "SELECT COUNT(*) FROM gin_test_tbl WHERE i @> ARRAY[1,999]"
   },
   {
     "comment": "gin - Statement 14",
@@ -71,13 +71,13 @@
   },
   {
     "comment": "gin - Statement 15",
-    "query": "explain (costs off) select count(*) \u003e 0 as ok from gin_test_tbl where i @\u003e array[1]",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) \u003e 0 AS ok FROM gin_test_tbl WHERE i @\u003e ARRAY[1]"
+    "query": "explain (costs off) select count(*) > 0 as ok from gin_test_tbl where i @> array[1]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) > 0 AS ok FROM gin_test_tbl WHERE i @> ARRAY[1]"
   },
   {
     "comment": "gin - Statement 16",
-    "query": "select count(*) \u003e 0 as ok from gin_test_tbl where i @\u003e array[1]",
-    "expected": "SELECT COUNT(*) \u003e 0 AS ok FROM gin_test_tbl WHERE i @\u003e ARRAY[1]"
+    "query": "select count(*) > 0 as ok from gin_test_tbl where i @> array[1]",
+    "expected": "SELECT COUNT(*) > 0 AS ok FROM gin_test_tbl WHERE i @> ARRAY[1]"
   },
   {
     "comment": "gin - Statement 17",
@@ -106,28 +106,28 @@
   },
   {
     "comment": "gin - Statement 22",
-    "query": "explain (costs off) select * from t_gin_test_tbl where array[0] \u003c@ i",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i"
+    "query": "explain (costs off) select * from t_gin_test_tbl where array[0] <@ i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] <@ i"
   },
   {
     "comment": "gin - Statement 23",
-    "query": "select * from t_gin_test_tbl where array[0] \u003c@ i",
-    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i"
+    "query": "select * from t_gin_test_tbl where array[0] <@ i",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] <@ i"
   },
   {
     "comment": "gin - Statement 24",
-    "query": "select * from t_gin_test_tbl where array[0] \u003c@ i and '{}'::int4[] \u003c@ j",
-    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i AND CAST('{}' AS INT[]) \u003c@ j"
+    "query": "select * from t_gin_test_tbl where array[0] <@ i and '{}'::int4[] <@ j",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] <@ i AND CAST('{}' AS INT[]) <@ j"
   },
   {
     "comment": "gin - Statement 25",
-    "query": "explain (costs off) select * from t_gin_test_tbl where i @\u003e '{}'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE i @\u003e '{}'"
+    "query": "explain (costs off) select * from t_gin_test_tbl where i @> '{}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE i @> '{}'"
   },
   {
     "comment": "gin - Statement 26",
-    "query": "select * from t_gin_test_tbl where i @\u003e '{}'",
-    "expected": "SELECT * FROM t_gin_test_tbl WHERE i @\u003e '{}'"
+    "query": "select * from t_gin_test_tbl where i @> '{}'",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE i @> '{}'"
   },
   {
     "comment": "gin - Statement 27",
@@ -151,8 +151,8 @@
   },
   {
     "comment": "gin - Statement 36",
-    "query": "select query, js-\u003e0-\u003e'Plan'-\u003e'Plans'-\u003e0-\u003e'Actual Rows' as \"return by index\", js-\u003e0-\u003e'Plan'-\u003e'Rows Removed by Index Recheck' as \"removed by recheck\", (res_index = res_heap) as \"match\" from (values ($$ i @\u003e '{}' $$), ($$ j @\u003e '{}' $$), ($$ i @\u003e '{}' and j @\u003e '{}' $$), ($$ i @\u003e '{1}' $$), ($$ i @\u003e '{1}' and j @\u003e '{}' $$), ($$ i @\u003e '{1}' and i @\u003e '{}' and j @\u003e '{}' $$), ($$ j @\u003e '{10}' $$), ($$ j @\u003e '{10}' and i @\u003e '{}' $$), ($$ j @\u003e '{10}' and j @\u003e '{}' and i @\u003e '{}' $$), ($$ i @\u003e '{1}' and j @\u003e '{10}' $$) ) q(query), lateral explain_query_json($$select * from t_gin_test_tbl where $$ || query) js, lateral execute_text_query_index($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_index, lateral execute_text_query_heap($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_heap",
-    "expected": "SELECT query, js -\u003e 0 -\u003e 'Plan' -\u003e 'Plans' -\u003e 0 -\u003e 'Actual Rows' AS \"return by index\", js -\u003e 0 -\u003e 'Plan' -\u003e 'Rows Removed by Index Recheck' AS \"removed by recheck\", (res_index = res_heap) AS match FROM (VALUES (' i @\u003e ''{}'' '), (' j @\u003e ''{}'' '), (' i @\u003e ''{}'' and j @\u003e ''{}'' '), (' i @\u003e ''{1}'' '), (' i @\u003e ''{1}'' and j @\u003e ''{}'' '), (' i @\u003e ''{1}'' and i @\u003e ''{}'' and j @\u003e ''{}'' '), (' j @\u003e ''{10}'' '), (' j @\u003e ''{10}'' and i @\u003e ''{}'' '), (' j @\u003e ''{10}'' and j @\u003e ''{}'' and i @\u003e ''{}'' '), (' i @\u003e ''{1}'' and j @\u003e ''{10}'' ')) AS q(query), LATERAL explain_query_json('select * from t_gin_test_tbl where ' || query) AS js, LATERAL execute_text_query_index('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_index, LATERAL execute_text_query_heap('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_heap"
+    "query": "select query, js->0->'Plan'->'Plans'->0->'Actual Rows' as \"return by index\", js->0->'Plan'->'Rows Removed by Index Recheck' as \"removed by recheck\", (res_index = res_heap) as \"match\" from (values ($$ i @> '{}' $$), ($$ j @> '{}' $$), ($$ i @> '{}' and j @> '{}' $$), ($$ i @> '{1}' $$), ($$ i @> '{1}' and j @> '{}' $$), ($$ i @> '{1}' and i @> '{}' and j @> '{}' $$), ($$ j @> '{10}' $$), ($$ j @> '{10}' and i @> '{}' $$), ($$ j @> '{10}' and j @> '{}' and i @> '{}' $$), ($$ i @> '{1}' and j @> '{10}' $$) ) q(query), lateral explain_query_json($$select * from t_gin_test_tbl where $$ || query) js, lateral execute_text_query_index($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_index, lateral execute_text_query_heap($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_heap",
+    "expected": "SELECT query, js -> 0 -> 'Plan' -> 'Plans' -> 0 -> 'Actual Rows' AS \"return by index\", js -> 0 -> 'Plan' -> 'Rows Removed by Index Recheck' AS \"removed by recheck\", (res_index = res_heap) AS match FROM (VALUES (' i @> ''{}'' '), (' j @> ''{}'' '), (' i @> ''{}'' and j @> ''{}'' '), (' i @> ''{1}'' '), (' i @> ''{1}'' and j @> ''{}'' '), (' i @> ''{1}'' and i @> ''{}'' and j @> ''{}'' '), (' j @> ''{10}'' '), (' j @> ''{10}'' and i @> ''{}'' '), (' j @> ''{10}'' and j @> ''{}'' and i @> ''{}'' '), (' i @> ''{1}'' and j @> ''{10}'' ')) AS q(query), LATERAL explain_query_json('select * from t_gin_test_tbl where ' || query) AS js, LATERAL execute_text_query_index('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_index, LATERAL execute_text_query_heap('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_heap"
   },
   {
     "comment": "gin - Statement 37",
@@ -181,38 +181,38 @@
   },
   {
     "comment": "gin - Statement 42",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e array[50]",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[50]"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> array[50]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> ARRAY[50]"
   },
   {
     "comment": "gin - Statement 43",
-    "query": "select count(*) from t_gin_test_tbl where j @\u003e array[50]",
-    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[50]"
+    "query": "select count(*) from t_gin_test_tbl where j @> array[50]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> ARRAY[50]"
   },
   {
     "comment": "gin - Statement 44",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e array[2]",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> array[2]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> ARRAY[2]"
   },
   {
     "comment": "gin - Statement 45",
-    "query": "select count(*) from t_gin_test_tbl where j @\u003e array[2]",
-    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
+    "query": "select count(*) from t_gin_test_tbl where j @> array[2]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> ARRAY[2]"
   },
   {
     "comment": "gin - Statement 46",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e '{}'::int[]",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e CAST('{}' AS INT[])"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> '{}'::int[]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> CAST('{}' AS INT[])"
   },
   {
     "comment": "gin - Statement 47",
-    "query": "select count(*) from t_gin_test_tbl where j @\u003e '{}'::int[]",
-    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e CAST('{}' AS INT[])"
+    "query": "select count(*) from t_gin_test_tbl where j @> '{}'::int[]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @> CAST('{}' AS INT[])"
   },
   {
     "comment": "gin - Statement 48",
-    "query": "delete from t_gin_test_tbl where j @\u003e array[2]",
-    "expected": "DELETE FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
+    "query": "delete from t_gin_test_tbl where j @> array[2]",
+    "expected": "DELETE FROM t_gin_test_tbl WHERE j @> ARRAY[2]"
   },
   {
     "comment": "gin - Statement 49",

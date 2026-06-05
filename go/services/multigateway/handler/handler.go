@@ -19,12 +19,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/replparser"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -99,6 +101,16 @@ type MultiGatewayHandler struct {
 	// targetReplica is set to true for the replica-port listener. When true,
 	// new connection states target replicas so the planner routes queries there.
 	targetReplica bool
+
+	// normalQueryLogSampleRate controls 1/N sampling for normal-path query
+	// logs. 0 disables sampling (handler level alone governs emission); 1
+	// emits every normal query; N>1 emits every Nth. Normal queries always
+	// log at DEBUG, so the default INFO-level handler drops them entirely.
+	normalQueryLogSampleRate uint64
+	// normalQueryLogSamplingCursor is the 1/N modulo cursor. It is only
+	// touched when sampleRate > 1; emission counts are exposed via the
+	// queryLogEmits OTel counter on h.metrics.
+	normalQueryLogSamplingCursor atomic.Uint64
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
@@ -116,6 +128,14 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		slowThreshold:    constants.DefaultSlowQueryThreshold,
 		notifMgr:         DefaultNotificationManager(),
 	}
+}
+
+// SetNormalQueryLogSampleRate sets the 1/N sampling rate for normal-path
+// query logs. 0 disables sampling (handler level alone governs); 1 emits
+// every query; N>1 emits every Nth. Normal queries always log at DEBUG.
+// Must be called before connections are accepted.
+func (h *MultiGatewayHandler) SetNormalQueryLogSampleRate(rate uint64) {
+	h.normalQueryLogSampleRate = rate
 }
 
 // SetTargetReplica configures whether connections accepted by this handler
@@ -175,10 +195,21 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
+	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
+		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
+			return err
+		}
+		// SHOW falls through to the regular SQL path below.
+	}
+
 	parseStart := time.Now()
 	asts, err := parser.ParseSQL(queryStr)
 	parseDuration := time.Since(parseStart)
 	if err != nil {
+		// ParseSQL only does syntactic parsing, so any error here is a syntax
+		// error. Surface it as a 42601 diagnostic (the parser stays
+		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would.
+		err = mterrors.NewParseError(err.Error())
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
 		return err
 	}
@@ -543,6 +574,16 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 	h.psc.RemoveConnection(conn.ConnectionID())
 }
 
+// classifyErrorSource calls mterrors.ClassifyErrorSource only when err is
+// non-nil. The success path is overwhelmingly common, so short-circuiting
+// here avoids a per-query function call + interface check.
+func classifyErrorSource(err error) string {
+	if err == nil {
+		return ""
+	}
+	return mterrors.ClassifyErrorSource(err)
+}
+
 // recordQueryCompletion records all three metrics and emits a structured
 // query log entry. Centralises the instrumentation logic shared by
 // HandleQuery and HandleExecute.
@@ -585,10 +626,12 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 	status := QueryStatusOK
 	errorType := ""
+	errorSource := ""
 	if err != nil {
 		status = QueryStatusError
 		errorType = mterrors.ExtractSQLSTATE(err)
-		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName, fingerprintLabel)
+		errorSource = classifyErrorSource(err)
+		h.metrics.queryErrors.Add(ctx, errorType, errorSource, dbNamespace, operationName, fingerprintLabel)
 	}
 
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status, fingerprintLabel)
@@ -621,8 +664,8 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		TablesUsed:    tablesUsed,
 		Error:         err,
 		SQLSTATE:      errorType,
-		ErrorSource:   mterrors.ClassifyErrorSource(err),
-	}, h.slowThreshold)
+		ErrorSource:   errorSource,
+	}, h.slowThreshold, h.normalQueryLogSampleRate, &h.normalQueryLogSamplingCursor, h.metrics.queryLogEmits)
 }
 
 // Ensure MultiGatewayHandler implements server.Handler interface.

@@ -1,0 +1,34 @@
+#
+# Extended-query: Execute against a portal that was already Closed.
+#
+# A portal is created by Bind and destroyed by Close('P'). Executing a portal
+# that no longer exists must fail with SQLSTATE 34000 (invalid_cursor_name) and
+# then skip to the next Sync. We Parse/Bind/Close/Execute all in one batch so
+# the Close and the doomed Execute are pipelined before a single Sync — the
+# backend processes them in order and the Execute sees no portal.
+#
+
+'Q'	"CREATE TABLE pgproto_portal (id int)"
+'Y'
+'Q'	"INSERT INTO pgproto_portal VALUES (1), (2)"
+'Y'
+
+# Bind a portal, Close it, then try to Execute the now-closed portal.
+# Expect: ParseComplete, BindComplete, CloseComplete, ErrorResponse(34000),
+# ReadyForQuery.
+'P'	"s_portal"	"SELECT id FROM pgproto_portal ORDER BY id"	0
+'B'	"port_closed"	"s_portal"	0	0	0
+'C'	'P'	"port_closed"
+'E'	"port_closed"	0
+'S'
+'Y'
+
+# The prepared statement itself still exists (only the portal was closed), so
+# re-binding a fresh portal from it and executing succeeds — proving the error
+# was scoped to the portal, not the statement.
+'B'	"port_fresh"	"s_portal"	0	0	0
+'E'	"port_fresh"	0
+'S'
+'Y'
+
+'X'

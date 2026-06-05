@@ -1,6 +1,7 @@
 # PostgreSQL Compatibility Tests
 
-This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against a multigres cluster.
+This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test
+suites against a multigres cluster.
 
 ## Overview
 
@@ -15,7 +16,9 @@ The test performs the following steps:
 7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
 8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
 
-**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
+**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the
+PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol
+compatibility issues.
 
 ## Requirements
 
@@ -46,14 +49,20 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Three env vars enable it; setting more
+The test is **disabled by default**. Five env vars enable it; setting more
 than one is fine (the union runs):
 
-- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **both** regression and isolation.
-  This is what CI uses (matches the "Run Extended Query Serving Tests" PR label).
+- `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
+  isolation, contrib, external). This is what CI uses (matches the "Run Extended
+  Query Serving Tests" PR label, and also the broader "Run all Query Serving
+  Tests" label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
+- `RUN_PGCONTRIB=1` — runs the contrib extension suite only (see
+  "Contrib Extension Tests" below).
+- `RUN_PGEXTERNAL=1` — runs the external extension suite only (see
+  "External Extension Tests" below).
 
 ```bash
 # Run both suites (unified report) — same as CI
@@ -77,6 +86,153 @@ PGREGRESS_TESTS="boolean char" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test
 
 # Run specific isolation tests only
 PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific contrib modules only (directory names under contrib/)
+PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific external extensions only (catalog names)
+PGEXTERNAL_TESTS="vector" RUN_PGEXTERNAL=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+```
+
+## Contrib Extension Tests
+
+The contrib suite runs the regression suites that core PostgreSQL extensions
+ship in their own `contrib/<module>/{sql,expected}/` directories, executed
+through multigateway. It validates that common PostgreSQL extensions work over
+the pooled query path. The default module set lives in `DefaultContribModules`
+(see `postgres_builder.go`).
+
+How it differs from the core regression suite:
+
+- **Build features**: two modules need optional `./configure` features, enabled
+  only when the contrib suite runs: `uuid-ossp` (`--with-uuid`, override the
+  implementation with `PG_UUID_LIB`, default `e2fs`) and `pgcrypto`
+  (`--with-ssl=openssl`; PG16+ pgcrypto has no built-in crypto). CI installs
+  `uuid-dev` and `libssl-dev` for these.
+- **Per-module isolation**: every module shares the single `postgres` database
+  (multigateway can't isolate per-DB), so the harness resets the `public`
+  schema on the primary between modules to clear leftover objects/extensions.
+- **Verification**: results go through the same patch pipeline as the core
+  suite (`PGREGRESS_PATCH_MODE`), which whitespace-normalizes output — so
+  error-cursor caret-position shifts caused by multigateway query rewriting are
+  not treated as diffs. Genuine multigres-specific output differences are
+  captured as per-module patches under
+  `testdata/pg17/patches/contrib/<module>/`.
+
+Some extensions are intentionally **excluded**: `dblink` and `postgres_fdw`
+(open outbound connections, which the pooler blocks by design),
+`pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
+rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
+
+### Coverage map
+
+`extensions.go` holds `ExtensionCatalog` — common PostgreSQL extensions, not
+the full `pg_available_extensions` list, with each one's kind (contrib /
+external) and coverage status (covered / pending / unsupported / external, each
+with a reason). `DefaultContribModules` is **derived** from it (the `covered`
+entries), so enrolling a new extension is a one-line catalog edit.
+
+Every compatibility report includes a generated **Extension Coverage** table
+(`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
+results: covered extensions expand to one row per sub-test with the live
+pass/fail, while pending/unsupported/external extensions show a single row with
+the reason. The table is the living coverage tracker — it updates automatically
+as catalog entries move to `covered` and their suites run.
+
+## External Extension Tests
+
+The external suite runs the pg_regress suites of extensions that live **outside**
+the PostgreSQL source tree (separate repositories), executed through
+multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
+pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), and `pgmq`
+(tembo-io message queue). `externalSpecs` also holds build-only dependencies that
+are installed but not tested on their own — `pg_partman`, which pgmq's
+partitioned-queue tests require (see `DependsOn` below).
+
+How it works, and how it differs from the contrib suite:
+
+- **Build**: each external extension is a [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
+  module. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
+  the per-run build root, then runs `make && make install` with
+  `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
+  against the exact server ABI the cluster runs (the same guarantee the suite
+  gives `regress.so`). Both pgvector and pg_cron need only a C compiler — no
+  extra system libs.
+- **Test execution**: unlike contrib we cannot use `make installcheck`. Under
+  PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
+  PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
+  not installed. The harness instead invokes the `pg_regress` it built directly,
+  with the same flags the contrib suite relies on
+  (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
+  DATABASE) plus the extension's `--inputdir`. The test list is derived from
+  `<TestSubdir>/sql/*.sql`, mirroring the extension's
+  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`.
+- **Per-extension isolation** and **verification** work exactly like contrib:
+  the `public` schema is reset on the primary between extensions, and results go
+  through the same patch pipeline (`PGREGRESS_PATCH_MODE`). Genuine
+  multigres-specific output differences are captured under
+  `testdata/pg17/patches/external/<ext>/`.
+
+### Per-extension knobs
+
+Extensions diverge from the pgvector baseline in a few ways, captured as fields
+on `ExternalExtension` (`extensions.go`):
+
+- **`BuildSubdir`** — where the PGXS `Makefile` lives in the checkout. pgvector
+  and pg_cron keep it at the repo root (`""`); pgmq keeps the extension under
+  `pgmq-extension/`, so it builds there.
+- **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
+  checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
+  root (`.`); pgmq keeps them under `pgmq-extension/test`.
+- **`DependsOn`** — other `externalSpecs` the harness clones, builds, and installs
+  first because the suite `CREATE`s them too. They are build-only (not tested on
+  their own, so they need not ship a pg_regress suite). pgmq's `base.sql` creates
+  partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
+  `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
+  dependencies before their dependents.
+- **`CreateExtension`** — whether the harness pre-creates the extension through
+  multigateway (and passes `--load-extension`) before the run. pgvector's
+  fixtures assume it already exists (they open with a bare
+  `CREATE TABLE ... vector(3)`), so `true`. pg_cron's fixtures create and drop
+  the extension themselves (`CREATE EXTENSION pg_cron VERSION '1.0'` is the first
+  statement), so `false` — preloading would make that statement fail with
+  "already exists".
+- **`ServerConfigFile`** — a `postgresql.conf` snippet under
+  `testdata/pg17/external/` the cluster must apply before postgres starts, for
+  extensions needing server-level config the pooled query path can't set.
+  pg_cron's background worker requires `shared_preload_libraries = 'pg_cron'`
+  (`pg_cron.conf`), or `CREATE EXTENSION pg_cron` errors out. The snippet is
+  appended at initdb time and only when the external suite runs (the library it
+  loads is only installed then), so regression/isolation-only runs are
+  unaffected. Note: with the shared cluster, a `ServerConfigFile` applied for a
+  combined `RUN_EXTENDED_QUERY_SERVING_TESTS` run is in effect for the other
+  suites too; pg_cron's launcher is idle with no scheduled jobs.
+- **`ScratchDatabases`** — databases the harness creates directly on the primary
+  (bypassing the gateway) before the suite and drops afterward. This is a
+  **test-only** accommodation, not a product capability: multigres is
+  one-database-per-instance and the gateway blocks `CREATE`/`DROP DATABASE` by
+  design (adding a database is a provisioning operation, see
+  `docs/query_serving/unsafe_statement_rejection.md`). It exists because some
+  suites reference other databases purely as _metadata_ — pg_cron passes a DB
+  name to `cron.schedule_in_database` / `alter_job(database := ...)` and reads
+  its ACL from the shared `pg_database` catalog, all over the same `postgres`
+  connection, never opening a session against it. Creating the physical database
+  is enough to make those catalog/privilege checks run for real; the suite's own
+  `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
+  left in pg_cron's patch). Don't use this to fake reachability of a feature
+  multigres genuinely blocks — only for name/metadata references like the above.
+
+Enrolling another external extension is a small catalog edit: add its
+`externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
+`ExtensionCatalog` row to `StatusCovered`. The catalog and report update
+automatically. Extensions that need toolchains the harness doesn't provision
+(Rust: `pg_graphql`, `wrappers`) or that the pooler blocks by design (outbound
+connections) stay `StatusExternal` / `StatusUnsupported`.
+
+Regenerate the patches after an output change with:
+
+```bash
+make pgexternal-update-patches   # RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate
 ```
 
 ### First Run vs Cached Runs
@@ -95,7 +251,8 @@ PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -
 - Sets up cluster using built PostgreSQL
 - Runs regression tests
 
-**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
+**Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster
+iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
 
 ### Run Without Caching
 
@@ -175,6 +332,41 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 2. Free up space (source ~200MB, builds ~500MB)
 3. Use custom cache location: `export MULTIGRES_PG_CACHE_DIR=~/multigres_cache`
 
+## Live Results & Badges
+
+The nightly CI run publishes the current pass count to GitHub Pages as
+[shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON, so the
+README badges (and any blog post or doc that embeds them) render the live number
+and update automatically after each run — no markdown edits.
+
+Each suite gets a stable JSON URL under `https://multigres.github.io/multigres/pgregress/`:
+
+<!-- markdownlint-disable MD013 -->
+
+| Suite             | JSON endpoint                                                            | Badge markdown                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Overall           | `https://multigres.github.io/multigres/pgregress/overall.json`           | `![Overall](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/overall.json)`                     |
+| Regression        | `https://multigres.github.io/multigres/pgregress/regression.json`        | `![Regression](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/regression.json)`               |
+| Isolation         | `https://multigres.github.io/multigres/pgregress/isolation.json`         | `![Isolation](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/isolation.json)`                 |
+| Contrib Extension | `https://multigres.github.io/multigres/pgregress/contrib-extension.json` | `![Contrib Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/contrib-extension.json)` |
+
+<!-- markdownlint-enable MD013 -->
+
+The Go test writes these files (`WriteBadgeEndpoints` in `postgres_builder.go`)
+into a `badges/` directory next to `results.json`, and the `test-pgregress.yml`
+workflow pushes that directory to the `gh-pages` branch under `pgregress/` on
+scheduled/manual runs.
+
+### One-time setup
+
+GitHub Pages must be enabled once for the badges to resolve:
+
+1. **Settings → Pages → Build and deployment → Source: _Deploy from a branch_**,
+   branch `gh-pages`, folder `/ (root)`.
+2. Trigger the workflow once (**Actions → PostgreSQL Compatibility Tests → Run
+   workflow**) so the first JSON files are published. Until then the badges show
+   shields.io's "endpoint not found" placeholder.
+
 ## Architecture
 
 ### Component Flow
@@ -219,7 +411,9 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 
 <!-- markdownlint-enable MD013 -->
 
-**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load shared libraries that must match the running PostgreSQL version.
+**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via
+pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load
+shared libraries that must match the running PostgreSQL version.
 
 ### File Structure
 
@@ -228,9 +422,11 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 ```text
 go/test/endtoend/pgregresstest/
 ├── README.md              # This file
-├── main_test.go          # TestMain, shared setup management
-├── postgres_builder.go   # PostgreSQL build and test execution
-└── pgregress_test.go     # Regression + isolation test implementation
+├── main_test.go           # TestMain, shared setup management
+├── postgres_builder.go    # PostgreSQL build and test execution
+├── pgregress_test.go      # Regression + isolation test implementation
+├── patch_verify.go        # Patch verification logic
+└── patch_verify_test.go   # Tests for patch verification
 ```
 
 <!-- markdownlint-enable MD013 -->

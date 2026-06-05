@@ -208,6 +208,17 @@ func (c *Conn) State() *connstate.ConnectionState {
 
 // --- Query execution ---
 
+// SetApplicationName sets application_name on the underlying PostgreSQL
+// connection. Used to tag the backend with the client's virtual PID so
+// lock-detection functions (e.g. an override of
+// pg_isolation_test_session_is_blocked) can map vpid → real pid via
+// pg_stat_activity. Must be re-applied on every client hand-off for pooled
+// connections since the backend is shared across clients.
+func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
+	_, err := c.conn.Query(ctx, "SET application_name = "+ast.QuoteStringLiteral(name))
+	return err
+}
+
 // Query executes a simple query and returns all results.
 // If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
@@ -548,6 +559,34 @@ func (c *Conn) handleContextCancellation() {
 	}
 }
 
+// postCancelDrainGrace bounds how long we wait for an in-flight operation to
+// unwind after handleContextCancellation has requested a backend cancel.
+// pg_cancel_backend only reports that the cancel signal was *delivered*, not
+// that the statement actually stopped (PostgreSQL acts on it at
+// CHECK_FOR_INTERRUPTS points, and cancel requests can be lost or race). Without
+// an upper bound, a hung statement that never honors the cancel would block the
+// caller forever, ignoring the already-expired context deadline.
+const postCancelDrainGrace = 2 * time.Second
+
+// drainOpAfterCancel waits for the op goroutine (publishing on ch) to return
+// after a backend cancel has been requested. Because pg_cancel_backend is
+// best-effort, the statement may never abort on its own; if it does not drain
+// within postCancelDrainGrace, the connection is force-closed so the op unwinds
+// promptly on the broken socket. This guarantees the call returns near the
+// context deadline rather than hanging while holding the connection (which would
+// also block subsequent attempts that need it).
+func drainOpAfterCancel[T any](c *Conn, ch <-chan T) T {
+	timer := time.NewTimer(postCancelDrainGrace)
+	defer timer.Stop()
+	select {
+	case res := <-ch:
+		return res
+	case <-timer.C:
+		c.conn.ForceClose()
+		return <-ch
+	}
+}
+
 // execOnce executes an operation with context cancellation support.
 // Unlike execWithContextCancel, it does NOT close the connection on error,
 // allowing the caller (retry loop) to reconnect and retry.
@@ -565,10 +604,12 @@ func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, err
 
 	select {
 	case <-ctx.Done():
-		// Context cancelled - cancel the backend query.
+		// Context cancelled - cancel the backend query, then wait (bounded) for
+		// the operation to drain. drainOpAfterCancel force-closes the connection
+		// if the cancel does not take effect within the grace period, so this
+		// never blocks past the deadline.
 		c.handleContextCancellation()
-		// Wait for the operation to complete (it should return quickly after cancel).
-		<-ch
+		drainOpAfterCancel(c, ch)
 		var zero T
 		return zero, context.Cause(ctx)
 	case res := <-ch:
@@ -597,10 +638,12 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 
 	select {
 	case <-ctx.Done():
-		// Context cancelled - cancel the backend query.
+		// Context cancelled - cancel the backend query, then wait (bounded) for
+		// the operation to drain. drainOpAfterCancel force-closes the connection
+		// if the cancel does not take effect within the grace period, so this
+		// never blocks past the deadline.
 		c.handleContextCancellation()
-		// Wait for the operation to complete (it should return quickly after cancel).
-		res := <-ch
+		res := drainOpAfterCancel(c, ch)
 		// If the operation had a connection error, close the connection.
 		if mterrors.IsConnectionError(res.err) {
 			c.conn.Close()
@@ -619,9 +662,17 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 // --- COPY FROM STDIN operations ---
 
 // InitiateCopyFromStdin sends a COPY FROM STDIN command and reads the CopyInResponse.
-// Returns the COPY format and column formats.
-func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
+// Returns the COPY format, column formats, and any NoticeResponse diagnostics
+// received before the CopyInResponse.
+func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
 	return c.conn.InitiateCopyFromStdin(ctx, copyQuery)
+}
+
+// InitiateCopyToStdout sends a COPY TO STDOUT command and reads the CopyOutResponse.
+// Returns the COPY format, column formats, and any NoticeResponse diagnostics
+// received before the CopyOutResponse.
+func (c *Conn) InitiateCopyToStdout(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error) {
+	return c.conn.InitiateCopyToStdout(ctx, copyQuery)
 }
 
 // WriteCopyData writes a CopyData message to PostgreSQL.
@@ -635,14 +686,28 @@ func (c *Conn) WriteCopyDone() error {
 }
 
 // ReadCopyDoneResponse reads the CommandComplete and ReadyForQuery after CopyDone.
-// Returns the command tag and rows affected.
-func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
+// Returns the command tag, rows affected, and any NoticeResponse diagnostics
+// received between CopyDone and ReadyForQuery (e.g. trigger output).
+func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
 	return c.conn.ReadCopyDoneResponse(ctx)
+}
+
+// ReadCopyOutMessage reads the next message in a COPY TO STDOUT response
+// stream: a CopyData chunk, a NoticeResponse diagnostic, or CopyDone.
+func (c *Conn) ReadCopyOutMessage(ctx context.Context) (client.CopyOutMessage, error) {
+	return c.conn.ReadCopyOutMessage(ctx)
+}
+
+// FinishCopyToStdout consumes the trailing CommandComplete + ReadyForQuery
+// that PG sends after CopyDone in a COPY TO STDOUT flow.
+func (c *Conn) FinishCopyToStdout(ctx context.Context) (string, uint64, []*mterrors.PgDiagnostic, error) {
+	return c.conn.FinishCopyToStdout(ctx)
 }
 
 // ReadCopyFailResponse reads the expected ErrorResponse + ReadyForQuery
 // sequence after sending CopyFail, leaving the connection in a clean state.
-func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
+// Returns any NoticeResponse diagnostics seen before the trailing RFQ.
+func (c *Conn) ReadCopyFailResponse(ctx context.Context) ([]*mterrors.PgDiagnostic, error) {
 	return c.conn.ReadCopyFailResponse(ctx)
 }
 

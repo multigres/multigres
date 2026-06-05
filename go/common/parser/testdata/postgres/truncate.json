@@ -219,7 +219,7 @@
   {
     "comment": "truncate - Statement 48",
     "query": "TRUNCATE ONLY trunc_f",
-    "expected": "TRUNCATE TABLE trunc_f CONTINUE IDENTITY RESTRICT"
+    "expected": "TRUNCATE TABLE ONLY trunc_f CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 49",
@@ -232,12 +232,12 @@
   {
     "comment": "truncate - Statement 51",
     "query": "TRUNCATE ONLY trunc_fb, ONLY trunc_fa",
-    "expected": "TRUNCATE TABLE trunc_fb, trunc_fa CONTINUE IDENTITY RESTRICT"
+    "expected": "TRUNCATE TABLE ONLY trunc_fb, ONLY trunc_fa CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 52",
     "query": "TRUNCATE ONLY trunc_fb, trunc_fa",
-    "expected": "TRUNCATE TABLE trunc_fb, trunc_fa CONTINUE IDENTITY RESTRICT"
+    "expected": "TRUNCATE TABLE ONLY trunc_fb, trunc_fa CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 53",
@@ -364,12 +364,12 @@
   {
     "comment": "truncate - Statement 80",
     "query": "CREATE TABLE truncparted (a int, b char) PARTITION BY LIST (a)",
-    "expected": "CREATE TABLE truncparted (a INT, b CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE truncparted (a INT, b bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "truncate - Statement 81",
     "query": "TRUNCATE ONLY truncparted",
-    "expected": "TRUNCATE TABLE truncparted CONTINUE IDENTITY RESTRICT"
+    "expected": "TRUNCATE TABLE ONLY truncparted CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "truncate - Statement 82",

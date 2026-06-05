@@ -64,40 +64,88 @@ func TestPgInitdbArgsEnvVar(t *testing.T) {
 	})
 }
 
-func TestInitDbSQLFilesFlag(t *testing.T) {
+// TestBuildServiceConfigPropagatesInitdbArgs pins the runInit/runServer
+// shared path that forwards pgInitdbArgs into PgCtldServiceConfig.InitdbArgs.
+// Earlier this assignment was missing from the runServer path, so the
+// --pg-initdb-args flag (and POSTGRES_INITDB_ARGS env var) was silently
+// dropped when pgctld bootstrapped via the gRPC InitDataDir RPC.
+func TestBuildServiceConfigPropagatesInitdbArgs(t *testing.T) {
+	t.Setenv(constants.PgPasswordEnvVar, "test-pw")
+
+	t.Run("InitdbArgs from flag flows into config", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		pc.pgInitdbArgs.Set("--no-locale --encoding=UTF8")
+		cfg, err := pc.buildServiceConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "--no-locale --encoding=UTF8", cfg.InitdbArgs)
+	})
+
+	t.Run("InitdbArgs from env flows into config", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbArgsEnvVar, "--locale-provider=icu")
+		_, pc := GetRootCommand()
+		cfg, err := pc.buildServiceConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "--locale-provider=icu", cfg.InitdbArgs)
+	})
+
+	t.Run("empty InitdbArgs produces empty config field", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		cfg, err := pc.buildServiceConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "", cfg.InitdbArgs)
+	})
+
+	t.Run("password resolution error propagates", func(t *testing.T) {
+		t.Setenv(constants.PgPasswordEnvVar, "")
+		_, pc := GetRootCommand()
+		_, err := pc.buildServiceConfig()
+		assert.Error(t, err)
+	})
+}
+
+func TestPgInitdbSQLFilesFlag(t *testing.T) {
 	t.Run("defaults to empty slice", func(t *testing.T) {
 		_, pc := GetRootCommand()
-		assert.Empty(t, pc.initDbSQLFiles.Get())
+		assert.Empty(t, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("accepts repeated flag", func(t *testing.T) {
 		root, pc := GetRootCommand()
 		require.NoError(t, root.ParseFlags([]string{
-			"--init-db-sql-file", "/tmp/a.sql",
-			"--init-db-sql-file", "/tmp/b.sql",
+			"--pg-initdb-sql-files", "/tmp/a.sql",
+			"--pg-initdb-sql-files", "/tmp/b.sql",
 		}))
-		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("accepts comma-separated values", func(t *testing.T) {
 		root, pc := GetRootCommand()
 		require.NoError(t, root.ParseFlags([]string{
-			"--init-db-sql-file", "/tmp/a.sql,/tmp/b.sql",
+			"--pg-initdb-sql-files", "/tmp/a.sql,/tmp/b.sql",
 		}))
-		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql", "/tmp/b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("POSTGRES_INITDB_SQL_FILES env var is used when flag not set", func(t *testing.T) {
-		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/a.sql")
+		t.Setenv(constants.PgInitdbSQLFilesEnvVar, "/tmp/a.sql")
 		_, pc := GetRootCommand()
-		assert.Equal(t, []string{"/tmp/a.sql"}, pc.initDbSQLFiles.Get())
+		assert.Equal(t, []string{"/tmp/a.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 
 	t.Run("flag overrides POSTGRES_INITDB_SQL_FILES env var", func(t *testing.T) {
-		t.Setenv(constants.PgInitDbSQLFilesEnvVar, "/tmp/env.sql")
+		t.Setenv(constants.PgInitdbSQLFilesEnvVar, "/tmp/env.sql")
 		root, pc := GetRootCommand()
-		require.NoError(t, root.ParseFlags([]string{"--init-db-sql-file", "/tmp/flag.sql"}))
-		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.initDbSQLFiles.Get())
+		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-files", "/tmp/flag.sql"}))
+		assert.Equal(t, []string{"/tmp/flag.sql"}, pc.pgInitdbSQLFiles.Get())
+	})
+
+	t.Run("legacy --init-db-sql-file flag aliases to --pg-initdb-sql-files", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--init-db-sql-file", "/tmp/legacy-a.sql",
+			"--init-db-sql-file", "/tmp/legacy-b.sql",
+		}))
+		assert.Equal(t, []string{"/tmp/legacy-a.sql", "/tmp/legacy-b.sql"}, pc.pgInitdbSQLFiles.Get())
 	})
 }
 
@@ -135,6 +183,43 @@ func TestPgInitdbExtraConfFlag(t *testing.T) {
 		root, pc := GetRootCommand()
 		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-extra-conf", "/etc/pg/flag.conf"}))
 		assert.Equal(t, []string{"/etc/pg/flag.conf"}, pc.pgInitdbExtraConf.Get())
+	})
+}
+
+func TestPgInitdbSQLDirsFlag(t *testing.T) {
+	t.Run("defaults to empty slice", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Empty(t, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("accepts repeated flag", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--pg-initdb-sql-dirs", "postgres:/tmp/init-scripts",
+			"--pg-initdb-sql-dirs", "multigres:/tmp/migrations",
+		}))
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts", "multigres:/tmp/migrations"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("accepts comma-separated values", func(t *testing.T) {
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{
+			"--pg-initdb-sql-dirs", "postgres:/tmp/init-scripts,multigres:/tmp/migrations",
+		}))
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts", "multigres:/tmp/migrations"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("POSTGRES_INITDB_SQL_DIRS env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbSQLDirsEnvVar, "postgres:/tmp/init-scripts")
+		_, pc := GetRootCommand()
+		assert.Equal(t, []string{"postgres:/tmp/init-scripts"}, pc.pgInitdbSQLDirs.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_INITDB_SQL_DIRS env var", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbSQLDirsEnvVar, "postgres:/tmp/env-dir")
+		root, pc := GetRootCommand()
+		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-dirs", "postgres:/tmp/flag-dir"}))
+		assert.Equal(t, []string{"postgres:/tmp/flag-dir"}, pc.pgInitdbSQLDirs.Get())
 	})
 }
 

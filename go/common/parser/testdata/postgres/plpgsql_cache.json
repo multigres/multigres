@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "plpgsql_cache - Statement 1",
+    "query": "create table c_mutable(f1 int, f2 text)",
+    "expected": "CREATE TABLE c_mutable (f1 INT, f2 TEXT)"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 2",
+    "query": "create function c_sillyaddone(int) returns int language plpgsql as $$ declare r c_mutable; begin r.f1 := $1; return r.f1 + 1; end $$",
+    "expected": "CREATE FUNCTION c_sillyaddone (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare r c_mutable; begin r.f1 := $1; return r.f1 + 1; end $$"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 3",
+    "query": "select c_sillyaddone(42)",
+    "expected": "SELECT c_sillyaddone(42)"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 4",
+    "query": "alter table c_mutable drop column f1",
+    "expected": "ALTER TABLE c_mutable DROP COLUMN f1"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 5",
+    "query": "alter table c_mutable add column f1 float8",
+    "expected": "ALTER TABLE c_mutable ADD COLUMN f1 FLOAT8"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 6",
+    "query": "discard plans",
+    "expected": "DISCARD PLANS"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 7",
+    "query": "create function show_result_type(text) returns text language plpgsql as $$ declare r record; t text; begin execute $1 into r; select pg_typeof(r.a) into t; return format('type %s value %s', t, r.a::text); end; $$",
+    "expected": "CREATE FUNCTION show_result_type (TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$ declare r record; t text; begin execute $1 into r; select pg_typeof(r.a) into t; return format('type %s value %s', t, r.a::text); end; $$"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 8",
+    "query": "select show_result_type('select 1 as a')",
+    "expected": "SELECT show_result_type('select 1 as a')"
+  },
+  {
+    "comment": "plpgsql_cache - Statement 9",
+    "query": "select show_result_type('select 2.0 as a')",
+    "expected": "SELECT show_result_type('select 2.0 as a')"
+  }
+]

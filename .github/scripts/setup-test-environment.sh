@@ -22,25 +22,22 @@ echo "==========================================="
 echo "Setting up test environment"
 echo "==========================================="
 
-# Install PostgreSQL
-echo "Installing PostgreSQL..."
+# Install PostgreSQL 17 and pgBackRest from PGDG.
+# Ubuntu 24.04's default `postgresql` metapackage is PG 16, but multigres
+# requires PG 17.x — `multigres cluster start` rejects other majors.
+echo "Installing PostgreSQL 17 and pgBackRest from PGDG..."
 sudo apt-get update
-sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
+sudo apt-get install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+sudo apt-get install -y postgresql-17 postgresql-client-17 postgresql-contrib-17 pgbackrest
+pgbackrest version
 
 # Set up postgres user password for tests
 echo "Configuring PostgreSQL authentication..."
 sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
 
-# Install pgBackRest
-echo "Installing pgBackRest..."
-sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-sudo apt-get update
-sudo apt-get install -y pgbackrest
-pgbackrest version
-
-# Add PostgreSQL binaries to PATH for subsequent commands
-# shellcheck disable=SC2012
-POSTGRES_BIN="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin"
+# Add PostgreSQL 17 binaries to PATH for subsequent commands
+POSTGRES_BIN="/usr/lib/postgresql/17/bin"
 export PATH="$POSTGRES_BIN:$PATH"
 echo "$POSTGRES_BIN" >>"$GITHUB_PATH"
 

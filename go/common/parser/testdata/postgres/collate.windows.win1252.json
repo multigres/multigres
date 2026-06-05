@@ -1,8 +1,8 @@
 [
   {
     "comment": "collate.windows.win1252 - Statement 1",
-    "query": "/* * This test is meant to run on Windows systems that has successfully * run pg_import_system_collations().  Also, the database must have * WIN1252 encoding, because of the locales' own encodings.  Because * of this, some test are lost from UTF-8 version, such as Turkish * dotted and undotted 'i'. */ SELECT getdatabaseencoding() \u003c\u003e 'WIN1252' OR (SELECT count(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE') AND collencoding = pg_char_to_encoding('WIN1252')) \u003c\u003e 3 OR (version() !~ 'Visual C\\+\\+' AND version() !~ 'mingw32' AND version() !~ 'windows') AS skip_test",
-    "expected": "SELECT getdatabaseencoding() \u003c\u003e 'WIN1252' OR (SELECT COUNT(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE') AND collencoding = pg_char_to_encoding('WIN1252')) \u003c\u003e 3 OR (version() !~ 'Visual C\\+\\+' AND version() !~ 'mingw32' AND version() !~ 'windows') AS skip_test"
+    "query": "/* * This test is meant to run on Windows systems that has successfully * run pg_import_system_collations().  Also, the database must have * WIN1252 encoding, because of the locales' own encodings.  Because * of this, some test are lost from UTF-8 version, such as Turkish * dotted and undotted 'i'. */ SELECT getdatabaseencoding() <> 'WIN1252' OR (SELECT count(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE') AND collencoding = pg_char_to_encoding('WIN1252')) <> 3 OR (version() !~ 'Visual C\\+\\+' AND version() !~ 'mingw32' AND version() !~ 'windows') AS skip_test",
+    "expected": "SELECT getdatabaseencoding() <> 'WIN1252' OR (SELECT COUNT(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE') AND collencoding = pg_char_to_encoding('WIN1252')) <> 3 OR (version() !~ 'Visual C\\+\\+' AND version() !~ 'mingw32' AND version() !~ 'windows') AS skip_test"
   },
   {
     "comment": "collate.windows.win1252 - Statement 2",
@@ -52,31 +52,31 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 12",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.windows.win1252 - Statement 13",
-    "query": "SELECT * FROM collate_test2 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test2 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.windows.win1252 - Statement 14",
-    "query": "SELECT * FROM collate_test3 WHERE b \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test3 WHERE b >= 'bbc'"
   },
   {
     "comment": "collate.windows.win1252 - Statement 15",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.windows.win1252 - Statement 16",
-    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 17",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"C\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 18",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"en_US\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"en_US\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 19",
@@ -144,11 +144,11 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 34",
-    "query": "SELECT 'bbc' COLLATE \"en_US\" \u003e 'äbc' COLLATE \"en_US\" AS \"true\""
+    "query": "SELECT 'bbc' COLLATE \"en_US\" > 'äbc' COLLATE \"en_US\" AS \"true\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 35",
-    "query": "SELECT 'bbc' COLLATE \"sv_SE\" \u003e 'äbc' COLLATE \"sv_SE\" AS \"false\""
+    "query": "SELECT 'bbc' COLLATE \"sv_SE\" > 'äbc' COLLATE \"sv_SE\" AS \"false\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 36",
@@ -221,7 +221,7 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 53",
-    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
   },
   {
     "comment": "collate.windows.win1252 - Statement 54",
@@ -347,13 +347,13 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 81",
-    "query": "SELECT a, b FROM collate_test3 WHERE a \u003c 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a \u003e 1 ORDER BY 2",
-    "expected": "(SELECT a, b FROM collate_test3 WHERE a \u003c 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a \u003e 1) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a > 1 ORDER BY 2",
+    "expected": "(SELECT a, b FROM collate_test3 WHERE a < 4) INTERSECT (SELECT a, b FROM collate_test3 WHERE a > 1) ORDER BY 2"
   },
   {
     "comment": "collate.windows.win1252 - Statement 82",
-    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a \u003c 2 ORDER BY 2",
-    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a \u003c 2) ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a < 2 ORDER BY 2",
+    "expected": "SELECT a, b FROM collate_test3 EXCEPT (SELECT a, b FROM collate_test3 WHERE a < 2) ORDER BY 2"
   },
   {
     "comment": "collate.windows.win1252 - Statement 83",
@@ -385,13 +385,13 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 90",
-    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en_US\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) \u003c 10) SELECT * FROM foo",
-    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en_US\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) \u003c 10)) SELECT * FROM foo"
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en_US\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) < 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"en_US\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) < 10)) SELECT * FROM foo"
   },
   {
     "comment": "collate.windows.win1252 - Statement 91",
     "query": "SELECT CAST('42' AS text COLLATE \"C\")",
-    "error": "parse error at position 33: syntax error"
+    "error": "parse error at position 32: syntax error"
   },
   {
     "comment": "collate.windows.win1252 - Statement 92",
@@ -410,33 +410,33 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 95",
-    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 $$",
-    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 $$"
+    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 $$",
+    "expected": "CREATE FUNCTION mylt (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 $$"
   },
   {
     "comment": "collate.windows.win1252 - Statement 96",
-    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$",
-    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 \u003c $2 limit 1 $$"
+    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 limit 1 $$",
+    "expected": "CREATE FUNCTION mylt_noninline (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE sql AS $$ select $1 < $2 limit 1 $$"
   },
   {
     "comment": "collate.windows.win1252 - Statement 97",
-    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$",
-    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 \u003c $2; end $$"
+    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$",
+    "expected": "CREATE FUNCTION mylt_plpgsql (TEXT, TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$"
   },
   {
     "comment": "collate.windows.win1252 - Statement 98",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.windows.win1252 - Statement 99",
-    "query": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
-    "expected": "SELECT a.b AS a, b.b AS b, a.b \u003c b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b",
+    "expected": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 AS a, collate_test1 AS b ORDER BY a.b, b.b"
   },
   {
     "comment": "collate.windows.win1252 - Statement 100",
-    "query": "CREATE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text := x\nyy text := y\nbegin return xx \u003c yy\nend $$",
-    "expected": "CREATE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text := x\nyy text := y\nbegin return xx \u003c yy\nend $$"
+    "query": "CREATE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text := x\nyy text := y\nbegin return xx < yy\nend $$",
+    "expected": "CREATE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text := x\nyy text := y\nbegin return xx < yy\nend $$"
   },
   {
     "comment": "collate.windows.win1252 - Statement 104",
@@ -445,8 +445,8 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 105",
-    "query": "CREATE OR REPLACE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx \u003c yy; end $$;",
-    "expected": "CREATE OR REPLACE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx \u003c yy; end $$"
+    "query": "CREATE OR REPLACE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx < yy; end $$;",
+    "expected": "CREATE OR REPLACE FUNCTION mylt2 (x TEXT, y TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x; yy text := y; begin return xx < yy; end $$"
   },
   {
     "comment": "collate.windows.win1252 - Statement 106",
@@ -566,13 +566,11 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 132",
-    "query": "CREATE COLLATION test4 FROM nonsense",
-    "expected": "CREATE COLLATION test4 FROM \"nonsense\""
+    "query": "CREATE COLLATION test4 FROM nonsense"
   },
   {
     "comment": "collate.windows.win1252 - Statement 133",
-    "query": "CREATE COLLATION test5 FROM test0",
-    "expected": "CREATE COLLATION test5 FROM \"test0\""
+    "query": "CREATE COLLATION test5 FROM test0"
   },
   {
     "comment": "collate.windows.win1252 - Statement 134",
@@ -703,13 +701,13 @@
   },
   {
     "comment": "collate.windows.win1252 - Statement 163",
-    "query": "select textrange_c('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_c('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_c('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_c('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.windows.win1252 - Statement 164",
-    "query": "select textrange_en_us('A','Z') @\u003e 'b'::text",
-    "expected": "SELECT textrange_en_us('A', 'Z') @\u003e CAST('b' AS TEXT)"
+    "query": "select textrange_en_us('A','Z') @> 'b'::text",
+    "expected": "SELECT textrange_en_us('A', 'Z') @> CAST('b' AS TEXT)"
   },
   {
     "comment": "collate.windows.win1252 - Statement 165",

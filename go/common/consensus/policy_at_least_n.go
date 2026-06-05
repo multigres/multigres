@@ -85,18 +85,18 @@ func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clusterm
 	return nil
 }
 
-// BuildLeaderDurabilityPostgresConfig returns the Postgres-level config the
-// new leader must apply to satisfy AT_LEAST_N. The standby list is the full
-// cohort — AT_LEAST_N is cell-agnostic and including the leader is harmless
-// (Postgres ignores its own entry; num_sync = N-1 already accounts for the
-// leader's local write counting as 1).
+// BuildSyncReplicationConfig returns the Postgres-level config the primary
+// must apply to satisfy AT_LEAST_N. The standby list is the full cohort —
+// AT_LEAST_N is cell-agnostic and including the primary is harmless (Postgres
+// ignores its own entry; num_sync = N-1 already accounts for the primary's
+// local write counting as 1).
 //
 // Errors when the cohort is too small to satisfy num_sync.
-func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(
+func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
-	leader *clustermetadatapb.ID,
-) (*LeaderDurabilityPostgresConfig, error) {
+	primary *clustermetadatapb.ID,
+) (*SyncReplicationConfig, error) {
 	// N==1 means the primary alone satisfies durability — return an explicit
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
@@ -104,7 +104,7 @@ func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(
 		logger.Info("Configuring leader for local-only durability",
 			"policy", "AT_LEAST_N",
 			"required_count", p.N)
-		return &LeaderDurabilityPostgresConfig{
+		return &SyncReplicationConfig{
 			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
 			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			NumSync:        1,
@@ -126,7 +126,7 @@ func (p AtLeastNPolicy) BuildLeaderDurabilityPostgresConfig(
 		"num_sync", requiredNumSync,
 		"standbys", len(cohort))
 
-	return &LeaderDurabilityPostgresConfig{
+	return &SyncReplicationConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 		NumSync:        requiredNumSync,

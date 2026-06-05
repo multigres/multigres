@@ -93,11 +93,10 @@ type ShardAnalysis struct {
 	LeaderLastPostgresReadyTime time.Time
 
 	// LeaderHasResigned is true when the topology leader has voluntarily requested
-	// replacement via the REQUESTING_DEMOTION signal (set during EmergencyDemote).
-	// When true, the LeaderIsDead failover suppression logic (which normally waits
-	// for followers to disconnect before declaring the leader dead) is bypassed
-	// because the resignation is an explicit and intentional signal, not an ambiguous
-	// network/process failure.
+	// replacement via the REQUESTING_DEMOTION signal (set during Recruit's
+	// primary-demotion path or graceful shutdown of a leader). LeaderResignedAnalyzer
+	// keys off this to trigger immediate failover, separately from the LeaderIsDead
+	// reachability-based path.
 	LeaderHasResigned bool
 
 	// PromotingPrimaryID is the ID of the topology primary that is currently running
@@ -165,6 +164,11 @@ type PoolerAnalysis struct {
 	// ConsensusStatus from the pooler's most recent StatusResponse snapshot.
 	// Used to derive the primary term via commonconsensus.PrimaryTerm(ConsensusStatus).
 	ConsensusStatus *clustermetadatapb.ConsensusStatus
+
+	// AvailabilityStatus carries the pooler's self-reported willingness signals
+	// (cohort eligibility, leader-resignation request). May be nil for older
+	// poolers that don't publish it.
+	AvailabilityStatus *clustermetadatapb.AvailabilityStatus
 }
 
 // compareLeaderTimeline compares two leader PoolerAnalysis entries by the

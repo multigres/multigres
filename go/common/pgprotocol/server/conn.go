@@ -19,19 +19,20 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
-	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -47,6 +48,14 @@ const (
 // Must be a single instance: CancelQuery sets it via context.WithCancelCause,
 // and queryContextError checks it with errors.Is (pointer equality).
 var errQueryCanceled = mterrors.NewQueryCanceled()
+
+// errAuthenticationTimeout is the sentinel returned by serve() when the
+// startup-phase deadline (authentication_timeout) fires. handleConnection
+// matches on this specifically rather than the generic
+// os.ErrDeadlineExceeded so that deadlines added in the future for other
+// reasons (idle timeout, per-query socket deadline, etc.) are not silently
+// suppressed by the same log-noise filter.
+var errAuthenticationTimeout = errors.New("authentication timeout")
 
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
@@ -99,8 +108,17 @@ type Conn struct {
 	// handler processes queries for this connection.
 	handler Handler
 
-	// hashProvider provides password hashes for SCRAM authentication.
-	hashProvider scram.PasswordHashProvider
+	// credentialProvider supplies the SCRAM hash and rolreplication flag
+	// for the authenticating role. A single lookup feeds both SCRAM and
+	// the post-auth replication-role gate; the result is cached on
+	// credentials below so the gate doesn't have to round-trip again.
+	credentialProvider CredentialProvider
+
+	// credentials is the result of a successful credentialProvider lookup,
+	// populated before SCRAM starts. The replication-role gate reads
+	// IsReplicationRole from here so neither path has to round-trip a
+	// second time.
+	credentials *Credentials
 
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
@@ -111,9 +129,33 @@ type Conn struct {
 	// When nil, SSLRequest is declined with 'N'.
 	tlsConfig *tls.Config
 
+	// requireTLS rejects a plaintext StartupMessage. Copied from the
+	// listener at accept time. Cancel requests bypass this check.
+	requireTLS bool
+
+	// authMetrics receives auth- and TLS-path metric events for this
+	// connection. Never nil — a noop is substituted at listener
+	// construction when the caller did not supply one — so startup-phase
+	// code can call methods unconditionally.
+	authMetrics AuthMetricsRecorder
+
 	// sslDone indicates that an SSLRequest has already been handled
 	// (accepted or declined) for this connection. Prevents double negotiation.
 	sslDone bool
+
+	// tlsHandshakeComplete is set true once handleSSLRequest has accepted
+	// SSL ('S') AND the TLS handshake has finished — i.e., c.conn has been
+	// reassigned to the *tls.Conn. Used during the auth-timeout error path
+	// to decide whether plaintext writes are still intelligible to the
+	// client. Tracking this explicitly (rather than type-asserting c.conn)
+	// keeps the check robust if c.conn is ever wrapped in instrumentation.
+	tlsHandshakeComplete bool
+
+	// tlsServerCert is the parsed leaf certificate offered to the client
+	// during the TLS handshake. Captured once at handshake completion and
+	// used to compute the tls-server-end-point channel binding hash for
+	// SCRAM-SHA-256-PLUS. Nil for plaintext connections.
+	tlsServerCert *x509.Certificate
 
 	// gssDone indicates that a GSSENCRequest has already been handled
 	// for this connection. Prevents double negotiation.
@@ -135,6 +177,12 @@ type Conn struct {
 	user     string
 	database string
 	params   map[string]string
+
+	// replicationMode reflects the parsed `replication` startup parameter.
+	// Default ReplicationOff means a normal SQL session. ReplicationPhysical
+	// or ReplicationLogical require pg_authid.rolreplication=true on the
+	// authenticated role; the post-auth verifier enforces that.
+	replicationMode ReplicationMode
 
 	// SCRAM-SHA-256 keys extracted during the client handshake, used for
 	// passthrough authentication to the backing PostgreSQL. Nil for non-SCRAM
@@ -173,6 +221,18 @@ type Conn struct {
 	// the protocol guarantees one in-flight request per connection.
 	deferredPortalDescribe     bool
 	deferredPortalDescribeName string
+
+	// discardingUntilSync is the extended-query error-recovery flag. Set
+	// when an ErrorResponse is emitted from any extended-query handler
+	// (Parse, Bind, Describe, Execute, Close); cleared when handleMessage
+	// observes Sync or Query (both flush boundaries). While set, every
+	// Parse/Bind/Describe/Execute/Close inbound message is read off the
+	// wire and silently discarded — no handler runs, no reply frame is
+	// emitted — matching PostgreSQL's "reads and discards messages until
+	// a Sync message is reached" rule. Without this gate, a CloseComplete
+	// (or ParseComplete, BindComplete, etc.) emitted after ErrorResponse
+	// in the same pipelined batch crashes strict drivers like Postgrex.
+	discardingUntilSync bool
 
 	// flushTimer is used for auto-flushing buffered writes.
 	flushTimer *time.Timer
@@ -302,6 +362,13 @@ func (c *Conn) User() string {
 // Database returns the database name.
 func (c *Conn) Database() string {
 	return c.database
+}
+
+// ReplicationMode returns the parsed `replication` startup parameter for this
+// connection. ReplicationOff means the client did not request a replication
+// connection (or sent replication=false).
+func (c *Conn) ReplicationMode() ReplicationMode {
+	return c.replicationMode
 }
 
 // ScramClientKey returns the SCRAM-SHA-256 ClientKey extracted during the
@@ -478,6 +545,17 @@ func (c *Conn) endWriterBuffering() error {
 	return flushErr
 }
 
+// canSendPlaintextStartupError reports whether a best-effort plaintext
+// ErrorResponse during the startup phase would be intelligible to the
+// client. If the client sent SSLRequest and the server already answered
+// 'S' but the TLS handshake hasn't completed, the underlying conn is
+// still plaintext while the client is waiting for encrypted bytes — so
+// any plaintext write would surface as garbage. Every other startup
+// state (raw plaintext or fully upgraded TLS) can carry the reply.
+func (c *Conn) canSendPlaintextStartupError() bool {
+	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
+}
+
 // generateBackendKey generates a cryptographically secure random backend key for cancellation.
 // The backend key is sent to the client in the BackendKeyData message and is used
 // to authenticate query cancellation requests.
@@ -509,10 +587,19 @@ func generateBackendKey() uint32 {
 // the writer to the pool when the connection genuinely idles between
 // batches.
 func (c *Conn) serve() error {
-	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
-	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
-	// Without this, a client can hold a goroutine indefinitely by stalling during
-	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+	// Bound the startup phase (SSL/GSS negotiation, StartupMessage, SCRAM
+	// exchange) — equivalent to PostgreSQL's authentication_timeout. A
+	// stalled or malicious client cannot pin this goroutine past the
+	// deadline. The deadline is cleared once authentication completes so
+	// the main command loop runs without an I/O timeout.
+	startupDeadlineSet := false
+	if d := c.listener.authenticationTimeout; d > 0 {
+		if err := c.conn.SetDeadline(time.Now().Add(d)); err == nil {
+			startupDeadlineSet = true
+		} else {
+			c.logger.Warn("failed to set startup deadline", "error", err)
+		}
+	}
 
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
@@ -520,18 +607,85 @@ func (c *Conn) serve() error {
 			c.logger.Debug("client disconnected before startup")
 			return nil
 		}
-		c.logger.Error("startup failed", "error", err)
-		// Try to send an error response before closing.
-		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
-		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
-		var diag *mterrors.PgDiagnostic
-		if errors.As(err, &diag) {
-			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-		} else {
-			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		// errAuthRejected: a FATAL was already sent during the auth flow;
+		// no AuthenticationOk was emitted and the connection was not
+		// registered. Skip the command loop entirely so a misbehaving
+		// client cannot send messages on a half-completed session, and
+		// don't write a second error frame.
+		if errors.Is(err, errAuthRejected) {
+			c.logger.Debug("client rejected during startup; FATAL already sent")
+			return nil
 		}
-		_ = c.flush()
+		// Map a deadline-exceeded I/O error during startup to a clean
+		// PG-format FATAL with SQLSTATE 08006 so libpq surfaces it as
+		// "canceling authentication due to timeout" instead of a raw
+		// I/O timeout. The startup deadline is still active here — any
+		// write would inherit the expired deadline and fail — so clear
+		// it first using a brief grace window for the error reply.
+		if startupDeadlineSet && errors.Is(err, os.ErrDeadlineExceeded) {
+			c.logger.Warn("startup phase timed out",
+				"timeout", c.listener.authenticationTimeout,
+				"remote_addr", c.RemoteAddr())
+			if c.canSendPlaintextStartupError() {
+				// Brief grace window: long enough to flush the error
+				// to a well-behaved client, short enough that a wedged
+				// client can't keep this goroutine pinned.
+				_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewAuthenticationTimeout())
+				_ = c.flush()
+			}
+			// Return the sentinel so handleConnection can suppress its
+			// redundant Error log without also swallowing unrelated
+			// deadline-exceeded errors that future code paths may surface.
+			return errAuthenticationTimeout
+		}
+		c.logger.Error("startup failed", "error", err)
+		// Set a brief write-deadline grace window so the best-effort
+		// error reply doesn't race against the still-active auth
+		// deadline (which may fire mid-write on a slow client).
+		if startupDeadlineSet {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		}
+		// Try to send an error response before closing — but only if
+		// it would be intelligible. Same SSL-accepted-but-handshake-
+		// pending guard as the timeout path above: a plaintext
+		// ErrorResponse on a connection where the client expects
+		// encrypted bytes would surface as garbage.
+		if c.canSendPlaintextStartupError() {
+			// If the error is already a PgDiagnostic (e.g., duplicate
+			// SSLRequest with native SQLSTATE), send it directly.
+			// Otherwise, wrap with MTE01.
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+			} else {
+				_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+			}
+			_ = c.flush()
+		}
 		return err
+	}
+
+	// Cancel requests close the connection inside handleStartup and
+	// return nil — there is no authenticated session to enter the
+	// command loop for, and SetDeadline on the closed fd would fail
+	// and surface as a spurious Error log. Bail out cleanly here.
+	if c.closed.Load() {
+		return nil
+	}
+
+	// Authentication complete — clear the startup deadline before the
+	// command loop. Subsequent reads must not inherit the auth-phase
+	// deadline (idle clients are normal, not a protocol violation). If
+	// the clear fails (rare — typically only when the fd is already
+	// closed), abort instead of entering the loop with a stale deadline
+	// that would trip the very next read.
+	if startupDeadlineSet {
+		if err := c.conn.SetDeadline(time.Time{}); err != nil {
+			c.logger.Error("failed to clear startup deadline; tearing down connection",
+				"error", err)
+			return fmt.Errorf("clear startup deadline: %w", err)
+		}
 	}
 
 	// Main command loop.
@@ -606,11 +760,25 @@ func (c *Conn) serve() error {
 // other message (including a follow-up Describe of either type) flushes the
 // held state here first so the wire reply order matches what an unfused
 // Describe(P)+Execute would produce.
+//
+// Extended-query error recovery: once an ErrorResponse has been emitted in
+// the current batch, c.discardingUntilSync is set and every subsequent
+// Parse / Bind / Describe / Execute / Close is read off the wire and
+// discarded here without dispatching to a handler. Sync clears the flag
+// and proceeds to handleSync (which emits the ReadyForQuery the client is
+// waiting on). This matches PostgreSQL's documented behavior and prevents
+// the post-error frames (notably CloseComplete) that crash strict drivers.
 func (c *Conn) handleMessage(msgType byte) error {
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
+		return err
+	}
+
 	switch msgType {
 	case protocol.MsgExecute:
 		// handleExecute consumes the deferred describe directly (it folds
 		// it into the backend call rather than flushing it separately).
+		// handleExecute itself re-checks the drain flag after the
+		// fallback resolveDeferredPortalDescribe path.
 		return c.handleExecute()
 
 	case protocol.MsgTerminate:
@@ -621,6 +789,14 @@ func (c *Conn) handleMessage(msgType byte) error {
 	// Every other message must run after any pending portal describe is
 	// flushed so the wire stays well-formed.
 	if err := c.resolveDeferredPortalDescribe(); err != nil {
+		return err
+	}
+	// resolveDeferredPortalDescribe may have flushed via HandleDescribe
+	// and entered drain mode by emitting an ErrorResponse. In that case
+	// the inbound message that triggered the flush (Parse/Bind/Close/…)
+	// must also be discarded — otherwise its reply frame would land
+	// between ErrorResponse and ReadyForQuery and crash strict drivers.
+	if handled, err := c.maybeDispatchDrain(msgType); handled {
 		return err
 	}
 
@@ -752,6 +928,25 @@ func (c *Conn) handleQuery() error {
 	return c.writeReadyForQuery()
 }
 
+// preserveExtendedQueryError returns err unchanged when it already carries a
+// structured PostgreSQL diagnostic, so the client sees the real SQLSTATE the
+// handler produced (e.g. 42601 syntax_error from the parser on Parse, 26000
+// invalid_sql_statement_name for a missing prepared statement on Bind/Describe,
+// 34000 invalid_cursor_name for a missing portal on Describe). Only an opaque
+// error with no SQLSTATE is wrapped with fallback, which marks a genuinely
+// internal failure of the extended-query step. Drivers branch on these
+// SQLSTATEs, so blanket-wrapping a structured error as an internal MTDxx code
+// (which clients read as a proxy bug) would be a real protocol divergence from
+// PostgreSQL — see the pgproto conformance suite's bind_before_parse and
+// describe_unknown corpus files.
+func preserveExtendedQueryError(err error, fallback *mterrors.MTError) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return err
+	}
+	return fallback.NewWithDetail(err.Error())
+}
+
 // handleParse handles a 'P' (Parse) message - extended query protocol.
 // Parse message format:
 // - Statement name (string, null-terminated)
@@ -817,7 +1012,11 @@ func (c *Conn) handleParse() error {
 		// (Describe, Sync) would corrupt the next query's response stream.
 		// The error packet stays buffered until Sync flushes the batch — same shape
 		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
-		return c.writeError(mterrors.MTD04.NewWithDetail(err.Error()))
+		//
+		// Preserve a structured PostgreSQL diagnostic (e.g. 42601 syntax_error
+		// from the parser); only opaque errors are wrapped as MTD04, a genuinely
+		// internal Parse failure. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD04))
 	}
 
 	// Send ParseComplete message. Stays buffered for the rest of the batch.
@@ -903,7 +1102,11 @@ func (c *Conn) handleBind() error {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
 		// ReadyForQuery is sent only in response to Sync. The error packet
 		// stays buffered until Sync flushes the batch.
-		return c.writeError(mterrors.MTD05.NewWithDetail(err.Error()))
+		//
+		// Preserve a structured diagnostic (e.g. 26000 for a Bind referencing a
+		// prepared statement that was never Parsed); only opaque errors become
+		// MTD05. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD05))
 	}
 
 	// Send BindComplete message. Stays buffered for the rest of the batch.
@@ -962,6 +1165,13 @@ func (c *Conn) handleExecute() error {
 			if err := c.resolveDeferredPortalDescribe(); err != nil {
 				return err
 			}
+			// If the deferred Describe flush errored, we're now in
+			// drain mode. Don't run HandleExecute — its
+			// RowDescription / DataRow / CommandComplete frames
+			// would leak between ErrorResponse and ReadyForQuery.
+			if c.discardingUntilSync {
+				return nil
+			}
 		}
 	}
 
@@ -1019,7 +1229,7 @@ func (c *Conn) handleExecute() error {
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
-		return c.writeError(err)
+		return c.writeExtendedQueryError(err)
 	}
 
 	return nil
@@ -1079,7 +1289,10 @@ func (c *Conn) handleDescribe() error {
 	// Describe('P') was already flushed by handleMessage before this call.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		return c.writeError(mterrors.MTD06.NewWithDetail(err.Error()))
+		// Preserve a structured diagnostic — 26000 for an unknown prepared
+		// statement, 34000 for an unknown portal — so the two cases stay
+		// distinguishable; only opaque errors become MTD06.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD06))
 	}
 
 	// Send ParameterDescription only for statement describes ('S').
@@ -1120,7 +1333,9 @@ func (c *Conn) resolveDeferredPortalDescribe() error {
 	c.deferredPortalDescribeName = ""
 	desc, err := c.handler.HandleDescribe(c.ctx, c, 'P', name)
 	if err != nil {
-		return c.writeError(mterrors.MTD06.NewWithDetail(err.Error()))
+		// Preserve a structured diagnostic (34000 for an unknown portal); only
+		// opaque errors become MTD06. See preserveExtendedQueryError.
+		return c.writeExtendedQueryError(preserveExtendedQueryError(err, mterrors.MTD06))
 	}
 	if desc != nil && desc.Fields != nil {
 		return c.writeRowDescription(desc.Fields)
@@ -1161,11 +1376,92 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		return c.writeError(mterrors.MTD07.NewWithDetail(err.Error()))
+		return c.writeExtendedQueryError(mterrors.MTD07.NewWithDetail(err.Error()))
 	}
 
 	// Send CloseComplete. Stays buffered for the rest of the batch.
 	return c.writeMessage(protocol.MsgCloseComplete, nil)
+}
+
+// maybeDispatchDrain is the extended-query error-drain gate. When
+// c.discardingUntilSync is set it routes the current inbound message
+// without dispatching to its normal handler — Sync/Query clear the
+// flag and signal the caller to fall through, Flush flushes buffered
+// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
+// their bodies drained off the wire, and Terminate falls through to
+// the normal teardown.
+//
+// Returns (handled=true, err) when the message was absorbed here and
+// the caller should return immediately; (handled=false, nil) when the
+// caller should continue to its normal dispatch.
+//
+// Called twice from handleMessage — once at the top for messages that
+// arrive while drain mode is already set, and once again after
+// resolveDeferredPortalDescribe runs (which can itself enter drain
+// mode by flushing a failing deferred Describe).
+func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
+	if !c.discardingUntilSync {
+		return false, nil
+	}
+	switch msgType {
+	case protocol.MsgSync, protocol.MsgQuery:
+		// Flush boundaries — clear the flag and signal the caller to
+		// fall through so handleSync emits ReadyForQuery (or
+		// handleQuery runs a fresh simple-query exchange).
+		c.discardingUntilSync = false
+		return false, nil
+	case protocol.MsgTerminate:
+		// Connection teardown — fall through to normal dispatch.
+		return false, nil
+	case protocol.MsgFlush:
+		// Flush still pushes any buffered ErrorResponse to the client
+		// but writes no reply of its own. Mirror the length-consume +
+		// flush dance that handleMessage's MsgFlush branch does.
+		if _, err := c.ReadMessageLength(); err != nil {
+			return true, fmt.Errorf("failed to read Flush message length: %w", err)
+		}
+		return true, c.flush()
+	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
+		protocol.MsgExecute, protocol.MsgClose:
+		return true, c.drainExtendedQueryMessage()
+	}
+	return false, nil
+}
+
+// drainExtendedQueryMessage reads and discards a single extended-query
+// message body while the connection is in error-drain mode. The bytes
+// must still be consumed off the wire so the next ReadMessageType aligns
+// to the next message header — only the handler call and the reply
+// frame are suppressed. readMessageBody handles zero-length bodies as a
+// no-op, so no special case is needed here.
+func (c *Conn) drainExtendedQueryMessage() error {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
+		return fmt.Errorf("read length while draining: %w", err)
+	}
+	if _, err := c.readMessageBody(bodyLen); err != nil {
+		return fmt.Errorf("read body while draining: %w", err)
+	}
+	c.returnReadBuffer()
+	return nil
+}
+
+// writeExtendedQueryError writes an ErrorResponse and enters error-drain
+// mode. PostgreSQL's protocol spec requires that after an extended-query
+// message errors, the backend discards every subsequent message until
+// Sync and only then emits ReadyForQuery. Strict drivers (Postgrex, JDBC)
+// treat any frame between ErrorResponse and ReadyForQuery as protocol
+// corruption and drop the connection.
+//
+// Use this from any handler that processes an extended-query inbound
+// message (Parse, Bind, Describe, Execute, Close) when reporting an
+// error to the client. Do NOT use it from handleQuery (simple Query is
+// its own self-contained ErrorResponse + ReadyForQuery flow) or from
+// handleSync (Sync itself emits ReadyForQuery and is the boundary the
+// drain ends at).
+func (c *Conn) writeExtendedQueryError(err error) error {
+	c.discardingUntilSync = true
+	return c.writeError(err)
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.

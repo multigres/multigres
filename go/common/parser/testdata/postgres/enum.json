@@ -242,8 +242,8 @@
   },
   {
     "comment": "enum - Statement 52",
-    "query": "SELECT enumlabel, case when enumsortorder \u003e 20 then null else enumsortorder end as so FROM pg_enum WHERE enumtypid = 'insenum'::regtype ORDER BY enumsortorder",
-    "expected": "SELECT enumlabel, CASE WHEN enumsortorder \u003e 20 THEN NULL ELSE enumsortorder END AS so FROM pg_enum WHERE enumtypid = CAST('insenum' AS regtype) ORDER BY enumsortorder"
+    "query": "SELECT enumlabel, case when enumsortorder > 20 then null else enumsortorder end as so FROM pg_enum WHERE enumtypid = 'insenum'::regtype ORDER BY enumsortorder",
+    "expected": "SELECT enumlabel, CASE WHEN enumsortorder > 20 THEN NULL ELSE enumsortorder END AS so FROM pg_enum WHERE enumtypid = CAST('insenum' AS regtype) ORDER BY enumsortorder"
   },
   {
     "comment": "enum - Statement 53",
@@ -269,23 +269,23 @@
   },
   {
     "comment": "enum - Statement 58",
-    "query": "SELECT * FROM enumtest WHERE col \u003c\u003e 'orange' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col <> 'orange' ORDER BY col"
   },
   {
     "comment": "enum - Statement 59",
-    "query": "SELECT * FROM enumtest WHERE col \u003e 'yellow' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col > 'yellow' ORDER BY col"
   },
   {
     "comment": "enum - Statement 60",
-    "query": "SELECT * FROM enumtest WHERE col \u003e= 'yellow' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col >= 'yellow' ORDER BY col"
   },
   {
     "comment": "enum - Statement 61",
-    "query": "SELECT * FROM enumtest WHERE col \u003c 'green' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col < 'green' ORDER BY col"
   },
   {
     "comment": "enum - Statement 62",
-    "query": "SELECT * FROM enumtest WHERE col \u003c= 'green' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col <= 'green' ORDER BY col"
   },
   {
     "comment": "enum - Statement 63",
@@ -309,8 +309,8 @@
   },
   {
     "comment": "enum - Statement 67",
-    "query": "SELECT max(col) FROM enumtest WHERE col \u003c 'green'",
-    "expected": "SELECT MAX(col) FROM enumtest WHERE col \u003c 'green'"
+    "query": "SELECT max(col) FROM enumtest WHERE col < 'green'",
+    "expected": "SELECT MAX(col) FROM enumtest WHERE col < 'green'"
   },
   {
     "comment": "enum - Statement 68",

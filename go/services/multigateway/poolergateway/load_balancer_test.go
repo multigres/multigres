@@ -43,10 +43,12 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   name + ".example.com",
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Type:       poolerType,
+		Hostname: name + ".example.com",
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		Type: poolerType,
 		PortMap: map[string]int32{
 			"grpc": 50051,
 		},
@@ -251,8 +253,8 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 	info := conn.PoolerInfo()
 	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
 		Target: &query.Target{
-			TableGroup: info.GetTableGroup(),
-			Shard:      info.GetShard(),
+			TableGroup: info.GetShardKey().GetTableGroup(),
+			Shard:      info.GetShardKey().GetShard(),
 			PoolerType: info.Type,
 		},
 		PoolerId:          info.Id,
@@ -388,44 +390,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			"Should return discovery-seeded primary before health stream connects")
 	})
 
-	t.Run("unwatched primary keeps discovery seed", func(t *testing.T) {
-		logger := slog.Default()
-		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
-		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		require.NoError(t, lb.AddPooler(primary1))
-
-		lb.mu.Lock()
-		connPrimary1 := lb.connections[poolerID(primary1)]
-		lb.mu.Unlock()
-
-		// primary1 observes a primary in zone3 that we don't have a connection to
-		unknownPrimaryID := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone3",
-			Name:      "unknown-primary",
-		}
-		simulateHealthUpdate(connPrimary1,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.LeaderObservation{
-				LeaderId:   unknownPrimaryID,
-				LeaderTerm: 100,
-			})
-
-		// Cache NOT updated (unknown-primary not in connections).
-		// Discovery seed (term 0) for primary1 remains intact.
-		target := &query.Target{
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      "0",
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-		conn, err := lb.GetConnection(target)
-		require.NoError(t, err)
-		assert.Equal(t, poolerID(primary1), conn.ID(),
-			"Discovery seed should survive when observed primary is not in connections")
-	})
-
-	t.Run("cache invalidated on pooler removal", func(t *testing.T) {
+	t.Run("leader identity preserved on pooler removal", func(t *testing.T) {
 		logger := slog.Default()
 		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
@@ -436,7 +401,8 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		connPrimary := lb.connections[poolerID(primary)]
 		lb.mu.Unlock()
 
-		// Health update populates cache
+		// Health update populates the leader entry with a real (term > 0)
+		// observation.
 		simulateHealthUpdate(connPrimary,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.LeaderObservation{
@@ -444,7 +410,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 				LeaderTerm: 1,
 			})
 
-		// Verify cached
+		// Verify routing
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      "0",
@@ -454,12 +420,15 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary), conn.ID())
 
-		// Remove the pooler — cache should be invalidated
+		// Remove the pooler — leader identity must persist; GetConnection
+		// distinguishes "known but not connected" (transient, after removal)
+		// from "no leader observed yet" (operational, never saw consensus).
 		lb.RemovePooler(poolerID(primary))
 
 		_, err = lb.GetConnection(target)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no primary cached")
+		assert.Contains(t, err.Error(), "not connected",
+			"Leader identity must persist; error should distinguish from 'no leader observed yet'")
 	})
 }
 
@@ -479,28 +448,6 @@ func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID(), "Should find primary seeded from discovery")
-}
-
-func TestLoadBalancer_PrimarySeedInvalidatedOnTypeChange(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
-	// Add as PRIMARY — seeds cache
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, lb.AddPooler(pooler))
-
-	// Topo update: type changed to REPLICA — seed should be invalidated
-	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, lb.AddPooler(poolerAsReplica))
-
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      "0",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	_, err := lb.GetConnection(target)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no primary cached")
 }
 
 func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
@@ -561,7 +508,7 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 		}
 		_, err := lb.GetConnection(target)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no primary cached",
+		assert.Contains(t, err.Error(), "no leader observed yet",
 			"Should not fall back to UNKNOWN type poolers")
 	})
 
@@ -659,6 +606,150 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 		assert.Equal(t, "zone1", conn.Cell(),
 			"Should fall back to local not-serving when no serving replicas")
 	})
+}
+
+// TestLoadBalancer_LeaderObservationBeforeConnection covers the silent-drop
+// race from the failover archive: a higher-term LeaderObservation arrives for
+// pooler X before X has been added via AddPooler. With the old shape, the
+// observation was dropped because the connection didn't exist yet. With the
+// new shape, leader identity is recorded regardless and routing works the
+// moment X is added.
+func TestLoadBalancer_LeaderObservationBeforeConnection(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	// observer is in the shard but is NOT the leader; we use its health stream
+	// to deliver an observation naming a pooler we have not added yet.
+	observer := createTestMultiPooler("observer", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(observer))
+
+	lb.mu.Lock()
+	connObserver := lb.connections[poolerID(observer)]
+	lb.mu.Unlock()
+
+	// The future leader exists in topology but has not been added yet.
+	futureLeader := createTestMultiPooler("future-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+
+	// observer reports that future-leader is the consensus leader at term 7.
+	simulateHealthUpdate(connObserver,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.LeaderObservation{
+			LeaderId:   futureLeader.Id,
+			LeaderTerm: 7,
+		})
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+
+	// Leader identity must be recorded even though we have no connection.
+	_, err := lb.GetConnection(target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not connected",
+		"Identity must be recorded; the gateway should distinguish 'known but unreachable' from 'unknown'")
+
+	// AddPooler the leader. No additional observation needed — routing must
+	// work immediately, proving identity was not dropped at observation time.
+	require.NoError(t, lb.AddPooler(futureLeader))
+	conn, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(futureLeader), conn.ID())
+}
+
+// TestLoadBalancer_StalePrimaryTypeDoesNotEvict is the regression for the
+// failover archive: a demoted-then-restarted pooler re-asserts Type=PRIMARY
+// in topology. The gateway must not redirect traffic to it; the known leader
+// at the higher term wins.
+func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	demoted := createTestMultiPooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	newLeader := createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(demoted))
+	require.NoError(t, lb.AddPooler(newLeader))
+
+	lb.mu.Lock()
+	connNewLeader := lb.connections[poolerID(newLeader)]
+	lb.mu.Unlock()
+
+	// new-leader's health stream confirms itself as leader at term 2 (the
+	// post-failover state).
+	simulateHealthUpdate(connNewLeader,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.LeaderObservation{
+			LeaderId:   newLeader.Id,
+			LeaderTerm: 2,
+		})
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	conn, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(newLeader), conn.ID())
+
+	// Now the demoted pooler's stale topology record flips to Type=PRIMARY
+	// (its pod restarted before multiorch corrected etcd). The gateway sees
+	// the same connection re-asserting itself as PRIMARY.
+	demotedReasserted := createTestMultiPooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(demotedReasserted))
+
+	// Both connections must still be present — discovery does not evict, and
+	// the LoadBalancer ignores the topology hint for leader identity.
+	assert.Equal(t, 2, lb.ConnectionCount(),
+		"Stale Type=PRIMARY assertion must NOT cause the real leader's connection to be dropped")
+
+	// Routing must still go to new-leader, the consensus-elected term-2 leader.
+	conn, err = lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(newLeader), conn.ID(),
+		"Stale topology must not redirect PRIMARY traffic away from the consensus-elected leader")
+}
+
+// TestLoadBalancer_ReplicaCandidatesExcludeLeader verifies that REPLICA
+// selection consults the LeaderObservation instead of topology Type. A pooler
+// that consensus has elected leader must never be considered a replica
+// candidate, even if its topology Type still says REPLICA.
+func TestLoadBalancer_ReplicaCandidatesExcludeLeader(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	// All three are Type=REPLICA in topology; one is actually leader.
+	a := createTestMultiPooler("pooler-a", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	b := createTestMultiPooler("pooler-b", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	c := createTestMultiPooler("pooler-c", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(a))
+	require.NoError(t, lb.AddPooler(b))
+	require.NoError(t, lb.AddPooler(c))
+
+	lb.mu.Lock()
+	connA := lb.connections[poolerID(a)]
+	lb.mu.Unlock()
+
+	// a observes itself as leader; b and c are eligible replica candidates.
+	simulateHealthUpdate(connA,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.LeaderObservation{LeaderId: a.Id, LeaderTerm: 1})
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+
+	// Run several iterations: the leader must never be selected, regardless of
+	// which non-leader the load balancer picks at random.
+	for range 50 {
+		conn, err := lb.GetConnection(target)
+		require.NoError(t, err)
+		assert.NotEqual(t, poolerID(a), conn.ID(),
+			"Known leader (pooler-a) must never be returned as a REPLICA candidate")
+	}
 }
 
 func TestLoadBalancerListener(t *testing.T) {

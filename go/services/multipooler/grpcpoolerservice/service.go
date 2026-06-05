@@ -19,17 +19,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
@@ -179,22 +183,39 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
 	}
 
+	// Time the full credential-query path (admin acquire + pg_authid
+	// lookup + decode) for mg.pooler.auth.credential_query.duration so
+	// admin-pool contention shows up before it cascades into
+	// gateway-visible auth latency. The duration is recorded on every
+	// exit, error or not; the error counter only fires on failures so
+	// the success rate is implicit.
+	recorder := poolManager.CredentialQueryRecorder()
+	start := time.Now()
+	var errorType string
+	defer func() {
+		if recorder != nil {
+			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
+		}
+	}()
+
 	// An admin connection:
 	// - has permission to read password hashes
 	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
 	//   to figure out if the caller should have access to that role-specific connection.
 	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
+		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
 		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
 	}
 	defer conn.Recycle()
 
-	// Get the role password hash using the admin connection.
-	// This queries pg_authid, which requires superuser access.
-	scramHash, err := conn.Conn.GetRolPassword(ctx, req.Username)
+	// Get the role auth info (password hash + rolreplication) using the admin
+	// connection. This queries pg_authid, which requires superuser access.
+	authInfo, err := conn.Conn.GetRolAuthInfo(ctx, req.Username)
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrUserNotFound):
+			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
 			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 		case errors.Is(err, admin.ErrLoginDisabled):
 			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
@@ -203,6 +224,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// codes.Unauthenticated for transport failures; keying on code
 			// alone would misclassify an mTLS or authz error as an app-level
 			// "role not permitted to log in" rejection to the end user.
+			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSInvalidAuthSpec,
 				fmt.Sprintf("role %q is not permitted to log in", req.Username),
@@ -212,18 +234,25 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 			// SQLSTATE 28P01 matches PG's opaque "password authentication
 			// failed" error for expired passwords. PgDiagnostic detail
 			// survives the gRPC round trip and the gateway matches on it.
+			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
 			return nil, mterrors.ToGRPC(mterrors.NewPgError(
 				"FATAL", mterrors.PgSSAuthFailed,
 				fmt.Sprintf("password authentication failed for user %q", req.Username),
 				"",
 			))
 		default:
+			// Genuine DB-level failure (SQL error, unexpected result shape,
+			// connection drop mid-query). Tagged db_error so operators can
+			// alert on it without false positives from the user_not_found
+			// baseline.
+			errorType = connpoolmanager.CredentialQueryErrorDB
 			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 		}
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash: scramHash,
+		ScramHash:         authInfo.ScramHash,
+		IsReplicationRole: authInfo.IsReplicationRole,
 	}, nil
 }
 
@@ -323,8 +352,9 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 }
 
 // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
-// The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL
-// The pooler responds: READY → DATA (for COPY TO) → RESULT/ERROR
+// The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL  (for COPY FROM STDIN)
+// The gateway sends: INITIATE                                (for COPY TO STDOUT)
+// The pooler responds: READY → DATA (for COPY TO STDOUT) → RESULT/ERROR
 func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
 	ctx := stream.Context()
 
@@ -348,10 +378,36 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 		return mterrors.ToGRPC(err)
 	}
 
+	// Dispatch on direction: COPY TO STDOUT has a server-push data phase
+	// and does not consume client DATA messages, so it goes through a
+	// dedicated handler. COPY FROM STDIN falls through to the existing flow.
+	if req.Direction == multipoolerpb.CopyBidiExecuteRequest_TO_STDOUT {
+		return s.copyBidiExecuteToStdout(ctx, stream, exec, req)
+	}
+
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
 	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options, req.ReservationOptions)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
+		// CopyReady returns a non-nil reservedState when the COPY query was
+		// rejected by PostgreSQL (e.g., invalid column, conflicting options)
+		// but the existing reserved connection is still alive and holding
+		// other reasons. Forward that state to the gateway via an ERROR phase
+		// response so the gateway keeps tracking the reserved conn; without
+		// this, the gateway would see only the gRPC status error and the next
+		// statement would fail with "reserved connection not found".
+		//
+		// Carry the structured PG diagnostic in error_diagnostic so the
+		// gateway can re-emit a verbatim ErrorResponse to the client
+		// (severity/SQLSTATE/DETAIL/HINT preserved). The text-only `error`
+		// field is kept populated for legacy callers / log lines.
+		errResp := &multipoolerpb.CopyBidiExecuteResponse{
+			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
+			Error:           err.Error(),
+			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ReservedState:   reservedState,
+		}
+		_ = stream.Send(errResp)
+		return mterrors.ToGRPC(err)
 	}
 
 	// Convert columnFormats from []int16 to []int32 for protobuf
@@ -417,39 +473,48 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			// Phase 2a: DATA - Write data chunk to PostgreSQL
 			if err := exec.CopySendData(ctx, req.Target, req.Data, copyOptions); err != nil {
 				abortState, _ := exec.CopyAbort(ctx, req.Target, "failed to write data", copyOptions)
-				// Send ERROR response with reserved state so gateway can update shard state
+				// Send ERROR response with reserved state so gateway can update shard state.
+				// Attach PgDiagnostic if the error carries one — keeps SQLSTATE/severity intact.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-					Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
-					Error:         err.Error(),
-					ReservedState: abortState,
+					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error:           err.Error(),
+					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ReservedState:   abortState,
 				}
 				_ = stream.Send(errorResp)
-				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
+				return mterrors.ToGRPC(err)
 			}
 
 		case multipoolerpb.CopyBidiExecuteRequest_DONE:
 			// Phase 2b: DONE - Finalize COPY operation
 			result, reservedState, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
 			if err != nil {
-				// Abort to ensure protocol cleanup
-				// (even though connection might already be closed in Finalize)
-				abortState, _ := exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
-
-				// Send ERROR response with reserved state from abort
+				// CopyFinalize has already done its own cleanup:
+				//   - PG ErrorResponse: ReadyForQuery was drained, the COPY
+				//     reason was removed, and the conn was either released
+				//     (no other reasons) or kept with the returned state.
+				//   - Connection-level failure: conn was released, state is nil.
+				// Either way, calling CopyAbort here would either be a no-op
+				// (conn already released) or actively poison a clean conn by
+				// writing CopyFail on a backend already back in RFQ. Forward
+				// the state CopyFinalize returned. Carry the structured PG
+				// diagnostic so the gateway re-emits a verbatim ErrorResponse.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-					Phase:         multipoolerpb.CopyBidiExecuteResponse_ERROR,
-					Error:         err.Error(),
-					ReservedState: abortState,
+					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error:           err.Error(),
+					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ReservedState:   reservedState,
 				}
 				_ = stream.Send(errorResp)
-				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
+				return mterrors.ToGRPC(err)
 			}
 
-			// Send RESULT response with final result and reserved state
+			// Send RESULT response with final result, notices, and reserved state
 			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
 				Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
 				Result:        result.ToProto(),
 				ReservedState: reservedState,
+				Notices:       noticesToProto(result.Notices),
 			}
 			if err := stream.Send(resultResp); err != nil {
 				return status.Errorf(codes.Internal, "failed to send RESULT: %v", err)
@@ -492,6 +557,129 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	}
 }
 
+// pgDiagnosticFromError returns the proto representation of a PG diagnostic
+// extracted from err, or nil when err is not a *mterrors.PgDiagnostic (e.g.
+// an infrastructure error). Callers attach the result to
+// CopyBidiExecuteResponse.error_diagnostic so the gateway can re-emit a
+// verbatim ErrorResponse rather than wrapping the message text.
+func pgDiagnosticFromError(err error) *query.PgDiagnostic {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return mterrors.PgDiagnosticToProto(diag)
+	}
+	return nil
+}
+
+// noticesToProto converts a slice of mterrors notices to their proto form
+// for forwarding through CopyBidiExecuteResponse.notices.
+func noticesToProto(notices []*mterrors.PgDiagnostic) []*query.PgDiagnostic {
+	if len(notices) == 0 {
+		return nil
+	}
+	out := make([]*query.PgDiagnostic, 0, len(notices))
+	for _, n := range notices {
+		out = append(out, mterrors.PgDiagnosticToProto(n))
+	}
+	return out
+}
+
+// copyBidiExecuteToStdout drives the COPY ... TO STDOUT half of the bidi
+// stream. Unlike COPY FROM STDIN, the client doesn't send DATA messages;
+// PG pushes CopyData frames (interleaved with NoticeResponse) until
+// CopyDone, then CommandComplete + ReadyForQuery. We translate that into
+// the bidi protocol as READY → DATA* → RESULT.
+//
+// During this phase we do not call stream.Recv(); cleanup happens when
+// stream.Send starts failing (client gone) or the RPC context is canceled
+// by the caller returning up-stack.
+func (s *poolerService) copyBidiExecuteToStdout(
+	ctx context.Context,
+	stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer,
+	exec queryservice.QueryService,
+	req *multipoolerpb.CopyBidiExecuteRequest,
+) error {
+	format, columnFormats, initNotices, reservedState, err := exec.CopyOutReady(ctx, req.Target, req.Query, req.Options, req.ReservationOptions)
+	if err != nil {
+		errResp := &multipoolerpb.CopyBidiExecuteResponse{
+			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
+			Error:           err.Error(),
+			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ReservedState:   reservedState,
+			Notices:         noticesToProto(initNotices),
+		}
+		_ = stream.Send(errResp)
+		return mterrors.ToGRPC(err)
+	}
+
+	columnFormats32 := make([]int32, len(columnFormats))
+	for i, f := range columnFormats {
+		columnFormats32[i] = int32(f)
+	}
+
+	readyResp := &multipoolerpb.CopyBidiExecuteResponse{
+		Phase:         multipoolerpb.CopyBidiExecuteResponse_READY,
+		ReservedState: reservedState,
+		Format:        int32(format),
+		ColumnFormats: columnFormats32,
+		Notices:       noticesToProto(initNotices),
+	}
+	if err := stream.Send(readyResp); err != nil {
+		copyOptions := &query.ExecuteOptions{
+			User:                 req.Options.GetUser(),
+			SessionSettings:      req.Options.GetSessionSettings(),
+			ReservedConnectionId: reservedState.GetReservedConnectionId(),
+		}
+		_, _ = exec.CopyAbort(ctx, req.Target, "failed to send READY response", copyOptions)
+		return status.Errorf(codes.Internal, "failed to send READY response: %v", err)
+	}
+
+	copyOptions := &query.ExecuteOptions{
+		User:                 req.Options.GetUser(),
+		SessionSettings:      req.Options.GetSessionSettings(),
+		ReservedConnectionId: reservedState.GetReservedConnectionId(),
+	}
+
+	// Stream CopyData / NoticeResponse to the gateway. The executor reads
+	// from the backend and invokes the callback for each message until
+	// CopyDone, at which point FinishCopyToStdout drains
+	// CommandComplete + ReadyForQuery.
+	result, finalState, err := exec.CopyOutStream(ctx, req.Target, copyOptions, func(msg client.CopyOutMessage) error {
+		if msg.Notice != nil {
+			noticeResp := &multipoolerpb.CopyBidiExecuteResponse{
+				Phase:   multipoolerpb.CopyBidiExecuteResponse_DATA,
+				Notices: []*query.PgDiagnostic{mterrors.PgDiagnosticToProto(msg.Notice)},
+			}
+			return stream.Send(noticeResp)
+		}
+		dataResp := &multipoolerpb.CopyBidiExecuteResponse{
+			Phase: multipoolerpb.CopyBidiExecuteResponse_DATA,
+			Data:  msg.Data,
+		}
+		return stream.Send(dataResp)
+	})
+	if err != nil {
+		errResp := &multipoolerpb.CopyBidiExecuteResponse{
+			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
+			Error:           err.Error(),
+			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ReservedState:   finalState,
+		}
+		_ = stream.Send(errResp)
+		return mterrors.ToGRPC(err)
+	}
+
+	resultResp := &multipoolerpb.CopyBidiExecuteResponse{
+		Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
+		Result:        result.ToProto(),
+		ReservedState: finalState,
+		Notices:       noticesToProto(result.Notices),
+	}
+	if err := stream.Send(resultResp); err != nil {
+		return status.Errorf(codes.Internal, "failed to send RESULT: %v", err)
+	}
+	return nil
+}
+
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
@@ -506,10 +694,16 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	// Conclude the transaction
-	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
+	// Conclude the transaction. Forward the per-txn portal-release diff so the
+	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
+	// (or fall back to ReleaseAllPortals when release_all_portals is true,
+	// e.g. for older gateways that don't compute the diff).
+	result, reservedState, err := executor.ConcludeTransaction(
+		ctx, req.Target, req.Options, req.Conclusion,
+		req.GetReleasePortalNames(), req.GetReleaseAllPortals(),
+	)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
@@ -529,12 +723,12 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.DiscardTempTablesResponse{
@@ -556,7 +750,7 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 	}
 
 	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil

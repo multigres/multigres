@@ -204,6 +204,12 @@ func TestRunStop(t *testing.T) {
 
 			poolerDir := tt.setupPoolerDir(baseDir)
 
+			// runStop resolves the postgres password via GetPostgresPassword
+			// (used for the pre-shutdown CHECKPOINT psql call) and errors when
+			// no source is configured. Set POSTGRES_PASSWORD so the test
+			// exercises the stop path rather than the missing-credential error.
+			t.Setenv(constants.PgPasswordEnvVar, "test-password")
+
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
 				require.NoError(t, os.MkdirAll(binDir, 0o755))

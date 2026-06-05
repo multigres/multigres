@@ -129,20 +129,33 @@ message S3Backup {
 // Cell Topology
 // =============================================================================
 
+// PoolerAddress identifies a pooler and carries the connection information a
+// peer needs to reach its postgres. Used wherever consensus references a
+// primary (CoordinatorProposal.proposal_leader, SetTermPrimaryRequest.leader,
+// ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+// topology record onto the wire.
+message PoolerAddress {
+  // The pooler being addressed.
+  ID id = 1;
+
+  // Hostname peers use to connect to this pooler's postgres.
+  string host = 2;
+
+  // Port of this pooler's postgres instance.
+  int32 postgres_port = 3;
+}
+
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
 message MultiPooler {
   // id is the unique identifier of the multipooler in the cluster.
   ID id = 1;
 
-  // Database name.
-  string database = 2;
-
-  // TableGroup name.
-  string table_group = 3;
-
-  // Shard name. If range based sharding is used, it should match
-  // key_range.
-  string shard = 4;
+  // shard_key identifies which shard this pooler belongs to. It is used for
+  // routing requests to the correct pooler and for displaying metadata about
+  // the shard in dashboards. It is not expected to change for the lifetime of
+  // the pooler, but it is not immutable either — if the pooler moves to a
+  // different shard, this field should be updated to reflect the new shard.
+  ShardKey shard_key = 2; //
 
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
@@ -165,6 +178,13 @@ message MultiPooler {
   // PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
   // Used by multiadmin to compute the primary's data directory for pgBackRest.
   string pg_data_dir = 11;
+
+  // LifecycleStatus is where the pooler is in its process lifecycle.
+  //
+  // Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
+  // readiness). Recorded in topology so the orchestrator can observe terminal
+  // lifecycle states even on cold start, not only over the health stream.
+  PoolerLifecycle lifecycle_status = 12;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -263,6 +283,54 @@ enum PoolerType {
 
   // DRAINED is used for poolers that are temporarily removed from serving traffic
   DRAINED = 3;
+}
+
+// PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
+// Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
+// readiness). The pooler advances through these states as it boots, serves,
+// and exits. The value is operator-visible via the MultiPooler topology
+// entry; the orchestrator's pooler watcher observes the
+// LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
+// stream.
+enum PoolerLifecycleStatus {
+  // LIFECYCLE_UNKNOWN is the default for older recordings that predate
+  // this field.
+  LIFECYCLE_UNKNOWN = 0;
+
+  // LIFECYCLE_STARTING is set while the pooler is initialising (loading
+  // topology, opening pools) and has not yet begun serving.
+  LIFECYCLE_STARTING = 1;
+
+  // LIFECYCLE_ACTIVE is the normal steady-state — postgres is responding.
+  LIFECYCLE_ACTIVE = 2;
+
+  // LIFECYCLE_STOPPING announces that the pooler has been told to shut
+  // down. Written at the top of GracefulShutdown so operators see the
+  // state immediately, before the shutdown sequence runs (~5–15 s).
+  LIFECYCLE_STOPPING = 3;
+
+  // LIFECYCLE_SHUTDOWN is set after the OnClose chain has run: the pooler
+  // is durably down (not just announcing it via STOPPING). Written from
+  // unregisterFunc alongside Type=DRAINED. The topology entry is left in
+  // place so the orchestrator's 4 h unseen-instance bookkeeping handles
+  // eventual eviction, but the orchestrator's pooler watcher observes
+  // the transition and stops the per-pooler health stream immediately.
+  LIFECYCLE_SHUTDOWN = 4;
+}
+
+// PoolerLifecycle pairs a PoolerLifecycleStatus with operator-readable
+// context (reason) and a write timestamp (updated). Every caller that
+// produces a PoolerLifecycle value sets all three fields together;
+// readers use `updated` to compute "how long has this pooler been in
+// state X" for diagnostics.
+message PoolerLifecycle {
+  PoolerLifecycleStatus status = 1;
+
+  // Optional reason for the current lifecycle stage.
+  string reason = 2;
+
+  // Wall-clock time at which this lifecycle entry was written.
+  google.protobuf.Timestamp updated = 3;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
@@ -366,9 +434,8 @@ message ShardRule {
 // time. It captures the highest ShardRule this pooler has replicated (or written,
 // for a leader) and the latest WAL position.
 //
-// Used in Status, BeginTerm, EmergencyDemote, and Promote responses so the
-// coordinator can determine which pooler is most advanced when selecting a
-// promotion candidate.
+// Used in Status and Recruit responses so the coordinator can determine
+// which pooler is most advanced when selecting a promotion candidate.
 //
 // Comparison: prefer the pooler with the higher rule (coordinator_term first,
 // then leader_subterm). Break ties by LSN.
@@ -382,29 +449,35 @@ message PoolerPosition {
   string lsn = 2;
 }
 
-// HighestKnownRule is the most recent ShardRule this pooler is aware of,
-// which could be beyond the end of this pooler's WAL / PoolerPosition.
+// ReplicationPrimary advertises the primary this pooler believes it should be
+// pointed at for replication, along with the rule under which that primary
+// holds leadership. The primary contact info is the main payload — it's how a
+// pooler in a degraded state (partition, mid-bootstrap, SetTermPrimary-while-postgres-
+// was-down) figures out who to reconnect replication to. The rule is supporting
+// evidence and has secondary uses such as coordinators learning of rules newer
+// than what's in any replica's WAL.
 //
-// If a pooler is disconnected from replication due to network partitions
-// or stale coordinators, the HighestKnownRule helps them fix GUC and reconnect
-// to learn the latest shard state.
-//
-// If a coordinator is still establishing a new term's first rule, the HighestKnownRule
-// may represent a rule that the coordinator is _about_ to write that doesn't exist in
-// any WAL entries yet.
-//
-// HighestKnownRule does not need to be persisted. It's a best-effort attempt to fix GUC
-// settings so that nodes can participate in replication. Nodes with out-of-date information
-// will be re-informed of the latest HighestKnownRule by any coordinator that notices the
-// pooler has incorrect replication settings.
-message HighestKnownRule {
+// Not persisted across pooler restarts — best-effort, populated by SetTermPrimary and
+// Propose RPCs. Coordinators that notice a pooler has incorrect replication
+// settings will re-inform it.
+message ReplicationPrimary {
+  // The most recent rule under which this primary holds leadership. May be
+  // ahead of the pooler's committed PoolerPosition while replication catches
+  // up. Coordinators compare this to what they would otherwise SetTermPrimary
+  // with — if (rule, primary) already matches, the SetTermPrimary is
+  // redundant and can be skipped.
   ShardRule rule = 1;
+
+  // Contact info for the primary the pooler was last told to use. Snapshot
+  // from the most recent SetTermPrimary/Propose; treat as "what this pooler currently
+  // believes," not as the canonical primary for the cluster.
+  PoolerAddress primary = 2;
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms
 // strictly below revoked_below_term. Two things are revoked:
 //
-//  1. Consensus participation: the pooler will refuse BeginTerm or other coordinator
+//  1. Consensus participation: the pooler will refuse Recruit or other coordinator
 //     requests for any term < revoked_below_term, and for revoked_below_term itself
 //     from a different coordinator than accepted_coordinator_id.
 //
@@ -432,8 +505,43 @@ message TermRevocation {
 
   // When the coordinator created this term, set by the coordinator before
   // recruiting. All poolers that accept the same recruitment store the same value.
-  // TODO: populate once BeginTermRequest carries this timestamp.
+  // TODO: populate once RecruitRequest carries this timestamp.
   google.protobuf.Timestamp coordinator_initiated_at = 3;
+
+  // The rule the coordinator observed across the cohort at recruit time —
+  // the "from" side of the transition this recruit was authoring. Used as
+  // an override key during SetTermPrimary: if a subsequent SetTermPrimary carries a rule
+  // strictly greater than this, the cluster has demonstrably moved past
+  // the runaway recruit's premise and the revocation is moot.
+  RuleNumber outgoing_rule = 4;
+}
+
+// ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation
+// has been established by an external agent rather than through normal Recruit
+// RPCs. The incoming cohort is still recruited normally via Recruit RPCs.
+//
+// The external actor certifies:
+//
+//  1. No pooler in the outgoing cohort can make progress beyond frozen_lsn
+//     under term_revocation.outgoing_rule — all durable transactions at the
+//     time of revocation are captured at or below that position.
+//
+//  2. The term in term_revocation is globally unique; no other coordinator has
+//     used or will use it.
+//
+// The coordinator names itself as the initiator in term_revocation even though
+// it is acting on an external request.
+message ExternallyCertifiedRevocation {
+  // Records the unique coordinator term for this proposal, the coordinator
+  // facilitating the request, and the outgoing_rule the cohort is being
+  // transitioned from. The coordinator fills this in even though it is acting
+  // on behalf of an external operator request.
+  TermRevocation term_revocation = 1;
+
+  // The LSN at which the outgoing cohort's progress is frozen. No durable writes
+  // occurred beyond this position under term_revocation.outgoing_rule. The chosen
+  // leader's WAL position must meet or exceed this LSN.
+  string frozen_lsn = 2;
 }
 
 // ConsensusStatus is a pooler's complete view of its position in the distributed
@@ -447,10 +555,10 @@ message TermRevocation {
 //     The highest ShardRule committed to local WAL (from rule_history) and the
 //     current LSN. Authoritative because postgres WAL is durable and ordered.
 //
-//  3. highest_known_rule (best-effort, coordinator-provided)
-//     The most recent rule the coordinator is about to establish or has recently
-//     established. May be ahead of current_position; not persisted and may be
-//     stale after restarts.
+//  3. replication_primary (best-effort, coordinator-provided)
+//     The primary this pooler should be pointed at for replication, plus the
+//     rule under which that primary holds leadership. May be ahead of
+//     current_position; not persisted and may be stale after restarts.
 message ConsensusStatus {
   // term_revocation records the highest coordinator term this pooler has revoked for.
   TermRevocation term_revocation = 1;
@@ -459,10 +567,11 @@ message ConsensusStatus {
   // and the latest WAL position.
   PoolerPosition current_position = 2;
 
-  // highest_known_rule is the most recent rule this pooler is aware of. May be
-  // ahead of current_position when the pooler has forward knowledge of an
-  // upcoming rule that has not yet been replicated or written.
-  HighestKnownRule highest_known_rule = 3;
+  // replication_primary is the pooler's best-effort view of who its primary
+  // should be (and under what rule). May reflect a rule ahead of
+  // current_position when the pooler has been informed of a newer rule that
+  // has not yet been replicated through WAL.
+  ReplicationPrimary replication_primary = 3;
 
   // id identifies the pooler that produced this status. Makes ConsensusStatus
   // self-describing when passed around without a surrounding envelope.
@@ -518,4 +627,36 @@ message LeadershipStatus {
 message AvailabilityStatus {
   // leadership_status is only set by poolers that are or have been the consensus leader.
   LeadershipStatus leadership_status = 1;
+
+  // cohort_eligibility_status is published by every pooler regardless of
+  // current cohort membership. It expresses whether the pooler is willing to
+  // serve as a cohort member; meaning falls out of the combination with the
+  // pooler's current membership in ShardRule.cohort_members. A current cohort
+  // member signaling INELIGIBLE is a candidate for removal/replacement; a
+  // non-member signaling INELIGIBLE should be skipped when growing the cohort.
+  CohortEligibilityStatus cohort_eligibility_status = 2;
+}
+
+// CohortEligibilitySignal describes a pooler's self-reported willingness to
+// be a member of the consensus cohort. 0 (UNKNOWN) means the field was not
+// intentionally set; coordinators should treat that the same as ELIGIBLE for
+// backwards compatibility with older poolers that don't publish the signal.
+enum CohortEligibilitySignal {
+  COHORT_ELIGIBILITY_SIGNAL_UNKNOWN = 0;
+
+  // Pooler is willing to serve as a cohort member.
+  COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE = 1;
+
+  // Pooler is not willing to serve as a cohort member. If currently a member,
+  // the coordinator should remove and (when possible) replace it. If not
+  // currently a member, the coordinator should not add it to the cohort.
+  COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE = 2;
+}
+
+// CohortEligibilityStatus carries the pooler's cohort-eligibility signal.
+// Unlike LeadershipStatus there is no per-term gating: eligibility is a
+// current preference, not tied to a specific epoch. Staleness comes from the
+// freshness of the surrounding health snapshot.
+message CohortEligibilityStatus {
+  CohortEligibilitySignal signal = 1;
 }

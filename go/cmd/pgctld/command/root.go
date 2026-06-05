@@ -26,21 +26,28 @@ import (
 
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgsecret"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // PgCtlCommand holds the configuration for pgctld commands.
 // This contains all flags and information necessary to run any pgctld command.
 type PgCtlCommand struct {
-	reg                *viperutil.Registry
-	pgDatabase         viperutil.Value[string]
-	pgUser             viperutil.Value[string]
-	pgPassword         viperutil.Value[string]
+	reg            *viperutil.Registry
+	pgDatabase     viperutil.Value[string]
+	pgUser         viperutil.Value[string]
+	pgPassword     viperutil.Value[string]
+	pgPasswordFile viperutil.Value[string]
+	// flagSet is the persistent flag set, saved during GetRootCommand so
+	// GetPostgresPassword can use pflag.Flag.Changed to distinguish "flag
+	// explicitly set" from "flag at default value".
+	flagSet            *pflag.FlagSet
 	poolerDir          viperutil.Value[string]
 	timeout            viperutil.Value[int]
 	pgPort             viperutil.Value[int]
@@ -48,7 +55,8 @@ type PgCtlCommand struct {
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
 	pgInitdbArgs       viperutil.Value[string]
-	initDbSQLFiles     viperutil.Value[[]string]
+	pgInitdbSQLFiles   viperutil.Value[[]string]
+	pgInitdbSQLDirs    viperutil.Value[[]string]
 	pgInitdbExtraConf  viperutil.Value[[]string]
 
 	vc        *viperutil.ViperConfig
@@ -79,6 +87,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars: []string{constants.PgPasswordEnvVar},
 			Dynamic: false,
 			// No FlagName — env var only, no CLI flag
+		}),
+		pgPasswordFile: viperutil.Configure(reg, "pg-password-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-password-file",
+			EnvVars:  []string{constants.PgPasswordFileEnvVar},
+			Dynamic:  false,
 		}),
 		timeout: viperutil.Configure(reg, "timeout", viperutil.Options[int]{
 			Default:  30,
@@ -116,10 +130,16 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			EnvVars:  []string{constants.PgInitdbArgsEnvVar},
 			Dynamic:  false,
 		}),
-		initDbSQLFiles: viperutil.Configure(reg, "init-db-sql-file", viperutil.Options[[]string]{
+		pgInitdbSQLFiles: viperutil.Configure(reg, "pg-initdb-sql-files", viperutil.Options[[]string]{
 			Default:  []string{},
-			FlagName: "init-db-sql-file",
-			EnvVars:  []string{constants.PgInitDbSQLFilesEnvVar},
+			FlagName: "pg-initdb-sql-files",
+			EnvVars:  []string{constants.PgInitdbSQLFilesEnvVar},
+			Dynamic:  false,
+		}),
+		pgInitdbSQLDirs: viperutil.Configure(reg, "pg-initdb-sql-dirs", viperutil.Options[[]string]{
+			Default:  []string{},
+			FlagName: "pg-initdb-sql-dirs",
+			EnvVars:  []string{constants.PgInitdbSQLDirsEnvVar},
 			Dynamic:  false,
 		}),
 		pgInitdbExtraConf: viperutil.Configure(reg, "pg-initdb-extra-conf", viperutil.Options[[]string]{
@@ -177,9 +197,20 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("pg-password-file", pc.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL password (plaintext, docker-library/postgres convention). Takes precedence over "+constants.PgPasswordEnvVar+". Also reads "+constants.PgPasswordFileEnvVar+" env var.")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
-	root.PersistentFlags().StringSlice("init-db-sql-file", pc.initDbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitDbSQLFilesEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-sql-dirs", pc.pgInitdbSQLDirs.Default(), "Directory of .sql files to run after initdb, in role:path format. Files run in lexicographic order under SET SESSION AUTHORIZATION <role>. Repeat for multiple directories (overrides "+constants.PgInitdbSQLDirsEnvVar+" env var).")
 	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
+
+	// Backwards-compat alias: --init-db-sql-file → --pg-initdb-sql-files.
+	// Remove once downstream users have migrated.
+	root.SetGlobalNormalizationFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "init-db-sql-file" {
+			name = "pg-initdb-sql-files"
+		}
+		return pflag.NormalizedName(name)
+	})
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -188,6 +219,7 @@ management for PostgreSQL servers.`,
 		pc.pgDatabase,
 		pc.pgUser,
 		pc.pgPassword,
+		pc.pgPasswordFile,
 		pc.timeout,
 		pc.poolerDir,
 		pc.pgPort,
@@ -195,9 +227,15 @@ management for PostgreSQL servers.`,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
 		pc.pgInitdbArgs,
-		pc.initDbSQLFiles,
+		pc.pgInitdbSQLFiles,
+		pc.pgInitdbSQLDirs,
 		pc.pgInitdbExtraConf,
 	)
+
+	// Save the persistent flag set so GetPostgresPassword can use
+	// pflag.Flag.Changed to distinguish "flag explicitly set" from
+	// "flag at default value".
+	pc.flagSet = root.PersistentFlags()
 
 	// Add all subcommands
 	AddServerCommand(root, pc)
@@ -252,6 +290,112 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 // GetLogger returns the configured logger instance
 func (pc *PgCtlCommand) GetLogger() *slog.Logger {
 	return pc.lg.GetLogger()
+}
+
+// PasswordSource describes where GetPostgresPassword resolved the password
+// from. Used in log lines so tests and operators can confirm which input was
+// consumed without exposing the password itself.
+type PasswordSource string
+
+const (
+	PasswordSourceNone PasswordSource = "none"
+	PasswordSourceFile PasswordSource = "POSTGRES_PASSWORD_FILE" //nolint:gosec // env var name, not a credential
+	PasswordSourceEnv  PasswordSource = "POSTGRES_PASSWORD"      //nolint:gosec // env var name, not a credential
+)
+
+// buildServiceConfig assembles a PgCtldServiceConfig from this command's
+// resolved flags / env vars. Shared between the `server` and `init`
+// subcommands so they construct identical configs and stay in sync as
+// fields are added. Returns an error from GetPostgresPassword unchanged so
+// callers can surface a CLI error.
+func (pc *PgCtlCommand) buildServiceConfig() (PgCtldServiceConfig, error) {
+	password, passwordSource, passwordFile, err := pc.GetPostgresPassword()
+	if err != nil {
+		return PgCtldServiceConfig{}, err
+	}
+	return PgCtldServiceConfig{
+		Port:                 pc.pgPort.Get(),
+		User:                 pc.pgUser.Get(),
+		Database:             pc.pgDatabase.Get(),
+		Password:             password,
+		PasswordSource:       passwordSource,
+		PasswordFile:         passwordFile,
+		InitdbArgs:           pc.pgInitdbArgs.Get(),
+		InitdbSQLFiles:       pc.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:        pc.pgInitdbSQLDirs.Get(),
+		InitdbExtraConfFiles: pc.pgInitdbExtraConf.Get(),
+	}, nil
+}
+
+// GetPostgresPassword resolves the postgres superuser password and reports
+// which source it came from. Sources are tried in order:
+//
+//  1. --pg-password-file flag / POSTGRES_PASSWORD_FILE env, if the file exists
+//     and has non-empty content. Returns PasswordSourceFile and the file path
+//     so downstream code (initdb --pwfile) can read it directly.
+//  2. POSTGRES_PASSWORD env, if set to a non-empty value. Returns
+//     PasswordSourceEnv.
+//
+// Two independent inputs are considered, in strict precedence order — once
+// a higher-precedence input is "explicitly set" it is authoritative and
+// lower-precedence inputs are NOT consulted, even when the higher-precedence
+// value turns out to be empty (those empty cases become errors instead of
+// fallthroughs):
+//
+//  1. File path: --pg-password-file flag (Changed), or POSTGRES_PASSWORD_FILE
+//     env (LookupEnv).
+//     - Path explicitly empty                  → error.
+//     - Path set, file content empty           → error.
+//     - Path set, file content non-empty       → use it, source=File.
+//  2. Env var: POSTGRES_PASSWORD (LookupEnv).
+//     - Env set to empty                       → error.
+//     - Env set to non-empty                   → use it, source=Env.
+//
+// Reached the end with no input explicitly set: error "not configured".
+// pgctld does not expose a --pg-password flag, so the "option" row from the
+// multipooler resolver does not apply here. "Explicitly set" uses
+// os.LookupEnv and pflag.Flag.Changed to detect operator intent — viperutil
+// collapses unset and empty into the same "" via os.Getenv.
+func (pc *PgCtlCommand) GetPostgresPassword() (password string, source PasswordSource, file string, err error) {
+	// File path: flag or env.
+	if path, explicit, isEmpty := pc.passwordFileExplicit(); explicit {
+		if isEmpty {
+			return "", PasswordSourceNone, "", errors.New("postgres password file path is set to the empty string; unset it or provide a path")
+		}
+		pw, err := pgsecret.ReadPasswordFile(path)
+		if err != nil {
+			return "", PasswordSourceNone, "", err
+		}
+		if pw == "" {
+			return "", PasswordSourceNone, "", fmt.Errorf("postgres password file %q is empty", path)
+		}
+		return pw, PasswordSourceFile, path, nil
+	}
+	// Env var: POSTGRES_PASSWORD.
+	if v, ok := os.LookupEnv(constants.PgPasswordEnvVar); ok {
+		if v == "" {
+			return "", PasswordSourceNone, "", fmt.Errorf("env var %s is set to the empty string; unset it or provide a non-empty password", constants.PgPasswordEnvVar)
+		}
+		return v, PasswordSourceEnv, "", nil
+	}
+	return "", PasswordSourceNone, "", errors.New("postgres password must be set via POSTGRES_PASSWORD, POSTGRES_PASSWORD_FILE, or --pg-password-file")
+}
+
+// passwordFileExplicit reports whether the file-path input was explicitly
+// set (via --pg-password-file or POSTGRES_PASSWORD_FILE) and whether the
+// resulting path is the empty string. It does NOT consider viperutil
+// defaults — pflag.Flag.Changed and os.LookupEnv are the source of truth.
+func (pc *PgCtlCommand) passwordFileExplicit() (path string, explicit, isEmpty bool) {
+	if pc.flagSet != nil {
+		if flag := pc.flagSet.Lookup("pg-password-file"); flag != nil && flag.Changed {
+			v := flag.Value.String()
+			return v, true, v == ""
+		}
+	}
+	if v, ok := os.LookupEnv(constants.PgPasswordFileEnvVar); ok {
+		return v, true, v == ""
+	}
+	return "", false, false
 }
 
 // GetPoolerDir returns the configured pooler directory as an absolute path

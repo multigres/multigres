@@ -495,7 +495,7 @@ func (se *StatsElem) String() string {
 // SqlString returns the SQL representation of StatsElem
 func (se *StatsElem) SqlString() string {
 	if se.Name != "" {
-		return se.Name
+		return QuoteIdentifier(se.Name)
 	}
 	if se.Expr != nil {
 		return se.Expr.SqlString()
@@ -557,20 +557,20 @@ func (cfss *CreateForeignServerStmt) SqlString() string {
 	}
 
 	// server name
-	parts = append(parts, cfss.Servername)
+	parts = append(parts, QuoteIdentifier(cfss.Servername))
 
 	// TYPE clause
 	if cfss.Servertype != "" {
-		parts = append(parts, "TYPE", "'"+cfss.Servertype+"'")
+		parts = append(parts, "TYPE", QuoteStringLiteral(cfss.Servertype))
 	}
 
 	// VERSION clause
 	if cfss.Version != "" {
-		parts = append(parts, "VERSION", "'"+cfss.Version+"'")
+		parts = append(parts, "VERSION", QuoteStringLiteral(cfss.Version))
 	}
 
 	// FOREIGN DATA WRAPPER
-	parts = append(parts, "FOREIGN DATA WRAPPER", cfss.Fdwname)
+	parts = append(parts, "FOREIGN DATA WRAPPER", QuoteIdentifier(cfss.Fdwname))
 
 	// OPTIONS clause
 	if cfss.Options != nil && cfss.Options.Len() > 0 {
@@ -686,7 +686,7 @@ func (cfts *CreateForeignTableStmt) SqlString() string {
 	}
 
 	// SERVER clause
-	parts = append(parts, "SERVER", cfts.Servername)
+	parts = append(parts, "SERVER", QuoteIdentifier(cfts.Servername))
 
 	// OPTIONS clause
 	if cfts.Options != nil && cfts.Options.Len() > 0 {
@@ -759,7 +759,7 @@ func (cums *CreateUserMappingStmt) SqlString() string {
 	}
 
 	// SERVER name
-	parts = append(parts, "SERVER", cums.Servername)
+	parts = append(parts, "SERVER", QuoteIdentifier(cums.Servername))
 
 	// OPTIONS clause
 	if cums.Options != nil && cums.Options.Len() > 0 {
@@ -987,7 +987,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 	if cts.IsConstraint {
 		parts = append(parts, "CONSTRAINT")
 	}
-	parts = append(parts, "TRIGGER", cts.Trigname)
+	parts = append(parts, "TRIGGER", QuoteIdentifier(cts.Trigname))
 
 	// Timing (BEFORE, AFTER, INSTEAD OF)
 	switch cts.Timing {
@@ -1015,7 +1015,11 @@ func (cts *CreateTriggerStmt) SqlString() string {
 				}
 			}
 			if len(colNames) > 0 {
-				updateEvent = "UPDATE OF " + strings.Join(colNames, ", ")
+				quotedCols := make([]string, 0, len(colNames))
+				for _, c := range colNames {
+					quotedCols = append(quotedCols, QuoteIdentifier(c))
+				}
+				updateEvent = "UPDATE OF " + strings.Join(quotedCols, ", ")
 			}
 		}
 		events = append(events, updateEvent)
@@ -1068,7 +1072,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 			} else {
 				parts = append(parts, "ROW")
 			}
-			parts = append(parts, "AS", trans.Name)
+			parts = append(parts, "AS", QuoteIdentifier(trans.Name))
 		}
 	}
 
@@ -1090,7 +1094,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 		var funcNames []string
 		for _, item := range cts.Funcname.Items {
 			if str, ok := item.(*String); ok {
-				funcNames = append(funcNames, str.SVal)
+				funcNames = append(funcNames, QuoteIdentifier(str.SVal))
 			}
 		}
 		funcNameStr := strings.Join(funcNames, ".")
@@ -1240,7 +1244,7 @@ func (aps *AlterPolicyStmt) StatementType() string {
 // SqlString returns the SQL representation of ALTER POLICY statement
 func (aps *AlterPolicyStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER POLICY", aps.PolicyName, "ON")
+	parts = append(parts, "ALTER POLICY", QuoteIdentifier(aps.PolicyName), "ON")
 
 	if aps.Table != nil {
 		parts = append(parts, aps.Table.SqlString())

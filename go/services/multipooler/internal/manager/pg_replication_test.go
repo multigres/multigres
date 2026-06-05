@@ -17,8 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -28,21 +26,41 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// mustReplicaIDFromAppName constructs a consensus.ReplicaID from a "cell_name" application name string.
+// expectReloadConfig sets up the mock query expectations for one successful call
+// to MultiPoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
+// pg_reload_conf, then read pg_conf_load_time (post) returning a different value
+// so the wait loop exits on the first poll.
+func expectReloadConfig(m *mock.QueryService) {
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01+00"}}))
+}
+
+// expectReloadConfigFailure sets up the mock query expectations for a call to
+// MultiPoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
+// The wait loop is never entered.
+func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:00+00"}}))
+	m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", reloadErr)
+}
+
+// mustPoolerIDFromAppName constructs a poolerID from a "cell_name" application name string.
 // Panics if parsing or construction fails; for use in tests only.
-func mustReplicaIDFromAppName(appName string) consensus.ReplicaID {
-	id, err := consensus.ParseApplicationName(appName)
+func mustPoolerIDFromAppName(appName string) poolerID {
+	id, err := parseApplicationName(appName)
 	if err != nil {
 		panic(err)
 	}
-	pid, err := consensus.NewReplicaID(id)
+	pid, err := newPoolerID(id)
 	if err != nil {
 		panic(err)
 	}
@@ -122,15 +140,15 @@ func TestNewPoolerID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := consensus.NewReplicaID(tt.id)
+			result, err := newPoolerID(tt.id)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.id, result.ID())
+				assert.Equal(t, tt.id, result.id)
 			}
-			assert.Equal(t, tt.expectedAppName, result.AppName())
+			assert.Equal(t, tt.expectedAppName, result.appName)
 		})
 	}
 }
@@ -171,19 +189,19 @@ func TestPoolerIDFromAppName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := consensus.NewReplicaIDFromAppName(tt.appName)
+			result, err := poolerIDFromAppName(tt.appName)
 			if tt.expectError {
 				require.Error(t, err)
 				// Best-effort ID is always returned: caller can include it rather than drop the member
-				require.NotNil(t, result.ID())
-				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.ID().Component)
-				assert.Equal(t, tt.expectedName, result.ID().Name, "Name should preserve raw appName")
+				require.NotNil(t, result.id)
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedName, result.id.Name, "Name should preserve raw appName")
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.ID().Component)
-				assert.Equal(t, tt.expectedCell, result.ID().Cell)
-				assert.Equal(t, tt.expectedName, result.ID().Name)
-				assert.Equal(t, tt.appName, result.AppName())
+				assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, result.id.Component)
+				assert.Equal(t, tt.expectedCell, result.id.Cell)
+				assert.Equal(t, tt.expectedName, result.id.Name)
+				assert.Equal(t, tt.appName, result.appName)
 			}
 		})
 	}
@@ -195,15 +213,15 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			{Cell: "zone2", Name: "replica-2"},
 		}
-		result, err := consensus.ToReplicaIDs(ids)
+		result, err := toPoolerIDs(ids)
 		require.NoError(t, err)
 		require.Len(t, result, 2)
-		assert.Equal(t, "zone1_replica-1", result[0].AppName())
-		assert.Equal(t, "zone2_replica-2", result[1].AppName())
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "zone2_replica-2", result[1].appName)
 	})
 
 	t.Run("nil slice", func(t *testing.T) {
-		result, err := consensus.ToReplicaIDs(nil)
+		result, err := toPoolerIDs(nil)
 		require.NoError(t, err)
 		assert.Empty(t, result)
 	})
@@ -213,13 +231,13 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			nil,
 		}
-		result, err := consensus.ToReplicaIDs(ids)
+		result, err := toPoolerIDs(ids)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ids[1]")
 		// Full slice returned despite the error.
 		require.Len(t, result, 2)
-		assert.Equal(t, "zone1_replica-1", result[0].AppName())
-		assert.Equal(t, "<nil>", result[1].AppName())
+		assert.Equal(t, "zone1_replica-1", result[0].appName)
+		assert.Equal(t, "<nil>", result[1].appName)
 	})
 
 	t.Run("first error is reported when multiple entries are invalid", func(t *testing.T) {
@@ -228,40 +246,40 @@ func TestToPoolerIDs(t *testing.T) {
 			{Cell: "zone1", Name: "replica-1"},
 			nil,
 		}
-		result, err := consensus.ToReplicaIDs(ids)
+		result, err := toPoolerIDs(ids)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ids[0]") // first error, not ids[2]
 		require.Len(t, result, 3)
-		assert.Equal(t, "<nil>", result[0].AppName())
-		assert.Equal(t, "zone1_replica-1", result[1].AppName())
-		assert.Equal(t, "<nil>", result[2].AppName())
+		assert.Equal(t, "<nil>", result[0].appName)
+		assert.Equal(t, "zone1_replica-1", result[1].appName)
+		assert.Equal(t, "<nil>", result[2].appName)
 	})
 }
 
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
 		name     string
-		names    []consensus.ReplicaID
+		names    []poolerID
 		expected string
 	}{
 		{
 			name:     "empty list",
-			names:    []consensus.ReplicaID{},
+			names:    []poolerID{},
 			expected: "",
 		},
 		{
 			name:     "single standby",
-			names:    []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1")},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected: `"zone1_replica-1"`,
 		},
 		{
 			name:     "multiple standbys",
-			names:    []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1"), mustReplicaIDFromAppName("zone2_replica-2"), mustReplicaIDFromAppName("zone3_replica-3")},
+			names:    []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected: `"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"`,
 		},
 		{
 			name:     "two standbys",
-			names:    []consensus.ReplicaID{mustReplicaIDFromAppName("east_standby-a"), mustReplicaIDFromAppName("west_standby-b")},
+			names:    []poolerID{mustPoolerIDFromAppName("east_standby-a"), mustPoolerIDFromAppName("west_standby-b")},
 			expected: `"east_standby-a", "west_standby-b"`,
 		},
 	}
@@ -278,7 +296,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 		name        string
 		method      multipoolermanagerdatapb.SynchronousMethod
 		numSync     int32
-		names       []consensus.ReplicaID
+		names       []poolerID
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -287,7 +305,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "empty standby list returns empty string",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []consensus.ReplicaID{},
+			names:       []poolerID{},
 			expected:    "",
 			expectError: false,
 		},
@@ -295,7 +313,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with single standby",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			names:       []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1")},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    `FIRST 1 ("zone1_replica-1")`,
 			expectError: false,
 		},
@@ -303,7 +321,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "FIRST method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     2,
-			names:       []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1"), mustReplicaIDFromAppName("zone2_replica-2"), mustReplicaIDFromAppName("zone3_replica-3")},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2"), mustPoolerIDFromAppName("zone3_replica-3")},
 			expected:    `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
 			expectError: false,
 		},
@@ -311,7 +329,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with multiple standbys",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     1,
-			names:       []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1"), mustReplicaIDFromAppName("zone2_replica-2")},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1"), mustPoolerIDFromAppName("zone2_replica-2")},
 			expected:    `ANY 1 ("zone1_replica-1", "zone2_replica-2")`,
 			expectError: false,
 		},
@@ -319,7 +337,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "ANY method with three standbys and numSync=2",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:     2,
-			names:       []consensus.ReplicaID{mustReplicaIDFromAppName("a_1"), mustReplicaIDFromAppName("b_2"), mustReplicaIDFromAppName("c_3")},
+			names:       []poolerID{mustPoolerIDFromAppName("a_1"), mustPoolerIDFromAppName("b_2"), mustPoolerIDFromAppName("c_3")},
 			expected:    `ANY 2 ("a_1", "b_2", "c_3")`,
 			expectError: false,
 		},
@@ -327,7 +345,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "invalid method returns error",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
 			numSync:     1,
-			names:       []consensus.ReplicaID{mustReplicaIDFromAppName("zone1_replica-1")},
+			names:       []poolerID{mustPoolerIDFromAppName("zone1_replica-1")},
 			expected:    "",
 			expectError: true,
 			errorMsg:    "invalid synchronous method",
@@ -475,222 +493,52 @@ func TestValidateStandbyIDs(t *testing.T) {
 	}
 }
 
-func TestSyncReplicationConfigMatches(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	pm := &MultiPoolerManager{
-		logger: logger,
-	}
-
-	standby1 := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-1"}
-	standby2 := &clustermetadatapb.ID{Cell: "zone2", Name: "replica-2"}
-	standby3 := &clustermetadatapb.ID{Cell: "zone3", Name: "replica-3"}
-
-	tests := []struct {
-		name      string
-		current   *multipoolermanagerdatapb.SynchronousReplicationConfiguration
-		requested *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
-		expected  bool
-	}{
-		{
-			name: "perfect match",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           2,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2, standby3},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           2,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2, standby3},
-			},
-			expected: true,
-		},
-		{
-			name: "different synchronous commit level",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_APPLY,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1},
-			},
-			expected: false,
-		},
-		{
-			name: "different synchronous method",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			expected: false,
-		},
-		{
-			name: "different num_sync",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           2,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			expected: false,
-		},
-		{
-			name: "different standby count",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2, standby3},
-			},
-			expected: false,
-		},
-		{
-			name: "different standbys same count",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           1,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby3},
-			},
-			expected: false,
-		},
-		{
-			name: "same standbys different order - should match",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           2,
-				StandbyIds:        []*clustermetadatapb.ID{standby1, standby2, standby3},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           2,
-				StandbyIds:        []*clustermetadatapb.ID{standby3, standby1, standby2},
-			},
-			expected: true,
-		},
-		{
-			name: "empty standbys in both",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           0,
-				StandbyIds:        []*clustermetadatapb.ID{},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           0,
-				StandbyIds:        []*clustermetadatapb.ID{},
-			},
-			expected: true,
-		},
-		{
-			name: "empty vs non-empty standbys",
-			current: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           0,
-				StandbyIds:        []*clustermetadatapb.ID{},
-			},
-			requested: &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-				SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-				SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-				NumSync:           0,
-				StandbyIds:        []*clustermetadatapb.ID{standby1},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := pm.syncReplicationConfigMatches(tt.current, tt.requested)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestApplyAddOperation(t *testing.T) {
-	s1 := mustReplicaIDFromAppName("zone1_replica-1")
-	s2 := mustReplicaIDFromAppName("zone2_replica-2")
-	s3 := mustReplicaIDFromAppName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []consensus.ReplicaID
-		incoming []consensus.ReplicaID
-		expected []consensus.ReplicaID
+		current  []poolerID
+		incoming []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "add to empty list",
-			current:  []consensus.ReplicaID{},
-			incoming: []consensus.ReplicaID{s1},
-			expected: []consensus.ReplicaID{s1},
+			current:  []poolerID{},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "add new standby to existing list",
-			current:  []consensus.ReplicaID{s1},
-			incoming: []consensus.ReplicaID{s2},
-			expected: []consensus.ReplicaID{s1, s2},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "add multiple new standbys",
-			current:  []consensus.ReplicaID{s1},
-			incoming: []consensus.ReplicaID{s2, s3},
-			expected: []consensus.ReplicaID{s1, s2, s3},
+			current:  []poolerID{s1},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "idempotent - add existing standby",
-			current:  []consensus.ReplicaID{s1, s2},
-			incoming: []consensus.ReplicaID{s1},
-			expected: []consensus.ReplicaID{s1, s2},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s1},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - add mix of existing and new",
-			current:  []consensus.ReplicaID{s1, s2},
-			incoming: []consensus.ReplicaID{s2, s3},
-			expected: []consensus.ReplicaID{s1, s2, s3},
+			current:  []poolerID{s1, s2},
+			incoming: []poolerID{s2, s3},
+			expected: []poolerID{s1, s2, s3},
 		},
 		{
 			name:     "add empty list does nothing",
-			current:  []consensus.ReplicaID{s1},
-			incoming: []consensus.ReplicaID{},
-			expected: []consensus.ReplicaID{s1},
+			current:  []poolerID{s1},
+			incoming: []poolerID{},
+			expected: []poolerID{s1},
 		},
 	}
 
@@ -703,57 +551,57 @@ func TestApplyAddOperation(t *testing.T) {
 }
 
 func TestApplyRemoveOperation(t *testing.T) {
-	s1 := mustReplicaIDFromAppName("zone1_replica-1")
-	s2 := mustReplicaIDFromAppName("zone2_replica-2")
-	s3 := mustReplicaIDFromAppName("zone3_replica-3")
+	s1 := mustPoolerIDFromAppName("zone1_replica-1")
+	s2 := mustPoolerIDFromAppName("zone2_replica-2")
+	s3 := mustPoolerIDFromAppName("zone3_replica-3")
 
 	tests := []struct {
 		name     string
-		current  []consensus.ReplicaID
-		remove   []consensus.ReplicaID
-		expected []consensus.ReplicaID
+		current  []poolerID
+		remove   []poolerID
+		expected []poolerID
 	}{
 		{
 			name:     "remove from single item list",
-			current:  []consensus.ReplicaID{s1},
-			remove:   []consensus.ReplicaID{s1},
-			expected: []consensus.ReplicaID{},
+			current:  []poolerID{s1},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 		{
 			name:     "remove one from multiple",
-			current:  []consensus.ReplicaID{s1, s2, s3},
-			remove:   []consensus.ReplicaID{s2},
-			expected: []consensus.ReplicaID{s1, s3},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s2},
+			expected: []poolerID{s1, s3},
 		},
 		{
 			name:     "remove multiple standbys",
-			current:  []consensus.ReplicaID{s1, s2, s3},
-			remove:   []consensus.ReplicaID{s1, s3},
-			expected: []consensus.ReplicaID{s2},
+			current:  []poolerID{s1, s2, s3},
+			remove:   []poolerID{s1, s3},
+			expected: []poolerID{s2},
 		},
 		{
 			name:     "idempotent - remove non-existent standby",
-			current:  []consensus.ReplicaID{s1, s2},
-			remove:   []consensus.ReplicaID{s3},
-			expected: []consensus.ReplicaID{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s3},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "idempotent - remove mix of existing and non-existent",
-			current:  []consensus.ReplicaID{s1, s2},
-			remove:   []consensus.ReplicaID{s2, s3},
-			expected: []consensus.ReplicaID{s1},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{s2, s3},
+			expected: []poolerID{s1},
 		},
 		{
 			name:     "remove empty list does nothing",
-			current:  []consensus.ReplicaID{s1, s2},
-			remove:   []consensus.ReplicaID{},
-			expected: []consensus.ReplicaID{s1, s2},
+			current:  []poolerID{s1, s2},
+			remove:   []poolerID{},
+			expected: []poolerID{s1, s2},
 		},
 		{
 			name:     "remove from empty list",
-			current:  []consensus.ReplicaID{},
-			remove:   []consensus.ReplicaID{s1},
-			expected: []consensus.ReplicaID{},
+			current:  []poolerID{},
+			remove:   []poolerID{s1},
+			expected: []poolerID{},
 		},
 	}
 
@@ -921,23 +769,18 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 	}
 }
 
-func TestGetSynchronousReplicationConfig(t *testing.T) {
+func TestParseSyncReplicationConfig(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMock      func(*mock.QueryService)
+		standbyNames   string
+		syncCommit     string
 		expectError    bool
 		validateResult func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration)
 	}{
 		{
-			name: "FIRST method with multiple standbys",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"},
-					[][]any{{`FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"on"}}))
-			},
-			expectError: false,
+			name:         "FIRST method with multiple standbys",
+			standbyNames: `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
+			syncCommit:   "on",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST, config.SynchronousMethod)
 				assert.Equal(t, int32(2), config.NumSync)
@@ -946,15 +789,9 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "ANY method with single standby",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"},
-					[][]any{{`ANY 1 ("zone1_replica-1")`}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"remote_apply"}}))
-			},
-			expectError: false,
+			name:         "ANY method with single standby",
+			standbyNames: `ANY 1 ("zone1_replica-1")`,
+			syncCommit:   "remote_apply",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
 				assert.Equal(t, int32(1), config.NumSync)
@@ -965,71 +802,41 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "empty synchronous_standby_names",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"local"}}))
-			},
-			expectError: false,
+			name:         "empty synchronous_standby_names",
+			standbyNames: "",
+			syncCommit:   "local",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, 0, len(config.StandbyIds))
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "synchronous_commit off",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"off"}}))
-			},
-			expectError: false,
+			name:         "synchronous_commit off",
+			standbyNames: "",
+			syncCommit:   "off",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "synchronous_commit remote_write",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"remote_write"}}))
-			},
-			expectError: false,
+			name:         "synchronous_commit remote_write",
+			standbyNames: "",
+			syncCommit:   "remote_write",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "query error on synchronous_standby_names",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("SHOW synchronous_standby_names", errors.New("connection done"))
-			},
-			expectError: true,
-		},
-		{
-			name: "query error on synchronous_commit",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnceWithError("SHOW synchronous_commit", errors.New("connection done"))
-			},
-			expectError: true,
+			name:         "unknown synchronous_commit value",
+			standbyNames: "",
+			syncCommit:   "bogus",
+			expectError:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
-
-			tt.setupMock(mockQueryService)
-
-			ctx := context.Background()
-			result, err := pm.getSynchronousReplicationConfig(ctx)
+			result, err := parseSyncReplicationConfig(tt.standbyNames, tt.syncCommit)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -1041,7 +848,6 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 					tt.validateResult(t, result)
 				}
 			}
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -1051,7 +857,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		name              string
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
-		names             []consensus.ReplicaID
+		names             []poolerID
 		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
@@ -1059,7 +865,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "FIRST method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []consensus.ReplicaID{mustReplicaIDFromAppName("cell1_pooler1"), mustReplicaIDFromAppName("cell1_pooler2")},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell1_pooler2")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -1069,7 +875,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "ANY method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:           2,
-			names:             []consensus.ReplicaID{mustReplicaIDFromAppName("cell1_pooler1"), mustReplicaIDFromAppName("cell2_pooler2"), mustReplicaIDFromAppName("cell2_pooler3")},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1"), mustPoolerIDFromAppName("cell2_pooler2"), mustPoolerIDFromAppName("cell2_pooler3")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -1079,7 +885,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "db exec error",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			names:             []consensus.ReplicaID{mustReplicaIDFromAppName("cell1_pooler1")},
+			names:             []poolerID{mustPoolerIDFromAppName("cell1_pooler1")},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("exec error"))
 			},
@@ -1370,8 +1176,8 @@ func TestPauseReplication(t *testing.T) {
 			wait: true,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", "", nil, nil, nil}}))
@@ -1390,7 +1196,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError:  false,
 			expectStatus: false,
@@ -1411,7 +1217,7 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1422,8 +1228,8 @@ func TestPauseReplication(t *testing.T) {
 			wait: true,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
@@ -1447,8 +1253,8 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
@@ -1473,11 +1279,35 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 				m.AddQueryPatternOnceWithError("SELECT COUNT", errors.New("query failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to query pg_stat_wal_receiver",
+		},
+		{
+			// count > 0 but status=waiting with empty primary_conninfo should be
+			// treated as effectively disconnected: the walreceiver can't transition
+			// out of WAITING without a non-empty primary_conninfo, and we hold the
+			// action lock so nothing else can repopulate it.
+			name: "PauseReceiverOnly accepts WALRCV_WAITING+empty primary_conninfo as disconnected",
+			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+			wait: true,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult(
+					[]string{"count", "status", "primary_conninfo"},
+					[][]any{{int64(1), "waiting", ""}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+					[][]any{{"0/6000000", "", "f", "not paused", "2025-01-15 13:00:00+00", "", "waiting", nil, nil, nil}}))
+			},
+			expectError:  false,
+			expectStatus: true,
+			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
+				assert.Equal(t, "0/6000000", status.LastReplayLsn)
+			},
 		},
 		{
 			name: "PauseReplayAndReceiver fails on pause",
@@ -1485,8 +1315,8 @@ func TestPauseReplication(t *testing.T) {
 			wait: false,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				expectReloadConfig(m)
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
 					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", "", nil, nil, nil}}))
@@ -1528,6 +1358,59 @@ func TestPauseReplication(t *testing.T) {
 	}
 }
 
+// TestWaitForReceiverDisconnect_Timeout covers the diagnostic timeout branch
+// added with the better-diagnostics fix: when the wait budget expires, the
+// function should return the canonical DEADLINE_EXCEEDED error rather than
+// leaking a pool-context-expired wrapper. The 10s budget is hardcoded, but
+// shrinking the parent context shortens the effective deadline via the
+// min-deadline semantics of context.WithTimeout.
+func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
+	t.Run("deadline already expired surfaces timeout before polling", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock("default", "0-inf")
+		// Deadline already in the past: the first retry attempt observes the
+		// expired context and returns the timeout without ever polling, so no
+		// query mock is needed.
+		ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+		defer cancel()
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "timeout waiting for WAL receiver to disconnect")
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
+
+	t.Run("deadline expires while polls keep returning still-streaming", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+		// Persistent (non-consumeOnce) pattern: the function polls repeatedly
+		// (immediately, then with exponential backoff) until the deadline trips.
+		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
+			[]string{"count", "status", "primary_conninfo"},
+			[][]any{{int64(1), "streaming", "host=primary port=5432"}}))
+
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "timeout waiting for WAL receiver to disconnect")
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
+
+	t.Run("parent context cancelled surfaces cancellation, not timeout", func(t *testing.T) {
+		pm, _ := newTestManagerWithMock("default", "0-inf")
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel() // cancel immediately
+
+		status, err := pm.waitForReceiverDisconnect(ctx)
+		require.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "context cancelled while waiting for WAL receiver to disconnect")
+		assert.NotEqual(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
+}
+
 func TestResetPrimaryConnInfo(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1539,7 +1422,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 			name: "successful reset",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError: false,
 		},
@@ -1555,7 +1438,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1595,7 +1478,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 			name: "successful clear synchronous replication",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				expectReloadConfig(m)
 			},
 			expectError: false,
 		},
@@ -1611,7 +1494,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
+				expectReloadConfigFailure(m, errors.New("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload configuration for demotion",

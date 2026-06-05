@@ -15,7 +15,9 @@
 package manager
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -31,7 +33,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/timer"
@@ -65,12 +66,14 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 	}
 
 	multipoolerProto := &clustermetadatapb.MultiPooler{
-		Id:         multipoolerID,
-		Type:       poolerType,
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Database:   database,
-		PoolerDir:  poolerDir,
+		Id:        multipoolerID,
+		Type:      poolerType,
+		PoolerDir: poolerDir,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+			Database:   database,
+		},
 	}
 
 	// Create a topology store with backup location if provided
@@ -99,14 +102,37 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		config:       &Config{},
 		serviceID:    multipoolerID,
 		topoClient:   topoClient,
-		multipooler:  multipoolerProto,
+		record:       newRecordFromProto(multipoolerProto),
 		state:        ManagerStateReady,
 		backupConfig: backupConfig,
-		actionLock:   actionlock.NewActionLock(),
+		actionLock:   NewActionLock(),
 		logger:       slog.Default(),
 		pgMonitor:    monitorRunner,
+		// ConsensusState is the canonical home for the recorded primary
+		// (replacing the former pm.primaryHost/Port/PoolerID fields). Backup
+		// tests seed it via setBackupPrimary below.
+		consensusState: NewConsensusState(poolerDir, multipoolerID),
 	}
 	return pm
+}
+
+// setBackupPrimary seeds the ReplicationPrimary on the test manager so the
+// backup paths that read pm.consensusState.GetReplicationPrimary() see a
+// configured primary. Synthetic rule at term 1 is sufficient — no consumer
+// of rp.Rule reads cohort_members or durability_policy.
+func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int32) {
+	id := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      primaryName,
+	}
+	pm.consensusState.RecordTermPrimary(
+		&clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			LeaderId:   id,
+		},
+		&clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
+	)
 }
 
 // setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.
@@ -351,8 +377,7 @@ func TestBackup_Validation(t *testing.T) {
 
 			// Setup primary info for replica poolers (required for backup)
 			if tt.poolerType == clustermetadatapb.PoolerType_REPLICA {
-				pm.primaryHost = "primary.local"
-				pm.primaryPort = 5432
+				setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
 			}
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "", nil)
@@ -599,6 +624,25 @@ func TestSafeCombinedOutput_LongLines(t *testing.T) {
 			assert.Greater(t, len(line), 4000, "Each line should be at least 4KB")
 		}
 	})
+}
+
+// TestSafeCombinedOutput_LineExceedsScannerLimit verifies that a line
+// longer than bufio.Scanner's default buffer (64 KiB) does not silently
+// truncate the output: safeCombinedOutput surfaces the underlying
+// bufio.ErrTooLong as a wrapped error instead of returning a clean nil.
+// Without the scanner.Err() check inside the reader goroutine, this case
+// previously looked like a successful command with truncated output.
+func TestSafeCombinedOutput_LineExceedsScannerLimit(t *testing.T) {
+	// printf with no newline emits a single token larger than the
+	// default 64 KiB scanner buffer.
+	overlong := strings.Repeat("a", bufio.MaxScanTokenSize+1024)
+	script := "printf %s '" + overlong + "'"
+	cmd := executil.Command(t.Context(), "bash", "-c", script)
+
+	_, err := safeCombinedOutput(cmd)
+	require.Error(t, err, "scanner error on overlong line must be surfaced")
+	assert.True(t, errors.Is(err, bufio.ErrTooLong),
+		"expected wrapped bufio.ErrTooLong, got %v", err)
 }
 
 func TestSafeCombinedOutput_RapidOutput(t *testing.T) {
@@ -1101,8 +1145,7 @@ pg1-path=/tmp/pg_data
 	pm.pgBackRestConfigPath = pgctldConfigPath
 
 	// Setup primary info (required for replica backups)
-	pm.primaryHost = "primary.local"
-	pm.primaryPort = 5432
+	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
 
 	// Call Backup with pg2_path override for local mode
 	primaryDataPath := filepath.Join(poolerDir, "pg_data")
@@ -1218,17 +1261,19 @@ exit 0
 				config:     &Config{},
 				serviceID:  multipoolerID,
 				topoClient: ts,
-				multipooler: &clustermetadatapb.MultiPooler{
-					Id:         multipoolerID,
-					Type:       clustermetadatapb.PoolerType_PRIMARY,
-					TableGroup: tt.tableGroup,
-					Shard:      tt.shard,
-					Database:   "test-database",
-					PoolerDir:  poolerDir,
-				},
+				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+					Id:        multipoolerID,
+					Type:      clustermetadatapb.PoolerType_PRIMARY,
+					PoolerDir: poolerDir,
+					ShardKey: &clustermetadatapb.ShardKey{
+						TableGroup: tt.tableGroup,
+						Shard:      tt.shard,
+						Database:   "test-database",
+					},
+				}),
 				state:                ManagerStateReady,
 				backupConfig:         backupConfig,
-				actionLock:           actionlock.NewActionLock(),
+				actionLock:           NewActionLock(),
 				logger:               slog.Default(),
 				pgMonitor:            timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 				pgBackRestConfigPath: configPath,
@@ -1310,8 +1355,12 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 			// Create test manager
 			poolerDir := t.TempDir()
 			pm := createTestManager(poolerDir, "", "", tt.poolerType)
-			pm.primaryHost = tt.primaryHost
-			pm.primaryPort = tt.primaryPort
+			// Only seed a recorded primary when the test case supplies one;
+			// the "no primary info" case leaves ReplicationPrimary empty so
+			// GetPrimaryAsPg2Args returns FAILED_PRECONDITION.
+			if tt.primaryHost != "" && tt.primaryPort != 0 {
+				setBackupPrimary(pm, "test-primary", tt.primaryHost, tt.primaryPort)
+			}
 
 			// Setup TLS certs if needed and create primary pooler in topology
 			if tt.setupTLSCerts {
@@ -1328,13 +1377,13 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 				pm.config.PgBackRestCertFile = certFile
 				pm.config.PgBackRestKeyFile = keyFile
 
-				// Create primary pooler ID and add to topology with pgbackrest port
+				// Primary id matches what setBackupPrimary recorded above so
+				// the topology lookup finds the right pooler.
 				primaryID := &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "zone1",
 					Name:      "test-primary",
 				}
-				pm.primaryPoolerID = primaryID
 
 				// Add primary to topology with pgbackrest port and data dir
 				if pm.topoClient != nil {
@@ -1398,16 +1447,14 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		pm.primaryHost = "primary.example.com"
-		pm.primaryPort = 5432
+		setBackupPrimary(pm, "test-primary-override", "primary.example.com", 5432)
 
-		// Create primary pooler ID and add to topology with pgbackrest port and data dir
+		// Matching primary id for the topology entry below.
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "test-primary-override",
 		}
-		pm.primaryPoolerID = primaryID
 
 		if pm.topoClient != nil {
 			primaryPooler := &clustermetadatapb.MultiPooler{
@@ -1441,15 +1488,13 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		pm.primaryHost = "primary.example.com"
-		pm.primaryPort = 5432
+		setBackupPrimary(pm, "test-primary-no-datadir", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "test-primary-no-datadir",
 		}
-		pm.primaryPoolerID = primaryID
 
 		if pm.topoClient != nil {
 			primaryPooler := &clustermetadatapb.MultiPooler{
@@ -1474,8 +1519,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 	t.Run("local mode requires pg2_path override", func(t *testing.T) {
 		// Create manager without TLS certs (local mode)
 		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-		pm.primaryHost = "localhost"
-		pm.primaryPort = 5432
+		setBackupPrimary(pm, "test-primary-local", "localhost", 5432)
 
 		// Without override - should error
 		_, err := pm.GetPrimaryAsPg2Args(ctx, nil, false)
@@ -1497,15 +1541,13 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		pm.primaryHost = "primary.example.com"
-		pm.primaryPort = 5432
+		setBackupPrimary(pm, "test-primary-override2", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "test-primary-override2",
 		}
-		pm.primaryPoolerID = primaryID
 
 		if pm.topoClient != nil {
 			primaryPooler := &clustermetadatapb.MultiPooler{

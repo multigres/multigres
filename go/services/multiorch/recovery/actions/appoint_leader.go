@@ -20,7 +20,10 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -83,10 +86,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// need to trigger failover.
 	//
 	// Note: this relies on the resign flow maintaining PoolerType_PRIMARY until
-	// DemoteStalePrimary completes. If a node somehow becomes the consensus leader
-	// while reporting PoolerType_REPLICA (e.g. a crash-restart as standby without
-	// going through the normal resign → appoint → demote flow), this check would
-	// miss it and proceed with an appointment unnecessarily.
+	// the stale-leader demotion completes. If a node somehow becomes the consensus
+	// leader while reporting PoolerType_REPLICA (e.g. a crash-restart as standby
+	// without going through the normal resign → appoint → demote flow), this check
+	// would miss it and proceed with an appointment unnecessarily.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler == nil ||
 			pooler.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY ||
@@ -110,14 +113,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
 		"cohort_size", len(cohort))
 
-	// Use the coordinator's AppointLeader to handle the election
-	// It will select the most advanced node based on WAL position
-	// and run the full consensus protocol (term discovery, candidate selection,
-	// node recruitment, quorum validation, promotion, and replication setup)
-	//
-	// Use the problem code as the reason for the election
+	// Use the coordinator's AppointLeader to handle the election.
+	// Use the problem code as the reason for the election.
 	reason := string(problem.Code)
-	if err := a.consensus.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
@@ -136,9 +135,7 @@ func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []
 			return true // continue
 		}
 
-		if pooler.MultiPooler.Database == shardKey.Database &&
-			pooler.MultiPooler.TableGroup == shardKey.TableGroup &&
-			pooler.MultiPooler.Shard == shardKey.Shard {
+		if proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			cohort = append(cohort, pooler)
 		}
 
@@ -158,7 +155,10 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "AppointLeader",
 		Description: "Elect a new primary for the shard using consensus",
-		Timeout:     60 * time.Second,
+		// Two sequential phases each bounded by RuleWriteTimeout
+		// (Recruit, then concurrent Propose/SetTermPrimary), plus margin so the
+		// action context does not race its own phases to the deadline.
+		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true, // can retry if it fails
 	}

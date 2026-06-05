@@ -19,8 +19,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/backup"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
-	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -45,7 +43,7 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
 	// not preempt an in-progress backup — it can wait or fail fast.
 	var expiredIDs []string
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "expire", pm.logger, func(ctx context.Context) error {
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
 		var expireErr error
 		expiredIDs, expireErr = pm.expireBackupsLocked(ctx, overrides)
 		return expireErr
@@ -56,7 +54,7 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 // expireBackupsLocked runs pgbackrest expire. Caller must hold the action lock.
 // Returns the IDs of backups that were removed.
 func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides map[string]string) ([]string, error) {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 
@@ -86,7 +84,7 @@ func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides
 
 	args = backup.ApplyPgBackRestOverrides(args, overrides)
 
-	cmd := executil.Command(ctx, "pgbackrest", args...)
+	cmd := pm.pgbackrestCmd(ctx, args...)
 
 	var output []byte
 	err = telemetry.WithSpan(ctx, "expire-backups", func(ctx context.Context) error {

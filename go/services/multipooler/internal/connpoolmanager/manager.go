@@ -37,6 +37,38 @@ const (
 	// initialUserPoolCapacity is the initial capacity for new user pools.
 	// The rebalancer will adjust this based on demand.
 	initialUserPoolCapacity int64 = 10
+
+	// maxPoolClosedRetries bounds how many times withReopenRetry retries a
+	// transient closed-pool failure (a reopen swap or a stale-credentials
+	// eviction) before surfacing it. It protects callers from unbounded retry
+	// loops if closes keep racing acquisition.
+	maxPoolClosedRetries = 4
+)
+
+// ErrManagerClosed is returned by connection-acquisition paths when the
+// manager is closed. withReopenRetry treats it as transient (waits for the
+// paired Open, then retries) while a reopen window is open, and as terminal
+// otherwise.
+var ErrManagerClosed = errors.New("manager is closed")
+
+// managerLifecycle is the manager's phase. It is the single source of truth for
+// retry decisions in withReopenRetry: only lifecycleRunning permits new pool
+// creation, lifecycleReopening is a transient close that callers wait out, and
+// lifecycleClosed is terminal.
+type managerLifecycle uint32
+
+const (
+	// lifecycleRunning is the normal serving state. It is the zero value, so a
+	// freshly-allocated Manager must be explicitly stored as lifecycleClosed
+	// until Open() runs (see NewManager).
+	lifecycleRunning managerLifecycle = iota
+	// lifecycleReopening marks a CloseForReopen->Open window. Pool creation is
+	// refused (the pools are torn down) but the close is transient: callers
+	// block on reopenDone and retry once the paired Open completes.
+	lifecycleReopening
+	// lifecycleClosed is a terminal shutdown. Pool creation is refused and
+	// callers surface the close instead of retrying.
+	lifecycleClosed
 )
 
 // Manager orchestrates per-user connection pools with a shared admin pool.
@@ -79,15 +111,20 @@ type Manager struct {
 	// This mutex is only acquired when a new user pool needs to be created.
 	createMu sync.Mutex
 
-	// closed indicates whether the manager has been closed.
-	closed atomic.Bool
+	// lifecycle is the manager's phase (running/reopening/closed) and the single
+	// source of truth for retry decisions. It is read lock-free on the hot path
+	// and distinguishes a transient reopen from a terminal shutdown without a
+	// second flag. See managerLifecycle.
+	lifecycle atomic.Uint32
 
-	// generation is incremented on every Open(). Callers that get
-	// ErrPoolClosed from an in-flight pool operation can compare the
-	// pre-call generation against the current one: if it advanced, a
-	// reopen swapped the pools underneath them and the call is safe to
-	// retry against the fresh snapshot.
-	generation atomic.Uint64
+	// reopenDone is the wait handle for a reopen window, guarded by reopenMu.
+	// CloseForReopen creates it (and moves lifecycle to reopening) before tearing
+	// the pools down; the paired Open — or a terminal Close that interrupts the
+	// reopen — closes it via endReopen. While lifecycle is reopening,
+	// withReopenRetry blocks on this channel before retrying a closed-pool error
+	// instead of surfacing the transient failure to the client.
+	reopenMu   sync.Mutex
+	reopenDone chan struct{}
 
 	// Rebalancer goroutine management
 	rebalancerCtx    context.Context
@@ -103,6 +140,17 @@ type Manager struct {
 	drainMu   sync.Mutex
 	lentCount int64
 	zeroCh    chan struct{}
+}
+
+// CredentialQueryRecorder returns a narrow recorder for the gRPC service's
+// credential-query observations. Returns nil when the manager is unopened
+// or metric init failed; the *Metrics receiver is nil-safe, so callers
+// can treat a nil return as the noop sink.
+func (m *Manager) CredentialQueryRecorder() CredentialQueryRecorder {
+	if m == nil {
+		return nil
+	}
+	return m.metrics
 }
 
 // Open initializes the manager and creates the shared admin pool.
@@ -125,22 +173,17 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	close(zeroCh)
 	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
-	m.closed.Store(false)
-	m.generation.Add(1)
+	m.setLifecycle(lifecycleRunning)
 
-	// Build admin client config
-	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
-
-	// Warn operators when running with an empty admin password. The shipped
-	// pg_hba template retains trust on the local socket only for the configured
-	// admin user, so this path continues to work during the bootstrap window.
-	// Once that trust exception is closed (tracked as a TODO in the template),
-	// an empty password will cause admin dials to fail.
-	if m.config.PgPassword() == "" {
-		m.logger.WarnContext(ctx, "admin password is empty; multipooler relies on the local-socket trust exception in pg_hba.conf. Configure CONNPOOL_ADMIN_PASSWORD (or POSTGRES_PASSWORD) before the trust line is removed.",
-			"pg_user", m.config.PgUser(),
-		)
+	// Build admin client config. pwSourceNone signals that ResolvePgPassword
+	// was never called — production startup in services/multipooler/init.go
+	// enforces it before reaching Open, so an unset source here is strictly
+	// a programmer error.
+	adminPassword, source := m.config.PgPassword()
+	if source == pwSourceNone {
+		panic("connpoolmanager: Open called before ResolvePgPassword; no password source configured")
 	}
+	adminClientConfig := m.buildClientConfig(m.config.PgUser(), adminPassword)
 
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
@@ -192,10 +235,18 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 		"reserved_allocation", reservedCapacity,
 		"rebalance_interval", m.config.RebalanceInterval(),
 	)
+
+	// If this Open is the second half of a reopen, end the window now that the
+	// fresh pools are ready, waking any withReopenRetry waiters so they retry.
+	m.endReopen()
 }
 
 // buildClientConfig creates a client.Config with the specified user and password.
 // Used by the admin pool and by user pools when SCRAM passthrough is disabled.
+//
+// SSLMode/TLSConfig from the ConnectionConfig propagate to every dial built by
+// this manager. They are honored only on TCP connections (libpq parity); the
+// client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
 		SocketFile:  m.connConfig.SocketFile,
@@ -204,6 +255,8 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 		Database:    m.connConfig.Database,
 		User:        user,
 		Password:    password,
+		SSLMode:     m.connConfig.SSLMode,
+		TLSConfig:   m.connConfig.TLSConfig,
 		DialTimeout: m.config.DialTimeout(),
 	}
 }
@@ -215,7 +268,26 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // only succeeds against a pg_hba.conf that still trusts the local socket for
 // the dialing user — the template's narrow admin-user trust exception.
 func (m *Manager) buildUserClientConfig(user string, clientKey, serverKey []byte) *client.Config {
-	cfg := m.buildClientConfig(user, "")
+	// If SCRAM passthrough keys are present, use them — no password needed.
+	// Otherwise we need a password to authenticate. When the requested user
+	// matches the configured admin user, fall back to the admin password
+	// (this covers internal queries like heartbeat reads that don't carry a
+	// SCRAM session). For any other user without keys, return an empty
+	// password and let the dial fail with a clear auth error.
+	password := ""
+	if len(clientKey) == 0 || len(serverKey) == 0 {
+		if user == m.config.PgUser() {
+			pw, source := m.config.PgPassword()
+			if source == pwSourceNone {
+				// Invariant violation: production startup in
+				// services/multipooler/init.go calls
+				// ResolvePgPassword before any user pool is created.
+				panic("connpoolmanager: buildUserClientConfig called before ResolvePgPassword; no password source configured")
+			}
+			password = pw
+		}
+	}
+	cfg := m.buildClientConfig(user, password)
 	if len(clientKey) > 0 && len(serverKey) > 0 {
 		cfg.ScramClientKey = clientKey
 		cfg.ScramServerKey = serverKey
@@ -248,9 +320,12 @@ func (m *Manager) getOrCreateUserPool(user string, clientKey, serverKey []byte) 
 		}
 	}
 
-	// Check if closed before attempting to create
-	if m.closed.Load() {
-		return nil, errors.New("manager is closed")
+	// Refuse to create a pool unless the manager is running. Reopening counts as
+	// closed here: the pools (and admin pool) are torn down mid-reopen, so a pool
+	// built now would be wired to a nil admin pool. withReopenRetry waits the
+	// reopen window out and retries against the fresh pools.
+	if m.lifecycleState() != lifecycleRunning {
+		return nil, ErrManagerClosed
 	}
 
 	// Cold path: need to create a new user pool.
@@ -273,9 +348,9 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		}
 	}
 
-	// Check if closed (with lock held)
-	if m.closed.Load() {
-		return nil, errors.New("manager is closed")
+	// Re-check lifecycle with the lock held (see getOrCreateUserPool).
+	if m.lifecycleState() != lifecycleRunning {
+		return nil, ErrManagerClosed
 	}
 
 	currentPools := *pools
@@ -345,20 +420,49 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 	return pool, nil
 }
 
-// Close shuts down all connection pools.
+// Close shuts down all connection pools. This is a terminal close: callers
+// acquiring connections afterward receive ErrManagerClosed until a fresh Open.
 func (m *Manager) Close() {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
-
-	if m.closed.Load() {
+	if m.lifecycleState() == lifecycleClosed {
 		return
 	}
-	m.closed.Store(true)
+	m.setLifecycle(lifecycleClosed)
+	// If a reopen was in progress, this terminal close preempts it: wake any
+	// withReopenRetry waiters so they observe lifecycleClosed and surface the
+	// error instead of blocking on a paired Open that will never come.
+	m.endReopen()
+	m.teardownLocked()
+}
 
+// CloseForReopen closes all pools as the first half of a reopen — a Close
+// immediately followed by an Open, e.g. to refresh stale file descriptors
+// after PostgreSQL restarts. It opens a reopen window so that connection
+// requests racing the close wait for the matching Open and retry against the
+// fresh pools, rather than receiving the transient ErrManagerClosed /
+// ErrPoolClosed error. It MUST be paired with a subsequent Open, which closes
+// the window. See withReopenRetry.
+func (m *Manager) CloseForReopen() {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+	// beginReopen moves lifecycle to reopening (and arms reopenDone) before the
+	// teardown, so a racing acquisition sees "reopening" rather than a torn-down
+	// "running" manager.
+	m.beginReopen()
+	m.teardownLocked()
+}
+
+// teardownLocked tears down all pools and shared resources. It does NOT touch
+// lifecycle — the caller sets that (Close -> closed, CloseForReopen -> reopening)
+// before calling. It is idempotent: each resource is guarded so a repeated or
+// post-reopen call is a cheap no-op. The caller must hold createMu.
+func (m *Manager) teardownLocked() {
 	// Stop the rebalancer goroutine first
 	if m.rebalancerCancel != nil {
 		m.rebalancerCancel()
 		m.rebalancerWg.Wait()
+		m.rebalancerCancel = nil
 	}
 
 	// Close all user pools
@@ -379,7 +483,7 @@ func (m *Manager) Close() {
 	}
 
 	// Unregister observable metric callbacks so the OTel SDK stops invoking
-	// them against closed pool state.
+	// them against closed pool state. Metrics.Close is safe to call repeatedly.
 	if err := m.metrics.Close(); err != nil {
 		m.logger.Warn("failed to unregister pool metrics callbacks", "error", err)
 	}
@@ -390,6 +494,17 @@ func (m *Manager) Close() {
 // PgUser returns the configured PostgreSQL user for system queries.
 func (m *Manager) PgUser() string {
 	return m.config.PgUser()
+}
+
+// PgPassword returns the resolved PostgreSQL superuser password and an "ok"
+// flag indicating whether ResolvePgPassword ran successfully and produced a
+// source. A false ok means no password source was configured (or Resolve was
+// never called); production startup in services/multipooler/init.go calls
+// Resolve first and surfaces its error, so callers reaching this point can
+// treat !ok as a programmer-error invariant violation.
+func (m *Manager) PgPassword() (string, bool) {
+	pw, source := m.config.PgPassword()
+	return pw, source != pwSourceNone
 }
 
 // --- Admin Pool Operations ---
@@ -424,7 +539,7 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 // pool regardless of the keys they pass. The caller must call Recycle() on
 // the returned connection to return it to the pool.
 func (m *Manager) GetRegularConn(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
-	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
+	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConn(ctx)
 	})
 }
@@ -434,7 +549,7 @@ func (m *Manager) GetRegularConn(ctx context.Context, user string, clientKey, se
 // for consistent bucket assignment.
 func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
+	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (regular.PooledConn, error) {
 		return pool.GetRegularConnWithSettings(ctx, s)
 	})
 }
@@ -450,8 +565,18 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // connection.
 func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	s := m.settingsCache.GetOrCreate(settings)
-	return withReopenRetry(m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
 		return pool.NewReservedConn(ctx, s, opts...)
+	})
+}
+
+// NewLogicalReplicationConn returns a Postgres connection opened in
+// replication mode (replication=database) and tagged with
+// ReasonLogicalReplication, on the specified user's reserved pool. SCRAM
+// passthrough key semantics match NewReservedConn.
+func (m *Manager) NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error) {
+	return withReopenRetry(ctx, m, user, clientKey, serverKey, func(pool *UserPool) (*reserved.Conn, error) {
+		return pool.NewLogicalReplicationConn(ctx)
 	})
 }
 
@@ -495,65 +620,169 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 	return true
 }
 
-// withReopenRetry runs op against the current user pool with two single-shot
-// retry paths for transient, self-healable failures:
+// withReopenRetry runs op against the current user pool, retrying transient,
+// self-healable failures:
 //
-//  1. ErrPoolClosed after a generation bump: reopenConnections() swapped the
-//     pools mid-flight (PostgreSQL auto-restart recovery). Retry against the
-//     fresh pool. A closed-pool error with no generation bump means the
-//     manager is genuinely shutting down — surface it unchanged.
+//  1. Closed pool while the manager is being reopened: reopenConnections()
+//     runs Close (via CloseForReopen) immediately followed by Open to refresh
+//     pools (PostgreSQL auto-restart recovery). A request racing that window
+//     sees ErrManagerClosed from getOrCreateUserPool or ErrPoolClosed from the
+//     op. Because CloseForReopen marked a reopen window, we wait for the paired
+//     Open to finish (honoring ctx) and retry against the fresh pools instead
+//     of surfacing the transient error. A closed pool with no reopen window
+//     means the manager is genuinely shutting down — surface it unchanged.
 //
-//  2. Class-28 SQLSTATE from PostgreSQL: the cached user pool's ClientConfig
+//  2. Closed pool while the manager stays up: evictUserPool() replaced a
+//     stale-credentials pool. Retry against the freshly created pool. Both this
+//     and the reopen path are bounded by maxPoolClosedRetries.
+//
+//  3. Class-28 SQLSTATE from PostgreSQL: the cached user pool's ClientConfig
 //     carries stale SCRAM keys (password rotated in pg_authid). Evict the
 //     pool and recreate from the triggering session's keys, which are
 //     known-current — they were derived moments ago during the session's
 //     SCRAM handshake at MultiGateway against whatever verifier pg_authid
 //     holds right now. If the retry also auth-fails (retrier itself used the
 //     old password at the gateway), we surface the clean 28xxx error and the
-//     client reconnects to re-derive keys against the new verifier.
+//     client reconnects to re-derive keys against the new verifier. This path
+//     performs at most one eviction + retry.
 //
 // clientKey and serverKey forward the SCRAM passthrough material to
 // getOrCreateUserPool so that a first-time pool creation triggered during
 // this call (including after an eviction or reopen swap) gets the session's
 // keys.
-func withReopenRetry[T any](m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
+func withReopenRetry[T any](ctx context.Context, m *Manager, user string, clientKey, serverKey []byte, op func(*UserPool) (T, error)) (T, error) {
 	var zero T
-	startGen := m.generation.Load()
-	pool, err := m.getOrCreateUserPool(user, clientKey, serverKey)
-	if err != nil {
+	authRetried := false
+
+	for closedAttempts := 0; ; {
+		var err error
+		pool, lookupErr := m.getOrCreateUserPool(user, clientKey, serverKey)
+		if lookupErr != nil {
+			err = lookupErr
+		} else {
+			result, opErr := op(pool)
+			if opErr == nil {
+				return result, nil
+			}
+
+			// Stale-key self-heal applies only to op failures, since it needs the
+			// pool to evict. evictUserPool is best-effort; even if it returns
+			// false (racing eviction), getOrCreateUserPool on the next iteration
+			// returns whatever is in the snapshot now — a freshly-created pool
+			// with fresh keys, or absent (and we create one).
+			if mterrors.IsAuthenticationError(opErr) {
+				if authRetried {
+					return zero, opErr
+				}
+				authRetried = true
+				m.evictUserPool(user, pool)
+				continue
+			}
+			err = opErr
+		}
+
+		// A closed manager (ErrManagerClosed from the lookup) and a closed pool
+		// (ErrPoolClosed from the op) are the same situation seen from two sides:
+		// transient while a reopen is in progress — wait it out and retry — and
+		// terminal otherwise. Bound the retries so repeated transient closes
+		// can't loop forever.
+		if errors.Is(err, ErrManagerClosed) || errors.Is(err, connpool.ErrPoolClosed) {
+			if closedAttempts >= maxPoolClosedRetries {
+				return zero, err
+			}
+			closedAttempts++
+			retry, werr := m.handleClosed(ctx)
+			if werr != nil {
+				return zero, werr
+			}
+			if retry {
+				continue
+			}
+		}
+
 		return zero, err
 	}
-	result, err := op(pool)
-	if err == nil {
-		return result, nil
-	}
+}
 
-	// Manager-restart race: reopenConnections swapped pools mid-flight.
-	if errors.Is(err, connpool.ErrPoolClosed) {
-		if m.generation.Load() == startGen {
-			return zero, err
+// handleClosed decides how withReopenRetry should react to a closed-pool
+// failure (ErrPoolClosed from an op, or ErrManagerClosed from the lookup),
+// switching on the manager's lifecycle:
+//
+//   - reopening: a CloseForReopen->Open window is in progress. Block on the
+//     reopen channel (honoring ctx) for the paired Open to finish, then retry
+//     against the fresh pools.
+//   - closed: terminal shutdown. Report retry=false so the caller surfaces the
+//     error unchanged.
+//   - running: the reopen already completed, or a pool was evicted/swapped
+//     while the manager stayed up. Retry against the current snapshot.
+//
+// It returns a non-nil error only when ctx is cancelled while waiting. Retry
+// bounding is the caller's responsibility.
+func (m *Manager) handleClosed(ctx context.Context) (retry bool, err error) {
+	switch m.lifecycleState() {
+	case lifecycleReopening:
+		// done is non-nil whenever lifecycle is reopening; reopenWaitCh may
+		// still return nil if the window closed between the load above and the
+		// lock below, in which case the reopen is done and we just retry.
+		if done := m.reopenWaitCh(); done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
 		}
-		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
-		if err2 != nil {
-			return zero, err2
-		}
-		return op(pool2)
+		return true, nil
+	case lifecycleClosed:
+		return false, nil
+	default: // lifecycleRunning
+		return true, nil
 	}
+}
 
-	// Stale-key self-heal. evictUserPool is best-effort; even if it returns
-	// false (racing eviction), getOrCreateUserPool returns whatever is in the
-	// snapshot now, which is either a freshly-created pool with fresh keys
-	// or absent (and we create one).
-	if mterrors.IsAuthenticationError(err) {
-		m.evictUserPool(user, pool)
-		pool2, err2 := m.getOrCreateUserPool(user, clientKey, serverKey)
-		if err2 != nil {
-			return zero, err2
-		}
-		return op(pool2)
+// lifecycleState returns the manager's current phase.
+func (m *Manager) lifecycleState() managerLifecycle {
+	return managerLifecycle(m.lifecycle.Load())
+}
+
+// setLifecycle stores the manager's phase.
+func (m *Manager) setLifecycle(s managerLifecycle) {
+	m.lifecycle.Store(uint32(s))
+}
+
+// beginReopen arms the reopen wait handle and moves lifecycle to reopening. The
+// channel is created before the lifecycle store so any reader that observes
+// "reopening" is guaranteed a non-nil channel to wait on. The caller must hold
+// createMu.
+func (m *Manager) beginReopen() {
+	m.reopenMu.Lock()
+	if m.reopenDone == nil {
+		m.reopenDone = make(chan struct{})
 	}
+	m.reopenMu.Unlock()
+	m.setLifecycle(lifecycleReopening)
+}
 
-	return zero, err
+// endReopen closes the current reopen wait handle, if any, waking withReopenRetry
+// waiters so they re-check lifecycle and retry (against the freshly reopened
+// pools after Open, or surface the error after a terminal Close). It is a no-op
+// when no window is armed (e.g. a plain startup Open). It does not change
+// lifecycle — the caller sets that first.
+func (m *Manager) endReopen() {
+	m.reopenMu.Lock()
+	done := m.reopenDone
+	m.reopenDone = nil
+	m.reopenMu.Unlock()
+	if done != nil {
+		close(done)
+	}
+}
+
+// reopenWaitCh returns the channel endReopen will close when the current reopen
+// window completes, or nil if no window is armed.
+func (m *Manager) reopenWaitCh() <-chan struct{} {
+	m.reopenMu.Lock()
+	defer m.reopenMu.Unlock()
+	return m.reopenDone
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.
@@ -678,9 +907,10 @@ func (m *Manager) CloseReservedConnections(ctx context.Context) int {
 	return total
 }
 
-// IsClosed returns whether the manager has been closed.
+// IsClosed reports whether the manager is terminally closed. It returns false
+// during a reopen window: the manager is mid-refresh, not shut down.
 func (m *Manager) IsClosed() bool {
-	return m.closed.Load()
+	return m.lifecycleState() == lifecycleClosed
 }
 
 // UserPoolCount returns the number of user pools currently managed.

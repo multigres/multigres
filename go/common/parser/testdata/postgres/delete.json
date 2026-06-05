@@ -18,12 +18,12 @@
   },
   {
     "comment": "delete - Statement 5",
-    "query": "DELETE FROM delete_test AS dt WHERE dt.a \u003e 75"
+    "query": "DELETE FROM delete_test AS dt WHERE dt.a > 75"
   },
   {
     "comment": "delete - Statement 6",
-    "query": "DELETE FROM delete_test dt WHERE delete_test.a \u003e 25",
-    "expected": "DELETE FROM delete_test AS dt WHERE delete_test.a \u003e 25"
+    "query": "DELETE FROM delete_test dt WHERE delete_test.a > 25",
+    "expected": "DELETE FROM delete_test AS dt WHERE delete_test.a > 25"
   },
   {
     "comment": "delete - Statement 7",
@@ -31,7 +31,7 @@
   },
   {
     "comment": "delete - Statement 8",
-    "query": "DELETE FROM delete_test WHERE a \u003e 25"
+    "query": "DELETE FROM delete_test WHERE a > 25"
   },
   {
     "comment": "delete - Statement 9",

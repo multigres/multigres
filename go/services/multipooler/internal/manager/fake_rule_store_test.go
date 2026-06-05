@@ -16,71 +16,174 @@ package manager
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
-// fakeRuleStore is a test double for consensus.RuleStorer that returns a preset position
-// without hitting postgres. Both ObservePosition and UpdateRule return pos
-// (or observeErr/updateErr when set). UpdateRule records all calls in updates.
+// testBootstrapPolicy returns a minimal valid durability policy for use in tests.
+func testBootstrapPolicy() *clustermetadatapb.DurabilityPolicy {
+	return &clustermetadatapb.DurabilityPolicy{
+		PolicyName:    "AT_LEAST_2",
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		RequiredCount: 2,
+	}
+}
+
+// noopSyncStandbyManager is a SyncStandbyManager test double that does nothing.
+type noopSyncStandbyManager struct{}
+
+func (noopSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) Clear(_ context.Context) error {
+	return nil
+}
+
+func (noopSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
+}
+
+// testBootstrapID returns a pooler ID suitable for the initial row's
+// coordinator_id in tests that call createRuleTables.
+func testBootstrapID() *clustermetadatapb.ID {
+	return &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "bootstrap-pooler",
+	}
+}
+
+// failingSyncStandbyManager is a SyncStandbyManager test double whose SetPolicy
+// returns the configured error for each call in sequence. Used to exercise
+// updateRule's GUC failure paths (pre-promote / pre-write / post-write) without
+// a real postgres sync configuration. Pass nil at index i to make the i-th call
+// succeed; a shorter list means later calls succeed.
+type failingSyncStandbyManager struct {
+	setPolicyErrs  []error
+	setPolicyCalls int
+}
+
+func (f *failingSyncStandbyManager) SetPolicy(_ context.Context, _ commonconsensus.PolicyWithCohort) error {
+	i := f.setPolicyCalls
+	f.setPolicyCalls++
+	if i < len(f.setPolicyErrs) {
+		return f.setPolicyErrs[i]
+	}
+	return nil
+}
+
+func (f *failingSyncStandbyManager) Clear(_ context.Context) error { return nil }
+
+func (f *failingSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.PolicyWithCohort) (bool, error) {
+	return false, nil
+}
+
+// fakeRuleStore is a test double for ruleStorer that returns a preset position
+// without hitting postgres. Both observePosition and updateRule return pos
+// (or observeErr/updateErr when set). updateRule records all calls in updates.
 //
-// If posSequence is non-empty, ObservePosition returns positions from the
+// If posSequence is non-empty, observePosition returns positions from the
 // sequence in order (consuming each entry), then falls back to pos once
 // the sequence is exhausted. This is useful for simulating a position that
 // changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu          sync.Mutex
-	pos         *clustermetadatapb.PoolerPosition
-	posSequence []*clustermetadatapb.PoolerPosition
-	observeErr  error
-	updateErr   error
-	updates     []*consensus.RuleUpdateBuilder
+	mu                 sync.Mutex
+	pos                *clustermetadatapb.PoolerPosition
+	posSequence        []*clustermetadatapb.PoolerPosition
+	observeErr         error
+	updateErr          error
+	updateErrAfterHook error
+	updates            []*ruleUpdateBuilder
+	inconsistentGUC    bool
+	reconcileGUCCalled bool
+	reconcileGUCErr    error
 }
 
-func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
+func (f *fakeRuleStore) observePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.posSequence) > 0 {
 		pos := f.posSequence[0]
 		f.posSequence = f.posSequence[1:]
+		if pos == nil && f.observeErr == nil {
+			return nil, errors.New("fakeRuleStore: no position set")
+		}
 		return pos, f.observeErr
+	}
+	if f.pos == nil && f.observeErr == nil {
+		return nil, errors.New("fakeRuleStore: no position set")
 	}
 	return f.pos, f.observeErr
 }
 
-func (f *fakeRuleStore) CreateRuleTables(_ context.Context) error {
+func (f *fakeRuleStore) createRuleTables(_ context.Context, _ *clustermetadatapb.DurabilityPolicy, _ *clustermetadatapb.ID) error {
 	return nil
 }
 
-func (f *fakeRuleStore) CachedPosition() *clustermetadatapb.PoolerPosition {
+func (f *fakeRuleStore) cachedPosition() *clustermetadatapb.PoolerPosition {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.pos
 }
 
-func (f *fakeRuleStore) UpdateRule(_ context.Context, update *consensus.RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
+func (f *fakeRuleStore) updateRule(ctx context.Context, update *ruleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.updates = append(f.updates, update)
-	if f.updateErr != nil {
-		return nil, f.updateErr
+	updateErr := f.updateErr
+	updateErrAfterHook := f.updateErrAfterHook
+	pos := f.pos
+	f.mu.Unlock()
+
+	if updateErr != nil {
+		return nil, updateErr
 	}
-	return f.pos, nil
+	// Mirror the real rule store's pre-hook durability policy validation.
+	if dp := update.durabilityPolicy; dp != nil {
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, fmt.Errorf("durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+	}
+	if update.promotionHook != nil {
+		if err := update.promotionHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if updateErrAfterHook != nil {
+		return nil, updateErrAfterHook
+	}
+	return pos, nil
 }
 
-// assertPromoteRecorded asserts that exactly one UpdateRule call was made with
+func (f *fakeRuleStore) hasInconsistentGUC(_ context.Context) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inconsistentGUC
+}
+
+func (f *fakeRuleStore) reconcileGUC(_ context.Context, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reconcileGUCCalled = true
+	return f.reconcileGUCErr
+}
+
+// assertPromoteRecorded asserts that exactly one updateRule call was made with
 // eventType "promotion" and returns the update so callers can inspect its fields.
-func (f *fakeRuleStore) assertPromoteRecorded(t *testing.T) *consensus.RuleUpdateBuilder {
+func (f *fakeRuleStore) assertPromoteRecorded(t *testing.T) *ruleUpdateBuilder {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	require.Len(t, f.updates, 1, "expected exactly one UpdateRule call for promotion")
-	assert.Equal(t, "promotion", f.updates[0].GetEventType())
+	require.Len(t, f.updates, 1, "expected exactly one updateRule call for promotion")
+	assert.Equal(t, "promotion", f.updates[0].eventType)
 	return f.updates[0]
 }

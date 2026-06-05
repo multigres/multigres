@@ -1,0 +1,82 @@
+[
+  {
+    "comment": "plpgsql_simple - Statement 1",
+    "query": "create function simplesql(int) returns int language sql as 'select $1'",
+    "expected": "CREATE FUNCTION simplesql (INT) RETURNS INT LANGUAGE sql AS $$select $1$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 2",
+    "query": "create function simplecaller() returns int language plpgsql as $$ declare sum int := 0; begin for n in 1..10 loop sum := sum + simplesql(n); if n = 5 then create or replace function simplesql(int) returns int language sql as 'select $1 + 100'; end if; end loop; return sum; end$$",
+    "expected": "CREATE FUNCTION simplecaller () RETURNS INT LANGUAGE plpgsql AS $$ declare sum int := 0; begin for n in 1..10 loop sum := sum + simplesql(n); if n = 5 then create or replace function simplesql(int) returns int language sql as 'select $1 + 100'; end if; end loop; return sum; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 3",
+    "query": "select simplecaller()",
+    "expected": "SELECT simplecaller()"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 4",
+    "query": "create schema simple1",
+    "expected": "CREATE SCHEMA simple1"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 5",
+    "query": "create function simple1.simpletarget(int) returns int language plpgsql as $$begin return $1; end$$",
+    "expected": "CREATE FUNCTION simple1.simpletarget (INT) RETURNS INT LANGUAGE plpgsql AS $$begin return $1; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 6",
+    "query": "create function simpletarget(int) returns int language plpgsql as $$begin return $1 + 100; end$$",
+    "expected": "CREATE FUNCTION simpletarget (INT) RETURNS INT LANGUAGE plpgsql AS $$begin return $1 + 100; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 7",
+    "query": "create or replace function simplecaller() returns int language plpgsql as $$ declare sum int := 0; begin for n in 1..10 loop sum := sum + simpletarget(n); if n = 5 then set local search_path = 'simple1'; end if; end loop; return sum; end$$",
+    "expected": "CREATE OR REPLACE FUNCTION simplecaller () RETURNS INT LANGUAGE plpgsql AS $$ declare sum int := 0; begin for n in 1..10 loop sum := sum + simpletarget(n); if n = 5 then set local search_path = 'simple1'; end if; end loop; return sum; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 8",
+    "query": "alter function simple1.simpletarget(int) immutable",
+    "expected": "ALTER FUNCTION simple1.simpletarget(INT) IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 9",
+    "query": "alter function simpletarget(int) immutable",
+    "expected": "ALTER FUNCTION simpletarget(INT) IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 10",
+    "query": "create function simplesql() returns int language sql as $$select 1 / 0$$",
+    "expected": "CREATE FUNCTION simplesql () RETURNS INT LANGUAGE sql AS $$select 1 / 0$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 11",
+    "query": "create or replace function simplecaller() returns int language plpgsql as $$ declare x int; begin select simplesql() into x; return x; end$$",
+    "expected": "CREATE OR REPLACE FUNCTION simplecaller () RETURNS INT LANGUAGE plpgsql AS $$ declare x int; begin select simplesql() into x; return x; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 12",
+    "query": "create or replace function simplesql() returns int language sql as $$select 2 + 2$$",
+    "expected": "CREATE OR REPLACE FUNCTION simplesql () RETURNS INT LANGUAGE sql AS $$select 2 + 2$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 13",
+    "query": "create or replace function simplecaller() returns int language plpgsql as $$ declare x int; begin x := simplesql(); return x; end$$",
+    "expected": "CREATE OR REPLACE FUNCTION simplecaller () RETURNS INT LANGUAGE plpgsql AS $$ declare x int; begin x := simplesql(); return x; end$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 14",
+    "query": "drop function simplesql()",
+    "expected": "DROP FUNCTION simplesql()"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 15",
+    "query": "create function simplesql() returns setof int language sql as $$select 22 + 22$$",
+    "expected": "CREATE FUNCTION simplesql () RETURNS SETOF INT LANGUAGE sql AS $$select 22 + 22$$"
+  },
+  {
+    "comment": "plpgsql_simple - Statement 16",
+    "query": "do $$ declare p_CurData refcursor; val int; begin open p_CurData scroll for select 42; fetch p_CurData into val; raise notice 'val = %', val; end; $$",
+    "expected": "DO ' declare p_CurData refcursor; val int; begin open p_CurData scroll for select 42; fetch p_CurData into val; raise notice ''val = %'', val; end; '"
+  }
+]

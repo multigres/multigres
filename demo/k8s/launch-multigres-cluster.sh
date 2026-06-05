@@ -27,6 +27,9 @@ fi
 # Deploy core multigres components
 # Once the multipoolers come up, multiorch will bootstrap the cluster
 # and elect a primary.
+# The postgres-password Secret must exist before the multipooler StatefulSet
+# starts, otherwise the pods will fail to mount the volume.
+kubectl apply -f k8s-postgres-password-secret.yaml
 kubectl apply -f k8s-multipooler-statefulset.yaml
 kubectl apply -f k8s-multiorch.yaml
 kubectl apply -f k8s-multigateway.yaml

@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -52,6 +54,12 @@ type mockGateway struct {
 	concludeTransactionResult      *sqltypes.Result
 	concludeTransactionReturnState *querypb.ReservedState
 	concludeTransactionErr         error
+
+	// CopyReady tracking
+	copyReadyFormat        int16
+	copyReadyColumnFormats []int16
+	copyReadyReturnState   *querypb.ReservedState
+	copyReadyErr           error
 
 	// CopyFinalize tracking
 	copyFinalizeResult      *sqltypes.Result
@@ -108,7 +116,7 @@ func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.Prepar
 func (m *mockGateway) Close() error { return nil }
 
 func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
-	return 0, nil, nil, nil
+	return m.copyReadyFormat, m.copyReadyColumnFormats, m.copyReadyReturnState, m.copyReadyErr
 }
 
 func (m *mockGateway) CopySendData(context.Context, *querypb.Target, []byte, *querypb.ExecuteOptions) error {
@@ -123,11 +131,19 @@ func (m *mockGateway) CopyAbort(_ context.Context, _ *querypb.Target, _ string, 
 	return m.copyAbortReturnState, m.copyAbortErr
 }
 
+func (m *mockGateway) CopyOutReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+	return 0, nil, nil, nil, nil
+}
+
+func (m *mockGateway) CopyOutStream(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ func(pgClient.CopyOutMessage) error) (*sqltypes.Result, *querypb.ReservedState, error) {
+	return nil, nil, nil
+}
+
 func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target, *querypb.ExecuteOptions) error {
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -351,6 +367,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -386,6 +403,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "COMMIT on destroyed connection must propagate error")
@@ -424,6 +442,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -497,6 +516,87 @@ func TestScatterConn_CopyFinalize_ErrorSetsTxnFailed(t *testing.T) {
 	require.Nil(t, state.GetMatchingShardState(target))
 	// Transaction status must be set to Failed (defense-in-depth)
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
+	// When CopyFinalize fails on a PG-level error (e.g., constraint violation)
+	// but the multipooler kept the reserved connection alive because of an
+	// unrelated reason (transaction, temp table), it returns the surviving
+	// ReservedState alongside the error. The gateway must keep tracking that
+	// connection — clearing state here would orphan the transaction and the
+	// next statement would fail with "reserved connection not found".
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		copyFinalizeErr: errors.New("constraint violation"),
+		copyFinalizeReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := &querypb.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
+	})
+
+	err := sc.CopyFinalize(context.Background(), conn, "tg1", "", state, nil,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "constraint violation")
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "reserved connection must survive PG-level COPY error when other reasons remain")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
+	// When CopyInitiate fails because PG rejected the COPY (e.g., column
+	// "xyz" does not exist) but the reserved connection was already held
+	// for a temp table or transaction, the multipooler returns the surviving
+	// state through the ERROR phase. Gateway tracking must remain pointed at
+	// that connection so the next statement on the session can reuse it.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		copyReadyErr: errors.New("column \"xyz\" of relation \"x\" does not exist"),
+		copyReadyReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+
+	target := &querypb.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTempTable,
+	})
+
+	_, _, err := sc.CopyInitiate(context.Background(), conn, "tg1", "", "COPY x (xyz) FROM stdin", state,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "column \"xyz\"")
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "reserved connection must survive PG-level COPY init error when other reasons remain")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
 }
 
 func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {

@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useApi } from "@/lib/api/context";
 import type { MultiPooler } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -165,6 +166,7 @@ export function MultiPoolersTable() {
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead>Hostname</TableHead>
                 <TableHead className="text-right">gRPC Port</TableHead>
+                <TableHead>Diagnostics</TableHead>
                 <TableHead className="pr-6">Dashboard</TableHead>
               </TableRow>
             </TableHeader>
@@ -200,6 +202,18 @@ export function MultiPoolersTable() {
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
                       {pooler.port_map?.grpc || "-"}
+                    </TableCell>
+                    <TableCell className="py-3">
+                      {pooler.id ? (
+                        <Link
+                          href={`/dashboard/multipoolers/${encodeURIComponent(pooler.id.cell)}/${encodeURIComponent(pooler.id.name)}/replication`}
+                          className="text-primary hover:underline text-xs"
+                        >
+                          Replication
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell className="pr-6 py-3">
                       <a

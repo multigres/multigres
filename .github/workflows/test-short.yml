@@ -26,6 +26,9 @@ jobs:
   test-short:
     name: Short Tests
     runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,6 +54,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --packages="./..." \
             --jsonfile=short-test-results.jsonl \
+            --junitfile=short-test-results.xml \
             -- \
             -short -timeout=20m
 
@@ -59,7 +63,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: short-test-logs
-          path: short-test-results.jsonl
+          path: |
+            short-test-results.jsonl
+            short-test-results.xml
           retention-days: 14
 
       - name: Test Report
@@ -69,3 +75,18 @@ jobs:
           name: Unit Tests
           path: short-test-results.jsonl
           reporter: golang-json
+
+      # Only upload test results from main-branch pushes. On PRs, Codecov's
+      # test-results comment template replaces the coverage comment when any
+      # test fails, displacing the coverage diff that PR authors actually want
+      # to see. Flake tracking only needs main-branch history anyway.
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./short-test-results.xml
+          report_type: test_results
+          flags: short
+          fail_ci_if_error: false

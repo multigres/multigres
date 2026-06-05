@@ -80,12 +80,24 @@ type ShardSetup struct {
 	MultigatewayPgPort        int // PostgreSQL protocol port for multigateway
 	MultigatewayReplicaPgPort int // PostgreSQL replica-reads port for multigateway (0 = disabled)
 
+	// Multiadmin instance (optional, enabled via WithMultiadmin).
+	// The HTTP port is what the Next.js web UI in web/multiadmin/ talks to;
+	// point it via MULTIADMIN_API_URL=http://localhost:<MultiadminHttpPort>.
+	Multiadmin         *ProcessInstance
+	MultiadminHttpPort int
+	MultiadminGrpcPort int
+
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
 
 	// MultigatewayTLSCertPaths stores the paths to multigateway TLS certificates.
 	// Set when WithMultigatewayTLS() is used.
 	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
+
+	// MultipoolerPGTLSCertPaths stores the paths used to provision postgres with
+	// TLS and the matching CA the multipooler verifies against.
+	// Set when WithMultipoolerPGTLS() is used.
+	MultipoolerPGTLSCertPaths *MultipoolerPGTLSCertPaths
 
 	// MetricsPorts maps instance name to its Prometheus metrics port.
 	// Set when WithMetricsExport() is used. Scrape http://localhost:<port>/metrics.
@@ -101,6 +113,11 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
+
+	// Timings records elapsed durations for timeout-bounded setup operations.
+	// Reported at test teardown so you can see which operations are approaching
+	// their limits on slow runners.
+	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.
@@ -168,8 +185,26 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 	return s.GetMultipoolerInstance(s.PrimaryName)
 }
 
-// RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
+// RefreshPrimary queries all multipoolers to find the current primary and
+// updates PrimaryName. Fatals if no primary is found. Inside polling loops
+// (assert.Never / assert.Eventually) use TryFindPrimary instead — a
+// transient miss in a poll should not fatal the test.
 func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+	inst, ok := s.TryFindPrimary(t)
+	if !ok {
+		t.Fatal("RefreshPrimary: no primary found in cluster")
+	}
+	return inst
+}
+
+// TryFindPrimary is the single-shot, non-fatal probe used by RefreshPrimary.
+// Returns (instance, true) on success, (nil, false) when no pooler currently
+// reports IsInitialized + PoolerType=PRIMARY. Suitable for poll callbacks
+// (e.g. assert.Never) where a single miss should retry, not fail the test —
+// the Status RPC for a given pooler can transiently time out while multiorch
+// is reconciling sync_standby_names.
+func (s *ShardSetup) TryFindPrimary(t *testing.T) (*MultipoolerInstance, bool) {
 	t.Helper()
 
 	for name, inst := range s.Multipoolers {
@@ -189,13 +224,12 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 
 		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 			s.PrimaryName = name
-			t.Logf("RefreshPrimary: current primary is %s", name)
-			return inst
+			t.Logf("TryFindPrimary: current primary is %s", name)
+			return inst, true
 		}
 	}
 
-	t.Fatal("RefreshPrimary: no primary found in cluster")
-	return nil
+	return nil, false
 }
 
 // GetStandbys returns all multipooler instances that are not the primary.
@@ -288,7 +322,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 
@@ -302,6 +336,10 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
+	// Default to the standard Unix socket path under the pgctld data dir.
+	// Tests that need the TCP path (e.g. PG TLS) clear this after creation.
+	socketFile := filepath.Join(pgctldDataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
+
 	inst := &ProcessInstance{
 		Name:        name,
 		Cell:        cell,
@@ -313,7 +351,8 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		PoolerDir:   pgctldDataDir,
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
+		SocketFile:  socketFile,
+		Environment: append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler
@@ -405,6 +444,31 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 	return inst
 }
 
+// CreateMultiadminInstance creates a multiadmin process instance.
+// Returns the created ProcessInstance. Does not start the process.
+func (s *ShardSetup) CreateMultiadminInstance(t *testing.T, name string, httpPort, grpcPort int) *ProcessInstance {
+	t.Helper()
+
+	inst := &ProcessInstance{
+		Name:        name,
+		Binary:      "multiadmin",
+		Cell:        s.CellName,
+		ServiceID:   fmt.Sprintf("%s-%s", name, s.CellName),
+		HttpPort:    httpPort,
+		GrpcPort:    grpcPort,
+		EtcdAddr:    s.EtcdClientAddr,
+		GlobalRoot:  "/multigres/global",
+		LogFile:     filepath.Join(s.TempDir, name+".log"),
+		Environment: os.Environ(),
+	}
+
+	s.Multiadmin = inst
+	s.MultiadminHttpPort = httpPort
+	s.MultiadminGrpcPort = grpcPort
+
+	return inst
+}
+
 // WaitForMultigatewayQueryServing waits for multigateway to be able to execute queries.
 // This verifies that multigateway has discovered poolers from topology and can route queries.
 // Should be called AFTER bootstrap completes.
@@ -416,7 +480,15 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, "sslmode=disable", "connect_timeout=2")
+	// When TLS is configured on the gateway, use sslmode=require so this
+	// readiness probe still works under --pg-require-ssl=true. The probe
+	// only needs an encrypted transport, not certificate verification, so
+	// sslmode=require is sufficient regardless of cert chain.
+	sslMode := "sslmode=disable"
+	if s.MultigatewayTLSCertPaths != nil {
+		sslMode = "sslmode=require"
+	}
+	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, sslMode, "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -480,6 +552,9 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	}
 	if s.Multigateway != nil {
 		s.Multigateway.TerminateGracefully(logf, 5*time.Second)
+	}
+	if s.Multiadmin != nil {
+		s.Multiadmin.TerminateGracefully(logf, 5*time.Second)
 	}
 	for _, mo := range s.MultiOrchInstances {
 		mo.TerminateGracefully(logf, 5*time.Second)
@@ -575,6 +650,11 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 	// Check multigateway
 	if s.Multigateway != nil && !s.Multigateway.IsRunning() {
 		dead = append(dead, "multigateway")
+	}
+
+	// Check multiadmin
+	if s.Multiadmin != nil && !s.Multiadmin.IsRunning() {
+		dead = append(dead, "multiadmin")
 	}
 
 	// Check multipooler instances

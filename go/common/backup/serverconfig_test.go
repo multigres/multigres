@@ -47,6 +47,7 @@ func TestWriteServerConfig(t *testing.T) {
 
 	global := cfg.Section("global")
 	assert.Equal(t, filepath.Join(tmpDir, "pgbackrest", "log"), global.Key("log-path").String())
+	assert.Equal(t, filepath.Join(tmpDir, "pgbackrest", "server-lock"), global.Key("lock-path").String())
 	assert.Equal(t, "/certs/pgbackrest.crt", global.Key("tls-server-cert-file").String())
 	assert.Equal(t, "/certs/pgbackrest.key", global.Key("tls-server-key-file").String())
 	assert.Equal(t, "/certs/ca.crt", global.Key("tls-server-ca-file").String())
@@ -66,7 +67,6 @@ func TestWriteServerConfig(t *testing.T) {
 		assert.False(t, strings.HasPrefix(key.Name(), "repo1-"), "server config should not contain repo settings")
 	}
 	assert.False(t, global.HasKey("spool-path"), "server config should not contain spool-path")
-	assert.False(t, global.HasKey("lock-path"), "server config should not contain lock-path")
 }
 
 func TestWriteServerConfig_CreatesLogDir(t *testing.T) {
@@ -85,6 +85,6 @@ func TestWriteServerConfig_CreatesLogDir(t *testing.T) {
 	_, err := WriteServerConfig(opts)
 	require.NoError(t, err)
 
-	logDir := filepath.Join(tmpDir, "pgbackrest", "log")
-	assert.DirExists(t, logDir)
+	assert.DirExists(t, filepath.Join(tmpDir, "pgbackrest", "log"))
+	assert.DirExists(t, filepath.Join(tmpDir, "pgbackrest", "server-lock"))
 }

@@ -1,0 +1,35 @@
+[
+  {
+    "comment": "plpgsql_copy - Statement 1",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN COPY copy1 TO stdout; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN COPY copy1 TO stdout; END; '"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 2",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN COPY copy1 FROM stdin; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN COPY copy1 FROM stdin; END; '"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 3",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN EXECUTE 'COPY copy1 TO stdout'; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN EXECUTE ''COPY copy1 TO stdout''; END; '"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 4",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN EXECUTE 'COPY copy1 FROM stdin'; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN EXECUTE ''COPY copy1 FROM stdin''; END; '"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 5",
+    "query": "SELECT * FROM copy1 ORDER BY 1"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 6",
+    "query": "TRUNCATE copy1",
+    "expected": "TRUNCATE TABLE copy1 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "plpgsql_copy - Statement 7",
+    "query": "DROP TABLE copy1"
+  }
+]

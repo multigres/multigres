@@ -36,6 +36,7 @@ func newTestManagerForRebalancer(t *testing.T, server *fakepgserver.Server) *Man
 
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
+	resolveTestPgPassword(t, config)
 
 	manager := config.NewManager(slog.Default())
 	manager.Open(context.Background(), &ConnectionConfig{

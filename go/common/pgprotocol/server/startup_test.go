@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -225,10 +227,10 @@ func testLogger(t *testing.T) *slog.Logger {
 // testListener creates a test listener using NewListener.
 func testListener(t *testing.T) *Listener {
 	listener, err := NewListener(ListenerConfig{
-		Address:      "localhost:0", // Use random available port
-		Handler:      &mockHandler{},
-		HashProvider: newMockHashProvider("postgres"),
-		Logger:       testLogger(t),
+		Address:            "localhost:0", // Use random available port
+		Handler:            &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		Logger:             testLogger(t),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -274,13 +276,22 @@ func (m *mockHandler) GetPreparedStatementInfo(connID uint32, name string) *prep
 	return nil
 }
 
-// mockHashProvider implements scram.PasswordHashProvider for testing.
-// It accepts a single password for any user/database combination.
-type mockHashProvider struct {
-	hash *scram.ScramHash
+// mockCredentialProvider implements server.CredentialProvider for testing.
+// It returns a fixed SCRAM hash for any user/database combination and a
+// configurable rolreplication flag / lookup error so tests can exercise
+// both the SCRAM path and the post-auth replication gate.
+type mockCredentialProvider struct {
+	hash              *scram.ScramHash
+	isReplicationRole bool
+	err               error
+
+	// Call-tracking fields used by replication tests.
+	calls    int
+	username string
+	database string
 }
 
-func newMockHashProvider(password string) *mockHashProvider {
+func newMockCredentialProvider(password string) *mockCredentialProvider {
 	// Use a fixed salt for reproducibility in testing.
 	salt := []byte("multigres-test-salt!")
 	iterations := 4096
@@ -288,7 +299,7 @@ func newMockHashProvider(password string) *mockHashProvider {
 	saltedPassword := scram.ComputeSaltedPassword(password, salt, iterations)
 	clientKey := scram.ComputeClientKey(saltedPassword)
 
-	return &mockHashProvider{
+	return &mockCredentialProvider{
 		hash: &scram.ScramHash{
 			Iterations: iterations,
 			Salt:       salt,
@@ -298,8 +309,17 @@ func newMockHashProvider(password string) *mockHashProvider {
 	}
 }
 
-func (p *mockHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scram.ScramHash, error) {
-	return p.hash, nil
+func (p *mockCredentialProvider) GetCredentials(_ context.Context, username, database string) (*Credentials, error) {
+	p.calls++
+	p.username = username
+	p.database = database
+	if p.err != nil {
+		return nil, p.err
+	}
+	return &Credentials{
+		Hash:              p.hash,
+		IsReplicationRole: p.isReplicationRole,
+	}, nil
 }
 
 // writeStartupPacket writes a startup packet to the buffer.
@@ -390,14 +410,14 @@ func TestHandleStartupMessage(t *testing.T) {
 			// Create a test listener.
 			listener := testListener(t)
 			c := &Conn{
-				conn:           serverConn,
-				listener:       listener,
-				handler:        listener.handler,
-				hashProvider:   listener.hashProvider,
-				bufferedReader: bufio.NewReader(serverConn),
-				bufferedWriter: bufio.NewWriter(serverConn),
-				params:         make(map[string]string),
-				txnStatus:      protocol.TxnStatusIdle,
+				conn:               serverConn,
+				listener:           listener,
+				handler:            listener.handler,
+				credentialProvider: listener.credentialProvider,
+				bufferedReader:     bufio.NewReader(serverConn),
+				bufferedWriter:     bufio.NewWriter(serverConn),
+				params:             make(map[string]string),
+				txnStatus:          protocol.TxnStatusIdle,
 			}
 			c.ctx = context.Background()
 			c.logger = testLogger(t)
@@ -434,14 +454,14 @@ func TestSSLRequest(t *testing.T) {
 	// Create a test listener.
 	listener := testListener(t)
 	c := &Conn{
-		conn:           serverConn,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(serverConn),
-		bufferedWriter: bufio.NewWriter(serverConn),
-		params:         make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		bufferedWriter:     bufio.NewWriter(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
 	}
 	c.ctx = context.Background()
 	c.logger = testLogger(t)
@@ -491,14 +511,14 @@ func TestGSSENCRequest(t *testing.T) {
 	// Create a test listener.
 	listener := testListener(t)
 	c := &Conn{
-		conn:           serverConn,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(serverConn),
-		bufferedWriter: bufio.NewWriter(serverConn),
-		params:         make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		bufferedWriter:     bufio.NewWriter(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
 	}
 	c.ctx = context.Background()
 	c.logger = testLogger(t)
@@ -548,14 +568,14 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	// Create a test listener with password "postgres".
 	listener := testListener(t)
 	c := &Conn{
-		conn:           serverConn,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(serverConn),
-		bufferedWriter: bufio.NewWriter(serverConn),
-		params:         make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		bufferedWriter:     bufio.NewWriter(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
 	}
 	c.ctx = context.Background()
 	c.logger = testLogger(t)
@@ -606,9 +626,10 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	// Verify error contains auth failure message.
 	assert.Contains(t, string(body), "password authentication failed")
 
-	// Server should return nil (auth error was sent successfully).
+	// handleStartup propagates errAuthRejected so serve() can short-circuit
+	// without entering the command loop on a half-completed session.
 	err = <-errCh
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errAuthRejected)
 }
 
 func TestAuthenticationMessages(t *testing.T) {
@@ -618,16 +639,16 @@ func TestAuthenticationMessages(t *testing.T) {
 	// Create a test listener.
 	listener := testListener(t)
 	c := &Conn{
-		conn:           mock,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(mock),
-		bufferedWriter: bufio.NewWriter(mock),
-		params:         make(map[string]string),
-		connectionID:   12345,
-		backendKeyData: 67890,
-		txnStatus:      protocol.TxnStatusIdle,
+		conn:               mock,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(mock),
+		bufferedWriter:     bufio.NewWriter(mock),
+		params:             make(map[string]string),
+		connectionID:       12345,
+		backendKeyData:     67890,
+		txnStatus:          protocol.TxnStatusIdle,
 	}
 	c.logger = testLogger(t)
 
@@ -929,14 +950,14 @@ func TestSCRAMAuthenticationCapturesKeys(t *testing.T) {
 
 	listener := testListener(t)
 	c := &Conn{
-		conn:           serverConn,
-		listener:       listener,
-		handler:        listener.handler,
-		hashProvider:   listener.hashProvider,
-		bufferedReader: bufio.NewReader(serverConn),
-		bufferedWriter: bufio.NewWriter(serverConn),
-		params:         make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		bufferedWriter:     bufio.NewWriter(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
 	}
 	c.ctx = context.Background()
 	c.logger = testLogger(t)
@@ -997,6 +1018,353 @@ func TestConnCloseZeroizesSCRAMKeys(t *testing.T) {
 
 // TestConnCloseSafeWithoutSCRAMKeys ensures Close does not panic when the
 // connection never completed SCRAM auth (keys remain nil).
+// parseErrorFields decodes the field-tag/value pairs of an ErrorResponse
+// body into a map keyed by tag (e.g. 'C' for SQLSTATE, 'M' for message).
+func parseErrorFields(body []byte) map[byte]string {
+	fields := make(map[byte]string)
+	i := 0
+	for i < len(body) {
+		tag := body[i]
+		if tag == 0 {
+			break
+		}
+		i++
+		end := i
+		for end < len(body) && body[end] != 0 {
+			end++
+		}
+		fields[tag] = string(body[i:end])
+		i = end + 1
+	}
+	return fields
+}
+
+// newReplicationTestConn constructs a Conn wired up against a pipe pair and
+// the given credential provider. The returned errCh receives the result
+// of handleStartup once the goroutine completes.
+//
+// Pass a *mockCredentialProvider configured with isReplicationRole/err to
+// exercise the replication-role gate; pass nil to test the no-provider
+// fail-closed path.
+func newReplicationTestConn(t *testing.T, provider CredentialProvider) (*Conn, *pipeConn, chan error) {
+	t.Helper()
+	serverConn, clientConn := newPipeConnPair()
+
+	config := ListenerConfig{
+		Address:            "localhost:0",
+		Handler:            &mockHandler{},
+		CredentialProvider: provider,
+		Logger:             testLogger(t),
+	}
+	// The listener requires a credential provider (or trust auth); supply
+	// a passthrough trust provider when the caller wants to test the
+	// no-credential-provider path.
+	if provider == nil {
+		config.TrustAuthProvider = allowAllTrust{}
+	}
+	listener, err := NewListener(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+
+	c := &Conn{
+		conn:               serverConn,
+		listener:           listener,
+		handler:            listener.handler,
+		credentialProvider: listener.credentialProvider,
+		trustAuthProvider:  listener.trustAuthProvider,
+		bufferedReader:     bufio.NewReader(serverConn),
+		bufferedWriter:     bufio.NewWriter(serverConn),
+		params:             make(map[string]string),
+		txnStatus:          protocol.TxnStatusIdle,
+	}
+	c.ctx = context.Background()
+	c.logger = testLogger(t)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+		serverConn.Close()
+	}()
+
+	t.Cleanup(func() { clientConn.Close() })
+	return c, clientConn, errCh
+}
+
+// allowAllTrust is a TrustAuthProvider used to keep listener construction
+// valid in tests that want to exercise the no-credential-provider path.
+type allowAllTrust struct{}
+
+func (allowAllTrust) AllowTrustAuth(_ context.Context, _, _ string) bool { return true }
+
+func TestParseReplicationMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    ReplicationMode
+		wantErr bool
+	}{
+		{"empty", "", ReplicationOff, false},
+		{"false-lowercase", "false", ReplicationOff, false},
+		{"FALSE-uppercase", "FALSE", ReplicationOff, false},
+		{"off", "off", ReplicationOff, false},
+		{"no", "no", ReplicationOff, false},
+		{"zero", "0", ReplicationOff, false},
+		{"f-abbrev", "f", ReplicationOff, false},
+		{"n-abbrev", "n", ReplicationOff, false},
+		{"true", "true", ReplicationPhysical, false},
+		{"True-mixedcase", "True", ReplicationPhysical, false},
+		{"on", "on", ReplicationPhysical, false},
+		{"yes", "yes", ReplicationPhysical, false},
+		{"one", "1", ReplicationPhysical, false},
+		{"t-abbrev", "t", ReplicationPhysical, false},
+		{"y-abbrev", "y", ReplicationPhysical, false},
+		{"database", "database", ReplicationLogical, false},
+		{"DATABASE-uppercase", "DATABASE", ReplicationLogical, false},
+		{"banana-rejected", "banana", ReplicationOff, true},
+		{"two-rejected", "2", ReplicationOff, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseReplicationMode(tt.value)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestReplicationStartup_IgnoredViaPGOPTIONS verifies that `-c replication=true`
+// inside PGOPTIONS is dropped — PG only honors `replication` as a direct
+// startup field, not as a GUC. The auth gate still rejects bad combinations
+// elsewhere; this test pins the behavior so we don't admit a source PG
+// itself rejects.
+func TestReplicationStartup_IgnoredViaPGOPTIONS(t *testing.T) {
+	// isReplicationRole=false would reject if the replication gate ran.
+	provider := newMockCredentialProvider("postgres")
+	c, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "regular",
+		"database": "postgres",
+		"options":  "-c replication=true",
+	})
+	// PGOPTIONS-injected `replication` is filtered, so the connection is
+	// treated as a normal session and SCRAM completes through ReadyForQuery.
+	scramClientHelper(t, clientConn, "regular", "postgres")
+
+	require.NoError(t, <-errCh)
+	// SCRAM fetched credentials once; the replication gate read the
+	// cached flag so no second fetch happened.
+	assert.Equal(t, 1, provider.calls)
+	assert.Equal(t, ReplicationOff, c.replicationMode)
+	_, hasReplication := c.params["replication"]
+	assert.False(t, hasReplication)
+}
+
+// TestReplicationStartup_RejectedWithoutRolReplication verifies that a
+// SCRAM-authenticated client requesting replication=true is rejected with
+// the exact PG message and SQLSTATE 42501 when the role lacks
+// rolreplication. Acceptance criterion #1 of MUL-387.
+func TestReplicationStartup_RejectedWithoutRolReplication(t *testing.T) {
+	provider := newMockCredentialProvider("postgres") // isReplicationRole=false
+	c, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	// SCRAM completes successfully — the rejection happens AFTER auth.
+	client := scram.NewSCRAMClientWithPassword("repluser", "postgres")
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	require.Equal(t, uint32(protocol.AuthSASL), binary.BigEndian.Uint32(body[:4]))
+
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	require.Equal(t, uint32(protocol.AuthSASLContinue), binary.BigEndian.Uint32(body[:4]))
+	clientFinal, err := client.ProcessServerFirst(string(body[4:]))
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+
+	msgType, _ = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType) // SASLFinal
+
+	// Next frame must be FATAL ErrorResponse, not AuthenticationOk.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "FATAL", fields['S'])
+	assert.Equal(t, "42501", fields['C'])
+	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
+
+	require.ErrorIs(t, <-errCh, errAuthRejected)
+	// One credential fetch served both SCRAM and the replication gate.
+	assert.Equal(t, 1, provider.calls)
+	assert.Equal(t, "repluser", provider.username)
+	assert.Equal(t, "postgres", provider.database)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+}
+
+// TestReplicationStartup_AcceptedWithRolReplication verifies the gateway
+// accepts a role with rolreplication=true and the connection completes
+// through ReadyForQuery. Acceptance criterion #2 of MUL-387.
+func TestReplicationStartup_AcceptedWithRolReplication(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.isReplicationRole = true
+	c, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+	// scramClientHelper drives SCRAM through ReadyForQuery, asserting the
+	// AuthenticationOk + ParameterStatus + ReadyForQuery sequence is sent.
+	scramClientHelper(t, clientConn, "repluser", "postgres")
+
+	require.NoError(t, <-errCh)
+	// One credential fetch suffices for both SCRAM and the replication gate.
+	assert.Equal(t, 1, provider.calls)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+	// Regression: `replication` is a protocol-only param, not a GUC. It
+	// must be stripped from c.params after parsing so it doesn't propagate
+	// through GetStartupParams into a `SET SESSION "replication" = ...`
+	// on the backing PostgreSQL, which PG would reject as unrecognized.
+	_, hasReplication := c.params["replication"]
+	assert.False(t, hasReplication, "replication startup param must be stripped from c.params")
+}
+
+// TestReplicationStartup_DatabaseModeAcceptedWithRolReplication exercises
+// the logical-replication value (replication=database) which is what
+// CREATE SUBSCRIPTION sends.
+func TestReplicationStartup_DatabaseModeAcceptedWithRolReplication(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.isReplicationRole = true
+	c, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "appdb",
+		"replication": "database",
+	})
+	scramClientHelper(t, clientConn, "repluser", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, provider.calls)
+	assert.Equal(t, "appdb", provider.database)
+	assert.Equal(t, ReplicationLogical, c.replicationMode)
+}
+
+// TestReplicationStartup_NormalConnectionUsesOneFetch verifies that a
+// non-replication startup pays exactly one credential fetch (for SCRAM)
+// and does not incur a second lookup for the replication gate.
+func TestReplicationStartup_NormalConnectionUsesOneFetch(t *testing.T) {
+	provider := newMockCredentialProvider("postgres") // isReplicationRole=false would reject if consulted
+	_, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "regular",
+		"database": "postgres",
+	})
+	scramClientHelper(t, clientConn, "regular", "postgres")
+
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, provider.calls, "exactly one credential fetch should serve SCRAM and replication gate")
+}
+
+// TestReplicationStartup_TrustAuthNoCredentialProviderFailsClosed verifies
+// that a trust-authenticated replication startup is rejected when no
+// credential provider is wired up — the gateway has no way to confirm
+// rolreplication, so it cannot admit a possibly-unauthorized walsender
+// session. Trust auth is test-only; production always wires a credential
+// provider, but the fail-closed branch must still hold.
+func TestReplicationStartup_TrustAuthNoCredentialProviderFailsClosed(t *testing.T) {
+	c, clientConn, errCh := newReplicationTestConn(t, nil)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	// Trust auth: no SCRAM exchange. The rejection arrives on the first
+	// post-startup frame.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "42501", fields['C'])
+	assert.Equal(t, "must be superuser or replication role to start walsender", fields['M'])
+
+	require.ErrorIs(t, <-errCh, errAuthRejected)
+	assert.Equal(t, ReplicationPhysical, c.replicationMode)
+}
+
+// TestReplicationStartup_RejectedOnCredentialLookupError verifies that the
+// gateway fails closed when the credential provider returns a generic
+// error (e.g. the pooler is unreachable). Because the lookup happens up
+// front, the rejection arrives before SCRAM completes — as an opaque
+// "password authentication failed" rather than the 42501 the replication
+// gate emits when the role lacks rolreplication. Both outcomes prevent
+// admission of an unauthorized session.
+func TestReplicationStartup_RejectedOnCredentialLookupError(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.err = errors.New("pooler unreachable")
+	_, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "true",
+	})
+
+	// No AuthenticationSASL because the credential lookup short-circuits
+	// the SCRAM exchange. The first server frame is the ErrorResponse.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "28P01", fields['C'])
+	assert.Contains(t, fields['M'], "password authentication failed")
+
+	require.ErrorIs(t, <-errCh, errAuthRejected)
+	assert.Equal(t, 1, provider.calls)
+}
+
+// TestReplicationStartup_InvalidValueRejected confirms an unrecognized
+// `replication` value produces InvalidParameterValue (22023) before
+// authentication runs, matching PostgreSQL's GUC parsing. The error
+// surfaces as a PgDiagnostic from handleStartup; in production, serve()
+// writes it to the client and closes the connection.
+func TestReplicationStartup_InvalidValueRejected(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.isReplicationRole = true
+	_, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":        "repluser",
+		"database":    "postgres",
+		"replication": "banana",
+	})
+
+	err := <-errCh
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, mterrors.PgSSInvalidParameterValue, diag.Code)
+	assert.Contains(t, diag.Message, `invalid value for parameter "replication"`)
+	assert.Contains(t, diag.Message, "banana")
+	assert.Equal(t, 0, provider.calls, "credential provider must not be called on parse error")
+}
+
 func TestConnCloseSafeWithoutSCRAMKeys(t *testing.T) {
 	serverConn, clientConn := newPipeConnPair()
 	defer clientConn.Close()

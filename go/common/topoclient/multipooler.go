@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -35,9 +36,23 @@ func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadata
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   host,
-		TableGroup: tableGroup,
-		PortMap:    make(map[string]int32),
+		Hostname: host,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+		},
+		PortMap: make(map[string]int32),
+		// The pooler process is up but postgres readiness has not yet been
+		// confirmed; the manager transitions this to ACTIVE once the
+		// pgMonitor observes postgres responding. The timestamp is set at
+		// construction time rather than at write time — the caller
+		// (registerFunc) invokes RegisterMultiPooler within microseconds
+		// of the factory call, so the difference is negligible and avoids
+		// plumbing a clock through the factory's call sites.
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+			Reason:  "process starting",
+			Updated: timestamppb.Now(),
+		},
 	}
 }
 
@@ -80,6 +95,19 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
+}
+
+// PoolerAddressFor projects a MultiPooler into the contact-info subset the
+// consensus RPCs (SetTermPrimary, Propose) take. Returns nil if mp is nil.
+func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
+	if mp == nil {
+		return nil
+	}
+	return &clustermetadatapb.PoolerAddress{
+		Id:           mp.GetId(),
+		Host:         mp.GetHostname(),
+		PostgresPort: mp.GetPortMap()["postgres"],
+	}
 }
 
 // GetMultiPooler is a high level function to read multipooler data.
@@ -198,16 +226,17 @@ func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt
 			return nil, err
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
+			sk := multipooler.GetShardKey()
 			// Database must match
-			if opt.DatabaseShard.Database != multipooler.Database {
+			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue
 			}
 			// If TableGroup is specified, it must match
-			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != multipooler.TableGroup {
+			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != sk.GetTableGroup() {
 				continue
 			}
 			// If Shard is specified, it must match
-			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != multipooler.Shard {
+			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != sk.GetShard() {
 				continue
 			}
 		}

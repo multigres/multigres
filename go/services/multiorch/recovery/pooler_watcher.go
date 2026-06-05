@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -44,11 +45,13 @@ import (
 // are reported via the onNewPooler callback so the caller can start monitoring
 // them (e.g. open a ManagerHealthStream stream).
 type PoolerWatcher struct {
-	topoStore   topoclient.Store
-	targets     func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
-	store       *store.PoolerStore
-	onNewPooler func(id *clustermetadatapb.ID) // called when a new pooler is first discovered
-	logger      *slog.Logger
+	topoStore       topoclient.Store
+	targets         func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
+	store           *store.PoolerStore
+	onNewPooler     func(id *clustermetadatapb.ID) // called when a new pooler is first discovered
+	onPoolerStopped func(id *clustermetadatapb.ID) // called on lifecycle transition into LIFECYCLE_SHUTDOWN
+	onPoolerDeleted func(id *clustermetadatapb.ID) // called when a tracked pooler's topology entry is removed (NoNode); reserved for future use
+	logger          *slog.Logger
 
 	// Control
 	ctx    context.Context
@@ -62,26 +65,35 @@ type PoolerWatcher struct {
 
 // NewPoolerWatcher creates a new PoolerWatcher.
 // targets is a function that returns the current WatchTargets (consulted on every event).
-// onNewPooler is called when a new pooler is discovered; the pooler is already present
-// in the store when the callback fires.
+// onNewPooler is called when a new pooler is discovered; the pooler is already
+// present in the store when the callback fires.
+// onPoolerStopped is called when a tracked pooler's lifecycle transitions to
+// LIFECYCLE_SHUTDOWN; the store entry has already been evicted when it fires.
+// onPoolerDeleted is called when a tracked pooler's topology entry is removed
+// (NoNode). Reserved for future use — pass nil to leave NoNode events as a
+// log-only no-op that does not evict the cache or stop per-pooler resources.
 func NewPoolerWatcher(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
 	poolerStore *store.PoolerStore,
 	onNewPooler func(id *clustermetadatapb.ID),
+	onPoolerStopped func(id *clustermetadatapb.ID),
+	onPoolerDeleted func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
 ) *PoolerWatcher {
 	watchCtx, cancel := context.WithCancel(ctx)
 	return &PoolerWatcher{
-		topoStore:    topoStore,
-		targets:      targets,
-		store:        poolerStore,
-		onNewPooler:  onNewPooler,
-		logger:       logger,
-		ctx:          watchCtx,
-		cancel:       cancel,
-		cellWatchers: make(map[string]*cellPoolerWatcher),
+		topoStore:       topoStore,
+		targets:         targets,
+		store:           poolerStore,
+		onNewPooler:     onNewPooler,
+		onPoolerStopped: onPoolerStopped,
+		onPoolerDeleted: onPoolerDeleted,
+		logger:          logger,
+		ctx:             watchCtx,
+		cancel:          cancel,
+		cellWatchers:    make(map[string]*cellPoolerWatcher),
 	}
 }
 
@@ -227,7 +239,7 @@ func (pw *PoolerWatcher) processCellEvent(event *topoclient.WatchDataRecursive) 
 
 // startCellWatcher starts a per-cell pooler watcher. Caller must hold pw.mu.
 func (pw *PoolerWatcher) startCellWatcher(cell string) {
-	w := newCellPoolerWatcher(pw.ctx, pw.topoStore, cell, pw.targets, pw.store, pw.onNewPooler, pw.logger)
+	w := newCellPoolerWatcher(pw.ctx, pw.topoStore, cell, pw.targets, pw.store, pw.onNewPooler, pw.onPoolerStopped, pw.onPoolerDeleted, pw.logger)
 	pw.cellWatchers[cell] = w
 	w.start()
 }
@@ -249,12 +261,14 @@ func extractCellNameFromPath(watchPath string) string {
 // ---------------------------------------------------------------------------
 
 type cellPoolerWatcher struct {
-	topoStore   topoclient.Store
-	cell        string
-	targets     func() []config.WatchTarget
-	store       *store.PoolerStore
-	onNewPooler func(id *clustermetadatapb.ID)
-	logger      *slog.Logger
+	topoStore       topoclient.Store
+	cell            string
+	targets         func() []config.WatchTarget
+	store           *store.PoolerStore
+	onNewPooler     func(id *clustermetadatapb.ID)
+	onPoolerStopped func(id *clustermetadatapb.ID)
+	onPoolerDeleted func(id *clustermetadatapb.ID)
+	logger          *slog.Logger
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -269,19 +283,23 @@ func newCellPoolerWatcher(
 	targets func() []config.WatchTarget,
 	poolerStore *store.PoolerStore,
 	onNewPooler func(id *clustermetadatapb.ID),
+	onPoolerStopped func(id *clustermetadatapb.ID),
+	onPoolerDeleted func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
 ) *cellPoolerWatcher {
 	watchCtx, cancel := context.WithCancel(ctx)
 	return &cellPoolerWatcher{
-		topoStore:   topoStore,
-		cell:        cell,
-		targets:     targets,
-		store:       poolerStore,
-		onNewPooler: onNewPooler,
-		logger:      logger.With("cell", cell),
-		ctx:         watchCtx,
-		cancel:      cancel,
-		syncChan:    make(chan chan struct{}, 1),
+		topoStore:       topoStore,
+		cell:            cell,
+		targets:         targets,
+		store:           poolerStore,
+		onNewPooler:     onNewPooler,
+		onPoolerStopped: onPoolerStopped,
+		onPoolerDeleted: onPoolerDeleted,
+		logger:          logger.With("cell", cell),
+		ctx:             watchCtx,
+		cancel:          cancel,
+		syncChan:        make(chan chan struct{}, 1),
 	}
 }
 
@@ -368,13 +386,28 @@ func (cw *cellPoolerWatcher) sync(ctx context.Context) error {
 // handlePoolerEvent processes a single watch event for a pooler file.
 func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive) {
 	if wd.Err != nil {
-		// Deletions (NoNode) are intentionally ignored here: the pooler store
-		// entry is left in place so that ongoing health checks can continue until
-		// bookkeeping removes it after the configured unseen threshold.
-		if !errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+		// NoNode = the pooler's topology entry was removed outright. On the
+		// happy-path graceful-shutdown flow the pooler does NOT delete its
+		// entry; it writes LifecycleStatus=LIFECYCLE_SHUTDOWN and lets
+		// bookkeeping eviction clean up. So a NoNode here is unexpected —
+		// an operator typo, an automation bug, or a manual etcd delete.
+		// We log the event and invoke onPoolerDeleted if a caller wired
+		// it, but we deliberately do NOT evict the cache or stop per-pooler
+		// resources: the running pooler is unaffected, and tearing down
+		// the health stream over an accidental deletion would compound
+		// the operator mistake.
+		if errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			key := path.Base(path.Dir(wd.Path))
+			if entry, ok := cw.store.Get(key); ok {
+				cw.logger.Warn("pooler topology entry removed; cache and stream left intact",
+					"pooler_id", key)
+				if cw.onPoolerDeleted != nil {
+					cw.onPoolerDeleted(entry.MultiPooler.Id)
+				}
+			}
+		} else {
 			cw.logger.Warn("watch error on pooler path", "error", wd.Err, "path", wd.Path)
 		}
-		return
 	}
 
 	// Only handle files named "Pooler"
@@ -400,21 +433,66 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 	}
 
 	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	newLifecycle := pooler.GetLifecycleStatus().GetStatus()
 
-	// Use DoUpdate to atomically update only the topology metadata, preserving all
-	// health-check fields (timestamps, IsUpToDate, IsLastCheckValid, etc.) that may
-	// be written concurrently by the health check worker. A closure variable tracks
-	// whether the key existed so we know whether to treat this as a new pooler.
-	existing := false
+	// Atomic read-modify-write: capture whether the entry already existed and
+	// what its previous lifecycle was, then refresh MultiPooler in place.
+	// Health-check fields written concurrently by the health worker are
+	// preserved.
+	var (
+		existing      bool
+		prevLifecycle clustermetadatapb.PoolerLifecycleStatus
+	)
 	cw.store.DoUpdate(poolerID, func(state *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 		existing = true
+		prevLifecycle = state.MultiPooler.GetLifecycleStatus().GetStatus()
 		state.MultiPooler = pooler
 		return state
 	})
 
-	if existing {
+	switch {
+	case !existing && newLifecycle == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN:
+		// Cold-start discovery of an already-SHUTDOWN pooler. Cache the entry
+		// so that if the pooler restarts later (within the 4 h bookkeeping
+		// window) we'll detect the SHUTDOWN→non-SHUTDOWN transition and
+		// re-fire onNewPooler. Don't open a health stream now — there's
+		// nothing live to monitor.
+		cw.store.Set(poolerID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: pooler,
+			IsUpToDate:  false,
+		})
+		cw.logger.Debug("cached already-SHUTDOWN pooler without opening stream", "pooler_id", poolerID)
+
+	case existing && newLifecycle == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN && prevLifecycle != clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN:
+		// Transition into SHUTDOWN: notify the caller so per-pooler resources
+		// (health stream) can be torn down. We deliberately do NOT evict the
+		// in-memory PoolerStore entry — analyzers still need to see the entry
+		// to drive failover (e.g. LeaderIsDeadAnalyzer needs the cached
+		// PoolerHealthState to fire after stream EOF), and the topology
+		// record itself stays in place until the 4 h bookkeeping eviction
+		// window. The cached MultiPooler proto carries
+		// LifecycleStatus=LIFECYCLE_SHUTDOWN so analyzers and operator
+		// tooling can distinguish "just stopped" from "stalled".
+		if cw.onPoolerStopped != nil {
+			cw.onPoolerStopped(pooler.Id)
+		}
+		cw.logger.Info("pooler entered SHUTDOWN lifecycle", "pooler_id", poolerID)
+
+	case existing && prevLifecycle == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN && newLifecycle != clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN:
+		// Restart from SHUTDOWN: re-fire onNewPooler so per-pooler resources
+		// (health stream) get re-established. The cache entry was retained
+		// on the original SHUTDOWN transition so analyzers had consistent
+		// state; here we re-trigger the discovery callback.
+		cw.onNewPooler(pooler.Id)
+		cw.logger.Info("pooler restarted from SHUTDOWN lifecycle",
+			"pooler_id", poolerID,
+			"new_lifecycle", newLifecycle.String(),
+		)
+
+	case existing:
 		cw.logger.Debug("pooler metadata updated from topology", "pooler_id", poolerID)
-	} else {
+
+	default:
 		// New pooler — add to store and queue for immediate health check.
 		cw.store.Set(poolerID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: pooler,
@@ -423,9 +501,9 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 		cw.onNewPooler(pooler.Id)
 		cw.logger.Info("new pooler discovered via watcher",
 			"pooler_id", poolerID,
-			"database", pooler.Database,
-			"tablegroup", pooler.TableGroup,
-			"shard", pooler.Shard,
+			"database", pooler.GetShardKey().GetDatabase(),
+			"tablegroup", pooler.GetShardKey().GetTableGroup(),
+			"shard", pooler.GetShardKey().GetShard(),
 			"type", pooler.Type.String(),
 		)
 	}
@@ -435,7 +513,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 // configured WatchTargets.
 func (cw *cellPoolerWatcher) matchesAnyTarget(pooler *clustermetadatapb.MultiPooler) bool {
 	for _, target := range cw.targets() {
-		if target.MatchesShard(pooler.Database, pooler.TableGroup, pooler.Shard) {
+		if target.MatchesShard(pooler.GetShardKey().GetDatabase(), pooler.GetShardKey().GetTableGroup(), pooler.GetShardKey().GetShard()) {
 			return true
 		}
 	}

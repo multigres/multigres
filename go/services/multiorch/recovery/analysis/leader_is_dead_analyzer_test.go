@@ -271,21 +271,4 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1, "should detect dead leader when multipooler is unreachable even if promotion flag is set")
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
-
-	t.Run("triggers failover when leader has resigned even though replicas are still connected", func(t *testing.T) {
-		// After EmergencyDemote, postgres restarts as standby. Replicas reconnect to
-		// it as a replication source, so ReplicasConnectedToLeader becomes true.
-		// Without the LeaderHasResigned bypass, this would suppress failover indefinitely.
-		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false
-			sa.ReplicasConnectedToLeader = true
-			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second)
-			sa.LeaderHasResigned = true
-		})
-
-		problems, err := analyzer.Analyze(sa)
-		require.NoError(t, err)
-		require.Len(t, problems, 1, "should not suppress failover when leader has resigned, even if replicas are connected")
-		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
-	})
 }

@@ -137,53 +137,43 @@
   },
   {
     "comment": "identity - Statement 33",
-    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-1, 'aa')",
-    "expected": "INSERT INTO itest5 VALUES (-1, 'aa')"
+    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-1, 'aa')"
   },
   {
     "comment": "identity - Statement 34",
-    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-2, 'bb'), (-3, 'cc')",
-    "expected": "INSERT INTO itest5 VALUES (-2, 'bb'), (-3, 'cc')"
+    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-2, 'bb'), (-3, 'cc')"
   },
   {
     "comment": "identity - Statement 35",
-    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (DEFAULT, 'dd'), (-4, 'ee')",
-    "expected": "INSERT INTO itest5 VALUES (DEFAULT, 'dd'), (-4, 'ee')"
+    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (DEFAULT, 'dd'), (-4, 'ee')"
   },
   {
     "comment": "identity - Statement 36",
-    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-5, 'ff'), (DEFAULT, 'gg')",
-    "expected": "INSERT INTO itest5 VALUES (-5, 'ff'), (DEFAULT, 'gg')"
+    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (-5, 'ff'), (DEFAULT, 'gg')"
   },
   {
     "comment": "identity - Statement 37",
-    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (DEFAULT, 'hh'), (DEFAULT, 'ii')",
-    "expected": "INSERT INTO itest5 VALUES (DEFAULT, 'hh'), (DEFAULT, 'ii')"
+    "query": "INSERT INTO itest5 OVERRIDING SYSTEM VALUE VALUES (DEFAULT, 'hh'), (DEFAULT, 'ii')"
   },
   {
     "comment": "identity - Statement 38",
-    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-1, 'aaa')",
-    "expected": "INSERT INTO itest5 VALUES (-1, 'aaa')"
+    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-1, 'aaa')"
   },
   {
     "comment": "identity - Statement 39",
-    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-2, 'bbb'), (-3, 'ccc')",
-    "expected": "INSERT INTO itest5 VALUES (-2, 'bbb'), (-3, 'ccc')"
+    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-2, 'bbb'), (-3, 'ccc')"
   },
   {
     "comment": "identity - Statement 40",
-    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (DEFAULT, 'ddd'), (-4, 'eee')",
-    "expected": "INSERT INTO itest5 VALUES (DEFAULT, 'ddd'), (-4, 'eee')"
+    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (DEFAULT, 'ddd'), (-4, 'eee')"
   },
   {
     "comment": "identity - Statement 41",
-    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-5, 'fff'), (DEFAULT, 'ggg')",
-    "expected": "INSERT INTO itest5 VALUES (-5, 'fff'), (DEFAULT, 'ggg')"
+    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (-5, 'fff'), (DEFAULT, 'ggg')"
   },
   {
     "comment": "identity - Statement 42",
-    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (DEFAULT, 'hhh'), (DEFAULT, 'iii')",
-    "expected": "INSERT INTO itest5 VALUES (DEFAULT, 'hhh'), (DEFAULT, 'iii')"
+    "query": "INSERT INTO itest5 OVERRIDING USER VALUE VALUES (DEFAULT, 'hhh'), (DEFAULT, 'iii')"
   },
   {
     "comment": "identity - Statement 43",
@@ -207,13 +197,11 @@
   },
   {
     "comment": "identity - Statement 48",
-    "query": "INSERT INTO itest1 OVERRIDING SYSTEM VALUE VALUES (20, 'xyz')",
-    "expected": "INSERT INTO itest1 VALUES (20, 'xyz')"
+    "query": "INSERT INTO itest1 OVERRIDING SYSTEM VALUE VALUES (20, 'xyz')"
   },
   {
     "comment": "identity - Statement 49",
-    "query": "INSERT INTO itest1 OVERRIDING USER VALUE VALUES (30, 'xyz')",
-    "expected": "INSERT INTO itest1 VALUES (30, 'xyz')"
+    "query": "INSERT INTO itest1 OVERRIDING USER VALUE VALUES (30, 'xyz')"
   },
   {
     "comment": "identity - Statement 50",
@@ -221,13 +209,11 @@
   },
   {
     "comment": "identity - Statement 51",
-    "query": "INSERT INTO itest2 OVERRIDING SYSTEM VALUE VALUES (20, 'xyz')",
-    "expected": "INSERT INTO itest2 VALUES (20, 'xyz')"
+    "query": "INSERT INTO itest2 OVERRIDING SYSTEM VALUE VALUES (20, 'xyz')"
   },
   {
     "comment": "identity - Statement 52",
-    "query": "INSERT INTO itest2 OVERRIDING USER VALUE VALUES (30, 'xyz')",
-    "expected": "INSERT INTO itest2 VALUES (30, 'xyz')"
+    "query": "INSERT INTO itest2 OVERRIDING USER VALUE VALUES (30, 'xyz')"
   },
   {
     "comment": "identity - Statement 53",
@@ -270,8 +256,7 @@
   },
   {
     "comment": "identity - Statement 62",
-    "query": "ALTER TABLE itest4 ALTER COLUMN a DROP IDENTITY IF EXISTS",
-    "expected": "ALTER TABLE itest4 ALTER COLUMN a DROP IDENTITY"
+    "query": "ALTER TABLE itest4 ALTER COLUMN a DROP IDENTITY IF EXISTS"
   },
   {
     "comment": "identity - Statement 63",
@@ -317,8 +302,7 @@
   },
   {
     "comment": "identity - Statement 73",
-    "query": "INSERT INTO itestv10 OVERRIDING USER VALUE VALUES (11, 'xyz')",
-    "expected": "INSERT INTO itestv10 VALUES (11, 'xyz')"
+    "query": "INSERT INTO itestv10 OVERRIDING USER VALUE VALUES (11, 'xyz')"
   },
   {
     "comment": "identity - Statement 74",
@@ -326,8 +310,7 @@
   },
   {
     "comment": "identity - Statement 75",
-    "query": "INSERT INTO itestv11 OVERRIDING SYSTEM VALUE VALUES (11, 'xyz')",
-    "expected": "INSERT INTO itestv11 VALUES (11, 'xyz')"
+    "query": "INSERT INTO itestv11 OVERRIDING SYSTEM VALUE VALUES (11, 'xyz')"
   },
   {
     "comment": "identity - Statement 76",
@@ -415,8 +398,7 @@
   },
   {
     "comment": "identity - Statement 95",
-    "query": "ALTER TABLE itest6 ALTER COLUMN b SET INCREMENT BY 2",
-    "expected": "ALTER TABLE itest6 ALTER COLUMN b SET GENERATED BY DEFAULT SET INCREMENT BY 2"
+    "query": "ALTER TABLE itest6 ALTER COLUMN b SET INCREMENT BY 2"
   },
   {
     "comment": "identity - Statement 96",
@@ -487,8 +469,7 @@
   },
   {
     "comment": "identity - Statement 111",
-    "query": "ALTER TABLE itest7 ALTER COLUMN a RESTART",
-    "expected": "ALTER TABLE itest7 ALTER COLUMN a SET GENERATED BY DEFAULT RESTART"
+    "query": "ALTER TABLE itest7 ALTER COLUMN a RESTART"
   },
   {
     "comment": "identity - Statement 112",
@@ -592,7 +573,7 @@
   {
     "comment": "identity - Statement 133",
     "query": "CREATE TABLE itest12 OF itest_type (f1 WITH OPTIONS GENERATED ALWAYS AS IDENTITY)",
-    "expected": "CREATE TABLE itest12 OF itest_type"
+    "expected": "CREATE TABLE itest12 OF itest_type (f1 GENERATED ALWAYS AS IDENTITY)"
   },
   {
     "comment": "identity - Statement 134",
@@ -732,8 +713,7 @@
   },
   {
     "comment": "identity - Statement 164",
-    "query": "ALTER TABLE pitest2_p1 ALTER COLUMN f3 SET INCREMENT BY 2",
-    "expected": "ALTER TABLE pitest2_p1 ALTER COLUMN f3 SET GENERATED BY DEFAULT SET INCREMENT BY 2"
+    "query": "ALTER TABLE pitest2_p1 ALTER COLUMN f3 SET INCREMENT BY 2"
   },
   {
     "comment": "identity - Statement 165",

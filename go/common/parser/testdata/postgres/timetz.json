@@ -86,23 +86,23 @@
   },
   {
     "comment": "timetz - Statement 18",
-    "query": "SELECT f1 AS \"Three\" FROM TIMETZ_TBL WHERE f1 \u003c '05:06:07-07'",
-    "expected": "SELECT f1 AS \"Three\" FROM timetz_tbl WHERE f1 \u003c '05:06:07-07'"
+    "query": "SELECT f1 AS \"Three\" FROM TIMETZ_TBL WHERE f1 < '05:06:07-07'",
+    "expected": "SELECT f1 AS \"Three\" FROM timetz_tbl WHERE f1 < '05:06:07-07'"
   },
   {
     "comment": "timetz - Statement 19",
-    "query": "SELECT f1 AS \"Seven\" FROM TIMETZ_TBL WHERE f1 \u003e '05:06:07-07'",
-    "expected": "SELECT f1 AS \"Seven\" FROM timetz_tbl WHERE f1 \u003e '05:06:07-07'"
+    "query": "SELECT f1 AS \"Seven\" FROM TIMETZ_TBL WHERE f1 > '05:06:07-07'",
+    "expected": "SELECT f1 AS \"Seven\" FROM timetz_tbl WHERE f1 > '05:06:07-07'"
   },
   {
     "comment": "timetz - Statement 20",
-    "query": "SELECT f1 AS \"None\" FROM TIMETZ_TBL WHERE f1 \u003c '00:00-07'",
-    "expected": "SELECT f1 AS \"None\" FROM timetz_tbl WHERE f1 \u003c '00:00-07'"
+    "query": "SELECT f1 AS \"None\" FROM TIMETZ_TBL WHERE f1 < '00:00-07'",
+    "expected": "SELECT f1 AS \"None\" FROM timetz_tbl WHERE f1 < '00:00-07'"
   },
   {
     "comment": "timetz - Statement 21",
-    "query": "SELECT f1 AS \"Ten\" FROM TIMETZ_TBL WHERE f1 \u003e= '00:00-07'",
-    "expected": "SELECT f1 AS \"Ten\" FROM timetz_tbl WHERE f1 \u003e= '00:00-07'"
+    "query": "SELECT f1 AS \"Ten\" FROM TIMETZ_TBL WHERE f1 >= '00:00-07'",
+    "expected": "SELECT f1 AS \"Ten\" FROM timetz_tbl WHERE f1 >= '00:00-07'"
   },
   {
     "comment": "timetz - Statement 22",

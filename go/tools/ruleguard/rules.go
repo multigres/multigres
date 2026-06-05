@@ -96,6 +96,30 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
 }
 
+// onlyPoolerRecordPublishesMultiPooler enforces that the multipooler
+// service's poolerRecord is the single writer of MultiPooler topology
+// entries via RegisterMultiPooler. The record routes writes through the
+// eventually-consistent Mutate → publisher pipeline; any other caller
+// would bypass that pipeline, splitting write paths and risking state
+// divergence between in-memory desired state and what etcd shows.
+//
+// Excluded:
+//   - go/services/multipooler/manager/pooler_record.go: the one legal
+//     production caller (the publisher loop and the final-publish path
+//     inside Unregister).
+//   - test files (*_test.go): tests construct topology fixtures via
+//     RegisterMultiPooler directly.
+//   - go/common/topoclient/: the package implementing RegisterMultiPooler
+//     itself.
+func onlyPoolerRecordPublishesMultiPooler(m dsl.Matcher) {
+	m.Match(`$ts.RegisterMultiPooler($ctx, $mp, $upd)`).
+		Where(
+			!m.File().Name.Matches(`pooler_record\.go$`) &&
+				!m.File().Name.Matches(`_test\.go$`) &&
+				!m.File().PkgPath.Matches(`/common/topoclient`)).
+		Report("RegisterMultiPooler must only be called from poolerRecord; route writes through pm.record.Mutate so they flow through the publisher (eventually-consistent + bounded retry)")
+}
+
 // disallowDirectPgctldStopInTests prevents test code from calling pgctld Stop() directly
 // in test packages that run multipooler alongside pgctld. The postgres monitor runs
 // continuously and will restart postgres immediately after it is stopped, causing races.
@@ -113,4 +137,70 @@ func disallowDirectPgctldStopInTests(m dsl.Matcher) {
 				m.File().PkgPath.Matches(`/test/endtoend/`) &&
 				!m.File().PkgPath.Matches(`/test/endtoend/pgctld$|/test/endtoend/shardsetup$`)).
 		Report("use ShardSetup.StopPostgres instead of calling pgctld Stop directly; the monitor will restart postgres otherwise")
+}
+
+// requireSortedMapIteration flags direct map range loops in the consensus
+// package. Non-deterministic map iteration order can cause consensus tests
+// to pass or fail differently across Go runs, making failures hard to
+// reproduce. Use sortedmaps.All/Keys/Values instead.
+func requireSortedMapIteration(m dsl.Matcher) {
+	m.Match(
+		`for $k, $v := range $x { $*_ }`,
+		`for $k := range $x { $*_ }`,
+	).Where(
+		m["x"].Type.Is("map[$_]$_") &&
+			m.File().PkgPath.Matches(`common/consensus`)).
+		Report("map iteration is non-deterministic across Go runs; use sortedmaps.All/Keys/Values for deterministic iteration")
+}
+
+// requireSortedMapsOverStdlibMaps flags calls to stdlib maps.Keys/Values/All in
+// the consensus package. These functions return elements in non-deterministic
+// order; use sortedmaps.Keys/Values/All instead.
+func requireSortedMapsOverStdlibMaps(m dsl.Matcher) {
+	m.Import("maps")
+
+	m.Match(
+		`maps.Keys($x)`,
+		`maps.Values($x)`,
+		`maps.All($x)`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`)).
+		Report("maps.Keys/Values/All iterate in non-deterministic order; use sortedmaps.Keys/Values/All instead")
+}
+
+// disallowGoroutinesInConsensus flags `go` statements in production code under
+// common/consensus. Goroutine scheduling is non-deterministic; consensus logic
+// must remain step-driven and synchronous so simulation and tests are
+// reproducible.
+func disallowGoroutinesInConsensus(m dsl.Matcher) {
+	m.Match(`go $_($*_)`).
+		Where(
+			m.File().PkgPath.Matches(`common/consensus`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("goroutines introduce scheduling non-determinism; keep consensus logic step-driven and synchronous")
+}
+
+// disallowWallClockInConsensus flags reads of the wall clock in production
+// code under common/consensus. Consensus logic must be deterministic: time
+// should be supplied as a parameter from the caller (or injected via a clock
+// interface), never read from the host clock. Pure constructors like
+// time.Date, time.Unix, time.UTC, and timestamppb.New(t) are not flagged.
+func disallowWallClockInConsensus(m dsl.Matcher) {
+	m.Import("time")
+	m.Import("google.golang.org/protobuf/types/known/timestamppb")
+
+	m.Match(
+		`time.Now()`,
+		`time.Since($_)`,
+		`time.Until($_)`,
+		`time.After($_)`,
+		`time.Tick($_)`,
+		`time.Sleep($_)`,
+		`time.NewTimer($_)`,
+		`time.NewTicker($_)`,
+		`timestamppb.Now()`,
+	).Where(
+		m.File().PkgPath.Matches(`common/consensus`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("reading wall-clock time breaks determinism; pass the timestamp from the caller or use an injected clock")
 }

@@ -126,9 +126,9 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 			return true // skip nil entries
 		}
 
-		database := pooler.MultiPooler.Database
-		tableGroup := pooler.MultiPooler.TableGroup
-		shard := pooler.MultiPooler.Shard
+		database := pooler.MultiPooler.GetShardKey().GetDatabase()
+		tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+		shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 		// Initialize nested maps if needed
 		if poolersByShard[database] == nil {
@@ -162,9 +162,9 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
@@ -192,9 +192,9 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*Shar
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.Database
-	tableGroup := pooler.MultiPooler.TableGroup
-	shard := pooler.MultiPooler.Shard
+	database := pooler.MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.MultiPooler.GetShardKey().GetShard()
 
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok || len(poolers) == 0 {
@@ -236,6 +236,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	// Store consensus status.
 	analysis.ConsensusTerm = pooler.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	analysis.ConsensusStatus = pooler.GetConsensusStatus()
+	analysis.AvailabilityStatus = pooler.GetAvailabilityStatus()
 
 	// If this is a REPLICA, populate replica-specific fields
 	if !analysis.IsLeader {
@@ -258,7 +259,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 // A pooler is a candidate if:
 //   - its ConsensusStatus names it as leader (IsLeader), OR
 //   - its health status reports PoolerType=PRIMARY (fallback when ConsensusStatus is absent,
-//     e.g. before the first streaming snapshot populates it, or after a BeginTerm REVOKE
+//     e.g. before the first streaming snapshot populates it, or after a Recruit
 //     where the node still reports PRIMARY while postgres restarts as standby).
 //
 // Note: we do NOT use MultiPooler.Type (topology type) because topology can be stale when
@@ -329,6 +330,13 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			replicaType = pooler.MultiPooler.Type
 		}
 		if replicaType != clustermetadatapb.PoolerType_REPLICA {
+			continue
+		}
+
+		// Skip poolers that have never reported health — we have no information
+		// about their replication state, so they must not influence the
+		// connected-count check used to suppress failover.
+		if pooler.StreamSnapshotsReceived == 0 {
 			continue
 		}
 

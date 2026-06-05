@@ -152,6 +152,14 @@ const (
 	T_UnlistenStmt
 	T_ConstraintsSetStmt
 
+	// Replication command nodes - ported from postgres/src/include/nodes/replnodes.h
+	T_IdentifySystemCmd
+	T_CreateReplicationSlotCmd
+	T_DropReplicationSlotCmd
+	T_AlterReplicationSlotCmd
+	T_StartReplicationCmd
+	T_ReadReplicationSlotCmd
+
 	// Expression nodes
 	T_Expr
 	T_Var
@@ -555,6 +563,18 @@ func (nt NodeTag) String() string {
 		return "T_UnlistenStmt"
 	case T_ConstraintsSetStmt:
 		return "T_ConstraintsSetStmt"
+	case T_IdentifySystemCmd:
+		return "T_IdentifySystemCmd"
+	case T_CreateReplicationSlotCmd:
+		return "T_CreateReplicationSlotCmd"
+	case T_DropReplicationSlotCmd:
+		return "T_DropReplicationSlotCmd"
+	case T_AlterReplicationSlotCmd:
+		return "T_AlterReplicationSlotCmd"
+	case T_StartReplicationCmd:
+		return "T_StartReplicationCmd"
+	case T_ReadReplicationSlotCmd:
+		return "T_ReadReplicationSlotCmd"
 	case T_Expr:
 		return "T_Expr"
 	case T_Var:
@@ -900,6 +920,9 @@ type Node interface {
 	// Returns -1 if location is not available.
 	// Ported from postgres/src/include/nodes/parsenodes.h:6-12 location concept
 	Location() int
+
+	// SetLocation sets the byte offset in the source string where this node begins.
+	SetLocation(location int)
 
 	// String returns a string representation of the node (for debugging)
 	String() string

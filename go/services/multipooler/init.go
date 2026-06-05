@@ -20,19 +20,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
-	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/services/multipooler/grpcpoolerservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -56,6 +57,10 @@ type MultiPooler struct {
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
 	pgBackRestPort     viperutil.Value[int]
+	// vpidStampEnabled controls stamping of multigres_vpid:<id> on PostgreSQL
+	// backends so lock-detection can map a multigateway virtual PID to the
+	// real backend PID via pg_stat_activity.application_name.
+	vpidStampEnabled viperutil.Value[bool]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -66,9 +71,9 @@ type MultiPooler struct {
 	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
-	ts           topoclient.Store
-	tr           *toporeg.TopoReg
-	serverStatus Status
+	ts            topoclient.Store
+	poolerManager *manager.MultiPoolerManager
+	serverStatus  Status
 }
 
 func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
@@ -152,6 +157,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
+		vpidStampEnabled: viperutil.Configure(reg, "vpid-stamp-enabled", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "vpid-stamp-enabled",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -187,6 +197,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
+	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Stamp multigres_vpid:<id> on PostgreSQL backend application_name for vpid-to-PID mapping used by lock detection. Reserves application_name from client-set values when enabled.")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -203,6 +214,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
+		mp.vpidStampEnabled,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -265,6 +277,10 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return errors.New("database is required")
 	}
 
+	if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
+		return fmt.Errorf("resolve admin password: %w", err)
+	}
+
 	if mp.tableGroup.Get() == "" {
 		return errors.New("table group is required")
 	}
@@ -277,15 +293,28 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return errors.New("PGDATA environment variable is required")
 	}
 
+	// Validate libpq-style sslmode + sslrootcert before any pool opens. A typo
+	// or missing CA bundle should fail startup rather than silently downgrading
+	// the multipooler → postgres dials to plaintext.
+	pgHost := ""
+	if mp.socketFilePath.Get() == "" {
+		pgHost = mp.senv.GetHostname()
+	}
+	if err := mp.connPoolConfig.ValidatePGSSL(pgHost); err != nil {
+		return err
+	}
+
 	// Create multipooler record with all fields now that servenv.Init() has set them up
 	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
 	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
-	multipooler.Database = mp.database.Get()
-	multipooler.TableGroup = mp.tableGroup.Get()
-	multipooler.Shard = mp.shard.Get()
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{
+		Database:   mp.database.Get(),
+		TableGroup: mp.tableGroup.Get(),
+		Shard:      mp.shard.Get(),
+	}
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
@@ -304,6 +333,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+		VpidStampEnabled:   mp.vpidStampEnabled.Get(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -317,36 +347,27 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 
-	mp.senv.OnRun(
-		func() {
-			registerFunc := func(ctx context.Context) error {
-				return mp.ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
-			}
-			// For poolers, we don't un-register them on shutdown (they are persistent component)
-			// If they are actually deleted, they need to be cleaned up outside the lifecycle of starting / stopping.
-			unregisterFunc := func(ctx context.Context) error {
-				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
-					func(mp *clustermetadatapb.MultiPooler) error {
-						mp.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-						return nil
-					})
-				return err
-			}
-
-			mp.tr = toporeg.Register(
-				registerFunc,
-				unregisterFunc,
-				func(s string) {
-					mp.serverStatus.mu.Lock()
-					defer mp.serverStatus.mu.Unlock()
-					mp.serverStatus.InitError = s
-				}, /* alarm */
-			)
-		},
-	)
+	// Kick off the pooler's topology lifecycle once the server starts.
+	// Initial registration (with retry + alarm), the eventually-consistent
+	// publisher, and the DRAINED unregister on close all live behind
+	// StartTopoRegistration / StopTopoRegistration on the manager.
+	mp.poolerManager = poolerManager
+	mp.senv.OnRun(func() {
+		poolerManager.StartTopoRegistration(func(s string) {
+			mp.serverStatus.mu.Lock()
+			defer mp.serverStatus.mu.Unlock()
+			mp.serverStatus.InitError = s
+		})
+	})
 
 	mp.senv.OnClose(func() {
-		mp.Shutdown()
+		// Detach from startCtx so a cancelled startup ctx doesn't block
+		// the DRAINED shutdown write, while preserving any trace/telemetry
+		// values. Bounded by onCloseTimeout (senv flag, defaults short)
+		// implicitly — senv enforces it on the OnClose hook duration.
+		ctx, cancel := context.WithTimeout(ctxutil.Detach(startCtx), 10*time.Second)
+		defer cancel()
+		mp.Shutdown(ctx)
 	})
 	return nil
 }
@@ -360,8 +381,10 @@ func (mp *MultiPooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
 
-func (mp *MultiPooler) Shutdown() {
-	mp.senv.GetLogger().Info("multipooler shutting down")
-	mp.tr.Unregister()
+func (mp *MultiPooler) Shutdown(ctx context.Context) {
+	mp.senv.GetLogger().InfoContext(ctx, "multipooler shutting down")
+	if mp.poolerManager != nil {
+		mp.poolerManager.StopTopoRegistration(ctx)
+	}
 	mp.ts.Close()
 }

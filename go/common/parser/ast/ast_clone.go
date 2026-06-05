@@ -80,6 +80,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfAlterPolicyStmt(in)
 	case *AlterPublicationStmt:
 		return CloneRefOfAlterPublicationStmt(in)
+	case *AlterReplicationSlotCmd:
+		return CloneRefOfAlterReplicationSlotCmd(in)
 	case *AlterRoleSetStmt:
 		return CloneRefOfAlterRoleSetStmt(in)
 	case *AlterRoleStmt:
@@ -214,6 +216,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreatePublicationStmt(in)
 	case *CreateRangeStmt:
 		return CloneRefOfCreateRangeStmt(in)
+	case *CreateReplicationSlotCmd:
+		return CloneRefOfCreateReplicationSlotCmd(in)
 	case *CreateRoleStmt:
 		return CloneRefOfCreateRoleStmt(in)
 	case *CreateSchemaStmt:
@@ -256,6 +260,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfDoStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
+	case *DropReplicationSlotCmd:
+		return CloneRefOfDropReplicationSlotCmd(in)
 	case *DropRoleStmt:
 		return CloneRefOfDropRoleStmt(in)
 	case *DropStmt:
@@ -296,6 +302,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfGroupingSet(in)
 	case *Identifier:
 		return CloneRefOfIdentifier(in)
+	case *IdentifySystemCmd:
+		return CloneRefOfIdentifySystemCmd(in)
 	case *ImportForeignSchemaStmt:
 		return CloneRefOfImportForeignSchemaStmt(in)
 	case *IndexElem:
@@ -460,6 +468,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfRangeVar(in)
 	case *RawStmt:
 		return CloneRefOfRawStmt(in)
+	case *ReadReplicationSlotCmd:
+		return CloneRefOfReadReplicationSlotCmd(in)
 	case *ReassignOwnedStmt:
 		return CloneRefOfReassignOwnedStmt(in)
 	case *RefreshMatViewStmt:
@@ -506,6 +516,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfSortBy(in)
 	case *SortGroupClause:
 		return CloneRefOfSortGroupClause(in)
+	case *StartReplicationCmd:
+		return CloneRefOfStartReplicationCmd(in)
 	case *StatsElem:
 		return CloneRefOfStatsElem(in)
 	case *String:
@@ -921,6 +933,17 @@ func CloneRefOfAlterPublicationStmt(n *AlterPublicationStmt) *AlterPublicationSt
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Options = CloneRefOfNodeList(n.Options)
 	out.PubObjects = CloneRefOfNodeList(n.PubObjects)
+	return &out
+}
+
+// CloneRefOfAlterReplicationSlotCmd creates a deep clone of the input.
+func CloneRefOfAlterReplicationSlotCmd(n *AlterReplicationSlotCmd) *AlterReplicationSlotCmd {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Options = CloneSliceOfRefOfDefElem(n.Options)
 	return &out
 }
 
@@ -1726,6 +1749,17 @@ func CloneRefOfCreateRangeStmt(n *CreateRangeStmt) *CreateRangeStmt {
 	return &out
 }
 
+// CloneRefOfCreateReplicationSlotCmd creates a deep clone of the input.
+func CloneRefOfCreateReplicationSlotCmd(n *CreateReplicationSlotCmd) *CreateReplicationSlotCmd {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Options = CloneSliceOfRefOfDefElem(n.Options)
+	return &out
+}
+
 // CloneRefOfCreateRoleStmt creates a deep clone of the input.
 func CloneRefOfCreateRoleStmt(n *CreateRoleStmt) *CreateRoleStmt {
 	if n == nil {
@@ -1980,6 +2014,16 @@ func CloneRefOfDropOwnedStmt(n *DropOwnedStmt) *DropOwnedStmt {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Roles = CloneRefOfNodeList(n.Roles)
+	return &out
+}
+
+// CloneRefOfDropReplicationSlotCmd creates a deep clone of the input.
+func CloneRefOfDropReplicationSlotCmd(n *DropReplicationSlotCmd) *DropReplicationSlotCmd {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
 	return &out
 }
 
@@ -2538,6 +2582,16 @@ func CloneRefOfGroupingSet(n *GroupingSet) *GroupingSet {
 
 // CloneRefOfIdentifier creates a deep clone of the input.
 func CloneRefOfIdentifier(n *Identifier) *Identifier {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfIdentifySystemCmd creates a deep clone of the input.
+func CloneRefOfIdentifySystemCmd(n *IdentifySystemCmd) *IdentifySystemCmd {
 	if n == nil {
 		return nil
 	}
@@ -3587,6 +3641,16 @@ func CloneRefOfRawStmt(n *RawStmt) *RawStmt {
 	return &out
 }
 
+// CloneRefOfReadReplicationSlotCmd creates a deep clone of the input.
+func CloneRefOfReadReplicationSlotCmd(n *ReadReplicationSlotCmd) *ReadReplicationSlotCmd {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
 // CloneRefOfReassignOwnedStmt creates a deep clone of the input.
 func CloneRefOfReassignOwnedStmt(n *ReassignOwnedStmt) *ReassignOwnedStmt {
 	if n == nil {
@@ -3859,6 +3923,17 @@ func CloneRefOfSortGroupClause(n *SortGroupClause) *SortGroupClause {
 	return &out
 }
 
+// CloneRefOfStartReplicationCmd creates a deep clone of the input.
+func CloneRefOfStartReplicationCmd(n *StartReplicationCmd) *StartReplicationCmd {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Options = CloneSliceOfRefOfDefElem(n.Options)
+	return &out
+}
+
 // CloneRefOfStatsElem creates a deep clone of the input.
 func CloneRefOfStatsElem(n *StatsElem) *StatsElem {
 	if n == nil {
@@ -3918,6 +3993,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfAlterPolicyStmt(in)
 	case *AlterPublicationStmt:
 		return CloneRefOfAlterPublicationStmt(in)
+	case *AlterReplicationSlotCmd:
+		return CloneRefOfAlterReplicationSlotCmd(in)
 	case *AlterRoleSetStmt:
 		return CloneRefOfAlterRoleSetStmt(in)
 	case *AlterRoleStmt:
@@ -4000,6 +4077,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreatePublicationStmt(in)
 	case *CreateRangeStmt:
 		return CloneRefOfCreateRangeStmt(in)
+	case *CreateReplicationSlotCmd:
+		return CloneRefOfCreateReplicationSlotCmd(in)
 	case *CreateRoleStmt:
 		return CloneRefOfCreateRoleStmt(in)
 	case *CreateSchemaStmt:
@@ -4038,6 +4117,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfDoStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
+	case *DropReplicationSlotCmd:
+		return CloneRefOfDropReplicationSlotCmd(in)
 	case *DropRoleStmt:
 		return CloneRefOfDropRoleStmt(in)
 	case *DropStmt:
@@ -4060,6 +4141,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfGrantStmt(in)
 	case *GroupingSet:
 		return CloneRefOfGroupingSet(in)
+	case *IdentifySystemCmd:
+		return CloneRefOfIdentifySystemCmd(in)
 	case *ImportForeignSchemaStmt:
 		return CloneRefOfImportForeignSchemaStmt(in)
 	case *IndexStmt:
@@ -4114,6 +4197,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfRangeVar(in)
 	case *RawStmt:
 		return CloneRefOfRawStmt(in)
+	case *ReadReplicationSlotCmd:
+		return CloneRefOfReadReplicationSlotCmd(in)
 	case *ReassignOwnedStmt:
 		return CloneRefOfReassignOwnedStmt(in)
 	case *RefreshMatViewStmt:
@@ -4136,6 +4221,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfSinglePartitionSpec(in)
 	case *SortBy:
 		return CloneRefOfSortBy(in)
+	case *StartReplicationCmd:
+		return CloneRefOfStartReplicationCmd(in)
 	case *TableFunc:
 		return CloneRefOfTableFunc(in)
 	case *TableSampleClause:
@@ -4566,6 +4653,18 @@ func CloneSliceOfOid(n []Oid) []Oid {
 	}
 	res := make([]Oid, len(n))
 	copy(res, n)
+	return res
+}
+
+// CloneSliceOfRefOfDefElem creates a deep clone of the input.
+func CloneSliceOfRefOfDefElem(n []*DefElem) []*DefElem {
+	if n == nil {
+		return nil
+	}
+	res := make([]*DefElem, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfDefElem(x)
+	}
 	return res
 }
 

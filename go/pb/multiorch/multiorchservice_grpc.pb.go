@@ -33,11 +33,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiOrchService_GetShardStatus_FullMethodName     = "/multiorch.MultiOrchService/GetShardStatus"
-	MultiOrchService_DisableRecovery_FullMethodName    = "/multiorch.MultiOrchService/DisableRecovery"
-	MultiOrchService_EnableRecovery_FullMethodName     = "/multiorch.MultiOrchService/EnableRecovery"
-	MultiOrchService_GetRecoveryStatus_FullMethodName  = "/multiorch.MultiOrchService/GetRecoveryStatus"
-	MultiOrchService_TriggerRecoveryNow_FullMethodName = "/multiorch.MultiOrchService/TriggerRecoveryNow"
+	MultiOrchService_GetShardStatus_FullMethodName           = "/multiorch.MultiOrchService/GetShardStatus"
+	MultiOrchService_DisableRecovery_FullMethodName          = "/multiorch.MultiOrchService/DisableRecovery"
+	MultiOrchService_EnableRecovery_FullMethodName           = "/multiorch.MultiOrchService/EnableRecovery"
+	MultiOrchService_GetRecoveryStatus_FullMethodName        = "/multiorch.MultiOrchService/GetRecoveryStatus"
+	MultiOrchService_TriggerRecoveryNow_FullMethodName       = "/multiorch.MultiOrchService/TriggerRecoveryNow"
+	MultiOrchService_ApplyCertifiedRuleChange_FullMethodName = "/multiorch.MultiOrchService/ApplyCertifiedRuleChange"
 )
 
 // MultiOrchServiceClient is the client API for MultiOrchService service.
@@ -68,6 +69,12 @@ type MultiOrchServiceClient interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(ctx context.Context, in *TriggerRecoveryNowRequest, opts ...grpc.CallOption) (*TriggerRecoveryNowResponse, error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0): the caller supplies the proposed
+	// leader, cohort, and durability policy, plus a cert that attests to which
+	// outgoing rule and WAL position the absent cohort members are frozen at.
+	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 }
 
 type multiOrchServiceClient struct {
@@ -128,6 +135,16 @@ func (c *multiOrchServiceClient) TriggerRecoveryNow(ctx context.Context, in *Tri
 	return out, nil
 }
 
+func (c *multiOrchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyCertifiedRuleChangeResponse)
+	err := c.cc.Invoke(ctx, MultiOrchService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiOrchServiceServer is the server API for MultiOrchService service.
 // All implementations must embed UnimplementedMultiOrchServiceServer
 // for forward compatibility.
@@ -156,6 +173,12 @@ type MultiOrchServiceServer interface {
 	// - Returns when either: (1) no problems remain, or (2) context times out
 	// - If recovery is disabled, this temporarily enables it during this operation
 	TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error)
+	// ApplyCertifiedRuleChange installs a new shard rule using an externally
+	// certified revocation. Handles both initial leader appointment (term 0)
+	// and stuck-quorum recovery (term > 0): the caller supplies the proposed
+	// leader, cohort, and durability policy, plus a cert that attests to which
+	// outgoing rule and WAL position the absent cohort members are frozen at.
+	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
 	mustEmbedUnimplementedMultiOrchServiceServer()
 }
 
@@ -180,6 +203,9 @@ func (UnimplementedMultiOrchServiceServer) GetRecoveryStatus(context.Context, *G
 }
 func (UnimplementedMultiOrchServiceServer) TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerRecoveryNow not implemented")
+}
+func (UnimplementedMultiOrchServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
 }
 func (UnimplementedMultiOrchServiceServer) mustEmbedUnimplementedMultiOrchServiceServer() {}
 func (UnimplementedMultiOrchServiceServer) testEmbeddedByValue()                          {}
@@ -292,6 +318,24 @@ func _MultiOrchService_TriggerRecoveryNow_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiOrchService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyCertifiedRuleChangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiOrchServiceServer).ApplyCertifiedRuleChange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiOrchService_ApplyCertifiedRuleChange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiOrchServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiOrchService_ServiceDesc is the grpc.ServiceDesc for MultiOrchService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -318,6 +362,10 @@ var MultiOrchService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerRecoveryNow",
 			Handler:    _MultiOrchService_TriggerRecoveryNow_Handler,
+		},
+		{
+			MethodName: "ApplyCertifiedRuleChange",
+			Handler:    _MultiOrchService_ApplyCertifiedRuleChange_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

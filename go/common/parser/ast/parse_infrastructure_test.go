@@ -88,6 +88,150 @@ func TestA_Expr(t *testing.T) {
 	})
 }
 
+// TestA_ExprLikeDeparse pins the LIKE/ILIKE/SIMILAR TO deparse logic that
+// was previously emitting the affirmative form for negated operators and
+// dropping ESCAPE clauses on the floor. Each case covers one branch of the
+// operator-name lookup in SqlString() plus the optional pg_catalog escape
+// wrapper unwrap.
+func TestA_ExprLikeDeparse(t *testing.T) {
+	lhs := NewColumnRef(NewString("c"))
+	pattern := NewA_Const(NewString("h%"), 0)
+	escape := NewA_Const(NewString("#"), 0)
+	likeEscape := NewFuncCall(
+		NewNodeList(NewString("pg_catalog"), NewString("like_escape")),
+		NewNodeList(pattern, escape), 0,
+	)
+	similarEscape := NewFuncCall(
+		NewNodeList(NewString("pg_catalog"), NewString("similar_to_escape")),
+		NewNodeList(pattern, escape), 0,
+	)
+	similarPatternOnly := NewFuncCall(
+		NewNodeList(NewString("pg_catalog"), NewString("similar_to_escape")),
+		NewNodeList(pattern), 0,
+	)
+
+	cases := []struct {
+		name string
+		expr *A_Expr
+		want string
+	}{
+		{
+			name: "LIKE",
+			expr: NewA_Expr(AEXPR_LIKE, NewNodeList(NewString("~~")), lhs, pattern, 0),
+			want: "c LIKE 'h%'",
+		},
+		{
+			name: "NOT LIKE",
+			expr: NewA_Expr(AEXPR_LIKE, NewNodeList(NewString("!~~")), lhs, pattern, 0),
+			want: "c NOT LIKE 'h%'",
+		},
+		{
+			name: "LIKE ... ESCAPE",
+			expr: NewA_Expr(AEXPR_LIKE, NewNodeList(NewString("~~")), lhs, likeEscape, 0),
+			want: "c LIKE 'h%' ESCAPE '#'",
+		},
+		{
+			name: "NOT LIKE ... ESCAPE",
+			expr: NewA_Expr(AEXPR_LIKE, NewNodeList(NewString("!~~")), lhs, likeEscape, 0),
+			want: "c NOT LIKE 'h%' ESCAPE '#'",
+		},
+		{
+			name: "ILIKE",
+			expr: NewA_Expr(AEXPR_ILIKE, NewNodeList(NewString("~~*")), lhs, pattern, 0),
+			want: "c ILIKE 'h%'",
+		},
+		{
+			name: "NOT ILIKE",
+			expr: NewA_Expr(AEXPR_ILIKE, NewNodeList(NewString("!~~*")), lhs, pattern, 0),
+			want: "c NOT ILIKE 'h%'",
+		},
+		{
+			name: "ILIKE ... ESCAPE",
+			expr: NewA_Expr(AEXPR_ILIKE, NewNodeList(NewString("~~*")), lhs, likeEscape, 0),
+			want: "c ILIKE 'h%' ESCAPE '#'",
+		},
+		{
+			name: "SIMILAR TO (escape wrapper, single arg)",
+			expr: NewA_Expr(AEXPR_SIMILAR, NewNodeList(NewString("~")), lhs, similarPatternOnly, 0),
+			want: "c SIMILAR TO 'h%'",
+		},
+		{
+			name: "NOT SIMILAR TO (escape wrapper, single arg)",
+			expr: NewA_Expr(AEXPR_SIMILAR, NewNodeList(NewString("!~")), lhs, similarPatternOnly, 0),
+			want: "c NOT SIMILAR TO 'h%'",
+		},
+		{
+			name: "SIMILAR TO ... ESCAPE",
+			expr: NewA_Expr(AEXPR_SIMILAR, NewNodeList(NewString("~")), lhs, similarEscape, 0),
+			want: "c SIMILAR TO 'h%' ESCAPE '#'",
+		},
+		{
+			name: "NOT SIMILAR TO ... ESCAPE",
+			expr: NewA_Expr(AEXPR_SIMILAR, NewNodeList(NewString("!~")), lhs, similarEscape, 0),
+			want: "c NOT SIMILAR TO 'h%' ESCAPE '#'",
+		},
+		{
+			name: "SIMILAR TO with non-wrapper Rexpr falls back to raw deparse",
+			expr: NewA_Expr(AEXPR_SIMILAR, NewNodeList(NewString("~")), lhs, pattern, 0),
+			want: "c SIMILAR TO 'h%'",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.expr.SqlString())
+		})
+	}
+}
+
+// TestA_ExprLikeDeparseHelpers exercises the small helpers used by the
+// LIKE/ILIKE/SIMILAR branches: opName() handles a nil/empty Name list, and
+// unwrapLikeEscape() rejects non-FuncCall expressions, mismatched function
+// names, and zero-arity calls.
+func TestA_ExprLikeDeparseHelpers(t *testing.T) {
+	t.Run("opName empty Name returns empty string", func(t *testing.T) {
+		assert.Equal(t, "", (&A_Expr{}).opName())
+	})
+
+	t.Run("opName non-String item returns empty string", func(t *testing.T) {
+		expr := &A_Expr{Name: NewNodeList(NewInteger(1))}
+		assert.Equal(t, "", expr.opName())
+	})
+
+	t.Run("unwrapLikeEscape non-FuncCall returns empty", func(t *testing.T) {
+		p, e := unwrapLikeEscape(NewA_Const(NewString("x"), 0), "like_escape")
+		assert.Equal(t, "", p)
+		assert.Equal(t, "", e)
+	})
+
+	t.Run("unwrapLikeEscape wrong wrapper name returns empty", func(t *testing.T) {
+		fn := NewFuncCall(
+			NewNodeList(NewString("pg_catalog"), NewString("some_other_func")),
+			NewNodeList(NewA_Const(NewString("p"), 0)), 0,
+		)
+		p, e := unwrapLikeEscape(fn, "like_escape")
+		assert.Equal(t, "", p)
+		assert.Equal(t, "", e)
+	})
+
+	t.Run("unwrapLikeEscape unqualified name returns empty", func(t *testing.T) {
+		fn := NewFuncCall(NewNodeList(NewString("like_escape")), nil, 0)
+		p, e := unwrapLikeEscape(fn, "like_escape")
+		assert.Equal(t, "", p)
+		assert.Equal(t, "", e)
+	})
+
+	t.Run("unwrapLikeEscape zero-arity wrapper returns empty", func(t *testing.T) {
+		fn := NewFuncCall(
+			NewNodeList(NewString("pg_catalog"), NewString("like_escape")),
+			nil, 0,
+		)
+		p, e := unwrapLikeEscape(fn, "like_escape")
+		assert.Equal(t, "", p)
+		assert.Equal(t, "", e)
+	})
+}
+
 func TestA_Const(t *testing.T) {
 	t.Run("normal constant", func(t *testing.T) {
 		val := NewString("test")

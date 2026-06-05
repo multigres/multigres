@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -37,28 +38,23 @@ type SyncStandbyConfig struct {
 	StandbyIDs []*clustermetadatapb.ID                  // List of standby IDs
 }
 
-// parseApplicationName parses an application name back into a clustermetadata ID
+// parseApplicationName parses a postgres replication application_name back
+// into a clustermetadata ID. Application names are always set by multipoolers
+// (postgres replication clients), so Component is always MULTIPOOLER.
 // Format: {cell}_{name}
-// Example: "us-west_replica-1" -> ID{Cell: "us-west", Name: "replica-1"}
+// Example: "us-west_replica-1" -> ID{Component: MULTIPOOLER, Cell: "us-west", Name: "replica-1"}
+//
+// For decoding non-pooler IDs that happen to share the cell_name encoding
+// (e.g. coordinator_id in rule_history), use topoclient.SplitClusterID directly.
 func parseApplicationName(appName string) (*clustermetadatapb.ID, error) {
-	parts := strings.SplitN(appName, "_", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid application name format: %q (expected cell_name)", appName)
+	cell, name, err := topoclient.SplitClusterID(appName)
+	if err != nil {
+		return nil, err
 	}
-
-	cell := parts[0]
-	name := parts[1]
-
-	if cell == "" {
-		return nil, fmt.Errorf("invalid application name: cell cannot be empty in %q", appName)
-	}
-	if name == "" {
-		return nil, fmt.Errorf("invalid application name: name cannot be empty in %q", appName)
-	}
-
 	return &clustermetadatapb.ID{
-		Cell: cell,
-		Name: name,
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cell,
+		Name:      name,
 	}, nil
 }
 

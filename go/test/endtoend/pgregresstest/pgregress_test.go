@@ -37,28 +37,47 @@ import (
 // 5. Spins up a multigres cluster (2 nodes + multigateway) using the built PostgreSQL
 // 6. Runs regression tests through multigateway (if enabled)
 // 7. Runs isolation tests through multigateway (if enabled)
-// 8. Generates a unified compatibility report
+// 8. Runs contrib extension tests through multigateway (if enabled)
+// 9. Runs external extension tests (e.g. pgvector) through multigateway (if enabled)
+// 10. Generates a unified compatibility report
 //
 // The test is skipped by default. Enable via one of:
-//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — runs both suites (what CI uses)
+//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — runs all suites (what CI uses)
 //   - RUN_PGREGRESS=1 — runs the regression suite only (local iteration)
 //   - RUN_PGISOLATION=1 — runs the isolation suite only (local iteration)
+//   - RUN_PGCONTRIB=1 — runs the contrib extension suite only (local iteration)
+//   - RUN_PGEXTERNAL=1 — runs the external extension suite only (local iteration)
 //
 // Setting more than one is fine; the union is run.
 //
 // Environment variables:
-//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — enable both regression and isolation
+//   - RUN_EXTENDED_QUERY_SERVING_TESTS=1 — enable regression, isolation, contrib, and external
 //   - RUN_PGREGRESS=1 — enable regression only
 //   - RUN_PGISOLATION=1 — enable isolation only
+//   - RUN_PGCONTRIB=1 — enable contrib extension suite only
+//   - RUN_PGEXTERNAL=1 — enable external extension suite only
 //   - PGREGRESS_TESTS="boolean char" — run only specific regression tests
 //   - PGISOLATION_TESTS="deadlock-simple tuplelock-update" — run only specific isolation tests
+//   - PGCONTRIB_TESTS="citext hstore" — run only specific contrib modules (directory names)
+//   - PGEXTERNAL_TESTS="vector" — run only specific external extensions (catalog names)
 func TestPostgreSQLRegression(t *testing.T) {
 	extendedGate := os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1"
 	runRegress := extendedGate || os.Getenv("RUN_PGREGRESS") == "1"
 	runIsolation := extendedGate || os.Getenv("RUN_PGISOLATION") == "1"
-	if !runRegress && !runIsolation {
-		t.Skipf("skipping: set %s=1, or RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1, to run",
+	runContrib := extendedGate || os.Getenv("RUN_PGCONTRIB") == "1"
+	runExternal := extendedGate || os.Getenv("RUN_PGEXTERNAL") == "1"
+	if !runRegress && !runIsolation && !runContrib && !runExternal {
+		t.Skipf("skipping: set %s=1, or RUN_PGREGRESS=1 / RUN_PGISOLATION=1 / RUN_PGCONTRIB=1 / RUN_PGEXTERNAL=1, to run",
 			suiteutil.EnvRunExtendedQueryServingTests)
+	}
+
+	// External extensions (e.g. pgvector) are built as PGXS modules; fail loudly
+	// if one is marked covered in the catalog but lacks build coordinates rather
+	// than silently testing nothing.
+	if runExternal {
+		if missing := CheckExternalSpecs(); len(missing) > 0 {
+			t.Fatalf("external extensions marked covered but missing a build spec: %v", missing)
+		}
 	}
 
 	// Check build dependencies first (before doing anything expensive)
@@ -81,6 +100,26 @@ func TestPostgreSQLRegression(t *testing.T) {
 		builder.Cleanup()
 	})
 
+	// Two contrib modules need optional build features enabled at ./configure.
+	// Enable them only when the contrib suite runs so regression/isolation-only
+	// builds (and other pgbuilder callers) are unaffected and can't be broken
+	// by a missing libuuid / libssl:
+	//   - uuid-ossp needs --with-uuid. PG_UUID_LIB overrides the implementation
+	//     if the default (e2fs) is unavailable on the host (e.g. bsd / ossp).
+	//   - pgcrypto (PG16+) requires OpenSSL; without --with-ssl=openssl the
+	//     contrib Makefile drops pgcrypto into ALWAYS_SUBDIRS and never installs
+	//     it, so CREATE EXTENSION pgcrypto fails.
+	if runContrib {
+		uuidLib := os.Getenv("PG_UUID_LIB")
+		if uuidLib == "" {
+			uuidLib = "e2fs"
+		}
+		builder.ConfigureArgs = append(builder.ConfigureArgs,
+			"--with-uuid="+uuidLib,
+			"--with-ssl=openssl",
+		)
+	}
+
 	// Phase 1: Setup PostgreSQL source
 	t.Logf("Phase 1: Setting up PostgreSQL source...")
 	if err := builder.EnsureSource(t, buildCtx); err != nil {
@@ -98,6 +137,31 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Logf("Phase 2b: Building isolation test tools...")
 		if err := builder.BuildIsolation(t, buildCtx); err != nil {
 			t.Fatalf("Failed to build isolation test tools: %v", err)
+		}
+	}
+
+	// Phase 2c: Install contrib modules (only when that suite will run).
+	// Top-level `make install` skips contrib, so the extension .so/.control/.sql
+	// must be installed before CREATE EXTENSION can load them.
+	if runContrib {
+		t.Logf("Phase 2c: Installing contrib modules...")
+		if err := builder.InstallContrib(t, buildCtx); err != nil {
+			t.Fatalf("Failed to install contrib modules: %v", err)
+		}
+	}
+
+	// Phase 2d: Clone, build, and install external extensions (only when that
+	// suite will run). Each is a PGXS module living outside the PostgreSQL source
+	// tree (e.g. pgvector); it is built against the just-installed PostgreSQL so
+	// its .so matches the running server's ABI. ExternalBuildList includes the
+	// covered extensions plus their build-only dependencies (e.g. pg_partman for
+	// pgmq), ordered so dependencies install first.
+	if runExternal {
+		t.Logf("Phase 2d: Installing external extensions...")
+		for _, ext := range ExternalBuildList() {
+			if _, err := builder.InstallExternalExtension(t, buildCtx, ext.Name, ext.Repo, ext.Tag, ext.BuildSubdir); err != nil {
+				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)
+			}
 		}
 	}
 
@@ -139,7 +203,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// verification. Operates on the regress build directory, where
 			// pg_regress wrote expected/ and results/ files.
 			regressDir := filepath.Join(builder.BuildDir, "src", "test", "regress")
-			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir); verr != nil {
+			if verr := builder.VerifyWithPatches(t, suiteCtx, results, regressDir, builder.OutputDir); verr != nil {
 				t.Logf("Warning: patch verification failed: %v", verr)
 			}
 
@@ -181,7 +245,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Run("isolation", func(t *testing.T) {
 			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
 			defer cancel()
-			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			// The isolation harness installs a lock-detection shim on the
+			// primary's PostgreSQL directly, bypassing multigateway, so it
+			// needs the primary's direct PG port too.
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Isolation test harness failed to execute: %v", err)
@@ -214,6 +282,84 @@ func TestPostgreSQLRegression(t *testing.T) {
 		})
 	}
 
+	// Reinitialize before the contrib suite if a prior suite ran — the
+	// regression/isolation suites can leave PostgreSQL in a degraded state.
+	if runContrib && (runRegress || runIsolation) {
+		t.Logf("Reinitializing cluster before contrib suite...")
+		setup.ReinitializeCluster(t)
+	}
+
+	// Phase 6b: Run contrib extension tests
+	if runContrib {
+		t.Run("contrib", func(t *testing.T) {
+			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
+			defer cancel()
+
+			modules := ContribModules()
+			// directPgPort lets the harness reset the public schema on the
+			// primary between modules (bypassing the gateway's DDL block).
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunContribTests(t, suiteCtx, modules, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
+			if results == nil {
+				if err != nil {
+					t.Fatalf("Contrib test harness failed to execute: %v", err)
+				}
+				t.Fatal("Contrib test harness returned nil results")
+				return
+			}
+
+			logSuiteResults(t, "Contrib", results)
+
+			suites = append(suites, SuiteResult{
+				Name:    "Contrib Extension Tests",
+				Results: results,
+			})
+
+			if err != nil && results.TotalTests == 0 {
+				t.Fatalf("Contrib test harness failed to execute: %v", err)
+			}
+		})
+	}
+
+	// Reinitialize before the external suite if any prior suite ran — earlier
+	// suites can leave PostgreSQL in a degraded state.
+	if runExternal && (runRegress || runIsolation || runContrib) {
+		t.Logf("Reinitializing cluster before external suite...")
+		setup.ReinitializeCluster(t)
+	}
+
+	// Phase 6c: Run external extension tests
+	if runExternal {
+		t.Run("external", func(t *testing.T) {
+			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
+			defer cancel()
+
+			exts := ExternalModules()
+			// directPgPort lets the harness reset the public schema on the
+			// primary between extensions (bypassing the gateway's DDL block).
+			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+			results, err := builder.RunExternalTests(t, suiteCtx, exts, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
+			if results == nil {
+				if err != nil {
+					t.Fatalf("External test harness failed to execute: %v", err)
+				}
+				t.Fatal("External test harness returned nil results")
+				return
+			}
+
+			logSuiteResults(t, "External", results)
+
+			suites = append(suites, SuiteResult{
+				Name:    "External Extension Tests",
+				Results: results,
+			})
+
+			if err != nil && results.TotalTests == 0 {
+				t.Fatalf("External test harness failed to execute: %v", err)
+			}
+		})
+	}
+
 	// Phase 7: Generate unified report
 	if len(suites) > 0 {
 		if _, err := builder.WriteMarkdownSummary(t, suites); err != nil {
@@ -221,6 +367,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 		}
 		if _, err := builder.WriteJSONResults(t, suites); err != nil {
 			t.Logf("Warning: Failed to write JSON results: %v", err)
+		}
+		if err := builder.WriteBadgeEndpoints(t, suites); err != nil {
+			t.Logf("Warning: Failed to write badge endpoints: %v", err)
 		}
 	}
 }

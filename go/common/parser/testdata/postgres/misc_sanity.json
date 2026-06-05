@@ -11,8 +11,8 @@
   },
   {
     "comment": "misc_sanity - Statement 3",
-    "query": "SELECT relname, attname, atttypid::regtype FROM pg_class c JOIN pg_attribute a ON c.oid = attrelid WHERE c.oid \u003c 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage != 'p' ORDER BY 1, 2",
-    "expected": "SELECT relname, attname, CAST(atttypid AS regtype) FROM pg_class AS c INNER JOIN pg_attribute AS a ON c.oid = attrelid WHERE c.oid \u003c 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage \u003c\u003e 'p' ORDER BY 1, 2"
+    "query": "SELECT relname, attname, atttypid::regtype FROM pg_class c JOIN pg_attribute a ON c.oid = attrelid WHERE c.oid < 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage != 'p' ORDER BY 1, 2",
+    "expected": "SELECT relname, attname, CAST(atttypid AS regtype) FROM pg_class AS c INNER JOIN pg_attribute AS a ON c.oid = attrelid WHERE c.oid < 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage <> 'p' ORDER BY 1, 2"
   },
   {
     "comment": "misc_sanity - Statement 4",

@@ -267,7 +267,7 @@ func (n *MergeWhenClause) SqlString() string {
 			// If we have columns specified
 			columns := make([]string, len(n.TargetList))
 			for i, target := range n.TargetList {
-				columns[i] = target.Name
+				columns[i] = QuoteIdentifier(target.Name)
 			}
 			parts = append(parts, "("+strings.Join(columns, ", ")+")")
 		}
@@ -288,16 +288,14 @@ func (n *MergeWhenClause) SqlString() string {
 	case CMD_UPDATE:
 		parts = append(parts, "UPDATE SET")
 		if len(n.TargetList) > 0 {
-			targets := make([]string, len(n.TargetList))
+			// Reuse the UPDATE SET renderer so multi-column assignments
+			// `SET (a, b) = <source>` are regrouped instead of emitted as
+			// duplicated per-column assignments.
+			items := make([]Node, len(n.TargetList))
 			for i, target := range n.TargetList {
-				// For UPDATE SET, format as "column = value" not "value AS column"
-				if target.Val != nil {
-					targets[i] = target.Name + " = " + target.Val.SqlString()
-				} else {
-					targets[i] = target.Name
-				}
+				items[i] = target
 			}
-			parts = append(parts, strings.Join(targets, ", "))
+			parts = append(parts, strings.Join(renderSetClauses(items), ", "))
 		}
 	case CMD_DELETE:
 		parts = append(parts, "DELETE")
@@ -498,7 +496,7 @@ func (n *InferClause) String() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -524,7 +522,7 @@ func (n *InferClause) SqlString() string {
 	}
 
 	if n.Conname != "" {
-		parts = append(parts, "ON CONSTRAINT", n.Conname)
+		parts = append(parts, "ON CONSTRAINT", QuoteIdentifier(n.Conname))
 	}
 
 	return strings.Join(parts, " ")
@@ -672,7 +670,7 @@ func (n *TruncateStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))
@@ -868,6 +866,27 @@ func (n *CommentStmt) SqlString() string {
 			parts = append(parts, "COMMENT ON CAST (", sourceType, "AS", targetType, ") IS")
 		}
 
+	case OBJECT_POLICY:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
+			// The grammar appends the policy name to the table's any_name list,
+			// so the last item is the policy name and the preceding items are
+			// the (possibly schema-qualified) table name: "POLICY name ON table".
+			last := len(nodeList.Items) - 1
+			policyName := ""
+			var tableNameParts []string
+			for i, item := range nodeList.Items {
+				if str, ok := item.(*String); ok {
+					if i == last {
+						policyName = str.SVal
+					} else {
+						tableNameParts = append(tableNameParts, str.SVal)
+					}
+				}
+			}
+			tableName := FormatQualifiedName(tableNameParts...)
+			parts = append(parts, "COMMENT ON POLICY", QuoteIdentifier(policyName), "ON", tableName, "IS")
+		}
+
 	default:
 		// Regular format for other object types
 		objectName := formatObjectName(n.Object)
@@ -988,33 +1007,23 @@ func (n *DoStmt) SqlString() string {
 	parts = append(parts, "DO")
 
 	if n.Args != nil {
-		var language string
-		var code string
-
-		// Process DefElem arguments to extract language and code
+		// Emit the options in their original order: the code block and an
+		// optional LANGUAGE may appear in either order, and re-ordering them
+		// changes the parsed option list (so the round-trip would differ).
 		for _, arg := range n.Args.Items {
 			if defElem, ok := arg.(*DefElem); ok {
 				switch defElem.Defname {
 				case "language":
 					if str, ok := defElem.Arg.(*String); ok {
-						language = str.SVal
+						parts = append(parts, "LANGUAGE", QuoteIdentifier(str.SVal))
 					}
 				case "as":
 					if str, ok := defElem.Arg.(*String); ok {
-						code = str.SVal
+						// Use single quotes for the code block
+						parts = append(parts, QuoteStringLiteral(str.SVal))
 					}
 				}
 			}
-		}
-
-		// Format according to PostgreSQL DO statement syntax
-		if language != "" {
-			parts = append(parts, "LANGUAGE", QuoteIdentifier(language))
-		}
-
-		if code != "" {
-			// Use single quotes for the code block
-			parts = append(parts, QuoteStringLiteral(code))
 		}
 	}
 
@@ -1118,7 +1127,7 @@ func formatRenameObjectName(renameType ObjectType, object Node) string {
 				name = nodeList.Items[1].SqlString()
 			}
 			if str, ok := nodeList.Items[0].(*String); ok {
-				method = str.SVal
+				method = QuoteIdentifier(str.SVal)
 			} else {
 				method = nodeList.Items[0].SqlString()
 			}
@@ -1283,7 +1292,7 @@ func (n *RenameStmt) SqlString() string {
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_DOMCONSTRAINT:
 		// Domain constraint rename: ALTER DOMAIN domain_name RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
@@ -1292,13 +1301,13 @@ func (n *RenameStmt) SqlString() string {
 			// Use the helper function to format domain name properly
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		}
-		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "CONSTRAINT", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	case OBJECT_ATTRIBUTE:
 		// Type attribute rename: ALTER TYPE type_name RENAME ATTRIBUTE old_name TO new_name
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "ATTRIBUTE", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "ATTRIBUTE", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	default:
 		// Default rename: ALTER <type> old_name RENAME TO new_name
 		if n.Relation != nil {
@@ -1308,9 +1317,9 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
 		} else if n.Subname != "" {
 			// For DATABASE, SCHEMA, ROLE, etc., the old name might be in Subname
-			parts = append(parts, n.Subname)
+			parts = append(parts, QuoteIdentifier(n.Subname))
 		}
-		parts = append(parts, "RENAME", "TO", n.Newname)
+		parts = append(parts, "RENAME", "TO", QuoteIdentifier(n.Newname))
 	}
 
 	// Add CASCADE behavior if specified
@@ -1364,7 +1373,7 @@ func (n *AlterOwnerStmt) SqlString() string {
 				if nodeList.Len() >= 2 {
 					methodStr := ""
 					if str, ok := nodeList.Items[0].(*String); ok {
-						methodStr = str.SVal
+						methodStr = QuoteIdentifier(str.SVal)
 					} else {
 						methodStr = nodeList.Items[0].SqlString()
 					}
@@ -1448,14 +1457,7 @@ func (n *RuleStmt) String() string {
 		parts = append(parts, "OR REPLACE")
 	}
 
-	// Get the proper table name from RangeVar
-	tableName := n.Relation.RelName
-	if n.Relation.SchemaName != "" {
-		tableName = n.Relation.SchemaName + "." + tableName
-	}
-	if n.Relation.CatalogName != "" {
-		tableName = n.Relation.CatalogName + "." + tableName
-	}
+	tableName := FormatFullyQualifiedName(n.Relation.CatalogName, n.Relation.SchemaName, n.Relation.RelName)
 
 	parts = append(parts, "RULE", QuoteIdentifier(n.Rulename), "AS ON", n.Event.String(), "TO", tableName)
 
@@ -1612,7 +1614,7 @@ func (n *LockStmt) SqlString() string {
 		relations := make([]string, n.Relations.Len())
 		for i, item := range n.Relations.Items {
 			if rangeVar, ok := item.(*RangeVar); ok {
-				relations[i] = rangeVar.RelName
+				relations[i] = rangeVar.SqlString()
 			}
 		}
 		parts = append(parts, strings.Join(relations, ", "))

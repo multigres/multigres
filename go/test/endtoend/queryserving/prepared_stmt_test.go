@@ -155,6 +155,24 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 			})
 
+			t.Run("prepare_duplicate_name_fails", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE dup_name AS SELECT id FROM %s WHERE id = 1", tableName))
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE dup_name") }()
+
+				_, err = db.ExecContext(ctx, fmt.Sprintf("PREPARE dup_name AS SELECT id FROM %s WHERE id = 2", tableName))
+				require.Error(t, err)
+				var pqErr *pq.Error
+				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
+				assert.Equal(t, pq.ErrorCode(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
+
+				// The original statement must still resolve to its first definition.
+				var id int
+				err = db.QueryRowContext(ctx, "EXECUTE dup_name").Scan(&id)
+				require.NoError(t, err)
+				assert.Equal(t, 1, id)
+			})
+
 			t.Run("prepare_reuse", func(t *testing.T) {
 				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE reusable AS SELECT id, value FROM %s ORDER BY id LIMIT 1", tableName))
 				require.NoError(t, err)

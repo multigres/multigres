@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 
@@ -70,26 +69,28 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
 	multiPooler := &clustermetadatapb.MultiPooler{
-		TableGroup: tableGroup,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
 	}
 
 	svcID := &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"}
-	svcReplicaID, err := consensus.NewReplicaID(svcID)
+	svcPoolerID, err := newPoolerID(svcID)
 	if err != nil {
 		panic(err)
 	}
 
 	pm := &MultiPoolerManager{
-		logger:           logger,
-		qsc:              &mockPoolerController{queryService: mockQueryService},
-		topoClient:       topoStore,
-		config:           &Config{},
-		multipooler:      multiPooler,
-		serviceID:        svcID,
-		serviceReplicaID: svcReplicaID,
+		logger:          logger,
+		qsc:             &mockPoolerController{queryService: mockQueryService},
+		topoClient:      topoStore,
+		config:          &Config{},
+		record:          newRecordFromProto(multiPooler),
+		serviceID:       svcID,
+		servicePoolerID: svcPoolerID,
 	}
-	pm.rules = consensus.NewRuleStore(logger, mockQueryService)
+	pm.rules = newRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	return pm, mockQueryService
 }
@@ -195,7 +196,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.createSidecarSchema(ctx)
+			err := pm.createSidecarSchema(ctx, testBootstrapPolicy())
 
 			if tt.expectError {
 				assert.Error(t, err)

@@ -20,9 +20,11 @@
 package multiorch
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -30,6 +32,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -145,14 +148,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
 		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
-		// several seconds for failover execution (BeginTerm + Promote + Demote).
+		// several seconds for failover execution (Recruit + Propose).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
-		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
 		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
-		// so the monitor will not restart postgres before DemoteStalePrimary runs.
+		// so the monitor will not restart postgres before stale-primary demotion runs.
 		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)
 		primaryManagerClient.Close()
@@ -160,8 +163,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
 		// before the next iteration begins — otherwise the grace period would carry over.
-		// 45s budget: DemoteStalePrimary is synchronous and includes a 5s drain +
-		// up to ~15s pg_rewind + ~5s postgres restart on slow CI.
+		// 45s budget: stale-primary demotion (via SetTermPrimary) is synchronous and
+		// includes a 5s drain + up to ~15s pg_rewind + ~5s postgres restart on slow CI.
 		setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
@@ -197,15 +200,16 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		time.Sleep(200 * time.Millisecond) // Let writes accumulate before next failover
 	}
 
-	// Perform one more failover using BeginTerm to trigger emergency demotion
-	t.Logf("=== Failover iteration 4 (via BeginTerm emergency demotion) ===")
+	// Perform one more failover using Recruit to trigger emergency demotion.
+	// Recruit is the same mechanism multiorch's coordinator uses; calling it
+	// directly with a higher term simulates the coordinator-initiated failover
+	// path without killing postgres.
+	t.Logf("=== Failover iteration 4 (via Recruit emergency demotion) ===")
 
-	// Refresh and get current primary
 	currentPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, currentPrimary, "current primary should exist")
 	currentPrimaryName := currentPrimary.Name
 
-	// Get the current primary's term
 	primaryClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
@@ -213,52 +217,52 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	oldPrimaryTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
 	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
 
-	// Call BeginTerm with a higher term to trigger emergency demotion
-	beginTermTerm := oldPrimaryTerm + 1
-	t.Logf("Calling BeginTerm on primary %s with term %d to trigger emergency demotion", currentPrimaryName, beginTermTerm)
+	recruitTerm := oldPrimaryTerm + 1
+	t.Logf("Calling Recruit on primary %s with term %d to trigger emergency demotion", currentPrimaryName, recruitTerm)
 
-	beginTermReq := &consensusdatapb.BeginTermRequest{
-		Term: beginTermTerm,
-		CandidateId: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIORCH,
-			Cell:      setup.CellName,
-			Name:      "test-coordinator",
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
+	recruitReq := &consensusdatapb.RecruitRequest{
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: recruitTerm,
+			AcceptedCoordinatorId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIORCH,
+				Cell:      setup.CellName,
+				Name:      "test-coordinator",
+			},
+			CoordinatorInitiatedAt: timestamppb.Now(),
+			OutgoingRule:           outgoingRule,
 		},
-		Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 	}
-	beginTermResp, err := primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
+	recruitResp, err := primaryClient.Consensus.Recruit(utils.WithTimeout(t, 10*time.Second), recruitReq)
 	primaryClient.Close()
 
-	require.NoError(t, err, "BeginTerm should succeed")
-	require.True(t, beginTermResp.Accepted, "Primary should accept BeginTerm with higher term")
-	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (current_lsn=%s)", beginTermResp.WalPosition.GetCurrentLsn())
+	require.NoError(t, err, "Recruit should succeed")
+	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
+	t.Logf("Recruit accepted by primary, emergency demotion triggered")
 
-	// Wait for multiorch to detect failure and elect new primary.
-	// Allow 30s: BeginTerm emergency demotion drains active writes for up to 5s before
-	// stopping postgres, so the PostgresRunning=false snapshot arrives ~5s later than in
-	// the SIGKILL case. Added to 8–12s grace period and execution time, the worst-case
-	// path needs ~25s — 30s gives adequate headroom.
-	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
-	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
-	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after emergency demotion")
-	t.Logf("New primary elected: %s", newPrimaryName)
+	// The demoted primary stays in the recruit cohort and may either
+	// re-promote (it had the most advanced WAL) or be replaced by a different
+	// pooler — both are valid post-demotion outcomes. We require that some
+	// primary advances to a higher term with at least 2 standbys streaming
+	// (cluster is 3 poolers, so the primary + 2 standbys = full topology),
+	// then wait for full recovery so multiorch's StaleLeader demote updates
+	// the old primary's topology entry from PRIMARY to REPLICA.
+	t.Logf("Waiting for multiorch to recover from emergency demotion (primary at term > %d with >= 2 standbys)...", oldPrimaryTerm)
+	newPrimaryName := shardsetup.WaitForHigherTermPrimary(t, setup, oldPrimaryTerm, 2, 45*time.Second)
+	t.Logf("Primary after emergency demotion: %s (was %s)", newPrimaryName, currentPrimaryName)
+	setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
-	// Get the new primary's consensus term
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")
 	newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	newPrimaryClient.Close()
-	require.NoError(t, err, "should be able to get status from new primary")
+	require.NoError(t, err, "should be able to get status from primary")
 	newPrimaryTerm := newStatusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
-
-	// Verify new primary's term is higher than the old primary's original term
-	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "New primary should have higher term than old primary's original term")
-
-	// Wait for emergency demoted primary to rejoin as standby
-	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
+	t.Logf("Primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "Primary's term should be strictly greater than the demoted primary's original term")
 
 	successWrites, failedWrites := validator.Stats()
 	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
@@ -398,7 +402,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "LeaderIsDead", "reason should indicate leader failure")
+		// The final failover in this test is triggered via Recruit on the
+		// primary (emergency demote), which sets resignedLeaderAtTerm and is
+		// detected by LeaderResignedAnalyzer. Earlier iterations use SIGKILL
+		// and fire LeaderIsDeadAnalyzer. Either reason indicates leader failure.
+		assert.Regexp(t, "LeaderIsDead|LeaderResigned", reason,
+			"reason should indicate leader failure (LeaderIsDead) or resignation (LeaderResigned)")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string
@@ -416,6 +425,54 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
+	// Verify the leader appointments themselves were fast. The coordinator stamps
+	// each successful promotion with recruit_ms (Run start → leader selected) and
+	// propose_ms (leader selected → commit), measuring the appointment itself —
+	// independent of the (much larger) detection + grace-period cost that precedes
+	// it. Tracking the two phases separately matters because they can slow down
+	// for different reasons: a laggy node during recruit vs. a slow postgres
+	// promotion during propose. Any of the multiorchs may have been coordinator
+	// for a given failover, so we aggregate promotion events across all logs.
+	t.Run("verify appointment timing", func(t *testing.T) {
+		var events []map[string]any
+		for name, mo := range setup.MultiOrchInstances {
+			data, err := os.ReadFile(mo.LogFile)
+			require.NoError(t, err, "should be able to read multiorch %s log", name)
+			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
+		}
+
+		promotions := shardsetup.FindEvents(events, "primary.promotion", "success")
+		require.GreaterOrEqual(t, len(promotions), 3,
+			"expected at least 3 successful promotions across multiorch logs after the failovers")
+
+		// Per-phase regression guards, separate because the phases have very
+		// different baselines and failure modes. Both exclude the failure-
+		// detection grace period that dominates the test's overall 30s budget.
+		//
+		// Recruit needs a few round trips + WAL replay stabilizing.
+		// Propose needs pg_promote() to succeed and the rule entry to replicate.
+		// The test bounds are deliberately tight to catch regressions that would
+		// make a simpler failover slow.
+		const (
+			maxRecruit = 500 * time.Millisecond
+			maxPropose = 3 * time.Second
+		)
+		for _, p := range promotions {
+			recruitMs, ok := p["recruit_ms"].(float64)
+			require.True(t, ok, "successful promotion must record recruit_ms: %v", p)
+			proposeMs, ok := p["propose_ms"].(float64)
+			require.True(t, ok, "successful promotion must record propose_ms: %v", p)
+			recruit := time.Duration(recruitMs) * time.Millisecond
+			propose := time.Duration(proposeMs) * time.Millisecond
+			t.Logf("Leader appointment (new_primary=%v, proposed_term=%v): recruit=%v, propose=%v",
+				p["new_primary"], p["proposed_term"], recruit, propose)
+			assert.Less(t, recruit, maxRecruit,
+				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
+			assert.Less(t, propose, maxPropose,
+				"propose phase for %v should be fast (took %v)", p["new_primary"], propose)
+		}
+	})
+
 	// Verify all successful writes are present on all multipoolers (all should be healthy now)
 	t.Run("verify writes durability after failovers", func(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
@@ -427,9 +484,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer finalPrimaryClient.Close()
 
 		// Get the final primary's LSN position
-		consensusStatusResp, err := finalPrimaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		statusResp, err := finalPrimaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get final primary position")
-		primaryLSN := consensusStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultiPoolerTestClient
@@ -527,36 +584,16 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
 }
 
-// checkPrimary checks if a specific multipooler is the primary.
-// Returns the multipooler name if it's a primary, empty string otherwise.
-// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
-	t.Helper()
-
-	var poolers []*shardsetup.MultipoolerInstance
-	for _, inst := range setup.Multipoolers {
-		poolers = append(poolers, inst)
-	}
-
-	return shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
-		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
-			for _, r := range statuses {
-				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
-					continue
-				}
-				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					return r.Name, true, ""
-				}
-			}
-			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
-		},
-		"new primary not elected within %v", timeout,
-	)
-}
-
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
-// and rejoin the cluster as a standby replica. It verifies the node is on the correct term,
+// and rejoin the cluster as a standby replica. It verifies the node is REPLICA,
 // streaming replication, and that the primary has added it back to its standby list.
+//
+// Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
+// Recruit/Propose/SetTermPrimary model that field is a per-pooler revocation promise
+// (set by Recruit on cohort members). A pooler that was momentarily unavailable
+// when the coordinator ran Recruit at the new term legitimately has the older
+// term but is otherwise healthy. expectedPrimaryName/expectedTerm are kept in
+// the signature for log readability.
 func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, expectedPrimaryName string, expectedTerm int64, timeout time.Duration) {
 	t.Helper()
 	t.Logf("Waiting for multiorch to restart %s and rejoin as standby (expected primary: %s, term: %d)...",
@@ -583,10 +620,6 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 				if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
 					return false, "replication not configured"
 				}
-				termNum := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-				if termNum != expectedTerm {
-					return false, fmt.Sprintf("wrong term %d, expected %d", termNum, expectedTerm)
-				}
 				if s.ReplicationStatus.WalReceiverStatus != "streaming" {
 					return false, fmt.Sprintf("not streaming (wal_receiver=%s)", s.ReplicationStatus.WalReceiverStatus)
 				}
@@ -610,7 +643,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 		},
 		"multipooler %s did not rejoin as standby within %v", multipoolerName, timeout,
 	)
-	t.Logf("%s successfully rejoined (term=%d, in %s's standby list)", multipoolerName, expectedTerm, expectedPrimaryName)
+	t.Logf("%s successfully rejoined as standby of %s", multipoolerName, expectedPrimaryName)
 }
 
 // TestPoolerDownNoFailover verifies that multiorch does NOT trigger a failover when the

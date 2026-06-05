@@ -24,7 +24,14 @@ import (
 //
 // For DISCARD TEMP, uses DiscardTempPrimitive which handles removing the
 // temp table reservation reason on the multipooler side.
-// All other variants (ALL, PLANS, SEQUENCES) fall through to planDefault.
+//
+// For DISCARD ALL, uses DiscardAllPrimitive, which resets the gateway's
+// session state and releases any reserved connection back to the pool
+// without forwarding the statement to a shared pooled backend (see that
+// primitive for the rationale).
+//
+// DISCARD PLANS / DISCARD SEQUENCES carry no cursor or temp-table side
+// effects and fall through to planDefault.
 func (p *Planner) planDiscardStmt(
 	sql string,
 	stmt *ast.DiscardStmt,
@@ -40,6 +47,23 @@ func (p *Planner) planDiscardStmt(
 		return plan, nil
 	}
 
-	// DISCARD ALL, DISCARD PLANS, DISCARD SEQUENCES — route to PostgreSQL.
+	if stmt.Target == ast.DISCARD_ALL {
+		p.logger.Debug("planning discard all statement", "sql", sql)
+		// DISCARD ALL is handled entirely at the gateway and is NOT
+		// forwarded to a pooled backend. In the pooled model the
+		// session state DISCARD ALL resets lives at the gateway
+		// (prepared statements, session GUCs, LISTEN subscriptions);
+		// the only backend-resident state is on a reserved connection,
+		// which DiscardAllPrimitive releases back to the pool. Forwarding
+		// the literal DISCARD ALL would run DEALLOCATE ALL on a shared
+		// backend and desync the multipooler's prepared-statement
+		// tracking. See DiscardAllPrimitive for the full rationale.
+		primitive := engine.NewDiscardAllPrimitive(sql)
+		plan := engine.NewPlan(sql, primitive)
+		plan.Type = engine.PlanTypeDiscardAll
+		return plan, nil
+	}
+
+	// DISCARD PLANS / DISCARD SEQUENCES — route to PostgreSQL.
 	return p.planDefault(sql, stmt, conn)
 }

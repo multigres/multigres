@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -289,6 +290,65 @@ func (pg *PoolerGateway) CopyReady(
 	return format, colFormats, state, err
 }
 
+// CopyOutReady implements queryservice.QueryService.
+// It initiates a COPY ... TO STDOUT operation and returns format information
+// plus any pre-CopyOutResponse notices.
+func (pg *PoolerGateway) CopyOutReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
+) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
+	var (
+		format     int16
+		colFormats []int16
+		notices    []*mterrors.PgDiagnostic
+		state      *query.ReservedState
+	)
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+		var err error
+		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
+		return err
+	})
+	return format, colFormats, notices, state, err
+}
+
+// CopyOutStream implements queryservice.QueryService.
+// Pumps CopyData / NoticeResponse frames from the multipooler back through
+// the supplied callback until RESULT/ERROR.
+//
+// Uses loadBalancer.GetConnection directly rather than withBuffering — same
+// as CopySendData / CopyFinalize for the FROM-STDIN data phase. The stream
+// has already been established by CopyOutReady and lives on a specific
+// PoolerConnection's grpcQueryService.copyStreams map keyed by the
+// reserved connection ID; routing this call through withBuffering's
+// proactive failover check (which may stall, retry, and land on a
+// different PoolerConnection) would only surface a confusing
+// "no active COPY stream for reserved connection X" error in place of
+// the real failure. Failover during a live COPY stream is a connection-level
+// failure that the executor's CopyOutStream handles via
+// IsConnectionError → Release(ReleaseError).
+func (pg *PoolerGateway) CopyOutStream(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	onMessage func(client.CopyOutMessage) error,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
+}
+
 // Close implements queryservice.QueryService.
 // It closes all connections to poolers.
 func (pg *PoolerGateway) Close() error {
@@ -404,6 +464,8 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
@@ -418,7 +480,7 @@ func (pg *PoolerGateway) ConcludeTransaction(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals)
 }
 
 // DiscardTempTables implements queryservice.QueryService.

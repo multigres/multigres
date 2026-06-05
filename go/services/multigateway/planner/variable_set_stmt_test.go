@@ -42,9 +42,15 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	// The primitive should be an ApplySessionState
-	_, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
+	// SET var = value is validated on a backend then tracked locally, so the
+	// plan is Sequence[ValidateSetting, ApplySessionState].
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2, "expected [ValidateSetting, ApplySessionState]")
+	_, ok = seq.Primitives[0].(*engine.ValidateSetting)
+	assert.True(t, ok, "first primitive should be ValidateSetting (validate on backend), got %T", seq.Primitives[0])
+	_, ok = seq.Primitives[1].(*engine.ApplySessionState)
+	assert.True(t, ok, "second primitive should be ApplySessionState (track + emit SET), got %T", seq.Primitives[1])
 }
 
 func TestPlanVariableSetStmt_RESET(t *testing.T) {
@@ -123,6 +129,26 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
 }
 
+func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_DEFAULT,
+		Name: "timezone",
+	}
+
+	plan, err := p.planVariableSetStmt("SET TIME ZONE DEFAULT", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	prim, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.True(t, ok, "expected ApplySessionState primitive")
+	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
+	assert.Equal(t, "timezone", prim.VariableStmt.Name)
+}
+
 func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -159,4 +185,47 @@ func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
 	// SET FROM CURRENT should pass through to PG (Route)
 	_, ok := plan.Primitive.(*engine.ApplySessionState)
 	assert.False(t, ok, "SET FROM CURRENT should not produce ApplySessionState")
+}
+
+// TestPlanPortal_SET pins that the extended-protocol path plans SET/RESET the
+// same way the simple protocol does: plain SET validates + tracks (Sequence),
+// RESET tracks locally, and only SET LOCAL / SET TRANSACTION fall through to a
+// plain portal execute. A nil plan for a plain SET would forward a raw SET to a
+// pooled backend — mutating it outside multipooler's tracking and skipping
+// pool-rotation replay.
+func TestPlanPortal_SET(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	t.Run("plain SET is planned (validate + track)", func(t *testing.T) {
+		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET work_mem = '256MB'"), testConn.Conn)
+		require.NoError(t, err)
+		require.NotNil(t, plan, "non-gateway SET must be planned, not forwarded raw to a pooled backend")
+		seq, ok := plan.Primitive.(*engine.Sequence)
+		require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+		require.Len(t, seq.Primitives, 2)
+		_, ok = seq.Primitives[0].(*engine.ValidateSetting)
+		assert.True(t, ok, "first primitive should be ValidateSetting, got %T", seq.Primitives[0])
+	})
+
+	t.Run("RESET is planned", func(t *testing.T) {
+		plan, err := p.PlanPortal(newPortalInfoFor(t, "RESET work_mem"), testConn.Conn)
+		require.NoError(t, err)
+		require.NotNil(t, plan, "RESET must be planned so it clears local tracking")
+		_, ok := plan.Primitive.(*engine.ApplySessionState)
+		assert.True(t, ok, "expected ApplySessionState, got %T", plan.Primitive)
+	})
+
+	t.Run("SET LOCAL falls through to PG", func(t *testing.T) {
+		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET LOCAL work_mem = '256MB'"), testConn.Conn)
+		require.NoError(t, err)
+		assert.Nil(t, plan, "SET LOCAL is forwarded to the backend (authoritative)")
+	})
+
+	t.Run("SET TRANSACTION falls through to PG", func(t *testing.T) {
+		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), testConn.Conn)
+		require.NoError(t, err)
+		assert.Nil(t, plan, "SET TRANSACTION is forwarded to the backend")
+	})
 }

@@ -25,8 +25,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -72,7 +74,7 @@ func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *hand
 	return nil, nil
 }
 
-func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -98,6 +100,14 @@ func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *
 
 func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	return 0, nil, nil, nil
+}
+
+func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
 }
 
 func newTestExecutor(mock *mockExec) *Executor {

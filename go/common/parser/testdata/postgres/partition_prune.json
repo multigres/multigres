@@ -7,7 +7,7 @@
   {
     "comment": "partition_prune - Statement 2",
     "query": "create table lp (a char) partition by list (a)",
-    "expected": "CREATE TABLE lp (a CHAR(1)) PARTITION BY list (a)"
+    "expected": "CREATE TABLE lp (a bpchar(1)) PARTITION BY list (a)"
   },
   {
     "comment": "partition_prune - Statement 3",
@@ -46,13 +46,13 @@
   },
   {
     "comment": "partition_prune - Statement 10",
-    "query": "explain (costs off) select * from lp where a \u003e 'a' and a \u003c 'd'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003e 'a' AND a \u003c 'd'"
+    "query": "explain (costs off) select * from lp where a > 'a' and a < 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a > 'a' AND a < 'd'"
   },
   {
     "comment": "partition_prune - Statement 11",
-    "query": "explain (costs off) select * from lp where a \u003e 'a' and a \u003c= 'd'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003e 'a' AND a \u003c= 'd'"
+    "query": "explain (costs off) select * from lp where a > 'a' and a <= 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a > 'a' AND a <= 'd'"
   },
   {
     "comment": "partition_prune - Statement 12",
@@ -81,13 +81,13 @@
   },
   {
     "comment": "partition_prune - Statement 17",
-    "query": "explain (costs off) select * from lp where a \u003c\u003e 'g'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'g'"
+    "query": "explain (costs off) select * from lp where a <> 'g'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a <> 'g'"
   },
   {
     "comment": "partition_prune - Statement 18",
-    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a' and a \u003c\u003e 'd'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a' AND a \u003c\u003e 'd'"
+    "query": "explain (costs off) select * from lp where a <> 'a' and a <> 'd'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a <> 'a' AND a <> 'd'"
   },
   {
     "comment": "partition_prune - Statement 19",
@@ -231,13 +231,13 @@
   },
   {
     "comment": "partition_prune - Statement 47",
-    "query": "explain (costs off) select * from rlp where a \u003c 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 1"
+    "query": "explain (costs off) select * from rlp where a < 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a < 1"
   },
   {
     "comment": "partition_prune - Statement 48",
-    "query": "explain (costs off) select * from rlp where 1 \u003e a;\t/* commuted */ explain (costs off) select * from rlp where a \u003c= 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE 1 \u003e a; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 1"
+    "query": "explain (costs off) select * from rlp where 1 > a;\t/* commuted */ explain (costs off) select * from rlp where a <= 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE 1 > a; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a <= 1"
   },
   {
     "comment": "partition_prune - Statement 49",
@@ -246,28 +246,28 @@
   },
   {
     "comment": "partition_prune - Statement 50",
-    "query": "explain (costs off) select * from rlp where a = 1::bigint;\t\t/* same as above */ explain (costs off) select * from rlp where a = 1::numeric;\t\t/* no pruning */ explain (costs off) select * from rlp where a \u003c= 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS BIGINT); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS NUMERIC); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 10"
+    "query": "explain (costs off) select * from rlp where a = 1::bigint;\t\t/* same as above */ explain (costs off) select * from rlp where a = 1::numeric;\t\t/* no pruning */ explain (costs off) select * from rlp where a <= 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS BIGINT); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = CAST(1 AS NUMERIC); EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a <= 10"
   },
   {
     "comment": "partition_prune - Statement 51",
-    "query": "explain (costs off) select * from rlp where a \u003e 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 10"
+    "query": "explain (costs off) select * from rlp where a > 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 10"
   },
   {
     "comment": "partition_prune - Statement 52",
-    "query": "explain (costs off) select * from rlp where a \u003c 15",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 15"
+    "query": "explain (costs off) select * from rlp where a < 15",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a < 15"
   },
   {
     "comment": "partition_prune - Statement 53",
-    "query": "explain (costs off) select * from rlp where a \u003c= 15",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 15"
+    "query": "explain (costs off) select * from rlp where a <= 15",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a <= 15"
   },
   {
     "comment": "partition_prune - Statement 54",
-    "query": "explain (costs off) select * from rlp where a \u003e 15 and b = 'ab'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 15 AND b = 'ab'"
+    "query": "explain (costs off) select * from rlp where a > 15 and b = 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 15 AND b = 'ab'"
   },
   {
     "comment": "partition_prune - Statement 55",
@@ -281,13 +281,13 @@
   },
   {
     "comment": "partition_prune - Statement 57",
-    "query": "explain (costs off) select * from rlp where a = 16 and b \u003c 'ab'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b \u003c 'ab'"
+    "query": "explain (costs off) select * from rlp where a = 16 and b < 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b < 'ab'"
   },
   {
     "comment": "partition_prune - Statement 58",
-    "query": "explain (costs off) select * from rlp where a = 16 and b \u003c= 'ab'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b \u003c= 'ab'"
+    "query": "explain (costs off) select * from rlp where a = 16 and b <= 'ab'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 16 AND b <= 'ab'"
   },
   {
     "comment": "partition_prune - Statement 59",
@@ -311,13 +311,13 @@
   },
   {
     "comment": "partition_prune - Statement 63",
-    "query": "explain (costs off) select * from rlp where a \u003e 30",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 30"
+    "query": "explain (costs off) select * from rlp where a > 30",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 30"
   },
   {
     "comment": "partition_prune - Statement 64",
-    "query": "explain (costs off) select * from rlp where a = 30;\t/* only default is scanned */ explain (costs off) select * from rlp where a \u003c= 31",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 30; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c= 31"
+    "query": "explain (costs off) select * from rlp where a = 30;\t/* only default is scanned */ explain (costs off) select * from rlp where a <= 31",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 30; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a <= 31"
   },
   {
     "comment": "partition_prune - Statement 65",
@@ -331,8 +331,8 @@
   },
   {
     "comment": "partition_prune - Statement 67",
-    "query": "explain (costs off) select * from rlp where a \u003e 20 and a \u003c 27",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 20 AND a \u003c 27"
+    "query": "explain (costs off) select * from rlp where a > 20 and a < 27",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 20 AND a < 27"
   },
   {
     "comment": "partition_prune - Statement 68",
@@ -341,13 +341,13 @@
   },
   {
     "comment": "partition_prune - Statement 69",
-    "query": "explain (costs off) select * from rlp where a \u003e= 29",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e= 29"
+    "query": "explain (costs off) select * from rlp where a >= 29",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a >= 29"
   },
   {
     "comment": "partition_prune - Statement 70",
-    "query": "explain (costs off) select * from rlp where a \u003c 1 or (a \u003e 20 and a \u003c 25)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003c 1 OR (a \u003e 20 AND a \u003c 25)"
+    "query": "explain (costs off) select * from rlp where a < 1 or (a > 20 and a < 25)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a < 1 OR (a > 20 AND a < 25)"
   },
   {
     "comment": "partition_prune - Statement 71",
@@ -356,8 +356,8 @@
   },
   {
     "comment": "partition_prune - Statement 72",
-    "query": "explain (costs off) select * from rlp3 where a = 20;   /* empty */ explain (costs off) select * from rlp where a \u003e 1 and a = 10;\t/* only default */ explain (costs off) select * from rlp where a \u003e 1 and a \u003e=15;\t/* rlp3 onwards, including default */ explain (costs off) select * from rlp where a = 1 and a = 3;\t/* empty */ explain (costs off) select * from rlp where (a = 1 and a = 3) or (a \u003e 1 and a = 15)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp3 WHERE a = 20; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 1 AND a = 10; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a \u003e 1 AND a \u003e= 15; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1 AND a = 3; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE (a = 1 AND a = 3) OR (a \u003e 1 AND a = 15)"
+    "query": "explain (costs off) select * from rlp3 where a = 20;   /* empty */ explain (costs off) select * from rlp where a > 1 and a = 10;\t/* only default */ explain (costs off) select * from rlp where a > 1 and a >=15;\t/* rlp3 onwards, including default */ explain (costs off) select * from rlp where a = 1 and a = 3;\t/* empty */ explain (costs off) select * from rlp where (a = 1 and a = 3) or (a > 1 and a = 15)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp3 WHERE a = 20; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 1 AND a = 10; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a > 1 AND a >= 15; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 1 AND a = 3; EXPLAIN (COSTS false) SELECT * FROM rlp WHERE (a = 1 AND a = 3) OR (a > 1 AND a = 15)"
   },
   {
     "comment": "partition_prune - Statement 73",
@@ -416,8 +416,8 @@
   },
   {
     "comment": "partition_prune - Statement 84",
-    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) \u003c 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) \u003c 1"
+    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) < 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) < 1"
   },
   {
     "comment": "partition_prune - Statement 85",
@@ -426,8 +426,8 @@
   },
   {
     "comment": "partition_prune - Statement 86",
-    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) = 1 and c \u003c 8",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) = 1 AND c \u003c 8"
+    "query": "explain (costs off) select * from mc3p where a = 1 and abs(b) = 1 and c < 8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a = 1 AND abs(b) = 1 AND c < 8"
   },
   {
     "comment": "partition_prune - Statement 87",
@@ -436,23 +436,23 @@
   },
   {
     "comment": "partition_prune - Statement 88",
-    "query": "explain (costs off) select * from mc3p where a \u003e 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e 10"
+    "query": "explain (costs off) select * from mc3p where a > 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a > 10"
   },
   {
     "comment": "partition_prune - Statement 89",
-    "query": "explain (costs off) select * from mc3p where a \u003e= 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e= 10"
+    "query": "explain (costs off) select * from mc3p where a >= 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a >= 10"
   },
   {
     "comment": "partition_prune - Statement 90",
-    "query": "explain (costs off) select * from mc3p where a \u003c 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003c 10"
+    "query": "explain (costs off) select * from mc3p where a < 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a < 10"
   },
   {
     "comment": "partition_prune - Statement 91",
-    "query": "explain (costs off) select * from mc3p where a \u003c= 10 and abs(b) \u003c 10",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003c= 10 AND abs(b) \u003c 10"
+    "query": "explain (costs off) select * from mc3p where a <= 10 and abs(b) < 10",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a <= 10 AND abs(b) < 10"
   },
   {
     "comment": "partition_prune - Statement 92",
@@ -466,28 +466,28 @@
   },
   {
     "comment": "partition_prune - Statement 94",
-    "query": "explain (costs off) select * from mc3p where a \u003e 20",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e 20"
+    "query": "explain (costs off) select * from mc3p where a > 20",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a > 20"
   },
   {
     "comment": "partition_prune - Statement 95",
-    "query": "explain (costs off) select * from mc3p where a \u003e= 20",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a \u003e= 20"
+    "query": "explain (costs off) select * from mc3p where a >= 20",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE a >= 20"
   },
   {
     "comment": "partition_prune - Statement 96",
-    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20)"
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a > 11 and a < 20)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a > 11 AND a < 20)"
   },
   {
     "comment": "partition_prune - Statement 97",
-    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20) or a \u003c 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20) OR a \u003c 1"
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a > 11 and a < 20) or a < 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a > 11 AND a < 20) OR a < 1"
   },
   {
     "comment": "partition_prune - Statement 98",
-    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a \u003e 11 and a \u003c 20) or a \u003c 1 or a = 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a \u003e 11 AND a \u003c 20) OR a \u003c 1 OR a = 1"
+    "query": "explain (costs off) select * from mc3p where (a = 1 and abs(b) = 1 and c = 1) or (a = 10 and abs(b) = 5 and c = 10) or (a > 11 and a < 20) or a < 1 or a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc3p WHERE (a = 1 AND abs(b) = 1 AND c = 1) OR (a = 10 AND abs(b) = 5 AND c = 10) OR (a > 11 AND a < 20) OR a < 1 OR a = 1"
   },
   {
     "comment": "partition_prune - Statement 99",
@@ -546,23 +546,23 @@
   },
   {
     "comment": "partition_prune - Statement 110",
-    "query": "explain (costs off) select * from mc2p where a \u003c 2",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a \u003c 2"
+    "query": "explain (costs off) select * from mc2p where a < 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a < 2"
   },
   {
     "comment": "partition_prune - Statement 111",
-    "query": "explain (costs off) select * from mc2p where a = 2 and b \u003c 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 2 AND b \u003c 1"
+    "query": "explain (costs off) select * from mc2p where a = 2 and b < 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 2 AND b < 1"
   },
   {
     "comment": "partition_prune - Statement 112",
-    "query": "explain (costs off) select * from mc2p where a \u003e 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a \u003e 1"
+    "query": "explain (costs off) select * from mc2p where a > 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a > 1"
   },
   {
     "comment": "partition_prune - Statement 113",
-    "query": "explain (costs off) select * from mc2p where a = 1 and b \u003e 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 1 AND b \u003e 1"
+    "query": "explain (costs off) select * from mc2p where a = 1 and b > 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mc2p WHERE a = 1 AND b > 1"
   },
   {
     "comment": "partition_prune - Statement 114",
@@ -1072,33 +1072,33 @@
   },
   {
     "comment": "partition_prune - Statement 216",
-    "query": "explain (costs off) select * from rp where a \u003c\u003e 1",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a \u003c\u003e 1"
+    "query": "explain (costs off) select * from rp where a <> 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a <> 1"
   },
   {
     "comment": "partition_prune - Statement 217",
-    "query": "explain (costs off) select * from rp where a \u003c\u003e 1 and a \u003c\u003e 2",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a \u003c\u003e 1 AND a \u003c\u003e 2"
+    "query": "explain (costs off) select * from rp where a <> 1 and a <> 2",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp WHERE a <> 1 AND a <> 2"
   },
   {
     "comment": "partition_prune - Statement 218",
-    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a'"
+    "query": "explain (costs off) select * from lp where a <> 'a'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a <> 'a'"
   },
   {
     "comment": "partition_prune - Statement 219",
-    "query": "explain (costs off) select * from lp where a \u003c\u003e 'a' and a is null",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a \u003c\u003e 'a' AND a IS NULL"
+    "query": "explain (costs off) select * from lp where a <> 'a' and a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE a <> 'a' AND a IS NULL"
   },
   {
     "comment": "partition_prune - Statement 220",
-    "query": "explain (costs off) select * from lp where (a \u003c\u003e 'a' and a \u003c\u003e 'd') or a is null",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE (a \u003c\u003e 'a' AND a \u003c\u003e 'd') OR a IS NULL"
+    "query": "explain (costs off) select * from lp where (a <> 'a' and a <> 'd') or a is null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM lp WHERE (a <> 'a' AND a <> 'd') OR a IS NULL"
   },
   {
     "comment": "partition_prune - Statement 221",
-    "query": "explain (costs off) select * from rlp where a = 15 and b \u003c\u003e 'ab' and b \u003c\u003e 'cd' and b \u003c\u003e 'xy' and b is not null",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 15 AND b \u003c\u003e 'ab' AND b \u003c\u003e 'cd' AND b \u003c\u003e 'xy' AND b IS NOT NULL"
+    "query": "explain (costs off) select * from rlp where a = 15 and b <> 'ab' and b <> 'cd' and b <> 'xy' and b is not null",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rlp WHERE a = 15 AND b <> 'ab' AND b <> 'cd' AND b <> 'xy' AND b IS NOT NULL"
   },
   {
     "comment": "partition_prune - Statement 222",
@@ -1192,8 +1192,8 @@
   },
   {
     "comment": "partition_prune - Statement 240",
-    "query": "explain (costs off) select * from rparted_by_int2 where a \u003e 100_000_000_000_000",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rparted_by_int2 WHERE a \u003e 100_000_000_000_000"
+    "query": "explain (costs off) select * from rparted_by_int2 where a > 100_000_000_000_000",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rparted_by_int2 WHERE a > 100_000_000_000_000"
   },
   {
     "comment": "partition_prune - Statement 241",
@@ -1222,8 +1222,8 @@
   },
   {
     "comment": "partition_prune - Statement 246",
-    "query": "explain (costs off) select * from (select exists (select 1 from int4_tbl tinner where f1 = touter.f1) as b from int4_tbl touter) ss, asptab where asptab.id \u003e ss.b::int",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT EXISTS (SELECT 1 FROM int4_tbl AS tinner WHERE f1 = touter.f1) AS b FROM int4_tbl AS touter) AS ss, asptab WHERE asptab.id \u003e CAST(ss.b AS INT)"
+    "query": "explain (costs off) select * from (select exists (select 1 from int4_tbl tinner where f1 = touter.f1) as b from int4_tbl touter) ss, asptab where asptab.id > ss.b::int",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM (SELECT EXISTS (SELECT 1 FROM int4_tbl AS tinner WHERE f1 = touter.f1) AS b FROM int4_tbl AS touter) AS ss, asptab WHERE asptab.id > CAST(ss.b AS INT)"
   },
   {
     "comment": "partition_prune - Statement 247",
@@ -1312,18 +1312,18 @@
   },
   {
     "comment": "partition_prune - Statement 264",
-    "query": "explain (costs off) select * from hp where a \u003c 1 and b = 'xxx'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c 1 AND b = 'xxx'"
+    "query": "explain (costs off) select * from hp where a < 1 and b = 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a < 1 AND b = 'xxx'"
   },
   {
     "comment": "partition_prune - Statement 265",
-    "query": "explain (costs off) select * from hp where a \u003c\u003e 1 and b = 'yyy'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c\u003e 1 AND b = 'yyy'"
+    "query": "explain (costs off) select * from hp where a <> 1 and b = 'yyy'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a <> 1 AND b = 'yyy'"
   },
   {
     "comment": "partition_prune - Statement 266",
-    "query": "explain (costs off) select * from hp where a \u003c\u003e 1 and b \u003c\u003e 'xxx'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a \u003c\u003e 1 AND b \u003c\u003e 'xxx'"
+    "query": "explain (costs off) select * from hp where a <> 1 and b <> 'xxx'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM hp WHERE a <> 1 AND b <> 'xxx'"
   },
   {
     "comment": "partition_prune - Statement 267",
@@ -1452,8 +1452,8 @@
   },
   {
     "comment": "partition_prune - Statement 292",
-    "query": "prepare ab_q1 (int, int, int) as select * from ab where a between $1 and $2 and b \u003c= $3",
-    "expected": "PREPARE ab_q1 ( INT, INT, INT ) AS SELECT * FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c= $3"
+    "query": "prepare ab_q1 (int, int, int) as select * from ab where a between $1 and $2 and b <= $3",
+    "expected": "PREPARE ab_q1 ( INT, INT, INT ) AS SELECT * FROM ab WHERE a BETWEEN $1 AND $2 AND b <= $3"
   },
   {
     "comment": "partition_prune - Statement 293",
@@ -1472,8 +1472,8 @@
   },
   {
     "comment": "partition_prune - Statement 296",
-    "query": "prepare ab_q1 (int, int) as select a from ab where a between $1 and $2 and b \u003c 3",
-    "expected": "PREPARE ab_q1 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c 3"
+    "query": "prepare ab_q1 (int, int) as select a from ab where a between $1 and $2 and b < 3",
+    "expected": "PREPARE ab_q1 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b < 3"
   },
   {
     "comment": "partition_prune - Statement 297",
@@ -1487,8 +1487,8 @@
   },
   {
     "comment": "partition_prune - Statement 299",
-    "query": "prepare ab_q2 (int, int) as select a from ab where a between $1 and $2 and b \u003c (select 3)",
-    "expected": "PREPARE ab_q2 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c (SELECT 3)"
+    "query": "prepare ab_q2 (int, int) as select a from ab where a between $1 and $2 and b < (select 3)",
+    "expected": "PREPARE ab_q2 ( INT, INT ) AS SELECT a FROM ab WHERE a BETWEEN $1 AND $2 AND b < (SELECT 3)"
   },
   {
     "comment": "partition_prune - Statement 300",
@@ -1497,8 +1497,8 @@
   },
   {
     "comment": "partition_prune - Statement 301",
-    "query": "prepare ab_q3 (int, int) as select a from ab where b between $1 and $2 and a \u003c (select 3)",
-    "expected": "PREPARE ab_q3 ( INT, INT ) AS SELECT a FROM ab WHERE b BETWEEN $1 AND $2 AND a \u003c (SELECT 3)"
+    "query": "prepare ab_q3 (int, int) as select a from ab where b between $1 and $2 and a < (select 3)",
+    "expected": "PREPARE ab_q3 ( INT, INT ) AS SELECT a FROM ab WHERE b BETWEEN $1 AND $2 AND a < (SELECT 3)"
   },
   {
     "comment": "partition_prune - Statement 302",
@@ -1562,8 +1562,8 @@
   },
   {
     "comment": "partition_prune - Statement 314",
-    "query": "declare cur SCROLL CURSOR for select 1 from list_part where a \u003e (select 1) and a \u003c (select 4)",
-    "expected": "DECLARE cur SCROLL CURSOR FOR SELECT 1 FROM list_part WHERE a \u003e (SELECT 1) AND a \u003c (SELECT 4)"
+    "query": "declare cur SCROLL CURSOR for select 1 from list_part where a > (select 1) and a < (select 4)",
+    "expected": "DECLARE cur SCROLL CURSOR FOR SELECT 1 FROM list_part WHERE a > (SELECT 1) AND a < (SELECT 4)"
   },
   {
     "comment": "partition_prune - Statement 315",
@@ -1617,8 +1617,8 @@
   },
   {
     "comment": "partition_prune - Statement 332",
-    "query": "prepare ab_q4 (int, int) as select avg(a) from ab where a between $1 and $2 and b \u003c 4",
-    "expected": "PREPARE ab_q4 ( INT, INT ) AS SELECT AVG(a) FROM ab WHERE a BETWEEN $1 AND $2 AND b \u003c 4"
+    "query": "prepare ab_q4 (int, int) as select avg(a) from ab where a between $1 and $2 and b < 4",
+    "expected": "PREPARE ab_q4 ( INT, INT ) AS SELECT AVG(a) FROM ab WHERE a BETWEEN $1 AND $2 AND b < 4"
   },
   {
     "comment": "partition_prune - Statement 333",
@@ -1647,8 +1647,8 @@
   },
   {
     "comment": "partition_prune - Statement 338",
-    "query": "prepare ab_q5 (int, int, int) as select avg(a) from ab where a in($1,$2,$3) and b \u003c 4",
-    "expected": "PREPARE ab_q5 ( INT, INT, INT ) AS SELECT AVG(a) FROM ab WHERE a IN ($1, $2, $3) AND b \u003c 4"
+    "query": "prepare ab_q5 (int, int, int) as select avg(a) from ab where a in($1,$2,$3) and b < 4",
+    "expected": "PREPARE ab_q5 ( INT, INT, INT ) AS SELECT AVG(a) FROM ab WHERE a IN ($1, $2, $3) AND b < 4"
   },
   {
     "comment": "partition_prune - Statement 339",
@@ -2032,8 +2032,8 @@
   },
   {
     "comment": "partition_prune - Statement 415",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 \u003e tprt.col1",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 > tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 > tprt.col1"
   },
   {
     "comment": "partition_prune - Statement 416",
@@ -2042,8 +2042,8 @@
   },
   {
     "comment": "partition_prune - Statement 417",
-    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 \u003e tprt.col1 order by tbl1.col1, tprt.col1",
-    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1 ORDER BY tbl1.col1, tprt.col1"
+    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 > tprt.col1 order by tbl1.col1, tprt.col1",
+    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 > tprt.col1 ORDER BY tbl1.col1, tprt.col1"
   },
   {
     "comment": "partition_prune - Statement 418",
@@ -2057,8 +2057,8 @@
   },
   {
     "comment": "partition_prune - Statement 420",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 inner join tprt on tbl1.col1 \u003e tprt.col1",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003e tprt.col1"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 inner join tprt on tbl1.col1 > tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 > tprt.col1"
   },
   {
     "comment": "partition_prune - Statement 421",
@@ -2077,13 +2077,13 @@
   },
   {
     "comment": "partition_prune - Statement 424",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 \u003c tprt.col1",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003c tprt.col1"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from tbl1 join tprt on tbl1.col1 < tprt.col1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM tbl1 INNER JOIN tprt ON tbl1.col1 < tprt.col1"
   },
   {
     "comment": "partition_prune - Statement 425",
-    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 \u003c tprt.col1 order by tbl1.col1, tprt.col1",
-    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 \u003c tprt.col1 ORDER BY tbl1.col1, tprt.col1"
+    "query": "select tbl1.col1, tprt.col1 from tbl1 inner join tprt on tbl1.col1 < tprt.col1 order by tbl1.col1, tprt.col1",
+    "expected": "SELECT tbl1.col1, tprt.col1 FROM tbl1 INNER JOIN tprt ON tbl1.col1 < tprt.col1 ORDER BY tbl1.col1, tprt.col1"
   },
   {
     "comment": "partition_prune - Statement 426",
@@ -2207,8 +2207,8 @@
   },
   {
     "comment": "partition_prune - Statement 450",
-    "query": "prepare q1 (int,int,int,int) as select * from listp where b in($1,$2) and $3 \u003c\u003e b and $4 \u003c\u003e b",
-    "expected": "PREPARE q1 ( INT, INT, INT, INT ) AS SELECT * FROM listp WHERE b IN ($1, $2) AND $3 \u003c\u003e b AND $4 \u003c\u003e b"
+    "query": "prepare q1 (int,int,int,int) as select * from listp where b in($1,$2) and $3 <> b and $4 <> b",
+    "expected": "PREPARE q1 ( INT, INT, INT, INT ) AS SELECT * FROM listp WHERE b IN ($1, $2) AND $3 <> b AND $4 <> b"
   },
   {
     "comment": "partition_prune - Statement 451",
@@ -2252,13 +2252,13 @@
   },
   {
     "comment": "partition_prune - Statement 459",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a \u003c localtimestamp",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a \u003c LOCALTIMESTAMP"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a < localtimestamp",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a < LOCALTIMESTAMP"
   },
   {
     "comment": "partition_prune - Statement 460",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a \u003c '2000-02-01'::timestamptz",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a \u003c CAST('2000-02-01' AS TIMESTAMPTZ)"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from stable_qual_pruning where a < '2000-02-01'::timestamptz",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM stable_qual_pruning WHERE a < CAST('2000-02-01' AS TIMESTAMPTZ)"
   },
   {
     "comment": "partition_prune - Statement 461",
@@ -2317,13 +2317,13 @@
   },
   {
     "comment": "partition_prune - Statement 472",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from mc3p where a \u003c 3 and abs(b) = 1",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM mc3p WHERE a \u003c 3 AND abs(b) = 1"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from mc3p where a < 3 and abs(b) = 1",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM mc3p WHERE a < 3 AND abs(b) = 1"
   },
   {
     "comment": "partition_prune - Statement 473",
-    "query": "prepare ps1 as select * from mc3p where a = $1 and abs(b) \u003c (select 3)",
-    "expected": "PREPARE ps1 AS SELECT * FROM mc3p WHERE a = $1 AND abs(b) \u003c (SELECT 3)"
+    "query": "prepare ps1 as select * from mc3p where a = $1 and abs(b) < (select 3)",
+    "expected": "PREPARE ps1 AS SELECT * FROM mc3p WHERE a = $1 AND abs(b) < (SELECT 3)"
   },
   {
     "comment": "partition_prune - Statement 474",
@@ -2337,8 +2337,8 @@
   },
   {
     "comment": "partition_prune - Statement 476",
-    "query": "prepare ps2 as select * from mc3p where a \u003c= $1 and abs(b) \u003c (select 3)",
-    "expected": "PREPARE ps2 AS SELECT * FROM mc3p WHERE a \u003c= $1 AND abs(b) \u003c (SELECT 3)"
+    "query": "prepare ps2 as select * from mc3p where a <= $1 and abs(b) < (select 3)",
+    "expected": "PREPARE ps2 AS SELECT * FROM mc3p WHERE a <= $1 AND abs(b) < (SELECT 3)"
   },
   {
     "comment": "partition_prune - Statement 477",
@@ -2442,8 +2442,8 @@
   },
   {
     "comment": "partition_prune - Statement 497",
-    "query": "prepare mt_q1 (int) as select a from ma_test where a \u003e= $1 and a % 10 = 5 order by b",
-    "expected": "PREPARE mt_q1 ( INT ) AS SELECT a FROM ma_test WHERE a \u003e= $1 AND a % 10 = 5 ORDER BY b"
+    "query": "prepare mt_q1 (int) as select a from ma_test where a >= $1 and a % 10 = 5 order by b",
+    "expected": "PREPARE mt_q1 ( INT ) AS SELECT a FROM ma_test WHERE a >= $1 AND a % 10 = 5 ORDER BY b"
   },
   {
     "comment": "partition_prune - Statement 498",
@@ -2482,8 +2482,8 @@
   },
   {
     "comment": "partition_prune - Statement 505",
-    "query": "prepare mt_q2 (int) as select * from ma_test where a \u003e= $1 order by b limit 1",
-    "expected": "PREPARE mt_q2 ( INT ) AS SELECT * FROM ma_test WHERE a \u003e= $1 ORDER BY b LIMIT 1"
+    "query": "prepare mt_q2 (int) as select * from ma_test where a >= $1 order by b limit 1",
+    "expected": "PREPARE mt_q2 ( INT ) AS SELECT * FROM ma_test WHERE a >= $1 ORDER BY b LIMIT 1"
   },
   {
     "comment": "partition_prune - Statement 506",
@@ -2497,8 +2497,8 @@
   },
   {
     "comment": "partition_prune - Statement 508",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from ma_test where a \u003e= (select min(b) from ma_test_p2) order by b",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM ma_test WHERE a \u003e= (SELECT MIN(b) FROM ma_test_p2) ORDER BY b"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from ma_test where a >= (select min(b) from ma_test_p2) order by b",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM ma_test WHERE a >= (SELECT MIN(b) FROM ma_test_p2) ORDER BY b"
   },
   {
     "comment": "partition_prune - Statement 509",
@@ -2952,8 +2952,8 @@
   },
   {
     "comment": "partition_prune - Statement 599",
-    "query": "explain (analyze, costs off, summary off, timing off) select * from listp where a = (select 2) and b \u003c\u003e 10",
-    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM listp WHERE a = (SELECT 2) AND b \u003c\u003e 10"
+    "query": "explain (analyze, costs off, summary off, timing off) select * from listp where a = (select 2) and b <> 10",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) SELECT * FROM listp WHERE a = (SELECT 2) AND b <> 10"
   },
   {
     "comment": "partition_prune - Statement 600",
@@ -3092,8 +3092,8 @@
   },
   {
     "comment": "partition_prune - Statement 627",
-    "query": "explain (costs off) select * from rp_prefix_test1 where a \u003c= 1 and b = 'a'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test1 WHERE a \u003c= 1 AND b = 'a'"
+    "query": "explain (costs off) select * from rp_prefix_test1 where a <= 1 and b = 'a'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test1 WHERE a <= 1 AND b = 'a'"
   },
   {
     "comment": "partition_prune - Statement 628",
@@ -3112,8 +3112,8 @@
   },
   {
     "comment": "partition_prune - Statement 631",
-    "query": "explain (costs off) select * from rp_prefix_test2 where a \u003c= 1 and b = 1 and c \u003e= 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test2 WHERE a \u003c= 1 AND b = 1 AND c \u003e= 0"
+    "query": "explain (costs off) select * from rp_prefix_test2 where a <= 1 and b = 1 and c >= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test2 WHERE a <= 1 AND b = 1 AND c >= 0"
   },
   {
     "comment": "partition_prune - Statement 632",
@@ -3132,13 +3132,13 @@
   },
   {
     "comment": "partition_prune - Statement 635",
-    "query": "explain (costs off) select * from rp_prefix_test3 where a \u003e= 1 and b \u003e= 1 and b \u003e= 2 and c \u003e= 2 and d \u003e= 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a \u003e= 1 AND b \u003e= 1 AND b \u003e= 2 AND c \u003e= 2 AND d \u003e= 0"
+    "query": "explain (costs off) select * from rp_prefix_test3 where a >= 1 and b >= 1 and b >= 2 and c >= 2 and d >= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a >= 1 AND b >= 1 AND b >= 2 AND c >= 2 AND d >= 0"
   },
   {
     "comment": "partition_prune - Statement 636",
-    "query": "explain (costs off) select * from rp_prefix_test3 where a \u003e= 1 and b \u003e= 1 and b = 2 and c = 2 and d \u003e= 0",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a \u003e= 1 AND b \u003e= 1 AND b = 2 AND c = 2 AND d \u003e= 0"
+    "query": "explain (costs off) select * from rp_prefix_test3 where a >= 1 and b >= 1 and b = 2 and c = 2 and d >= 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM rp_prefix_test3 WHERE a >= 1 AND b >= 1 AND b = 2 AND c = 2 AND d >= 0"
   },
   {
     "comment": "partition_prune - Statement 637",
@@ -3172,13 +3172,13 @@
   },
   {
     "comment": "partition_prune - Statement 643",
-    "query": "select 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || case when g.s \u0026 (1 \u003c\u003c c.colpos) = 0 then ' is null' else ' = ' || (colpos+1)::text end, ' and ' order by c.colpos) from (values('a',0),('b',1),('c',2),('d',3)) c(colname, colpos), generate_Series(0,15) g(s) group by g.s order by g.s",
-    "expected": "SELECT 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || CASE WHEN g.s \u0026 (1 \u003c\u003c c.colpos) = 0 THEN ' is null' ELSE ' = ' || CAST((colpos + 1) AS TEXT) END, ' and ' ORDER BY c.colpos) FROM (VALUES ('a', 0), ('b', 1), ('c', 2), ('d', 3)) AS c(colname, colpos), generate_series(0, 15) AS g(s) GROUP BY g.s ORDER BY g.s"
+    "query": "select 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || case when g.s & (1 << c.colpos) = 0 then ' is null' else ' = ' || (colpos+1)::text end, ' and ' order by c.colpos) from (values('a',0),('b',1),('c',2),('d',3)) c(colname, colpos), generate_Series(0,15) g(s) group by g.s order by g.s",
+    "expected": "SELECT 'select tableoid::regclass,* from hp_prefix_test where ' || string_agg(c.colname || CASE WHEN g.s & (1 << c.colpos) = 0 THEN ' is null' ELSE ' = ' || CAST((colpos + 1) AS TEXT) END, ' and ' ORDER BY c.colpos) FROM (VALUES ('a', 0), ('b', 1), ('c', 2), ('d', 3)) AS c(colname, colpos), generate_series(0, 15) AS g(s) GROUP BY g.s ORDER BY g.s"
   },
   {
     "comment": "partition_prune - Statement 644",
     "query": "create operator === ( leftarg = int4, rightarg = int4, procedure = int4eq, commutator = ===, hashes )",
-    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = '===', hashes)"
+    "expected": "CREATE OPERATOR === (leftarg = INT, rightarg = INT, procedure = int4eq, commutator = ===, hashes)"
   },
   {
     "comment": "partition_prune - Statement 645",

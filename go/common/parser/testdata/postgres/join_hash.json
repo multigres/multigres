@@ -21,8 +21,8 @@
   },
   {
     "comment": "join_hash - Statement 5",
-    "query": "create or replace function find_hash(node json) returns json language plpgsql as $$ declare x json; child json; begin if node-\u003e\u003e'Node Type' = 'Hash' then return node; else for child in select json_array_elements(node-\u003e'Plans') loop x := find_hash(child); if x is not null then return x; end if; end loop; return null; end; $$",
-    "expected": "CREATE OR REPLACE FUNCTION find_hash (node JSON) RETURNS JSON LANGUAGE plpgsql AS $$ declare x json; child json; begin if node-\u003e\u003e'Node Type' = 'Hash' then return node; else for child in select json_array_elements(node-\u003e'Plans') loop x := find_hash(child); if x is not null then return x; end if; end loop; return null; end; $$"
+    "query": "create or replace function find_hash(node json) returns json language plpgsql as $$ declare x json; child json; begin if node->>'Node Type' = 'Hash' then return node; else for child in select json_array_elements(node->'Plans') loop x := find_hash(child); if x is not null then return x; end if; end loop; return null; end; $$",
+    "expected": "CREATE OR REPLACE FUNCTION find_hash (node JSON) RETURNS JSON LANGUAGE plpgsql AS $$ declare x json; child json; begin if node->>'Node Type' = 'Hash' then return node; else for child in select json_array_elements(node->'Plans') loop x := find_hash(child); if x is not null then return x; end if; end loop; return null; end; $$"
   },
   {
     "comment": "join_hash - Statement 15",
@@ -141,8 +141,8 @@
   },
   {
     "comment": "join_hash - Statement 43",
-    "query": "select original \u003e 1 as initially_multibatch, final \u003e original as increased_batches from hash_join_batches( $$ select count(*) from simple r join simple s using (id); $$)",
-    "expected": "SELECT original \u003e 1 AS initially_multibatch, final \u003e original AS increased_batches FROM hash_join_batches(' select count(*) from simple r join simple s using (id); ')"
+    "query": "select original > 1 as initially_multibatch, final > original as increased_batches from hash_join_batches( $$ select count(*) from simple r join simple s using (id); $$)",
+    "expected": "SELECT original > 1 AS initially_multibatch, final > original AS increased_batches FROM hash_join_batches(' select count(*) from simple r join simple s using (id); ')"
   },
   {
     "comment": "join_hash - Statement 45",
@@ -191,8 +191,8 @@
   },
   {
     "comment": "join_hash - Statement 54",
-    "query": "select original \u003e 1 as initially_multibatch, final \u003e original as increased_batches from hash_join_batches( $$ select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id); $$)",
-    "expected": "SELECT original \u003e 1 AS initially_multibatch, final \u003e original AS increased_batches FROM hash_join_batches(' select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id); ')"
+    "query": "select original > 1 as initially_multibatch, final > original as increased_batches from hash_join_batches( $$ select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id); $$)",
+    "expected": "SELECT original > 1 AS initially_multibatch, final > original AS increased_batches FROM hash_join_batches(' select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id); ')"
   },
   {
     "comment": "join_hash - Statement 55",
@@ -296,18 +296,18 @@
   },
   {
     "comment": "join_hash - Statement 75",
-    "query": "explain (costs off) select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id \u003c ss.id + 1 and join_foo.id \u003e ss.id - 1",
-    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM join_foo LEFT OUTER JOIN (SELECT b1.id, b1.t FROM join_bar AS b1 INNER JOIN join_bar AS b2 USING (id)) AS ss ON join_foo.id \u003c ss.id + 1 AND join_foo.id \u003e ss.id - 1"
+    "query": "explain (costs off) select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM join_foo LEFT OUTER JOIN (SELECT b1.id, b1.t FROM join_bar AS b1 INNER JOIN join_bar AS b2 USING (id)) AS ss ON join_foo.id < ss.id + 1 AND join_foo.id > ss.id - 1"
   },
   {
     "comment": "join_hash - Statement 76",
-    "query": "select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id \u003c ss.id + 1 and join_foo.id \u003e ss.id - 1",
-    "expected": "SELECT COUNT(*) FROM join_foo LEFT OUTER JOIN (SELECT b1.id, b1.t FROM join_bar AS b1 INNER JOIN join_bar AS b2 USING (id)) AS ss ON join_foo.id \u003c ss.id + 1 AND join_foo.id \u003e ss.id - 1"
+    "query": "select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1",
+    "expected": "SELECT COUNT(*) FROM join_foo LEFT OUTER JOIN (SELECT b1.id, b1.t FROM join_bar AS b1 INNER JOIN join_bar AS b2 USING (id)) AS ss ON join_foo.id < ss.id + 1 AND join_foo.id > ss.id - 1"
   },
   {
     "comment": "join_hash - Statement 77",
-    "query": "select final \u003e 1 as multibatch from hash_join_batches( $$ select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id \u003c ss.id + 1 and join_foo.id \u003e ss.id - 1; $$)",
-    "expected": "SELECT final \u003e 1 AS multibatch FROM hash_join_batches(' select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id \u003c ss.id + 1 and join_foo.id \u003e ss.id - 1; ')"
+    "query": "select final > 1 as multibatch from hash_join_batches( $$ select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1; $$)",
+    "expected": "SELECT final > 1 AS multibatch FROM hash_join_batches(' select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1; ')"
   },
   {
     "comment": "join_hash - Statement 78",
@@ -351,8 +351,8 @@
   },
   {
     "comment": "join_hash - Statement 86",
-    "query": "select final \u003e 1 as multibatch from hash_join_batches( $$ select length(max(s.t)) from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id); $$)",
-    "expected": "SELECT final \u003e 1 AS multibatch FROM hash_join_batches(' select length(max(s.t)) from wide left join (select id, coalesce(t, '''') || '''' as t from wide) s using (id); ')"
+    "query": "select final > 1 as multibatch from hash_join_batches( $$ select length(max(s.t)) from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id); $$)",
+    "expected": "SELECT final > 1 AS multibatch FROM hash_join_batches(' select length(max(s.t)) from wide left join (select id, coalesce(t, '''') || '''' as t from wide) s using (id); ')"
   },
   {
     "comment": "join_hash - Statement 87",
@@ -462,23 +462,23 @@
   },
   {
     "comment": "join_hash - Statement 109",
-    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b",
-    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b"
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
   },
   {
     "comment": "join_hash - Statement 110",
-    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b",
-    "expected": "SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b"
+    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b",
+    "expected": "SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
   },
   {
     "comment": "join_hash - Statement 111",
-    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b",
-    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b"
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
   },
   {
     "comment": "join_hash - Statement 112",
-    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b",
-    "expected": "SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) \u003c 50 AND (SELECT hjtest_2.c * 5) \u003c 55 AND hjtest_1.a \u003c\u003e hjtest_2.b"
+    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b",
+    "expected": "SELECT hjtest_1.a AS a1, hjtest_2.a AS a2, CAST(hjtest_1.tableoid AS regclass) AS t1, CAST(hjtest_2.tableoid AS regclass) AS t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c * 5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
   },
   {
     "comment": "join_hash - Statement 113",

@@ -2,7 +2,7 @@
   {
     "comment": "plpgsql - Statement 1",
     "query": "create table Room ( roomno\tchar(8), comment\ttext )",
-    "expected": "CREATE TABLE room (roomno CHAR(8), comment TEXT)"
+    "expected": "CREATE TABLE room (roomno bpchar(8), comment TEXT)"
   },
   {
     "comment": "plpgsql - Statement 2",
@@ -12,7 +12,7 @@
   {
     "comment": "plpgsql - Statement 3",
     "query": "create table WSlot ( slotname\tchar(20), roomno\tchar(8), slotlink\tchar(20), backlink\tchar(20) )",
-    "expected": "CREATE TABLE wslot (slotname CHAR(20), roomno CHAR(8), slotlink CHAR(20), backlink CHAR(20))"
+    "expected": "CREATE TABLE wslot (slotname bpchar(20), roomno bpchar(8), slotlink bpchar(20), backlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 4",
@@ -32,7 +32,7 @@
   {
     "comment": "plpgsql - Statement 7",
     "query": "create table PSlot ( slotname\tchar(20), pfname\ttext, slotlink\tchar(20), backlink\tchar(20) )",
-    "expected": "CREATE TABLE pslot (slotname CHAR(20), pfname TEXT, slotlink CHAR(20), backlink CHAR(20))"
+    "expected": "CREATE TABLE pslot (slotname bpchar(20), pfname TEXT, slotlink bpchar(20), backlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 8",
@@ -42,7 +42,7 @@
   {
     "comment": "plpgsql - Statement 9",
     "query": "create table PLine ( slotname\tchar(20), phonenumber\tchar(20), comment\ttext, backlink\tchar(20) )",
-    "expected": "CREATE TABLE pline (slotname CHAR(20), phonenumber CHAR(20), comment TEXT, backlink CHAR(20))"
+    "expected": "CREATE TABLE pline (slotname bpchar(20), phonenumber bpchar(20), comment TEXT, backlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 10",
@@ -52,7 +52,7 @@
   {
     "comment": "plpgsql - Statement 11",
     "query": "create table Hub ( name\tchar(14), comment\ttext, nslots\tinteger )",
-    "expected": "CREATE TABLE hub (name CHAR(14), comment TEXT, nslots INT)"
+    "expected": "CREATE TABLE hub (name bpchar(14), comment TEXT, nslots INT)"
   },
   {
     "comment": "plpgsql - Statement 12",
@@ -62,7 +62,7 @@
   {
     "comment": "plpgsql - Statement 13",
     "query": "create table HSlot ( slotname\tchar(20), hubname\tchar(14), slotno\tinteger, slotlink\tchar(20) )",
-    "expected": "CREATE TABLE hslot (slotname CHAR(20), hubname CHAR(14), slotno INT, slotlink CHAR(20))"
+    "expected": "CREATE TABLE hslot (slotname bpchar(20), hubname bpchar(14), slotno INT, slotlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 14",
@@ -87,7 +87,7 @@
   {
     "comment": "plpgsql - Statement 18",
     "query": "create table IFace ( slotname\tchar(20), sysname\ttext, ifname\ttext, slotlink\tchar(20) )",
-    "expected": "CREATE TABLE iface (slotname CHAR(20), sysname TEXT, ifname TEXT, slotlink CHAR(20))"
+    "expected": "CREATE TABLE iface (slotname bpchar(20), sysname TEXT, ifname TEXT, slotlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 19",
@@ -97,7 +97,7 @@
   {
     "comment": "plpgsql - Statement 20",
     "query": "create table PHone ( slotname\tchar(20), comment\ttext, slotlink\tchar(20) )",
-    "expected": "CREATE TABLE phone (slotname CHAR(20), comment TEXT, slotlink CHAR(20))"
+    "expected": "CREATE TABLE phone (slotname bpchar(20), comment TEXT, slotlink bpchar(20))"
   },
   {
     "comment": "plpgsql - Statement 21",
@@ -176,8 +176,8 @@
   },
   {
     "comment": "plpgsql - Statement 36",
-    "query": "create function tg_iface_biu() returns trigger as $$ declare sname\ttext; sysrec\trecord; begin select into sysrec * from system where name = new.sysname; if not found then raise exception $q$system \"%\" does not exist$q$, new.sysname; end if; sname := 'IF.' || new.sysname; sname := sname || '.'; sname := sname || new.ifname; if length(sname) \u003e 20 then raise exception 'IFace slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION tg_iface_biu () RETURNS trigger AS $$ declare sname\ttext; sysrec\trecord; begin select into sysrec * from system where name = new.sysname; if not found then raise exception $q$system \"%\" does not exist$q$, new.sysname; end if; sname := 'IF.' || new.sysname; sname := sname || '.'; sname := sname || new.ifname; if length(sname) \u003e 20 then raise exception 'IFace slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ LANGUAGE plpgsql"
+    "query": "create function tg_iface_biu() returns trigger as $$ declare sname\ttext; sysrec\trecord; begin select into sysrec * from system where name = new.sysname; if not found then raise exception $q$system \"%\" does not exist$q$, new.sysname; end if; sname := 'IF.' || new.sysname; sname := sname || '.'; sname := sname || new.ifname; if length(sname) > 20 then raise exception 'IFace slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION tg_iface_biu () RETURNS trigger AS $$ declare sname\ttext; sysrec\trecord; begin select into sysrec * from system where name = new.sysname; if not found then raise exception $q$system \"%\" does not exist$q$, new.sysname; end if; sname := 'IF.' || new.sysname; sname := sname || '.'; sname := sname || new.ifname; if length(sname) > 20 then raise exception 'IFace slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 37",
@@ -196,28 +196,28 @@
   },
   {
     "comment": "plpgsql - Statement 40",
-    "query": "create function tg_hub_adjustslots(hname char, oldnslots integer, newnslots integer) returns integer as ' begin if newnslots = oldnslots then return 0; end if; if newnslots \u003c oldnslots then delete from HSlot where hubname = hname and slotno \u003e newnslots; return 0; end if; for i in oldnslots + 1 .. newnslots loop insert into HSlot (slotname, hubname, slotno, slotlink) values (''HS.dummy'', hname, i, ''''); end loop; return 0; end ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_hub_adjustslots (hname CHAR(1), oldnslots INT, newnslots INT) RETURNS INT AS $$ begin if newnslots = oldnslots then return 0; end if; if newnslots \u003c oldnslots then delete from HSlot where hubname = hname and slotno \u003e newnslots; return 0; end if; for i in oldnslots + 1 .. newnslots loop insert into HSlot (slotname, hubname, slotno, slotlink) values ('HS.dummy', hname, i, ''); end loop; return 0; end $$ LANGUAGE plpgsql"
+    "query": "create function tg_hub_adjustslots(hname char, oldnslots integer, newnslots integer) returns integer as ' begin if newnslots = oldnslots then return 0; end if; if newnslots < oldnslots then delete from HSlot where hubname = hname and slotno > newnslots; return 0; end if; for i in oldnslots + 1 .. newnslots loop insert into HSlot (slotname, hubname, slotno, slotlink) values (''HS.dummy'', hname, i, ''''); end loop; return 0; end ' language plpgsql",
+    "expected": "CREATE FUNCTION tg_hub_adjustslots (hname bpchar(1), oldnslots INT, newnslots INT) RETURNS INT AS $$ begin if newnslots = oldnslots then return 0; end if; if newnslots < oldnslots then delete from HSlot where hubname = hname and slotno > newnslots; return 0; end if; for i in oldnslots + 1 .. newnslots loop insert into HSlot (slotname, hubname, slotno, slotlink) values ('HS.dummy', hname, i, ''); end loop; return 0; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 41",
     "query": "COMMENT ON FUNCTION tg_hub_adjustslots_wrong(char, integer, integer) IS 'function with args'",
-    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots_wrong(CHAR(1), INT, INT) IS 'function with args'"
+    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots_wrong(bpchar(1), INT, INT) IS 'function with args'"
   },
   {
     "comment": "plpgsql - Statement 42",
     "query": "COMMENT ON FUNCTION tg_hub_adjustslots(char, integer, integer) IS 'function with args'",
-    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots(CHAR(1), INT, INT) IS 'function with args'"
+    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots(bpchar(1), INT, INT) IS 'function with args'"
   },
   {
     "comment": "plpgsql - Statement 43",
     "query": "COMMENT ON FUNCTION tg_hub_adjustslots(char, integer, integer) IS NULL",
-    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots(CHAR(1), INT, INT) IS NULL"
+    "expected": "COMMENT ON FUNCTION tg_hub_adjustslots(bpchar(1), INT, INT) IS NULL"
   },
   {
     "comment": "plpgsql - Statement 44",
-    "query": "create function tg_hslot_biu() returns trigger as ' declare sname\ttext; xname\tHSlot.slotname%TYPE; hubrec\trecord; begin select into hubrec * from Hub where name = new.hubname; if not found then raise exception ''no manual manipulation of HSlot''; end if; if new.slotno \u003c 1 or new.slotno \u003e hubrec.nslots then raise exception ''no manual manipulation of HSlot''; end if; if tg_op = ''UPDATE'' and new.hubname != old.hubname then if count(*) \u003e 0 from Hub where name = old.hubname then raise exception ''no manual manipulation of HSlot''; end if; end if; sname := ''HS.'' || trim(new.hubname); sname := sname || ''.''; sname := sname || new.slotno::text; if length(sname) \u003e 20 then raise exception ''HSlot slotname \"%\" too long (20 char max)'', sname; end if; new.slotname := sname; return new; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_hslot_biu () RETURNS trigger AS $$ declare sname\ttext; xname\tHSlot.slotname%TYPE; hubrec\trecord; begin select into hubrec * from Hub where name = new.hubname; if not found then raise exception 'no manual manipulation of HSlot'; end if; if new.slotno \u003c 1 or new.slotno \u003e hubrec.nslots then raise exception 'no manual manipulation of HSlot'; end if; if tg_op = 'UPDATE' and new.hubname != old.hubname then if count(*) \u003e 0 from Hub where name = old.hubname then raise exception 'no manual manipulation of HSlot'; end if; end if; sname := 'HS.' || trim(new.hubname); sname := sname || '.'; sname := sname || new.slotno::text; if length(sname) \u003e 20 then raise exception 'HSlot slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ LANGUAGE plpgsql"
+    "query": "create function tg_hslot_biu() returns trigger as ' declare sname\ttext; xname\tHSlot.slotname%TYPE; hubrec\trecord; begin select into hubrec * from Hub where name = new.hubname; if not found then raise exception ''no manual manipulation of HSlot''; end if; if new.slotno < 1 or new.slotno > hubrec.nslots then raise exception ''no manual manipulation of HSlot''; end if; if tg_op = ''UPDATE'' and new.hubname != old.hubname then if count(*) > 0 from Hub where name = old.hubname then raise exception ''no manual manipulation of HSlot''; end if; end if; sname := ''HS.'' || trim(new.hubname); sname := sname || ''.''; sname := sname || new.slotno::text; if length(sname) > 20 then raise exception ''HSlot slotname \"%\" too long (20 char max)'', sname; end if; new.slotname := sname; return new; end; ' language plpgsql",
+    "expected": "CREATE FUNCTION tg_hslot_biu () RETURNS trigger AS $$ declare sname\ttext; xname\tHSlot.slotname%TYPE; hubrec\trecord; begin select into hubrec * from Hub where name = new.hubname; if not found then raise exception 'no manual manipulation of HSlot'; end if; if new.slotno < 1 or new.slotno > hubrec.nslots then raise exception 'no manual manipulation of HSlot'; end if; if tg_op = 'UPDATE' and new.hubname != old.hubname then if count(*) > 0 from Hub where name = old.hubname then raise exception 'no manual manipulation of HSlot'; end if; end if; sname := 'HS.' || trim(new.hubname); sname := sname || '.'; sname := sname || new.slotno::text; if length(sname) > 20 then raise exception 'HSlot slotname \"%\" too long (20 char max)', sname; end if; new.slotname := sname; return new; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 45",
@@ -226,8 +226,8 @@
   },
   {
     "comment": "plpgsql - Statement 46",
-    "query": "create function tg_hslot_bd() returns trigger as ' declare hubrec\trecord; begin select into hubrec * from Hub where name = old.hubname; if not found then return old; end if; if old.slotno \u003e hubrec.nslots then return old; end if; raise exception ''no manual manipulation of HSlot''; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_hslot_bd () RETURNS trigger AS $$ declare hubrec\trecord; begin select into hubrec * from Hub where name = old.hubname; if not found then return old; end if; if old.slotno \u003e hubrec.nslots then return old; end if; raise exception 'no manual manipulation of HSlot'; end; $$ LANGUAGE plpgsql"
+    "query": "create function tg_hslot_bd() returns trigger as ' declare hubrec\trecord; begin select into hubrec * from Hub where name = old.hubname; if not found then return old; end if; if old.slotno > hubrec.nslots then return old; end if; raise exception ''no manual manipulation of HSlot''; end; ' language plpgsql",
+    "expected": "CREATE FUNCTION tg_hslot_bd () RETURNS trigger AS $$ declare hubrec\trecord; begin select into hubrec * from Hub where name = old.hubname; if not found then return old; end if; if old.slotno > hubrec.nslots then return old; end if; raise exception 'no manual manipulation of HSlot'; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 47",
@@ -397,12 +397,12 @@
   {
     "comment": "plpgsql - Statement 80",
     "query": "create function tg_backlink_set(myname char, blname char) returns integer as ' declare mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = ''PLPL'' then raise exception ''backlink between two phone lines does not make sense''; end if; if link in (''PLWS'', ''WSPL'') then raise exception ''direct link of phone line to wall slot not permitted''; end if; if mytype = ''PS'' then select into rec * from PSlot where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.backlink != blname then update PSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''WS'' then select into rec * from WSlot where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.backlink != blname then update WSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''PL'' then select into rec * from PLine where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.backlink != blname then update PLine set backlink = blname where slotname = myname; end if; return 0; end if; raise exception ''illegal backlink beginning with %'', mytype; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_backlink_set (myname CHAR(1), blname CHAR(1)) RETURNS INT AS $$ declare mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = 'PLPL' then raise exception 'backlink between two phone lines does not make sense'; end if; if link in ('PLWS', 'WSPL') then raise exception 'direct link of phone line to wall slot not permitted'; end if; if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update PSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update WSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'PL' then select into rec * from PLine where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update PLine set backlink = blname where slotname = myname; end if; return 0; end if; raise exception 'illegal backlink beginning with %', mytype; end; $$ LANGUAGE plpgsql"
+    "expected": "CREATE FUNCTION tg_backlink_set (myname bpchar(1), blname bpchar(1)) RETURNS INT AS $$ declare mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = 'PLPL' then raise exception 'backlink between two phone lines does not make sense'; end if; if link in ('PLWS', 'WSPL') then raise exception 'direct link of phone line to wall slot not permitted'; end if; if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update PSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update WSlot set backlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'PL' then select into rec * from PLine where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.backlink != blname then update PLine set backlink = blname where slotname = myname; end if; return 0; end if; raise exception 'illegal backlink beginning with %', mytype; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 81",
     "query": "create function tg_backlink_unset(char, char) returns integer as ' declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = ''PS'' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PSlot set backlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''WS'' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update WSlot set backlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''PL'' then select into rec * from PLine where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PLine set backlink = '''' where slotname = myname; end if; return 0; end if; end ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_backlink_unset (CHAR(1), CHAR(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PSlot set backlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update WSlot set backlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'PL' then select into rec * from PLine where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PLine set backlink = '' where slotname = myname; end if; return 0; end if; end $$ LANGUAGE plpgsql"
+    "expected": "CREATE FUNCTION tg_backlink_unset (bpchar(1), bpchar(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PSlot set backlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update WSlot set backlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'PL' then select into rec * from PLine where slotname = myname; if not found then return 0; end if; if rec.backlink = blname then update PLine set backlink = '' where slotname = myname; end if; return 0; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 82",
@@ -437,27 +437,27 @@
   {
     "comment": "plpgsql - Statement 88",
     "query": "create function tg_slotlink_set(char, char) returns integer as ' declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = ''PHPH'' then raise exception ''slotlink between two phones does not make sense''; end if; if link in (''PHHS'', ''HSPH'') then raise exception ''link of phone to hub does not make sense''; end if; if link in (''PHIF'', ''IFPH'') then raise exception ''link of phone to hub does not make sense''; end if; if link in (''PSWS'', ''WSPS'') then raise exception ''slotlink from patchslot to wallslot not permitted''; end if; if mytype = ''PS'' then select into rec * from PSlot where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.slotlink != blname then update PSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''WS'' then select into rec * from WSlot where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.slotlink != blname then update WSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''IF'' then select into rec * from IFace where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.slotlink != blname then update IFace set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''HS'' then select into rec * from HSlot where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.slotlink != blname then update HSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = ''PH'' then select into rec * from PHone where slotname = myname; if not found then raise exception ''% does not exist'', myname; end if; if rec.slotlink != blname then update PHone set slotlink = blname where slotname = myname; end if; return 0; end if; raise exception ''illegal slotlink beginning with %'', mytype; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_slotlink_set (CHAR(1), CHAR(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = 'PHPH' then raise exception 'slotlink between two phones does not make sense'; end if; if link in ('PHHS', 'HSPH') then raise exception 'link of phone to hub does not make sense'; end if; if link in ('PHIF', 'IFPH') then raise exception 'link of phone to hub does not make sense'; end if; if link in ('PSWS', 'WSPS') then raise exception 'slotlink from patchslot to wallslot not permitted'; end if; if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update PSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update WSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'IF' then select into rec * from IFace where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update IFace set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'HS' then select into rec * from HSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update HSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'PH' then select into rec * from PHone where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update PHone set slotlink = blname where slotname = myname; end if; return 0; end if; raise exception 'illegal slotlink beginning with %', mytype; end; $$ LANGUAGE plpgsql"
+    "expected": "CREATE FUNCTION tg_slotlink_set (bpchar(1), bpchar(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); link\tchar(4); rec\t\trecord; begin mytype := substr(myname, 1, 2); link := mytype || substr(blname, 1, 2); if link = 'PHPH' then raise exception 'slotlink between two phones does not make sense'; end if; if link in ('PHHS', 'HSPH') then raise exception 'link of phone to hub does not make sense'; end if; if link in ('PHIF', 'IFPH') then raise exception 'link of phone to hub does not make sense'; end if; if link in ('PSWS', 'WSPS') then raise exception 'slotlink from patchslot to wallslot not permitted'; end if; if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update PSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update WSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'IF' then select into rec * from IFace where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update IFace set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'HS' then select into rec * from HSlot where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update HSlot set slotlink = blname where slotname = myname; end if; return 0; end if; if mytype = 'PH' then select into rec * from PHone where slotname = myname; if not found then raise exception '% does not exist', myname; end if; if rec.slotlink != blname then update PHone set slotlink = blname where slotname = myname; end if; return 0; end if; raise exception 'illegal slotlink beginning with %', mytype; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 89",
     "query": "create function tg_slotlink_unset(char, char) returns integer as ' declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = ''PS'' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PSlot set slotlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''WS'' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update WSlot set slotlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''IF'' then select into rec * from IFace where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update IFace set slotlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''HS'' then select into rec * from HSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update HSlot set slotlink = '''' where slotname = myname; end if; return 0; end if; if mytype = ''PH'' then select into rec * from PHone where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PHone set slotlink = '''' where slotname = myname; end if; return 0; end if; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION tg_slotlink_unset (CHAR(1), CHAR(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update WSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'IF' then select into rec * from IFace where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update IFace set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'HS' then select into rec * from HSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update HSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'PH' then select into rec * from PHone where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PHone set slotlink = '' where slotname = myname; end if; return 0; end if; end; $$ LANGUAGE plpgsql"
+    "expected": "CREATE FUNCTION tg_slotlink_unset (bpchar(1), bpchar(1)) RETURNS INT AS $$ declare myname\talias for $1; blname\talias for $2; mytype\tchar(2); rec\t\trecord; begin mytype := substr(myname, 1, 2); if mytype = 'PS' then select into rec * from PSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'WS' then select into rec * from WSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update WSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'IF' then select into rec * from IFace where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update IFace set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'HS' then select into rec * from HSlot where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update HSlot set slotlink = '' where slotname = myname; end if; return 0; end if; if mytype = 'PH' then select into rec * from PHone where slotname = myname; if not found then return 0; end if; if rec.slotlink = blname then update PHone set slotlink = '' where slotname = myname; end if; return 0; end if; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 90",
-    "query": "create function pslot_backlink_view(char) returns text as ' \u003c\u003couter\u003e\u003e declare rec\t\trecord; bltype\tchar(2); retval\ttext; begin select into rec * from PSlot where slotname = $1; if not found then return ''''; end if; if rec.backlink = '''' then return ''-''; end if; bltype := substr(rec.backlink, 1, 2); if bltype = ''PL'' then declare rec\t\trecord; begin select into rec * from PLine where slotname = \"outer\".rec.backlink; retval := ''Phone line '' || trim(rec.phonenumber); if rec.comment != '''' then retval := retval || '' (''; retval := retval || rec.comment; retval := retval || '')''; end if; return retval; end; end if; if bltype = ''WS'' then select into rec * from WSlot where slotname = rec.backlink; retval := trim(rec.slotname) || '' in room ''; retval := retval || trim(rec.roomno); retval := retval || '' -\u003e ''; return retval || wslot_slotlink_view(rec.slotname); end if; return rec.backlink; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION pslot_backlink_view (CHAR(1)) RETURNS TEXT AS $$ \u003c\u003couter\u003e\u003e declare rec\t\trecord; bltype\tchar(2); retval\ttext; begin select into rec * from PSlot where slotname = $1; if not found then return ''; end if; if rec.backlink = '' then return '-'; end if; bltype := substr(rec.backlink, 1, 2); if bltype = 'PL' then declare rec\t\trecord; begin select into rec * from PLine where slotname = \"outer\".rec.backlink; retval := 'Phone line ' || trim(rec.phonenumber); if rec.comment != '' then retval := retval || ' ('; retval := retval || rec.comment; retval := retval || ')'; end if; return retval; end; end if; if bltype = 'WS' then select into rec * from WSlot where slotname = rec.backlink; retval := trim(rec.slotname) || ' in room '; retval := retval || trim(rec.roomno); retval := retval || ' -\u003e '; return retval || wslot_slotlink_view(rec.slotname); end if; return rec.backlink; end; $$ LANGUAGE plpgsql"
+    "query": "create function pslot_backlink_view(char) returns text as ' <<outer>> declare rec\t\trecord; bltype\tchar(2); retval\ttext; begin select into rec * from PSlot where slotname = $1; if not found then return ''''; end if; if rec.backlink = '''' then return ''-''; end if; bltype := substr(rec.backlink, 1, 2); if bltype = ''PL'' then declare rec\t\trecord; begin select into rec * from PLine where slotname = \"outer\".rec.backlink; retval := ''Phone line '' || trim(rec.phonenumber); if rec.comment != '''' then retval := retval || '' (''; retval := retval || rec.comment; retval := retval || '')''; end if; return retval; end; end if; if bltype = ''WS'' then select into rec * from WSlot where slotname = rec.backlink; retval := trim(rec.slotname) || '' in room ''; retval := retval || trim(rec.roomno); retval := retval || '' -> ''; return retval || wslot_slotlink_view(rec.slotname); end if; return rec.backlink; end; ' language plpgsql",
+    "expected": "CREATE FUNCTION pslot_backlink_view (bpchar(1)) RETURNS TEXT AS $$ <<outer>> declare rec\t\trecord; bltype\tchar(2); retval\ttext; begin select into rec * from PSlot where slotname = $1; if not found then return ''; end if; if rec.backlink = '' then return '-'; end if; bltype := substr(rec.backlink, 1, 2); if bltype = 'PL' then declare rec\t\trecord; begin select into rec * from PLine where slotname = \"outer\".rec.backlink; retval := 'Phone line ' || trim(rec.phonenumber); if rec.comment != '' then retval := retval || ' ('; retval := retval || rec.comment; retval := retval || ')'; end if; return retval; end; end if; if bltype = 'WS' then select into rec * from WSlot where slotname = rec.backlink; retval := trim(rec.slotname) || ' in room '; retval := retval || trim(rec.roomno); retval := retval || ' -> '; return retval || wslot_slotlink_view(rec.slotname); end if; return rec.backlink; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 91",
-    "query": "create function pslot_slotlink_view(char) returns text as ' declare psrec\trecord; sltype\tchar(2); retval\ttext; begin select into psrec * from PSlot where slotname = $1; if not found then return ''''; end if; if psrec.slotlink = '''' then return ''-''; end if; sltype := substr(psrec.slotlink, 1, 2); if sltype = ''PS'' then retval := trim(psrec.slotlink) || '' -\u003e ''; return retval || pslot_backlink_view(psrec.slotlink); end if; if sltype = ''HS'' then retval := comment from Hub H, HSlot HS where HS.slotname = psrec.slotlink and H.name = HS.hubname; retval := retval || '' slot ''; retval := retval || slotno::text from HSlot where slotname = psrec.slotlink; return retval; end if; return psrec.slotlink; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION pslot_slotlink_view (CHAR(1)) RETURNS TEXT AS $$ declare psrec\trecord; sltype\tchar(2); retval\ttext; begin select into psrec * from PSlot where slotname = $1; if not found then return ''; end if; if psrec.slotlink = '' then return '-'; end if; sltype := substr(psrec.slotlink, 1, 2); if sltype = 'PS' then retval := trim(psrec.slotlink) || ' -\u003e '; return retval || pslot_backlink_view(psrec.slotlink); end if; if sltype = 'HS' then retval := comment from Hub H, HSlot HS where HS.slotname = psrec.slotlink and H.name = HS.hubname; retval := retval || ' slot '; retval := retval || slotno::text from HSlot where slotname = psrec.slotlink; return retval; end if; return psrec.slotlink; end; $$ LANGUAGE plpgsql"
+    "query": "create function pslot_slotlink_view(char) returns text as ' declare psrec\trecord; sltype\tchar(2); retval\ttext; begin select into psrec * from PSlot where slotname = $1; if not found then return ''''; end if; if psrec.slotlink = '''' then return ''-''; end if; sltype := substr(psrec.slotlink, 1, 2); if sltype = ''PS'' then retval := trim(psrec.slotlink) || '' -> ''; return retval || pslot_backlink_view(psrec.slotlink); end if; if sltype = ''HS'' then retval := comment from Hub H, HSlot HS where HS.slotname = psrec.slotlink and H.name = HS.hubname; retval := retval || '' slot ''; retval := retval || slotno::text from HSlot where slotname = psrec.slotlink; return retval; end if; return psrec.slotlink; end; ' language plpgsql",
+    "expected": "CREATE FUNCTION pslot_slotlink_view (bpchar(1)) RETURNS TEXT AS $$ declare psrec\trecord; sltype\tchar(2); retval\ttext; begin select into psrec * from PSlot where slotname = $1; if not found then return ''; end if; if psrec.slotlink = '' then return '-'; end if; sltype := substr(psrec.slotlink, 1, 2); if sltype = 'PS' then retval := trim(psrec.slotlink) || ' -> '; return retval || pslot_backlink_view(psrec.slotlink); end if; if sltype = 'HS' then retval := comment from Hub H, HSlot HS where HS.slotname = psrec.slotlink and H.name = HS.hubname; retval := retval || ' slot '; retval := retval || slotno::text from HSlot where slotname = psrec.slotlink; return retval; end if; return psrec.slotlink; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 92",
     "query": "create function wslot_slotlink_view(char) returns text as ' declare rec\t\trecord; sltype\tchar(2); retval\ttext; begin select into rec * from WSlot where slotname = $1; if not found then return ''''; end if; if rec.slotlink = '''' then return ''-''; end if; sltype := substr(rec.slotlink, 1, 2); if sltype = ''PH'' then select into rec * from PHone where slotname = rec.slotlink; retval := ''Phone '' || trim(rec.slotname); if rec.comment != '''' then retval := retval || '' (''; retval := retval || rec.comment; retval := retval || '')''; end if; return retval; end if; if sltype = ''IF'' then declare syrow\tSystem%RowType; ifrow\tIFace%ROWTYPE; begin select into ifrow * from IFace where slotname = rec.slotlink; select into syrow * from System where name = ifrow.sysname; retval := syrow.name || '' IF ''; retval := retval || ifrow.ifname; if syrow.comment != '''' then retval := retval || '' (''; retval := retval || syrow.comment; retval := retval || '')''; end if; return retval; end; end if; return rec.slotlink; end; ' language plpgsql",
-    "expected": "CREATE FUNCTION wslot_slotlink_view (CHAR(1)) RETURNS TEXT AS $$ declare rec\t\trecord; sltype\tchar(2); retval\ttext; begin select into rec * from WSlot where slotname = $1; if not found then return ''; end if; if rec.slotlink = '' then return '-'; end if; sltype := substr(rec.slotlink, 1, 2); if sltype = 'PH' then select into rec * from PHone where slotname = rec.slotlink; retval := 'Phone ' || trim(rec.slotname); if rec.comment != '' then retval := retval || ' ('; retval := retval || rec.comment; retval := retval || ')'; end if; return retval; end if; if sltype = 'IF' then declare syrow\tSystem%RowType; ifrow\tIFace%ROWTYPE; begin select into ifrow * from IFace where slotname = rec.slotlink; select into syrow * from System where name = ifrow.sysname; retval := syrow.name || ' IF '; retval := retval || ifrow.ifname; if syrow.comment != '' then retval := retval || ' ('; retval := retval || syrow.comment; retval := retval || ')'; end if; return retval; end; end if; return rec.slotlink; end; $$ LANGUAGE plpgsql"
+    "expected": "CREATE FUNCTION wslot_slotlink_view (bpchar(1)) RETURNS TEXT AS $$ declare rec\t\trecord; sltype\tchar(2); retval\ttext; begin select into rec * from WSlot where slotname = $1; if not found then return ''; end if; if rec.slotlink = '' then return '-'; end if; sltype := substr(rec.slotlink, 1, 2); if sltype = 'PH' then select into rec * from PHone where slotname = rec.slotlink; retval := 'Phone ' || trim(rec.slotname); if rec.comment != '' then retval := retval || ' ('; retval := retval || rec.comment; retval := retval || ')'; end if; return retval; end if; if sltype = 'IF' then declare syrow\tSystem%RowType; ifrow\tIFace%ROWTYPE; begin select into ifrow * from IFace where slotname = rec.slotlink; select into syrow * from System where name = ifrow.sysname; retval := syrow.name || ' IF '; retval := retval || ifrow.ifname; if syrow.comment != '' then retval := retval || ' ('; retval := retval || syrow.comment; retval := retval || ')'; end if; return retval; end; end if; return rec.slotlink; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 93",
@@ -1361,8 +1361,8 @@
   },
   {
     "comment": "plpgsql - Statement 273",
-    "query": "CREATE FUNCTION recursion_test(int,int) RETURNS text AS ' DECLARE rslt text; BEGIN IF $1 \u003c= 0 THEN rslt = CAST($2 AS TEXT); ELSE rslt = CAST($1 AS TEXT) || '','' || recursion_test($1 - 1, $2); END IF; RETURN rslt; END;' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION recursion_test (INT, INT) RETURNS TEXT AS $$ DECLARE rslt text; BEGIN IF $1 \u003c= 0 THEN rslt = CAST($2 AS TEXT); ELSE rslt = CAST($1 AS TEXT) || ',' || recursion_test($1 - 1, $2); END IF; RETURN rslt; END;$$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION recursion_test(int,int) RETURNS text AS ' DECLARE rslt text; BEGIN IF $1 <= 0 THEN rslt = CAST($2 AS TEXT); ELSE rslt = CAST($1 AS TEXT) || '','' || recursion_test($1 - 1, $2); END IF; RETURN rslt; END;' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION recursion_test (INT, INT) RETURNS TEXT AS $$ DECLARE rslt text; BEGIN IF $1 <= 0 THEN rslt = CAST($2 AS TEXT); ELSE rslt = CAST($1 AS TEXT) || ',' || recursion_test($1 - 1, $2); END IF; RETURN rslt; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 274",
@@ -1421,33 +1421,33 @@
   },
   {
     "comment": "plpgsql - Statement 285",
-    "query": "create function test_ret_set_rec_dyn(int) returns setof record as ' DECLARE retval RECORD; BEGIN IF $1 \u003e 10 THEN SELECT INTO retval 5, 10, 15; RETURN NEXT retval; RETURN NEXT retval; ELSE SELECT INTO retval 50, 5::numeric, ''xxx''::text; RETURN NEXT retval; RETURN NEXT retval; END IF; RETURN; END;' language plpgsql",
-    "expected": "CREATE FUNCTION test_ret_set_rec_dyn (INT) RETURNS SETOF record AS $$ DECLARE retval RECORD; BEGIN IF $1 \u003e 10 THEN SELECT INTO retval 5, 10, 15; RETURN NEXT retval; RETURN NEXT retval; ELSE SELECT INTO retval 50, 5::numeric, 'xxx'::text; RETURN NEXT retval; RETURN NEXT retval; END IF; RETURN; END;$$ LANGUAGE plpgsql"
+    "query": "create function test_ret_set_rec_dyn(int) returns setof record as ' DECLARE retval RECORD; BEGIN IF $1 > 10 THEN SELECT INTO retval 5, 10, 15; RETURN NEXT retval; RETURN NEXT retval; ELSE SELECT INTO retval 50, 5::numeric, ''xxx''::text; RETURN NEXT retval; RETURN NEXT retval; END IF; RETURN; END;' language plpgsql",
+    "expected": "CREATE FUNCTION test_ret_set_rec_dyn (INT) RETURNS SETOF record AS $$ DECLARE retval RECORD; BEGIN IF $1 > 10 THEN SELECT INTO retval 5, 10, 15; RETURN NEXT retval; RETURN NEXT retval; ELSE SELECT INTO retval 50, 5::numeric, 'xxx'::text; RETURN NEXT retval; RETURN NEXT retval; END IF; RETURN; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 286",
     "query": "SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int)",
-    "expected": "SELECT * FROM test_ret_set_rec_dyn(1500)"
+    "expected": "SELECT * FROM test_ret_set_rec_dyn(1500) AS (a INT, b INT, c INT)"
   },
   {
     "comment": "plpgsql - Statement 287",
     "query": "SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text)",
-    "expected": "SELECT * FROM test_ret_set_rec_dyn(5)"
+    "expected": "SELECT * FROM test_ret_set_rec_dyn(5) AS (a INT, b NUMERIC, c TEXT)"
   },
   {
     "comment": "plpgsql - Statement 288",
-    "query": "create function test_ret_rec_dyn(int) returns record as ' DECLARE retval RECORD; BEGIN IF $1 \u003e 10 THEN SELECT INTO retval 5, 10, 15; RETURN retval; ELSE SELECT INTO retval 50, 5::numeric, ''xxx''::text; RETURN retval; END IF; END;' language plpgsql",
-    "expected": "CREATE FUNCTION test_ret_rec_dyn (INT) RETURNS record AS $$ DECLARE retval RECORD; BEGIN IF $1 \u003e 10 THEN SELECT INTO retval 5, 10, 15; RETURN retval; ELSE SELECT INTO retval 50, 5::numeric, 'xxx'::text; RETURN retval; END IF; END;$$ LANGUAGE plpgsql"
+    "query": "create function test_ret_rec_dyn(int) returns record as ' DECLARE retval RECORD; BEGIN IF $1 > 10 THEN SELECT INTO retval 5, 10, 15; RETURN retval; ELSE SELECT INTO retval 50, 5::numeric, ''xxx''::text; RETURN retval; END IF; END;' language plpgsql",
+    "expected": "CREATE FUNCTION test_ret_rec_dyn (INT) RETURNS record AS $$ DECLARE retval RECORD; BEGIN IF $1 > 10 THEN SELECT INTO retval 5, 10, 15; RETURN retval; ELSE SELECT INTO retval 50, 5::numeric, 'xxx'::text; RETURN retval; END IF; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 289",
     "query": "SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int)",
-    "expected": "SELECT * FROM test_ret_rec_dyn(1500)"
+    "expected": "SELECT * FROM test_ret_rec_dyn(1500) AS (a INT, b INT, c INT)"
   },
   {
     "comment": "plpgsql - Statement 290",
     "query": "SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text)",
-    "expected": "SELECT * FROM test_ret_rec_dyn(5)"
+    "expected": "SELECT * FROM test_ret_rec_dyn(5) AS (a INT, b NUMERIC, c TEXT)"
   },
   {
     "comment": "plpgsql - Statement 291",
@@ -1696,8 +1696,8 @@
   },
   {
     "comment": "plpgsql - Statement 340",
-    "query": "create function perform_simple_func(int) returns boolean as ' BEGIN IF $1 \u003c 20 THEN INSERT INTO perform_test VALUES ($1, $1 + 10); RETURN TRUE; ELSE RETURN FALSE; END IF; END;' language plpgsql",
-    "expected": "CREATE FUNCTION perform_simple_func (INT) RETURNS BOOLEAN AS $$ BEGIN IF $1 \u003c 20 THEN INSERT INTO perform_test VALUES ($1, $1 + 10); RETURN TRUE; ELSE RETURN FALSE; END IF; END;$$ LANGUAGE plpgsql"
+    "query": "create function perform_simple_func(int) returns boolean as ' BEGIN IF $1 < 20 THEN INSERT INTO perform_test VALUES ($1, $1 + 10); RETURN TRUE; ELSE RETURN FALSE; END IF; END;' language plpgsql",
+    "expected": "CREATE FUNCTION perform_simple_func (INT) RETURNS BOOLEAN AS $$ BEGIN IF $1 < 20 THEN INSERT INTO perform_test VALUES ($1, $1 + 10); RETURN TRUE; ELSE RETURN FALSE; END IF; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 341",
@@ -1744,8 +1744,8 @@
   },
   {
     "comment": "plpgsql - Statement 350",
-    "query": "create function sp_add_user(a_login text) returns int as $$ declare my_id_user int; begin my_id_user = sp_id_user( a_login ); IF  my_id_user \u003e 0 THEN RETURN -1; END IF; INSERT INTO users ( login ) VALUES ( a_login ); my_id_user = sp_id_user( a_login ); IF  my_id_user = 0 THEN RETURN -2; END IF; RETURN my_id_user; end$$ language plpgsql",
-    "expected": "CREATE FUNCTION sp_add_user (a_login TEXT) RETURNS INT AS $$ declare my_id_user int; begin my_id_user = sp_id_user( a_login ); IF  my_id_user \u003e 0 THEN RETURN -1; END IF; INSERT INTO users ( login ) VALUES ( a_login ); my_id_user = sp_id_user( a_login ); IF  my_id_user = 0 THEN RETURN -2; END IF; RETURN my_id_user; end$$ LANGUAGE plpgsql"
+    "query": "create function sp_add_user(a_login text) returns int as $$ declare my_id_user int; begin my_id_user = sp_id_user( a_login ); IF  my_id_user > 0 THEN RETURN -1; END IF; INSERT INTO users ( login ) VALUES ( a_login ); my_id_user = sp_id_user( a_login ); IF  my_id_user = 0 THEN RETURN -2; END IF; RETURN my_id_user; end$$ language plpgsql",
+    "expected": "CREATE FUNCTION sp_add_user (a_login TEXT) RETURNS INT AS $$ declare my_id_user int; begin my_id_user = sp_id_user( a_login ); IF  my_id_user > 0 THEN RETURN -1; END IF; INSERT INTO users ( login ) VALUES ( a_login ); my_id_user = sp_id_user( a_login ); IF  my_id_user = 0 THEN RETURN -2; END IF; RETURN my_id_user; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 351",
@@ -1844,8 +1844,8 @@
   },
   {
     "comment": "plpgsql - Statement 370",
-    "query": "create function refcursor_test2(int, int) returns boolean as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; nonsense record; begin open c1($1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
-    "expected": "CREATE FUNCTION refcursor_test2 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; nonsense record; begin open c1($1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
+    "query": "create function refcursor_test2(int, int) returns boolean as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; nonsense record; begin open c1($1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION refcursor_test2 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; nonsense record; begin open c1($1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 371",
@@ -1869,8 +1869,8 @@
   },
   {
     "comment": "plpgsql - Statement 375",
-    "query": "create function namedparmcursor_test1(int, int) returns boolean as $$ declare c1 cursor (param1 int, param12 int) for select * from rc_test where a \u003e param1 and b \u003e param12; nonsense record; begin open c1(param12 := $2, param1 := $1); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
-    "expected": "CREATE FUNCTION namedparmcursor_test1 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param12 int) for select * from rc_test where a \u003e param1 and b \u003e param12; nonsense record; begin open c1(param12 := $2, param1 := $1); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
+    "query": "create function namedparmcursor_test1(int, int) returns boolean as $$ declare c1 cursor (param1 int, param12 int) for select * from rc_test where a > param1 and b > param12; nonsense record; begin open c1(param12 := $2, param1 := $1); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION namedparmcursor_test1 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param12 int) for select * from rc_test where a > param1 and b > param12; nonsense record; begin open c1(param12 := $2, param1 := $1); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 376",
@@ -1879,8 +1879,8 @@
   },
   {
     "comment": "plpgsql - Statement 377",
-    "query": "create function namedparmcursor_test2(int, int) returns boolean as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; nonsense record; begin open c1(param1 := $1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
-    "expected": "CREATE FUNCTION namedparmcursor_test2 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; nonsense record; begin open c1(param1 := $1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
+    "query": "create function namedparmcursor_test2(int, int) returns boolean as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; nonsense record; begin open c1(param1 := $1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION namedparmcursor_test2 (INT, INT) RETURNS BOOLEAN AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; nonsense record; begin open c1(param1 := $1, $2); fetch c1 into nonsense; close c1; if found then return true; else return false; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 378",
@@ -1889,13 +1889,13 @@
   },
   {
     "comment": "plpgsql - Statement 379",
-    "query": "create function namedparmcursor_test3() returns void as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; begin open c1(param2 := 20, 21); end $$ language plpgsql",
-    "expected": "CREATE FUNCTION namedparmcursor_test3 () RETURNS void AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; begin open c1(param2 := 20, 21); end $$ LANGUAGE plpgsql"
+    "query": "create function namedparmcursor_test3() returns void as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; begin open c1(param2 := 20, 21); end $$ language plpgsql",
+    "expected": "CREATE FUNCTION namedparmcursor_test3 () RETURNS void AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; begin open c1(param2 := 20, 21); end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 380",
-    "query": "create function namedparmcursor_test4() returns void as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; begin open c1(20, param1 := 21); end $$ language plpgsql",
-    "expected": "CREATE FUNCTION namedparmcursor_test4 () RETURNS void AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a \u003e param1 and b \u003e param2; begin open c1(20, param1 := 21); end $$ LANGUAGE plpgsql"
+    "query": "create function namedparmcursor_test4() returns void as $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; begin open c1(20, param1 := 21); end $$ language plpgsql",
+    "expected": "CREATE FUNCTION namedparmcursor_test4 () RETURNS void AS $$ declare c1 cursor (param1 int, param2 int) for select * from rc_test where a > param1 and b > param2; begin open c1(20, param1 := 21); end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 381",
@@ -2183,8 +2183,8 @@
   },
   {
     "comment": "plpgsql - Statement 438",
-    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  select * from foo where f1 \u003e 3 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  select * from foo where f1 \u003e 3 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  select * from foo where f1 > 3 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  select * from foo where f1 > 3 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 439",
@@ -2198,8 +2198,8 @@
   },
   {
     "comment": "plpgsql - Statement 441",
-    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  execute 'select * from foo where f1 \u003e 3' into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  execute 'select * from foo where f1 \u003e 3' into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  execute 'select * from foo where f1 > 3' into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  execute 'select * from foo where f1 > 3' into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 442",
@@ -2223,8 +2223,8 @@
   },
   {
     "comment": "plpgsql - Statement 446",
-    "query": "create or replace function stricttest() returns void as $$ declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$ declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 447",
@@ -2233,13 +2233,13 @@
   },
   {
     "comment": "plpgsql - Statement 448",
-    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  execute 'select * from foo where f1 \u003e $1' using 1 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  execute 'select * from foo where f1 \u003e $1' using 1 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$ declare x record; begin  execute 'select * from foo where f1 > $1' using 1 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$ declare x record; begin  execute 'select * from foo where f1 > $1' using 1 into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 449",
-    "query": "create or replace function stricttest() returns void as $$  #print_strict_params off declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$  #print_strict_params off declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$  #print_strict_params off declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$  #print_strict_params off declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 450",
@@ -2248,8 +2248,8 @@
   },
   {
     "comment": "plpgsql - Statement 451",
-    "query": "create or replace function stricttest() returns void as $$  #print_strict_params on declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$  #print_strict_params on declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 \u003e p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
+    "query": "create or replace function stricttest() returns void as $$  #print_strict_params on declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stricttest () RETURNS void AS $$  #print_strict_params on declare x record; p1 int := 2; p3 text := 'foo'; begin  select * from foo where f1 > p1 or f1::text = p3  into strict x; raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 452",
@@ -2443,8 +2443,8 @@
   },
   {
     "comment": "plpgsql - Statement 490",
-    "query": "create function pl_qual_names (param1 int) returns void as $$ \u003c\u003couterblock\u003e\u003e declare param1 int := 1; begin \u003c\u003cinnerblock\u003e\u003e declare param1 int := 2; begin raise notice 'param1 = %', param1; raise notice 'pl_qual_names.param1 = %', pl_qual_names.param1; raise notice 'outerblock.param1 = %', outerblock.param1; raise notice 'innerblock.param1 = %', innerblock.param1; end; end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION pl_qual_names (param1 INT) RETURNS void AS $$ \u003c\u003couterblock\u003e\u003e declare param1 int := 1; begin \u003c\u003cinnerblock\u003e\u003e declare param1 int := 2; begin raise notice 'param1 = %', param1; raise notice 'pl_qual_names.param1 = %', pl_qual_names.param1; raise notice 'outerblock.param1 = %', outerblock.param1; raise notice 'innerblock.param1 = %', innerblock.param1; end; end; $$ LANGUAGE plpgsql"
+    "query": "create function pl_qual_names (param1 int) returns void as $$ <<outerblock>> declare param1 int := 1; begin <<innerblock>> declare param1 int := 2; begin raise notice 'param1 = %', param1; raise notice 'pl_qual_names.param1 = %', pl_qual_names.param1; raise notice 'outerblock.param1 = %', outerblock.param1; raise notice 'innerblock.param1 = %', innerblock.param1; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION pl_qual_names (param1 INT) RETURNS void AS $$ <<outerblock>> declare param1 int := 1; begin <<innerblock>> declare param1 int := 2; begin raise notice 'param1 = %', param1; raise notice 'pl_qual_names.param1 = %', pl_qual_names.param1; raise notice 'outerblock.param1 = %', outerblock.param1; raise notice 'innerblock.param1 = %', innerblock.param1; end; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 491",
@@ -2473,8 +2473,8 @@
   },
   {
     "comment": "plpgsql - Statement 496",
-    "query": "create or replace function ret_query2(lim int) returns setof record_type as $$ begin return query select fipshash(s.x::text), s.x, s.x \u003e 0 from generate_series(-8, lim) s (x) where s.x % 2 = 0; end; $$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION ret_query2 (lim INT) RETURNS SETOF record_type AS $$ begin return query select fipshash(s.x::text), s.x, s.x \u003e 0 from generate_series(-8, lim) s (x) where s.x % 2 = 0; end; $$ LANGUAGE plpgsql"
+    "query": "create or replace function ret_query2(lim int) returns setof record_type as $$ begin return query select fipshash(s.x::text), s.x, s.x > 0 from generate_series(-8, lim) s (x) where s.x % 2 = 0; end; $$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION ret_query2 (lim INT) RETURNS SETOF record_type AS $$ begin return query select fipshash(s.x::text), s.x, s.x > 0 from generate_series(-8, lim) s (x) where s.x % 2 = 0; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 497",
@@ -2788,8 +2788,8 @@
   },
   {
     "comment": "plpgsql - Statement 559",
-    "query": "create function stacked_diagnostics_test() returns void as $$ declare _sqlstate text; _message text; _context text; begin perform zero_divide(); exception when others then get stacked diagnostics _sqlstate = returned_sqlstate, _message = message_text, _context = pg_exception_context; raise notice 'sqlstate: %, message: %, context: [%]', _sqlstate, _message, replace(_context, E'\\n', ' \u003c- '); end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION stacked_diagnostics_test () RETURNS void AS $$ declare _sqlstate text; _message text; _context text; begin perform zero_divide(); exception when others then get stacked diagnostics _sqlstate = returned_sqlstate, _message = message_text, _context = pg_exception_context; raise notice 'sqlstate: %, message: %, context: [%]', _sqlstate, _message, replace(_context, E'\\n', ' \u003c- '); end; $$ LANGUAGE plpgsql"
+    "query": "create function stacked_diagnostics_test() returns void as $$ declare _sqlstate text; _message text; _context text; begin perform zero_divide(); exception when others then get stacked diagnostics _sqlstate = returned_sqlstate, _message = message_text, _context = pg_exception_context; raise notice 'sqlstate: %, message: %, context: [%]', _sqlstate, _message, replace(_context, E'\\n', ' <- '); end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION stacked_diagnostics_test () RETURNS void AS $$ declare _sqlstate text; _message text; _context text; begin perform zero_divide(); exception when others then get stacked diagnostics _sqlstate = returned_sqlstate, _message = message_text, _context = pg_exception_context; raise notice 'sqlstate: %, message: %, context: [%]', _sqlstate, _message, replace(_context, E'\\n', ' <- '); end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 560",
@@ -2858,8 +2858,8 @@
   },
   {
     "comment": "plpgsql - Statement 573",
-    "query": "create or replace function stacked_diagnostics_test() returns void as $$ declare _column_name text; _constraint_name text; _datatype_name text; _table_name text; _schema_name text; begin raise exception using column = '\u003e\u003esome column name\u003c\u003c', constraint = '\u003e\u003esome constraint name\u003c\u003c', datatype = '\u003e\u003esome datatype name\u003c\u003c', table = '\u003e\u003esome table name\u003c\u003c', schema = '\u003e\u003esome schema name\u003c\u003c'; exception when others then get stacked diagnostics _column_name = column_name, _constraint_name = constraint_name, _datatype_name = pg_datatype_name, _table_name = table_name, _schema_name = schema_name; raise notice 'column %, constraint %, type %, table %, schema %', _column_name, _constraint_name, _datatype_name, _table_name, _schema_name; end; $$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION stacked_diagnostics_test () RETURNS void AS $$ declare _column_name text; _constraint_name text; _datatype_name text; _table_name text; _schema_name text; begin raise exception using column = '\u003e\u003esome column name\u003c\u003c', constraint = '\u003e\u003esome constraint name\u003c\u003c', datatype = '\u003e\u003esome datatype name\u003c\u003c', table = '\u003e\u003esome table name\u003c\u003c', schema = '\u003e\u003esome schema name\u003c\u003c'; exception when others then get stacked diagnostics _column_name = column_name, _constraint_name = constraint_name, _datatype_name = pg_datatype_name, _table_name = table_name, _schema_name = schema_name; raise notice 'column %, constraint %, type %, table %, schema %', _column_name, _constraint_name, _datatype_name, _table_name, _schema_name; end; $$ LANGUAGE plpgsql"
+    "query": "create or replace function stacked_diagnostics_test() returns void as $$ declare _column_name text; _constraint_name text; _datatype_name text; _table_name text; _schema_name text; begin raise exception using column = '>>some column name<<', constraint = '>>some constraint name<<', datatype = '>>some datatype name<<', table = '>>some table name<<', schema = '>>some schema name<<'; exception when others then get stacked diagnostics _column_name = column_name, _constraint_name = constraint_name, _datatype_name = pg_datatype_name, _table_name = table_name, _schema_name = schema_name; raise notice 'column %, constraint %, type %, table %, schema %', _column_name, _constraint_name, _datatype_name, _table_name, _schema_name; end; $$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION stacked_diagnostics_test () RETURNS void AS $$ declare _column_name text; _constraint_name text; _datatype_name text; _table_name text; _schema_name text; begin raise exception using column = '>>some column name<<', constraint = '>>some constraint name<<', datatype = '>>some datatype name<<', table = '>>some table name<<', schema = '>>some schema name<<'; exception when others then get stacked diagnostics _column_name = column_name, _constraint_name = constraint_name, _datatype_name = pg_datatype_name, _table_name = table_name, _schema_name = schema_name; raise notice 'column %, constraint %, type %, table %, schema %', _column_name, _constraint_name, _datatype_name, _table_name, _schema_name; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 574",
@@ -2888,8 +2888,8 @@
   },
   {
     "comment": "plpgsql - Statement 579",
-    "query": "create or replace function pleast(variadic numeric[]) returns numeric as $$ declare aux numeric = $1[array_lower($1,1)]; begin for i in array_lower($1,1)+1..array_upper($1,1) loop if $1[i] \u003c aux then aux := $1[i]; end if; end loop; return aux; end; $$ language plpgsql immutable strict",
-    "expected": "CREATE OR REPLACE FUNCTION pleast (VARIADIC NUMERIC[]) RETURNS NUMERIC AS $$ declare aux numeric = $1[array_lower($1,1)]; begin for i in array_lower($1,1)+1..array_upper($1,1) loop if $1[i] \u003c aux then aux := $1[i]; end if; end loop; return aux; end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
+    "query": "create or replace function pleast(variadic numeric[]) returns numeric as $$ declare aux numeric = $1[array_lower($1,1)]; begin for i in array_lower($1,1)+1..array_upper($1,1) loop if $1[i] < aux then aux := $1[i]; end if; end loop; return aux; end; $$ language plpgsql immutable strict",
+    "expected": "CREATE OR REPLACE FUNCTION pleast (VARIADIC NUMERIC[]) RETURNS NUMERIC AS $$ declare aux numeric = $1[array_lower($1,1)]; begin for i in array_lower($1,1)+1..array_upper($1,1) loop if $1[i] < aux then aux := $1[i]; end if; end loop; return aux; end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
   },
   {
     "comment": "plpgsql - Statement 580",
@@ -3031,8 +3031,8 @@
   },
   {
     "comment": "plpgsql - Statement 608",
-    "query": "create function recurse(float8) returns float8 as $$ begin if ($1 \u003e 0) then return sql_recurse($1 - 1); else return $1; end if; end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION recurse (FLOAT8) RETURNS FLOAT8 AS $$ begin if ($1 \u003e 0) then return sql_recurse($1 - 1); else return $1; end if; end; $$ LANGUAGE plpgsql"
+    "query": "create function recurse(float8) returns float8 as $$ begin if ($1 > 0) then return sql_recurse($1 - 1); else return $1; end if; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION recurse (FLOAT8) RETURNS FLOAT8 AS $$ begin if ($1 > 0) then return sql_recurse($1 - 1); else return $1; end if; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 609",
@@ -3405,8 +3405,8 @@
   },
   {
     "comment": "plpgsql - Statement 683",
-    "query": "create domain orderedarray as int[2] constraint sorted check (value[1] \u003c value[2])",
-    "expected": "CREATE DOMAIN orderedarray AS INT[2] CONSTRAINT sorted CHECK (value[1] \u003c value[2])"
+    "query": "create domain orderedarray as int[2] constraint sorted check (value[1] < value[2])",
+    "expected": "CREATE DOMAIN orderedarray AS INT[2] CONSTRAINT sorted CHECK (value[1] < value[2])"
   },
   {
     "comment": "plpgsql - Statement 684",
@@ -3600,8 +3600,8 @@
   },
   {
     "comment": "plpgsql - Statement 722",
-    "query": "create function plpgsql_domain_check(val int) returns boolean as $$ begin return val \u003e 0; end $$ language plpgsql immutable",
-    "expected": "CREATE FUNCTION plpgsql_domain_check (val INT) RETURNS BOOLEAN AS $$ begin return val \u003e 0; end $$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "create function plpgsql_domain_check(val int) returns boolean as $$ begin return val > 0; end $$ language plpgsql immutable",
+    "expected": "CREATE FUNCTION plpgsql_domain_check (val INT) RETURNS BOOLEAN AS $$ begin return val > 0; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "plpgsql - Statement 723",
@@ -3620,8 +3620,8 @@
   },
   {
     "comment": "plpgsql - Statement 726",
-    "query": "create function plpgsql_arr_domain_check(val int[]) returns boolean as $$ begin return val[1] \u003e 0; end $$ language plpgsql immutable",
-    "expected": "CREATE FUNCTION plpgsql_arr_domain_check (val INT[]) RETURNS BOOLEAN AS $$ begin return val[1] \u003e 0; end $$ LANGUAGE plpgsql IMMUTABLE"
+    "query": "create function plpgsql_arr_domain_check(val int[]) returns boolean as $$ begin return val[1] > 0; end $$ language plpgsql immutable",
+    "expected": "CREATE FUNCTION plpgsql_arr_domain_check (val INT[]) RETURNS BOOLEAN AS $$ begin return val[1] > 0; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "plpgsql - Statement 727",
@@ -3707,8 +3707,8 @@
   },
   {
     "comment": "plpgsql - Statement 744",
-    "query": "CREATE FUNCTION transition_table_level1_ri_parent_upd_func() RETURNS TRIGGER LANGUAGE plpgsql AS $$ DECLARE x int; BEGIN WITH p AS (SELECT level1_no, sum(delta) cnt FROM (SELECT level1_no, 1 AS delta FROM i UNION ALL SELECT level1_no, -1 AS delta FROM d) w GROUP BY level1_no HAVING sum(delta) \u003c 0) SELECT level1_no FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no INTO x; IF FOUND THEN RAISE EXCEPTION 'RI error'; END IF; RETURN NULL; END; $$",
-    "expected": "CREATE FUNCTION transition_table_level1_ri_parent_upd_func () RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE x int; BEGIN WITH p AS (SELECT level1_no, sum(delta) cnt FROM (SELECT level1_no, 1 AS delta FROM i UNION ALL SELECT level1_no, -1 AS delta FROM d) w GROUP BY level1_no HAVING sum(delta) \u003c 0) SELECT level1_no FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no INTO x; IF FOUND THEN RAISE EXCEPTION 'RI error'; END IF; RETURN NULL; END; $$"
+    "query": "CREATE FUNCTION transition_table_level1_ri_parent_upd_func() RETURNS TRIGGER LANGUAGE plpgsql AS $$ DECLARE x int; BEGIN WITH p AS (SELECT level1_no, sum(delta) cnt FROM (SELECT level1_no, 1 AS delta FROM i UNION ALL SELECT level1_no, -1 AS delta FROM d) w GROUP BY level1_no HAVING sum(delta) < 0) SELECT level1_no FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no INTO x; IF FOUND THEN RAISE EXCEPTION 'RI error'; END IF; RETURN NULL; END; $$",
+    "expected": "CREATE FUNCTION transition_table_level1_ri_parent_upd_func () RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE x int; BEGIN WITH p AS (SELECT level1_no, sum(delta) cnt FROM (SELECT level1_no, 1 AS delta FROM i UNION ALL SELECT level1_no, -1 AS delta FROM d) w GROUP BY level1_no HAVING sum(delta) < 0) SELECT level1_no FROM p JOIN transition_table_level2 c ON c.parent_no = p.level1_no INTO x; IF FOUND THEN RAISE EXCEPTION 'RI error'; END IF; RETURN NULL; END; $$"
   },
   {
     "comment": "plpgsql - Statement 745",
@@ -3923,7 +3923,7 @@
   {
     "comment": "plpgsql - Statement 792",
     "query": "CREATE OR REPLACE FUNCTION get_from_partitioned_table(partitioned_table.a%type) RETURNS partitioned_table AS $$ DECLARE a_val partitioned_table.a%TYPE; result partitioned_table%ROWTYPE; BEGIN a_val := $1; SELECT * INTO result FROM partitioned_table WHERE a = a_val; RETURN result; END; $$ LANGUAGE plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION get_from_partitioned_table (partitioned_table.a) RETURNS partitioned_table AS $$ DECLARE a_val partitioned_table.a%TYPE; result partitioned_table%ROWTYPE; BEGIN a_val := $1; SELECT * INTO result FROM partitioned_table WHERE a = a_val; RETURN result; END; $$ LANGUAGE plpgsql"
+    "expected": "CREATE OR REPLACE FUNCTION get_from_partitioned_table (partitioned_table.a%TYPE) RETURNS partitioned_table AS $$ DECLARE a_val partitioned_table.a%TYPE; result partitioned_table%ROWTYPE; BEGIN a_val := $1; SELECT * INTO result FROM partitioned_table WHERE a = a_val; RETURN result; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 793",
@@ -3932,7 +3932,7 @@
   {
     "comment": "plpgsql - Statement 794",
     "query": "CREATE OR REPLACE FUNCTION list_partitioned_table() RETURNS SETOF public.partitioned_table.a%TYPE AS $$ DECLARE row public.partitioned_table%ROWTYPE; a_val public.partitioned_table.a%TYPE; BEGIN FOR row IN SELECT * FROM public.partitioned_table ORDER BY a LOOP a_val := row.a; RETURN NEXT a_val; END LOOP; RETURN; END; $$ LANGUAGE plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION list_partitioned_table () RETURNS SETOF public.partitioned_table.a AS $$ DECLARE row public.partitioned_table%ROWTYPE; a_val public.partitioned_table.a%TYPE; BEGIN FOR row IN SELECT * FROM public.partitioned_table ORDER BY a LOOP a_val := row.a; RETURN NEXT a_val; END LOOP; RETURN; END; $$ LANGUAGE plpgsql"
+    "expected": "CREATE OR REPLACE FUNCTION list_partitioned_table () RETURNS SETOF public.partitioned_table.a%TYPE AS $$ DECLARE row public.partitioned_table%ROWTYPE; a_val public.partitioned_table.a%TYPE; BEGIN FOR row IN SELECT * FROM public.partitioned_table ORDER BY a LOOP a_val := row.a; RETURN NEXT a_val; END LOOP; RETURN; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 795",

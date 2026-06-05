@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -112,7 +113,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	// Post-initdb steps that need a running server (custom DB creation, init
 	// SQL files) share a single transient PostgreSQL instance.
-	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitDbSQLFiles) > 0 {
+	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 || len(cfg.InitdbSQLDirs) > 0 {
 		if err := postInitdbSetup(logger, cfg); err != nil {
 			return nil, err
 		}
@@ -126,13 +127,22 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 // postInitdbSetup starts a transient PostgreSQL instance and performs any
 // post-initdb setup steps: creating a custom target database (if requested)
-// and running user-provided init SQL files against the target database.
+// and running user-provided init SQL against the target database.
+//
+// Execution order:
+//  1. Create target database (if non-default).
+//  2. Run --pg-initdb-sql-dirs: bulk schema/migration directories, each under
+//     SET SESSION AUTHORIZATION <role>. Directories establish the base schema.
+//  3. Run --pg-initdb-sql-files: individual files applied on top as targeted
+//     overrides or patches.
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
 	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
-		"create_database", createDB, "init_sql_files", len(cfg.InitDbSQLFiles))
-	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg.Port, cfg.User)
+		"create_database", createDB,
+		"init_sql_files", len(cfg.InitdbSQLFiles),
+		"init_sql_dirs", len(cfg.InitdbSQLDirs))
+	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg)
 	if err != nil {
 		return err
 	}
@@ -144,16 +154,22 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		}
 	}
 
-	if err := runInitDbSQLFiles(logger, pg, cfg.Database, cfg.InitDbSQLFiles); err != nil {
+	// Dirs first: establish bulk schema/migrations under the specified roles.
+	if err := runInitdbSQLDirs(logger, pg, cfg.Database, cfg.InitdbSQLDirs); err != nil {
+		return err
+	}
+
+	// Files second: apply targeted overrides or patches on top of the base schema.
+	if err := runInitdbSQLFiles(logger, pg, cfg.Database, cfg.InitdbSQLFiles); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// runInitDbSQLFiles executes each SQL file against database with
+// runInitdbSQLFiles executes each SQL file against database with
 // ON_ERROR_STOP=1 so a failing statement aborts its script.
-func runInitDbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, files []string) error {
+func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, files []string) error {
 	for _, file := range files {
 		if _, err := os.Stat(file); err != nil {
 			return fmt.Errorf("init SQL file not accessible (%s): %w", file, err)
@@ -168,15 +184,74 @@ func runInitDbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 	return nil
 }
 
+// runInitdbSQLDirs processes each role:path entry: reads all .sql files from the
+// directory in lexicographic order and runs them in a single psql session under
+// SET SESSION AUTHORIZATION "<role>" / RESET SESSION AUTHORIZATION.
+func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entries []string) error {
+	for _, entry := range entries {
+		role, dir, err := parseSQLDirEntry(entry)
+		if err != nil {
+			return err
+		}
+
+		files, err := sqlFilesInDir(dir)
+		if err != nil {
+			return err
+		}
+		if len(files) == 0 {
+			logger.Info("Init SQL dir is empty, skipping", "dir", dir, "role", role)
+			continue
+		}
+
+		logger.Info("Running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
+		args := []string{
+			"-v", "ON_ERROR_STOP=1",
+			"-c", "SET SESSION AUTHORIZATION " + quoteIdentifier(role),
+		}
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "-c", "RESET SESSION AUTHORIZATION")
+
+		if out, err := pg.psql(database, args...); err != nil {
+			return fmt.Errorf("init SQL dir failed (%s as %s): %w\nOutput: %s", dir, role, err, out)
+		}
+		logger.Info("Init SQL dir applied", "dir", dir, "role", role)
+	}
+	return nil
+}
+
+// parseSQLDirEntry splits a "role:path" entry on the first colon.
+func parseSQLDirEntry(entry string) (role, dir string, err error) {
+	idx := strings.IndexByte(entry, ':')
+	if idx <= 0 {
+		return "", "", fmt.Errorf("invalid --pg-initdb-sql-dir entry %q: expected role:path format", entry)
+	}
+	return entry[:idx], entry[idx+1:], nil
+}
+
+// sqlFilesInDir returns .sql file paths from dir in lexicographic order,
+// skipping subdirectories and non-.sql files.
+// os.ReadDir already returns entries sorted by name.
+func sqlFilesInDir(dir string) ([]string, error) {
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read init SQL dir %q: %w", dir, err)
+	}
+	var files []string
+	for _, e := range dirEntries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files, nil
+}
+
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	cfg := PgCtldServiceConfig{
-		Port:                 i.pgCtlCmd.pgPort.Get(),
-		User:                 i.pgCtlCmd.pgUser.Get(),
-		Database:             i.pgCtlCmd.pgDatabase.Get(),
-		Password:             i.pgCtlCmd.pgPassword.Get(),
-		InitDbSQLFiles:       i.pgCtlCmd.initDbSQLFiles.Get(),
-		InitdbExtraConfFiles: i.pgCtlCmd.pgInitdbExtraConf.Get(),
+	cfg, err := i.pgCtlCmd.buildServiceConfig()
+	if err != nil {
+		return err
 	}
 	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
 	if err != nil {
@@ -213,17 +288,64 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 		return nil
 	}
 
-	// CREATE DATABASE with a double-quoted identifier; double quotes in the name
-	// are escaped as "" per the SQL standard.
 	logger.Info("Creating database", "database", database)
 	if out, err := pg.psql(constants.DefaultPostgresDatabase,
-		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(database, `"`, `""`)),
+		"-c", "CREATE DATABASE "+quoteIdentifier(database),
 	); err != nil {
 		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", database, err, out)
 	}
 
 	logger.Info("Database created successfully", "database", database)
 	return nil
+}
+
+// resolveInitdbPwFile returns a filesystem path suitable for initdb's --pwfile
+// flag along with a cleanup function the caller must defer.
+//
+// The primary path is the operator-supplied password file (POSTGRES_PASSWORD_FILE
+// / --pg-password-file). In that case the returned path *is* that file
+// and no plaintext is ever copied — initdb reads it directly. The cleanup is a
+// no-op.
+//
+// The fallback path is the legacy POSTGRES_PASSWORD environment variable, which
+// is being phased out. There is no file on disk yet, so we have to stage the
+// password into a randomly named temp file long enough for initdb to read it.
+// The cleanup unlinks that temp file. This branch exists only to keep operators
+// who have not yet migrated to file-based secrets working; new deployments
+// should always hit the primary path.
+//
+// Note on first-line semantics: initdb --pwfile reads only the first line of
+// the file. pgsecret.ReadPasswordFile returns the whole content (minus
+// trailing CR/LF). The two parsers agree for any single-line password (with
+// or without a trailing newline) — which is every realistic Kubernetes Secret.
+// A multi-line file would silently diverge: the cluster would be initialized
+// with line 1, but the admin pool / replication would try to authenticate with
+// the whole content. Password files MUST be single-line.
+func resolveInitdbPwFile(cfg PgCtldServiceConfig) (path string, cleanup func(), err error) {
+	if cfg.PasswordSource == PasswordSourceFile {
+		return cfg.PasswordFile, func() {}, nil
+	}
+	// Fallback: POSTGRES_PASSWORD env. Stage the plaintext to a randomly named
+	// file in /tmp. Removed unconditionally on return so the plaintext window
+	// is bounded by the initdb exec. The filename has no prefix so its purpose
+	// isn't advertised in /tmp listings.
+	tmpFile, err := os.CreateTemp("", "*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to create temporary password file: %w", err)
+	}
+	tempPwFile := tmpFile.Name()
+	cleanup = func() { _ = os.Remove(tempPwFile) }
+
+	if _, err := tmpFile.WriteString(cfg.Password); err != nil {
+		tmpFile.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("failed to write password to temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("failed to close temporary password file: %w", err)
+	}
+	return tempPwFile, cleanup, nil
 }
 
 func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
@@ -238,33 +360,30 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", cfg.User}
+	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=scram-sha-256", "--auth-host=scram-sha-256", "-U", cfg.User}
 
-	// If password is provided, create a temporary password file for initdb
-	var tempPwFile string
-	if cfg.Password != "" {
-		// Create temporary password file
-		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
-		if err != nil {
-			return fmt.Errorf("failed to create temporary password file: %w", err)
-		}
-		tempPwFile = tmpFile.Name()
-		defer os.Remove(tempPwFile)
-
-		if _, err := tmpFile.WriteString(cfg.Password); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("failed to write password to temporary file: %w", err)
-		}
-		if err := tmpFile.Close(); err != nil {
-			return fmt.Errorf("failed to close temporary password file: %w", err)
-		}
-
-		// Add pwfile argument to initdb
-		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
-	} else {
-		logger.Warn("No password provided - skipping password setup", "user", cfg.User, "warning", "PostgreSQL user will not have password authentication enabled")
+	// Invariant: production callers (runInit, the InitDataDir gRPC handler)
+	// populate Password, PasswordSource (and PasswordFile when source==File)
+	// via PgCtlCommand.GetPostgresPassword, which errors when no source is
+	// configured. Reaching here with a missing source means a caller — almost
+	// certainly a test — built PgCtldServiceConfig by hand without going
+	// through the resolver. Panic rather than guess a source that would
+	// mislabel the log line below.
+	if cfg.PasswordSource == "" || cfg.PasswordSource == PasswordSourceNone {
+		panic(fmt.Sprintf("initializeDataDir: PasswordSource=%q — callers must populate it via PgCtlCommand.GetPostgresPassword", cfg.PasswordSource))
 	}
+	if cfg.PasswordSource == PasswordSourceFile && cfg.PasswordFile == "" {
+		panic("initializeDataDir: PasswordSource=POSTGRES_PASSWORD_FILE but PasswordFile is empty — callers must populate PasswordFile (use PgCtlCommand.GetPostgresPassword)")
+	}
+
+	pwFile, cleanup, err := resolveInitdbPwFile(cfg)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	args = append(args, "--pwfile="+pwFile)
+	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	if cfg.InitdbArgs != "" {
 		args = append(args, strings.Fields(cfg.InitdbArgs)...)
@@ -279,10 +398,17 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-
-	if cfg.Password != "" {
-		logger.Info("User password set successfully", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
-	}
+	logger.Info("User password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	return nil
+}
+
+// quoteIdentifier wraps name in double quotes and escapes any embedded double
+// quotes as "" per the SQL standard, producing a safe PostgreSQL identifier.
+// The value comes from operator config, not from untrusted user input, so a
+// simple ReplaceAll is sufficient here. If that assumption ever changes, replace
+// this with pq.QuoteIdentifier from github.com/lib/pq, which applies the same
+// escaping but is a well-tested, purpose-built function.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

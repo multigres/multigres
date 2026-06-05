@@ -189,19 +189,19 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 }
 
 // getShardID returns the shard ID for this pooler.
-// Prefers the topology value (pm.multipooler.Shard) but falls back to config
+// Prefers the topology value (pm.record.ShardKey().Shard) but falls back to config
 // if topology hasn't loaded yet. These should always be identical since
 // the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler.Shard != "" {
-		return pm.multipooler.Shard
+	if pm.record.ShardKey().GetShard() != "" {
+		return pm.record.ShardKey().GetShard()
 	}
 
 	// Fall back to MultiPooler - always available and authoritative
-	return pm.multipooler.Shard
+	return pm.record.ShardKey().GetShard()
 }
 
 // removeDataDirectory removes the PostgreSQL data directory

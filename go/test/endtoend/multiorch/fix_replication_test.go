@@ -262,23 +262,21 @@ func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClie
 		repStatus.PrimaryConnInfo.Host, repStatus.LastReceiveLsn)
 }
 
-// breakReplication stops replication and clears primary_conninfo using the RPC API.
-// It waits until the replication is confirmed broken before returning.
+// breakReplication clears primary_conninfo on the standby and waits until
+// replication is confirmed broken before returning.
 func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient, inst *shardsetup.MultipoolerInstance) {
 	t.Helper()
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Clear primary_conninfo by setting it to nil
-	// Use StopReplicationBefore=true to stop WAL receiver first
-	_, err := client.Consensus.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Primary:               nil, // nil primary clears the connection
-		StopReplicationBefore: true,
-		StartReplicationAfter: false,
-		Force:                 true, // Force to bypass term check
-	})
-	require.NoError(t, err, "SetPrimaryConnInfo (clear) should succeed")
-	t.Log("Cleared primary_conninfo via RPC")
+	// Clear primary_conninfo directly. The pooler-side RPCs (SetTermPrimary,
+	// SetPrimaryConnInfo) all set the value rather than clearing it, so the
+	// only way to break replication from a test is to reset the GUC.
+	_, err := client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
+	require.NoError(t, err, "ALTER SYSTEM RESET primary_conninfo should succeed")
+	_, err = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
+	require.NoError(t, err, "pg_reload_conf should succeed")
+	t.Log("Cleared primary_conninfo via SQL")
 
 	waitForReplicationBroken(t, inst, 10*time.Second)
 }
@@ -320,17 +318,22 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Use UpdateSynchronousStandbyList to remove the replica
+	// Read the primary's current rule number for the CAS guard.
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, currentRule, "primary must have a current rule number")
+
+	// Use UpdateConsensusRule to remove the replica
 	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
-	_, err := primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
-		Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
+	_, err = primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+		Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
 			Name:      replicaName,
 		}},
-		ReloadConfig: true,
-		Force:        true, // Force to bypass term check
+		ExpectedOutgoingRule: currentRule,
 	})
 	require.NoError(t, err, "UpdateConsensusRule (remove) should succeed")
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)

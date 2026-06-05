@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -64,7 +65,7 @@ func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *
 	return nil, nil
 }
 
-func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -86,6 +87,14 @@ func (m *mockIExecute) CopyFinalize(context.Context, *server.Conn, string, strin
 
 func (m *mockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	return 0, nil, nil, nil
+}
+
+func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
 }
 
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
@@ -174,6 +183,23 @@ func TestPlanPrepareStmt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "PREPARE", result.CommandTag)
 
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
+	assert.Equal(t, "SELECT 1", psi.Query)
+}
+
+func TestPlanPrepareStmtDuplicateName(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "PREPARE myplan AS SELECT 2")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSDuplicatePreparedStmt),
+		"expected duplicate_prepared_statement (42P05), got %v", err)
+
+	// The first prepared statement must remain intact.
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
 	assert.Equal(t, "SELECT 1", psi.Query)

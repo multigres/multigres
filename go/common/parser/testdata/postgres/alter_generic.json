@@ -537,13 +537,13 @@
   },
   {
     "comment": "alter_generic - Statement 122",
-    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 < (int4, int2) , OPERATOR 2 <= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 >= (int4, int2) , OPERATOR 5 > (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 < (int4, int2), OPERATOR 2 <= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 >= (int4, int2), OPERATOR 5 > (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 123",
     "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1 (int4, int2) , OPERATOR 2 (int4, int2) , OPERATOR 3 (int4, int2) , OPERATOR 4 (int4, int2) , OPERATOR 5 (int4, int2) , FUNCTION 1 (int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1  (int4, int2), OPERATOR 2  (int4, int2), OPERATOR 3  (int4, int2), OPERATOR 4  (int4, int2), OPERATOR 5  (int4, int2), FUNCTION 1 (int4, int2)"
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING btree DROP OPERATOR 1 (int4, int2), OPERATOR 2 (int4, int2), OPERATOR 3 (int4, int2), OPERATOR 4 (int4, int2), OPERATOR 5 (int4, int2), FUNCTION 1 (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 124",
@@ -556,20 +556,20 @@
   },
   {
     "comment": "alter_generic - Statement 126",
-    "query": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD  OPERATOR 1 \u003c (int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD OPERATOR 1 \u003c (int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD  OPERATOR 1 < (int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf4 USING invalid_index_method ADD OPERATOR 1 < (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 127",
-    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 6 \u003c (int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 6 < (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 128",
-    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 0 \u003c (int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 0 < (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 129",
-    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 \u003c"
+    "query": "ALTER OPERATOR FAMILY alt_opf4 USING btree ADD OPERATOR 1 <"
   },
   {
     "comment": "alter_generic - Statement 130",
@@ -598,7 +598,7 @@
   },
   {
     "comment": "alter_generic - Statement 136",
-    "query": "ALTER OPERATOR FAMILY alt_opf5 USING btree ADD OPERATOR 1 \u003c (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf5 USING btree ADD OPERATOR 1 < (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 137",
@@ -633,7 +633,7 @@
   },
   {
     "comment": "alter_generic - Statement 144",
-    "query": "ALTER OPERATOR FAMILY alt_nsp6.alt_opf6 USING btree ADD OPERATOR 1 \u003c (int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_nsp6.alt_opf6 USING btree ADD OPERATOR 1 < (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 145",
@@ -641,12 +641,11 @@
   },
   {
     "comment": "alter_generic - Statement 146",
-    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree ADD OPERATOR 1 \u003c (int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree ADD OPERATOR 1 < (int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 147",
-    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1 (int4, int2, int8)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1  (int4, int2, int8)"
+    "query": "ALTER OPERATOR FAMILY alt_opf7 USING btree DROP OPERATOR 1 (int4, int2, int8)"
   },
   {
     "comment": "alter_generic - Statement 148",
@@ -659,7 +658,7 @@
   },
   {
     "comment": "alter_generic - Statement 150",
-    "query": "ALTER OPERATOR FAMILY alt_opf8 USING btree ADD OPERATOR 1 \u003c (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf8 USING btree ADD OPERATOR 1 < (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 151",
@@ -672,7 +671,7 @@
   },
   {
     "comment": "alter_generic - Statement 153",
-    "query": "ALTER OPERATOR FAMILY alt_opf9 USING gist ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+    "query": "ALTER OPERATOR FAMILY alt_opf9 USING gist ADD OPERATOR 1 < (int4, int4) FOR ORDER BY float_ops"
   },
   {
     "comment": "alter_generic - Statement 154",
@@ -685,7 +684,7 @@
   },
   {
     "comment": "alter_generic - Statement 156",
-    "query": "ALTER OPERATOR FAMILY alt_opf10 USING btree ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+    "query": "ALTER OPERATOR FAMILY alt_opf10 USING btree ADD OPERATOR 1 < (int4, int4) FOR ORDER BY float_ops"
   },
   {
     "comment": "alter_generic - Statement 157",
@@ -698,12 +697,11 @@
   },
   {
     "comment": "alter_generic - Statement 159",
-    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist ADD OPERATOR 1 \u003c (int4, int4) FOR ORDER BY float_ops"
+    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist ADD OPERATOR 1 < (int4, int4) FOR ORDER BY float_ops"
   },
   {
     "comment": "alter_generic - Statement 160",
-    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1  (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf11 USING gist DROP OPERATOR 1 (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 161",
@@ -801,21 +799,21 @@
   },
   {
     "comment": "alter_generic - Statement 182",
-    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int4), OPERATOR 1 \u003c (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int4), OPERATOR 1 < (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 183",
-    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 184",
-    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int2) , OPERATOR 2 <= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 >= (int4, int2) , OPERATOR 5 > (int4, int2) , FUNCTION 1 btint42cmp(int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int2), OPERATOR 2 <= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 >= (int4, int2), OPERATOR 5 > (int4, int2), FUNCTION 1 btint42cmp(int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 185",
-    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int2) , OPERATOR 2 <= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 >= (int4, int2) , OPERATOR 5 > (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf17 USING btree ADD OPERATOR 1 < (int4, int2), OPERATOR 2 <= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 >= (int4, int2), OPERATOR 5 > (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 186",
@@ -828,13 +826,12 @@
   },
   {
     "comment": "alter_generic - Statement 188",
-    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1  (int4, int4)"
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree DROP OPERATOR 1 (int4, int4)"
   },
   {
     "comment": "alter_generic - Statement 189",
-    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 \u003c (int4, int2) , OPERATOR 2 \u003c= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 \u003e= (int4, int2) , OPERATOR 5 \u003e (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
-    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 \u003c (int4, int2), OPERATOR 2 \u003c= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 \u003e= (int4, int2), OPERATOR 5 \u003e (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
+    "query": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 < (int4, int2) , OPERATOR 2 <= (int4, int2) , OPERATOR 3 = (int4, int2) , OPERATOR 4 >= (int4, int2) , OPERATOR 5 > (int4, int2) , FUNCTION 1 btint42cmp(int4, int2)",
+    "expected": "ALTER OPERATOR FAMILY alt_opf18 USING btree ADD OPERATOR 1 < (int4, int2), OPERATOR 2 <= (int4, int2), OPERATOR 3 = (int4, int2), OPERATOR 4 >= (int4, int2), OPERATOR 5 > (int4, int2), FUNCTION 1 btint42cmp(int4, int2)"
   },
   {
     "comment": "alter_generic - Statement 190",

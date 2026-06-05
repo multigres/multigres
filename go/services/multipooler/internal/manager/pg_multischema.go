@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -43,7 +44,7 @@ import (
 //
 // For the default tablegroup, this function also creates the multischema global
 // tables (tablegroup, tablegroup_table, shard).
-func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
+func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
 
 	if err := pm.createSchema(ctx); err != nil {
@@ -54,7 +55,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
-	if err := pm.rules.CreateRuleTables(ctx); err != nil {
+	if err := pm.rules.createRuleTables(ctx, policy, pm.serviceID); err != nil {
 		return err
 	}
 
@@ -87,8 +88,8 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 // pooler. For simplicity in the MVP, we do this as part of InitializePrimary since
 // we only support a single tablegroup/shard for now.
 func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) error {
-	tableGroup := pm.multipooler.TableGroup
-	shard := pm.multipooler.Shard
+	tableGroup := pm.record.ShardKey().GetTableGroup()
+	shard := pm.record.ShardKey().GetShard()
 
 	// MVP validation: only default tablegroup with shard 0-inf is supported
 	// This is an extra guardrail. Multipoolers shouldn't start unless they

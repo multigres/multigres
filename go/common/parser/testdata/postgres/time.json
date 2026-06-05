@@ -66,23 +66,23 @@
   },
   {
     "comment": "time - Statement 14",
-    "query": "SELECT f1 AS \"Three\" FROM TIME_TBL WHERE f1 \u003c '05:06:07'",
-    "expected": "SELECT f1 AS \"Three\" FROM time_tbl WHERE f1 \u003c '05:06:07'"
+    "query": "SELECT f1 AS \"Three\" FROM TIME_TBL WHERE f1 < '05:06:07'",
+    "expected": "SELECT f1 AS \"Three\" FROM time_tbl WHERE f1 < '05:06:07'"
   },
   {
     "comment": "time - Statement 15",
-    "query": "SELECT f1 AS \"Five\" FROM TIME_TBL WHERE f1 \u003e '05:06:07'",
-    "expected": "SELECT f1 AS \"Five\" FROM time_tbl WHERE f1 \u003e '05:06:07'"
+    "query": "SELECT f1 AS \"Five\" FROM TIME_TBL WHERE f1 > '05:06:07'",
+    "expected": "SELECT f1 AS \"Five\" FROM time_tbl WHERE f1 > '05:06:07'"
   },
   {
     "comment": "time - Statement 16",
-    "query": "SELECT f1 AS \"None\" FROM TIME_TBL WHERE f1 \u003c '00:00'",
-    "expected": "SELECT f1 AS \"None\" FROM time_tbl WHERE f1 \u003c '00:00'"
+    "query": "SELECT f1 AS \"None\" FROM TIME_TBL WHERE f1 < '00:00'",
+    "expected": "SELECT f1 AS \"None\" FROM time_tbl WHERE f1 < '00:00'"
   },
   {
     "comment": "time - Statement 17",
-    "query": "SELECT f1 AS \"Eight\" FROM TIME_TBL WHERE f1 \u003e= '00:00'",
-    "expected": "SELECT f1 AS \"Eight\" FROM time_tbl WHERE f1 \u003e= '00:00'"
+    "query": "SELECT f1 AS \"Eight\" FROM TIME_TBL WHERE f1 >= '00:00'",
+    "expected": "SELECT f1 AS \"Eight\" FROM time_tbl WHERE f1 >= '00:00'"
   },
   {
     "comment": "time - Statement 18",

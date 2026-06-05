@@ -15,12 +15,18 @@
 package connpoolmanager
 
 import (
+	"crypto/tls"
+	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgsecret"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -42,7 +48,24 @@ type ConnectionConfig struct {
 
 	// Database is the database name to connect to.
 	Database string
+
+	// SSLMode controls libpq-style sslmode for the multipooler → PostgreSQL leg.
+	// Only honored on TCP connections (SocketFile == "").
+	SSLMode client.SSLMode
+
+	// TLSConfig is the *tls.Config built from SSLMode + sslrootcert. Nil for
+	// disable/allow; non-nil otherwise. Only honored on TCP connections.
+	TLSConfig *tls.Config
 }
+
+type pgPasswordSource int
+
+const (
+	pwSourceNone   pgPasswordSource = iota
+	pwSourceEnv                     // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
+	pwSourceOption                  // --connpool-admin-password flag
+	pwSourceFile                    // password file path (flag or env var)
+)
 
 // Config holds viper-backed configuration values for the connection pool manager.
 // Create with NewConfig(), register flags with RegisterFlags(), then create the
@@ -55,8 +78,26 @@ type Config struct {
 	// Used by the admin pool for kill operations and internal system queries
 	// (heartbeat, replication tracking).
 	// Configured via POSTGRES_USER / POSTGRES_PASSWORD environment variables.
-	pgUser     viperutil.Value[string]
-	pgPassword viperutil.Value[string]
+	pgUser         viperutil.Value[string]
+	pgPassword     viperutil.Value[string]
+	pgPasswordFile viperutil.Value[string]
+	// pgPasswordCached caches the file-resolved password so the hot path
+	// (PgPassword()) does not touch disk. Populated by ResolvePgPassword at
+	// startup; "" until then.
+	pgPasswordCached string
+	pgPasswordSource pgPasswordSource // file / option / env / none
+	// flagSet is saved during RegisterFlags so ResolvePgPassword can use
+	// pflag.Flag.Changed to distinguish "flag explicitly set" from "flag
+	// at default value" — viperutil's Get() collapses both into the
+	// flag's resolved value. nil when RegisterFlags has not run (e.g. in
+	// tests that exercise only the env-var or file paths).
+	flagSet *pflag.FlagSet
+
+	// --- PostgreSQL TLS (multipooler → postgres leg) ---
+	// libpq-style server verification. Mode + optional CA bundle. Client cert
+	// auth (sslcert/sslkey) and CRLs are deferred — see MUL-383.
+	pgSSLMode     viperutil.Value[string]
+	pgSSLRootCert viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -169,6 +210,21 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "connpool-admin-password",
 			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
 		}),
+		pgPasswordFile: viperutil.Configure(reg, "connpool.pg.password-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "connpool-admin-password-file",
+			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD_FILE", constants.PgPasswordFileEnvVar},
+		}),
+
+		// PostgreSQL TLS — libpq parity. Default "prefer" mirrors libpq.
+		pgSSLMode: viperutil.Configure(reg, "connpool.pg.sslmode", viperutil.Options[string]{
+			Default:  string(client.SSLModePrefer),
+			FlagName: "pg-client-sslmode",
+		}),
+		pgSSLRootCert: viperutil.Configure(reg, "connpool.pg.sslrootcert", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-client-sslrootcert",
+		}),
 
 		// Admin pool (shared across all users)
 		adminCapacity: viperutil.Configure(reg, "connpool.admin.capacity", viperutil.Options[int64]{
@@ -246,9 +302,17 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 // RegisterFlags registers all connection pool flags with the given FlagSet.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
+	// Save the FlagSet so ResolvePgPassword can use pflag.Flag.Changed to
+	// distinguish "flag explicitly set" from "flag at default value".
+	c.flagSet = fs
 	// PostgreSQL superuser credentials
 	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (env: CONNPOOL_ADMIN_USER or POSTGRES_USER)")
-	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD)")
+	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD). --connpool-admin-password-file takes precedence.")
+	fs.String("connpool-admin-password-file", c.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL superuser password (plaintext, docker-library/postgres convention). Takes precedence over --connpool-admin-password (env: CONNPOOL_ADMIN_PASSWORD_FILE or POSTGRES_PASSWORD_FILE).")
+
+	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
+	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
+	fs.String("pg-client-sslrootcert", c.pgSSLRootCert.Default(), "PEM CA bundle used to verify the PostgreSQL server certificate (required for verify-ca and verify-full)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -280,6 +344,9 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	viperutil.BindFlags(fs,
 		c.pgUser,
 		c.pgPassword,
+		c.pgPasswordFile,
+		c.pgSSLMode,
+		c.pgSSLRootCert,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -306,10 +373,142 @@ func (c *Config) PgUser() string {
 	return c.pgUser.Get()
 }
 
-// PgPassword returns the configured PostgreSQL superuser password.
-// Set via POSTGRES_PASSWORD environment variable.
-func (c *Config) PgPassword() string {
-	return c.pgPassword.Get()
+// PgPassword returns the resolved PostgreSQL superuser password and the
+// source it was loaded from ("file" or "env"). Both are empty until
+// ResolvePgPassword has run successfully; the source string is the canonical
+// "is the password configured?" check — an empty source means no source
+// produced a value (or Resolve was never called). Production startup in
+// services/multipooler/init.go calls ResolvePgPassword first and surfaces
+// its error, so callers reaching this point can treat an empty source as a
+// programmer-error invariant violation.
+func (c *Config) PgPassword() (string, pgPasswordSource) {
+	return c.pgPasswordCached, c.pgPasswordSource
+}
+
+// ResolvePgPassword chooses the password source and caches the result so
+// subsequent PgPassword() calls return it. Three independent inputs are
+// considered, in strict precedence order — once a higher-precedence input is
+// "explicitly set" it is authoritative and lower-precedence inputs are NOT
+// consulted, even when the higher-precedence value turns out to be empty
+// (those empty cases become errors instead of fallthroughs):
+//
+//  1. File path: --connpool-admin-password-file flag, or
+//     CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE env.
+//     - Path explicitly empty                  → error.
+//     - Path set, file content empty           → error.
+//     - Path set, file content non-empty       → use it, source=File.
+//  2. Flag option: --connpool-admin-password.
+//     - Flag set to empty                      → error.
+//     - Flag set to non-empty                  → use it, source=Option.
+//  3. Env var: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD.
+//     - Env set to empty                       → error.
+//     - Env set to non-empty                   → use it, source=Env.
+//
+// Reached the end with no input explicitly set: error "not configured".
+// "Explicitly set" is distinct from "viperutil resolved to empty" — viperutil
+// collapses unset and empty into the same "" via os.Getenv, so we use
+// os.LookupEnv and pflag.Flag.Changed to detect operator intent.
+func (c *Config) ResolvePgPassword() error {
+	// Row 1, 2a, 2b: file path explicitly set.
+	if path, explicit, isEmpty := c.passwordFileExplicit(); explicit {
+		if isEmpty {
+			c.pgPasswordSource = pwSourceNone
+			return errors.New("password file path is set to the empty string; unset it or provide a path")
+		}
+		pw, err := pgsecret.ReadPasswordFile(path)
+		if err != nil {
+			return err
+		}
+		if pw == "" {
+			c.pgPasswordSource = pwSourceNone
+			return fmt.Errorf("password file %q is empty", path)
+		}
+		c.pgPasswordCached = pw
+		c.pgPasswordSource = pwSourceFile
+		return nil
+	}
+	// Row 3, 4: --connpool-admin-password flag explicitly set.
+	if c.flagSet != nil {
+		if flag := c.flagSet.Lookup("connpool-admin-password"); flag != nil && flag.Changed {
+			v := flag.Value.String()
+			if v == "" {
+				c.pgPasswordSource = pwSourceNone
+				return errors.New("--connpool-admin-password is set to the empty string; unset it or provide a non-empty password")
+			}
+			c.pgPasswordCached = v
+			c.pgPasswordSource = pwSourceOption
+			return nil
+		}
+	}
+	// Row 5, 6: env vars. CONNPOOL_ADMIN_PASSWORD checked before POSTGRES_PASSWORD.
+	for _, name := range []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar} {
+		if v, ok := os.LookupEnv(name); ok {
+			if v == "" {
+				c.pgPasswordSource = pwSourceNone
+				return fmt.Errorf("env var %s is set to the empty string; unset it or provide a non-empty password", name)
+			}
+			c.pgPasswordCached = v
+			c.pgPasswordSource = pwSourceEnv
+			return nil
+		}
+	}
+	// Row 7: no source configured.
+	c.pgPasswordSource = pwSourceNone
+	return errors.New("admin password not configured: set CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD env var, --connpool-admin-password flag, or --connpool-admin-password-file / CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE to point at a password file")
+}
+
+// passwordFileExplicit reports whether the file-path input was explicitly
+// set (via flag or env var) and whether the resulting path is the empty
+// string. It does NOT consider viperutil defaults — the flag's
+// pflag.Flag.Changed bit and os.LookupEnv are the source of truth.
+func (c *Config) passwordFileExplicit() (path string, explicit, isEmpty bool) {
+	if c.flagSet != nil {
+		if flag := c.flagSet.Lookup("connpool-admin-password-file"); flag != nil && flag.Changed {
+			v := flag.Value.String()
+			return v, true, v == ""
+		}
+	}
+	for _, name := range []string{"CONNPOOL_ADMIN_PASSWORD_FILE", constants.PgPasswordFileEnvVar} {
+		if v, ok := os.LookupEnv(name); ok {
+			return v, true, v == ""
+		}
+	}
+	return "", false, false
+}
+
+// PgSSLMode parses and returns the configured libpq-style sslmode.
+// An invalid value returns the parser error so the caller can fail startup
+// rather than silently downgrading to plaintext.
+func (c *Config) PgSSLMode() (client.SSLMode, error) {
+	return client.ParseSSLMode(c.pgSSLMode.Get())
+}
+
+// PgSSLRootCert returns the configured CA bundle path used to verify the
+// PostgreSQL server certificate. Empty unless the operator set it.
+func (c *Config) PgSSLRootCert() string {
+	return c.pgSSLRootCert.Get()
+}
+
+// ValidatePGSSL checks the libpq-style sslmode + sslrootcert flags at startup
+// so a typo or missing CA bundle aborts the multipooler before the connection
+// pool manager opens — preventing a silent downgrade to plaintext.
+//
+// host is the address the multipooler will dial postgres on (only used to
+// validate verify-full). Pass an empty host when the multipooler is configured
+// for a Unix socket; this function only runs the SSL validation when host is
+// non-empty.
+func (c *Config) ValidatePGSSL(host string) error {
+	if host == "" {
+		return nil
+	}
+	mode, err := client.ParseSSLMode(c.pgSSLMode.Get())
+	if err != nil {
+		return fmt.Errorf("--pg-client-sslmode: %w", err)
+	}
+	if _, err := client.BuildTLSConfig(mode, c.pgSSLRootCert.Get(), host); err != nil {
+		return fmt.Errorf("--pg-client-sslmode=%s: %w", mode, err)
+	}
+	return nil
 }
 
 // AdminCapacity returns the configured admin pool capacity.
@@ -407,6 +606,6 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 		logger:  logger,
 		metrics: metrics,
 	}
-	mgr.closed.Store(true) // Manager is closed until Open() is called
+	mgr.setLifecycle(lifecycleClosed) // Manager is closed until Open() is called
 	return mgr
 }

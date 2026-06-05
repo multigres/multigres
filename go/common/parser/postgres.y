@@ -3426,12 +3426,10 @@ substr_list:
 		}
 	|	a_expr FOR a_expr
 		{
-			sysTypeName := &ast.TypeName{
-				Names: ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("int4")),
-				Typemod: -1,
-			}
-			tc := ast.NewTypeCast($3, sysTypeName, -1)
-			$$ = ast.NewNodeList($1, ast.NewInteger(1), tc)
+			// SUBSTRING(x FOR n) is SUBSTRING(x FROM 1 FOR n): the implicit start
+			// position is the integer constant 1, and the length is used as-is.
+			// Mirrors PostgreSQL's list_make3($1, makeIntConst(1, -1), $3).
+			$$ = ast.NewNodeList($1, ast.NewA_Const(ast.NewInteger(1), 0), $3)
 		}
 	| 	a_expr SIMILAR a_expr ESCAPE a_expr
 		{
@@ -3936,7 +3934,7 @@ GenericType: type_function_name opt_type_modifiers
 			{
 				// Create qualified type name from name + attrs
 				name := ast.NewString($1)
-				names := &ast.NodeList{Items: append([]ast.Node{name}, $2.Items...)}
+				names := ast.NewNodeList(append([]ast.Node{name}, $2.Items...)...)
 				typeName := makeTypeNameFromNodeList(names)
 				typeName.Typmods = $3
 				$$ = typeName
@@ -4085,8 +4083,9 @@ character:	CHARACTER opt_varying
 CharacterWithLength: character '(' Iconst ')'
 			{
 				typeName := makeTypeNameFromString($1)
-                // Set typmods with the length parameter, similar to PostgreSQL's approach
-                lengthConst := ast.NewInteger(int($3))
+                // Typmods are A_Const, matching the generic SimpleTypename path so
+                // CHAR(5) and the equivalent bpchar(5) produce the same tree.
+                lengthConst := ast.NewA_Const(ast.NewInteger(int($3)), 0)
                 typeName.Typmods = ast.NewNodeList()
                 typeName.Typmods.Append(lengthConst)
                 $$ = typeName
@@ -4099,7 +4098,7 @@ CharacterWithoutLength: character
 				// char defaults to char(1), varchar to no limit
 				if $1 == "bpchar" {
 					// CHAR defaults to CHAR(1)
-                    lengthConst := ast.NewInteger(1)
+                    lengthConst := ast.NewA_Const(ast.NewInteger(1), 0)
                     typeName.Typmods = ast.NewNodeList()
                     typeName.Typmods.Append(lengthConst)
 				}
@@ -4142,7 +4141,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "timestamp"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIMESTAMP opt_timezone
@@ -4164,7 +4163,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "time"
 				}
 				tn := makeTypeNameFromString(typeName)
-				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				tn.Typmods = ast.NewNodeList(ast.NewA_Const(ast.NewInteger($3), 0))
 				$$ = tn
 			}
 		|	TIME opt_timezone
@@ -5669,15 +5668,15 @@ json_behavior_type:
 json_behavior_clause_opt:
 			json_behavior ON EMPTY_P				{
 				// Return a list with ON EMPTY behavior and nil for ON ERROR
-				$$ = &ast.NodeList{Items: []ast.Node{$1, nil}}
+				$$ = ast.NewNodeList($1, nil)
 			}
 		|	json_behavior ON ERROR_P				{
 				// Return a list with nil for ON EMPTY and ON ERROR behavior
-				$$ = &ast.NodeList{Items: []ast.Node{nil, $1}}
+				$$ = ast.NewNodeList(nil, $1)
 			}
 		|	json_behavior ON EMPTY_P json_behavior ON ERROR_P	{
 				// Return a list with both ON EMPTY and ON ERROR behaviors
-				$$ = &ast.NodeList{Items: []ast.Node{$1, $4}}
+				$$ = ast.NewNodeList($1, $4)
 			}
 		|	/* EMPTY */								{ $$ = nil }
 		;
@@ -5714,7 +5713,13 @@ json_quotes_clause_opt:
 json_format_clause:
 			FORMAT_LA JSON ENCODING name
 			{
-				// Parse the encoding name and map to JsonEncoding constant
+				// Parse the encoding name and map to JsonEncoding constant.
+				// Match PostgreSQL by rejecting unknown names at parse time
+				// (gram.y json_format_clause raises ereport(ERROR) with
+				// errcode INVALID_PARAMETER_VALUE / "unrecognized JSON
+				// encoding"). The JsonFormat node only carries an enum, so
+				// preserving the raw name through to the backend would mean
+				// reshaping the AST; rejecting here is the simpler match.
 				var encoding ast.JsonEncoding
 				switch $4 {
 				case "utf8":
@@ -5724,6 +5729,7 @@ json_format_clause:
 				case "utf32":
 					encoding = ast.JS_ENC_UTF32
 				default:
+					yylex.Error(fmt.Sprintf("unrecognized JSON encoding: %s", $4))
 					encoding = ast.JS_ENC_DEFAULT
 				}
 				$$ = &ast.JsonFormat{
@@ -5785,6 +5791,17 @@ json_table_column_definition:
 					strNode := $3.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($4)
+				jsonTableCol.Quotes = ast.JsonQuotes($5)
+				if $6 != nil {
+					behaviors := $6.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename json_format_clause
@@ -5802,6 +5819,17 @@ json_table_column_definition:
 				if $3 != nil {
 					jsonTableCol.Format = $3.(*ast.JsonFormat)
 				}
+				jsonTableCol.Wrapper = ast.JsonWrapper($5)
+				jsonTableCol.Quotes = ast.JsonQuotes($6)
+				if $7 != nil {
+					behaviors := $7.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						jsonTableCol.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						jsonTableCol.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
 				$$ = jsonTableCol
 			}
 		|	ColId Typename EXISTS json_table_column_path_clause_opt
@@ -5812,6 +5840,9 @@ json_table_column_definition:
 				if $4 != nil {
 					strNode := $4.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				if $5 != nil {
+					jsonTableCol.OnError = $5.(*ast.JsonBehavior)
 				}
 				$$ = jsonTableCol
 			}
@@ -11931,8 +11962,12 @@ set_rest_more:
 				}
 		|	TIME ZONE zone_value
 				{
-					args := ast.NewNodeList($3)
-					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					if $3 == nil {
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "timezone", nil, false)
+					} else {
+						args := ast.NewNodeList($3)
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+					}
 				}
 		|	CATALOG_P Sconst
 				{
@@ -12052,7 +12087,7 @@ zone_value:
 				$$ = ast.NewTypeCast(stringConst, t, 0)
 			}
 		|	NumericOnly								{ $$ = $1 }
-		|	DEFAULT									{ $$ = ast.NewString("default") }
+		|	DEFAULT									{ $$ = nil }
 		|	LOCAL									{ $$ = ast.NewString("local") }
 		;
 
@@ -13254,12 +13289,12 @@ select_fetch_first_value:
 		c_expr									{ $$ = $1 }
 	|	'+' I_or_F_const
 			{
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("+")), nil, $2, -1)
 			}
 	|	'-' I_or_F_const
 			{
 				// Create a unary minus expression
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, $2, -1)
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("-")), nil, $2, -1)
 			}
 	;
 
@@ -13688,7 +13723,7 @@ RevokeRoleStmt:
 				{
 					opt := ast.NewDefElem($2, ast.NewBoolean(false))
 					stmt := ast.NewRevokeRoleStmt($5, $7)
-					stmt.Opt = &ast.NodeList{Items: []ast.Node{opt}}
+					stmt.Opt = ast.NewNodeList(opt)
 					stmt.Grantor = $8
 					stmt.Behavior = $9
 					$$ = stmt

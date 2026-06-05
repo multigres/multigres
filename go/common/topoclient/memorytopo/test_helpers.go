@@ -46,7 +46,11 @@ func CreateTestPooler(ctx context.Context, ts topoclient.Store, cellName, pooler
 		},
 		Hostname: fmt.Sprintf("pooler-%s.%s", poolerName, cellName),
 		PortMap:  map[string]int32{"grpc": 8081, "postgres": 5433},
-		Database: database,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: "default",
+			Shard:      "0",
+		},
 	}
 	return ts.CreateMultiPooler(ctx, pooler)
 }

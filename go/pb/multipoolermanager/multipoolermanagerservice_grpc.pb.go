@@ -43,6 +43,7 @@ const (
 	MultiPoolerManager_GetBackups_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/GetBackups"
 	MultiPoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
 	MultiPoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
+	MultiPoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultiPoolerManager/VerifyBackups"
 	MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
 	MultiPoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultiPoolerManager/ManagerHealthStream"
 )
@@ -74,6 +75,9 @@ type MultiPoolerManagerClient interface {
 	GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
 	// ExpireBackups removes backups that exceed the configured retention policy.
 	ExpireBackups(ctx context.Context, in *multipoolermanagerdata.ExpireBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ExpireBackupsResponse, error)
+	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
+	// a periodic backup-integrity check; not scoped to any single backup.
+	VerifyBackups(ctx context.Context, in *multipoolermanagerdata.VerifyBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.VerifyBackupsResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -194,6 +198,16 @@ func (c *multiPoolerManagerClient) ExpireBackups(ctx context.Context, in *multip
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) VerifyBackups(ctx context.Context, in *multipoolermanagerdata.VerifyBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.VerifyBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_VerifyBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.SetPostgresRestartsEnabledResponse)
@@ -244,6 +258,9 @@ type MultiPoolerManagerServer interface {
 	GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
 	// ExpireBackups removes backups that exceed the configured retention policy.
 	ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error)
+	// VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
+	// a periodic backup-integrity check; not scoped to any single backup.
+	VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
 	// When disabled, the monitor continues to run but will not auto-restart a stopped
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
@@ -300,6 +317,9 @@ func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *
 }
 func (UnimplementedMultiPoolerManagerServer) ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExpireBackups not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyBackups not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
@@ -490,6 +510,24 @@ func _MultiPoolerManager_ExpireBackups_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.VerifyBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).VerifyBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_VerifyBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).VerifyBackups(ctx, req.(*multipoolermanagerdata.VerifyBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiPoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
 	if err := dec(in); err != nil {
@@ -557,6 +595,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExpireBackups",
 			Handler:    _MultiPoolerManager_ExpireBackups_Handler,
+		},
+		{
+			MethodName: "VerifyBackups",
+			Handler:    _MultiPoolerManager_VerifyBackups_Handler,
 		},
 		{
 			MethodName: "SetPostgresRestartsEnabled",

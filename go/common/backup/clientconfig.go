@@ -80,6 +80,8 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		Pg1Port       int
 		Pg1Path       string
 		Pg1User       string
+
+		ProcessLimits ProcessLimits
 	}{
 		LogPath:   logPath,
 		SpoolPath: spoolPath,
@@ -93,6 +95,8 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config) (string, error)
 		Pg1Port:       opts.Pg1Port,
 		Pg1Path:       opts.Pg1Path,
 		Pg1User:       opts.Pg1User,
+
+		ProcessLimits: CurrentProcessLimits(),
 	}
 
 	// Execute template

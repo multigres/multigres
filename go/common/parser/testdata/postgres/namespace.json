@@ -118,8 +118,7 @@
   },
   {
     "comment": "namespace - Statement 31",
-    "query": "REINDEX TABLE test_maint_search_path.test_maint",
-    "expected": "REINDEX TABLE test_maint"
+    "query": "REINDEX TABLE test_maint_search_path.test_maint"
   },
   {
     "comment": "namespace - Statement 32",

@@ -122,11 +122,11 @@
   },
   {
     "comment": "create_procedure - Statement 32",
-    "query": "CALL ptest5(10, b =\u003e 'Hello')"
+    "query": "CALL ptest5(10, b => 'Hello')"
   },
   {
     "comment": "create_procedure - Statement 33",
-    "query": "CALL ptest5(b =\u003e 'Hello', a =\u003e 10)"
+    "query": "CALL ptest5(b => 'Hello', a => 10)"
   },
   {
     "comment": "create_procedure - Statement 34",
@@ -195,7 +195,7 @@
   {
     "comment": "create_procedure - Statement 47",
     "query": "CREATE PROCEDURE ptest8(x text) BEGIN ATOMIC END",
-    "expected": "CREATE PROCEDURE ptest8 (x TEXT) LANGUAGE sql BEGIN ATOMIC ; END"
+    "expected": "CREATE PROCEDURE ptest8 (x TEXT) BEGIN ATOMIC END"
   },
   {
     "comment": "create_procedure - Statement 48",
@@ -232,22 +232,22 @@
   },
   {
     "comment": "create_procedure - Statement 56",
-    "query": "CALL ptest10(a =\u003e null, b =\u003e 8, c =\u003e 2)",
-    "expected": "CALL ptest10(a =\u003e NULL, b =\u003e 8, c =\u003e 2)"
+    "query": "CALL ptest10(a => null, b => 8, c => 2)",
+    "expected": "CALL ptest10(a => NULL, b => 8, c => 2)"
   },
   {
     "comment": "create_procedure - Statement 57",
-    "query": "CALL ptest10(null, 7, c =\u003e 2)",
-    "expected": "CALL ptest10(NULL, 7, c =\u003e 2)"
+    "query": "CALL ptest10(null, 7, c => 2)",
+    "expected": "CALL ptest10(NULL, 7, c => 2)"
   },
   {
     "comment": "create_procedure - Statement 58",
-    "query": "CALL ptest10(null, c =\u003e 4, b =\u003e 11)",
-    "expected": "CALL ptest10(NULL, c =\u003e 4, b =\u003e 11)"
+    "query": "CALL ptest10(null, c => 4, b => 11)",
+    "expected": "CALL ptest10(NULL, c => 4, b => 11)"
   },
   {
     "comment": "create_procedure - Statement 59",
-    "query": "CALL ptest10(b =\u003e 8, c =\u003e 2, a =\u003e 0)"
+    "query": "CALL ptest10(b => 8, c => 2, a => 0)"
   },
   {
     "comment": "create_procedure - Statement 60",

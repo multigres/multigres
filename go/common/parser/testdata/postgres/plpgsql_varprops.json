@@ -1,0 +1,187 @@
+[
+  {
+    "comment": "plpgsql_varprops - Statement 1",
+    "query": "create type var_record as (f1 int4, f2 int4)",
+    "expected": "CREATE TYPE var_record AS (f1 INT, f2 INT)"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 2",
+    "query": "create domain int_nn as int not null",
+    "expected": "CREATE DOMAIN int_nn AS INT NOT NULL"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 3",
+    "query": "create domain var_record_nn as var_record not null",
+    "expected": "CREATE DOMAIN var_record_nn AS var_record NOT NULL"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 4",
+    "query": "create domain var_record_colnn as var_record check((value).f2 is not null)",
+    "expected": "CREATE DOMAIN var_record_colnn AS var_record CHECK ((value).f2 IS NOT NULL)"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 5",
+    "query": "do $$ declare x constant int := 42; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x constant int := 42; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 6",
+    "query": "do $$ declare x constant int; begin x := 42; end$$",
+    "expected": "DO ' declare x constant int; begin x := 42; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 7",
+    "query": "do $$ declare x constant int; y int; begin for x, y in select 1, 2 loop end loop; end$$",
+    "expected": "DO ' declare x constant int; y int; begin for x, y in select 1, 2 loop end loop; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 8",
+    "query": "do $$ declare x constant int[]; begin x[1] := 42; end$$",
+    "expected": "DO ' declare x constant int[]; begin x[1] := 42; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 9",
+    "query": "do $$ declare x constant int[]; y int; begin for x[1], y in select 1, 2 loop end loop; end$$",
+    "expected": "DO ' declare x constant int[]; y int; begin for x[1], y in select 1, 2 loop end loop; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 10",
+    "query": "do $$ declare x constant var_record; begin x.f1 := 42; end$$",
+    "expected": "DO ' declare x constant var_record; begin x.f1 := 42; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 11",
+    "query": "do $$ declare x constant var_record; y int; begin for x.f1, y in select 1, 2 loop end loop; end$$",
+    "expected": "DO ' declare x constant var_record; y int; begin for x.f1, y in select 1, 2 loop end loop; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 12",
+    "query": "do $$ declare x int := sin(0); begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int := sin(0); begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 13",
+    "query": "do $$ declare x int := 1/0; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int := 1/0; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 14",
+    "query": "do $$ declare x bigint[] := array[1,3,5]; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x bigint[] := array[1,3,5]; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 15",
+    "query": "do $$ declare x record := row(1,2,3); begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x record := row(1,2,3); begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 16",
+    "query": "do $$ declare x var_record := row(1,2); begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record := row(1,2); begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 17",
+    "query": "do $$ declare x int not null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int not null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 18",
+    "query": "do $$ declare x int not null := 42; begin raise notice 'x = %', x; x := null; end$$",
+    "expected": "DO ' declare x int not null := 42; begin raise notice ''x = %'', x; x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 19",
+    "query": "do $$ declare x int not null := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int not null := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 20",
+    "query": "do $$ declare x record not null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x record not null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 21",
+    "query": "do $$ declare x record not null := row(42); begin raise notice 'x = %', x; x := row(null); raise notice 'x = %', x; x := null; end$$",
+    "expected": "DO ' declare x record not null := row(42); begin raise notice ''x = %'', x; x := row(null); raise notice ''x = %'', x; x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 22",
+    "query": "do $$ declare x record not null := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x record not null := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 23",
+    "query": "do $$ declare x var_record not null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record not null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 24",
+    "query": "do $$ declare x var_record not null := row(41,42); begin raise notice 'x = %', x; x := row(null,null); raise notice 'x = %', x; x := null; end$$",
+    "expected": "DO ' declare x var_record not null := row(41,42); begin raise notice ''x = %'', x; x := row(null,null); raise notice ''x = %'', x; x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 25",
+    "query": "do $$ declare x var_record not null := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record not null := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 26",
+    "query": "do $$ begin for i in 1..3 loop declare x int; y int := i; r record; c var_record; begin if i = 1 then x := 42; r := row(i, i+1); c := row(i, i+1); end if; raise notice 'x = %', x; raise notice 'y = %', y; raise notice 'r = %', r; raise notice 'c = %', c; end; end loop; end$$",
+    "expected": "DO ' begin for i in 1..3 loop declare x int; y int := i; r record; c var_record; begin if i = 1 then x := 42; r := row(i, i+1); c := row(i, i+1); end if; raise notice ''x = %'', x; raise notice ''y = %'', y; raise notice ''r = %'', r; raise notice ''c = %'', c; end; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 27",
+    "query": "do $$ declare x int_nn; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int_nn; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 28",
+    "query": "do $$ declare x int_nn := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x int_nn := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 29",
+    "query": "do $$ declare x int_nn := 42; begin raise notice 'x = %', x; x := null; end$$",
+    "expected": "DO ' declare x int_nn := 42; begin raise notice ''x = %'', x; x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 30",
+    "query": "do $$ declare x var_record_nn; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record_nn; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 31",
+    "query": "do $$ declare x var_record_nn := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record_nn := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 32",
+    "query": "do $$ declare x var_record_nn := row(1,2); begin raise notice 'x = %', x; x := row(null,null); x := null; end$$",
+    "expected": "DO ' declare x var_record_nn := row(1,2); begin raise notice ''x = %'', x; x := row(null,null); x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 33",
+    "query": "do $$ declare x var_record_colnn; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record_colnn; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 34",
+    "query": "do $$ declare x var_record_colnn := null; begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record_colnn := null; begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 35",
+    "query": "do $$ declare x var_record_colnn := row(1,null); begin raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare x var_record_colnn := row(1,null); begin raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 36",
+    "query": "do $$ declare x var_record_colnn := row(1,2); begin raise notice 'x = %', x; x := null; end$$",
+    "expected": "DO ' declare x var_record_colnn := row(1,2); begin raise notice ''x = %'', x; x := null; end'"
+  },
+  {
+    "comment": "plpgsql_varprops - Statement 37",
+    "query": "do $$ declare x var_record_colnn := row(1,2); begin raise notice 'x = %', x; x := row(null,null); end$$",
+    "expected": "DO ' declare x var_record_colnn := row(1,2); begin raise notice ''x = %'', x; x := row(null,null); end'"
+  }
+]

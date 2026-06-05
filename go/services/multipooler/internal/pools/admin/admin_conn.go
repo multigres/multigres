@@ -100,10 +100,23 @@ func (c *Conn) ResetAllSettings(_ context.Context) error {
 
 // --- Admin operations ---
 
-// GetRolPassword retrieves the role password hash from pg_authid for a given username.
-// Returns the SCRAM-SHA-256 password hash, or empty string if the user has no password set.
+// RolAuthInfo captures the pg_authid columns multigateway needs to make
+// authentication decisions for a given role.
+type RolAuthInfo struct {
+	// ScramHash is the stored SCRAM-SHA-256 password hash, or empty if the
+	// role has no password set.
+	ScramHash string
+
+	// IsReplicationRole mirrors pg_authid.rolreplication. PostgreSQL requires
+	// this attribute (or rolsuper) for any connection started with the
+	// replication=true / replication=database startup parameter.
+	IsReplicationRole bool
+}
+
+// GetRolAuthInfo retrieves the auth-relevant pg_authid columns for a given username:
+// the SCRAM password hash plus rolreplication.
 //
-// In addition to fetching the hash, this enforces two native-PG login checks
+// In addition to returning the data, this enforces two native-PG login checks
 // so multigateway reaches parity with PostgreSQL's ClientAuthentication:
 //   - rolcanlogin=false → ErrLoginDisabled (SQLSTATE 28000 at the gateway)
 //   - rolvaliduntil in the past → ErrPasswordExpired (SQLSTATE 28P01)
@@ -115,51 +128,65 @@ func (c *Conn) ResetAllSettings(_ context.Context) error {
 //
 // Precedence matches PostgreSQL (src/backend/libpq/auth.c CheckPasswordAuth):
 // login-disabled is checked before password validity.
-func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, error) {
-	// Query pg_authid for the password hash plus the two login-time predicates
-	// PG itself evaluates. Expressing validity in SQL avoids timestamp parsing
-	// and matches PG's own `now()` semantics (both are evaluated server-side).
+func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInfo, error) {
+	// Query pg_authid for the password hash, the two login-time predicates PG
+	// itself evaluates, and rolreplication. Expressing validity in SQL avoids
+	// timestamp parsing and matches PG's own `now()` semantics (both are
+	// evaluated server-side).
+	//
+	// Note: PG's own has_rolreplication() short-circuits to true for
+	// superusers regardless of rolreplication (miscinit.c:734-750). We do
+	// not include rolsuper in the SELECT because the gateway only consults
+	// IsReplicationRole after SCRAM has already authenticated the role —
+	// reaching that check at all means the role passed login-disabled and
+	// password-validity predicates, and any superuser intended for
+	// replication is expected to also have rolreplication=true. If a
+	// superuser-only-without-rolreplication ever needs walsender access,
+	// extend RolAuthInfo with IsSuperuser and OR it in at the gateway.
 	sql := fmt.Sprintf(
 		"SELECT rolpassword, rolcanlogin, "+
-			"(rolvaliduntil IS NULL OR rolvaliduntil > now()) AS password_valid "+
+			"(rolvaliduntil IS NULL OR rolvaliduntil > now()) AS password_valid, "+
+			"rolreplication "+
 			"FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
 		ast.QuoteStringLiteral(username))
 
 	results, err := c.queryWithRetry(ctx, sql)
 	if err != nil {
-		return "", fmt.Errorf("failed to query role password: %w", err)
+		return nil, fmt.Errorf("failed to query role auth info: %w", err)
 	}
 
 	// Check if user exists.
 	if len(results) == 0 || len(results[0].Rows) == 0 {
-		return "", fmt.Errorf("%w: %q", ErrUserNotFound, username)
+		return nil, fmt.Errorf("%w: %q", ErrUserNotFound, username)
 	}
 
 	row := results[0].Rows[0].Values
-	if len(row) < 3 {
-		return "", fmt.Errorf("unexpected pg_authid result shape: %d columns", len(row))
+	if len(row) < 4 {
+		return nil, fmt.Errorf("unexpected pg_authid result shape: %d columns", len(row))
 	}
 
 	// rolcanlogin takes precedence — PG rejects NOLOGIN roles before looking at
 	// the password, so the error class differs (28000 vs 28P01).
 	if !parsePgBool(row[1]) {
-		return "", fmt.Errorf("%w: %q", ErrLoginDisabled, username)
+		return nil, fmt.Errorf("%w: %q", ErrLoginDisabled, username)
 	}
 
 	// rolvaliduntil: a non-NULL value in the past invalidates the password for
 	// password-based auth. PG returns the same opaque "password authentication
 	// failed" message as wrong-password in this case.
 	if !parsePgBool(row[2]) {
-		return "", fmt.Errorf("%w: %q", ErrPasswordExpired, username)
+		return nil, fmt.Errorf("%w: %q", ErrPasswordExpired, username)
 	}
 
+	info := &RolAuthInfo{
+		IsReplicationRole: parsePgBool(row[3]),
+	}
 	// Extract the password hash (may be NULL/empty if no password set).
-	var scramHash string
 	if !row[0].IsNull() {
-		scramHash = string(row[0])
+		info.ScramHash = string(row[0])
 	}
 
-	return scramHash, nil
+	return info, nil
 }
 
 // parsePgBool converts PG's textual boolean representation ("t"/"f") to Go's bool.

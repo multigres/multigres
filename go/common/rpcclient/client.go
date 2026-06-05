@@ -46,9 +46,8 @@
 //	defer client.Close()
 //
 //	// Call consensus methods
-//	resp, err := client.BeginTerm(ctx, tablet, &consensusdatapb.BeginTermRequest{
-//	    Term: 5,
-//	    CandidateId: coordinatorID,
+//	resp, err := client.Recruit(ctx, tablet, &consensusdatapb.RecruitRequest{
+//	    TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
 //	})
 //
 //	// Call manager methods
@@ -141,10 +140,6 @@ type MultiPoolerClient interface {
 	// Consensus Service Methods (consensuspb.MultiPoolerConsensusClient)
 	//
 
-	// BeginTerm sends a BeginTerm request for leader appointment.
-	// This is part of the consensus protocol for establishing a new term.
-	BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error)
-
 	// Recruit asks a pooler to stop replication participation and record a TermRevocation.
 	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
 	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
@@ -153,24 +148,15 @@ type MultiPoolerClient interface {
 	// leader) or point replication at the new primary (if replica).
 	Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error)
 
-	// ConsensusStatus gets the consensus status of the multipooler.
-	// This may be called frequently for monitoring, so implementations cache connections.
-	ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error)
-
-	// EmergencyDemote demotes the current leader server.
-	EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error)
-
-	// DemoteStalePrimary demotes a stale primary that came back after failover.
-	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
-
-	// Promote promotes the multipooler to primary.
-	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error)
-
 	// UpdateConsensusRule updates the synchronous standby list (quorum membership).
-	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error)
+	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error)
 
-	// SetPrimaryConnInfo configures the standby's connection to a primary.
-	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error)
+	// SetTermPrimary tells a pooler about the current primary and the position the
+	// caller knows the cluster is at. The pooler applies the change (update
+	// primary_conninfo if standby, demote if stale primary) only when the
+	// supplied position is strictly higher than its own. Otherwise it returns
+	// success without changes.
+	SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetTermPrimaryRequest) (*consensusdatapb.SetTermPrimaryResponse, error)
 
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
@@ -213,6 +199,9 @@ type MultiPoolerClient interface {
 
 	// ExpireBackups removes old backups according to retention policy.
 	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
+
+	// VerifyBackups runs pgbackrest verify against the full stanza.
+	VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error)
 
 	//
 	// Manager Service Methods - PostgreSQL Restart Control

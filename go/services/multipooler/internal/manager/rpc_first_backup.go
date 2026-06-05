@@ -28,7 +28,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -75,7 +74,10 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	// Read the durability policy from topology before doing any expensive work.
 	// A misconfigured database (missing durability_policy) should fail fast.
-	if _, err := pm.loadDurabilityPolicy(ctx); err != nil {
+	// The policy is also written into the initial row of current_rule so all
+	// subsequent rule reads carry a non-nil DurabilityPolicy.
+	policy, err := pm.loadDurabilityPolicy(ctx)
+	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
@@ -133,7 +135,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to connect to database")
 	}
 
-	if err := pm.createSidecarSchema(ctx); err != nil {
+	if err := pm.createSidecarSchema(ctx, policy); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to create multigres schema")
 	}
 
@@ -141,15 +143,15 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
 	}
 
-	// The zero-state sentinel row (term=0, empty cohort) was already inserted by
-	// CreateRuleTables via createSidecarSchema above. This signals to multiorch
+	// The initial row (term=0, empty cohort) was already inserted by
+	// createRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
 
 	// Race for the backup lease. Only the lease holder creates the backup;
 	// everyone else will find an existing backup and skip to restore.
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
-	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease.
 		if pm.hasCompleteBackups(leaseCtx) {
@@ -160,6 +162,16 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 		if err := pm.runStanzaCreate(leaseCtx); err != nil {
 			return mterrors.Wrap(err, "failed to create pgbackrest stanza")
+		}
+
+		// Prove the archive pipeline works end-to-end before declaring the
+		// shard bootstrapped. configureArchiveMode wrote archive_command
+		// above; `check` forces a WAL switch and confirms the segment reaches
+		// the repo, so a misconfigured archive_command (bad creds, wrong
+		// path) fails cluster creation now rather than silently surviving
+		// until a restore needs WAL that was never archived.
+		if err := pm.runPgBackRestCheck(leaseCtx); err != nil {
+			return mterrors.Wrap(err, "pgbackrest archive check failed")
 		}
 
 		if _, err := pm.backupLocked(leaseCtx, true, "full", "", nil); err != nil {
@@ -179,7 +191,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 }
 
 func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
-	return filepath.Join(pm.multipooler.PoolerDir, constants.BootstrapSentinelFile)
+	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
 }
 
 // hasBootstrapSentinel reports whether the sentinel file exists. A non-existent
@@ -219,7 +231,7 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := executil.Command(stanzaCtx, "pgbackrest",
+	cmd := pm.pgbackrestCmd(stanzaCtx,
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"stanza-create")
@@ -237,14 +249,14 @@ func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.multipooler.Database)
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
 	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.multipooler.Database)
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
 	}
 
 	if db.BootstrapDurabilityPolicy == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.multipooler.Database)
+			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
 	}
 
 	return db.BootstrapDurabilityPolicy, nil

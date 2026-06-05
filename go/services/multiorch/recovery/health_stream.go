@@ -148,6 +148,12 @@ func (hs *HealthStream) Shutdown() {
 // If a stream is already running for this pooler the call is a no-op.
 // The pooler's MultiPooler metadata is read from the store on each
 // reconnect attempt so topology updates are automatically picked up.
+//
+// Dialing is unconditional: poolers whose lifecycle reads STOPPING in
+// topology are dialled the same as any other. If the pooler subsequently
+// goes away (its OnClose unregisterFunc deletes the topology entry),
+// the pooler watcher's onDeletedPooler callback invokes Stop, which
+// cancels the per-pooler context and unwinds the reconnect loop.
 func (hs *HealthStream) Start(id *clustermetadatapb.ID) {
 	poolerID := topoclient.MultiPoolerIDString(id)
 	hs.mu.Lock()

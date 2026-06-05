@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -31,8 +33,8 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // Compile-time assertion that DemoteStaleLeaderAction implements types.RecoveryAction.
@@ -44,8 +46,13 @@ var _ types.RecoveryAction = (*DemoteStaleLeaderAction)(nil)
 const StaleLeaderDrainTimeout = 5 * time.Second
 
 // DemoteStaleLeaderAction demotes a stale leader that was detected after failover.
-// It uses the DemoteStalePrimary RPC with the correct leader's term to force the stale leader
-// to accept the term and demote, preventing further writes.
+// It uses the SetTermPrimary RPC with the correct leader's rule to force the stale leader
+// to accept the new leader, run pg_rewind, and restart as a standby.
+//
+// TODO: this action and FixReplicationAction (which reconnects orphan replicas)
+// now both reduce to a single SetTermPrimary RPC against the misbehaving node.
+// They should eventually share one underlying action — detection can stay split
+// for metrics/monitoring, but the mutation path is identical.
 type DemoteStaleLeaderAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
@@ -91,17 +98,16 @@ func (a *DemoteStaleLeaderAction) RequiresHealthyLeader() bool {
 }
 
 func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
-	return &types.GracePeriodConfig{
-		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),
-		MaxJitter: a.config.GetLeaderFailoverGracePeriodMaxJitter(),
-	}
+	// The demote goes through SetTermPrimary, which is position-fenced: a
+	// leader that's only momentarily-stale would see its own rule >= the
+	// incoming rule and no-op without touching postgres. A spurious detection
+	// costs an RPC, not a wrongful demote, so no grace period is needed.
+	return nil
 }
 
-// Execute demotes the stale leader using the DemoteStalePrimary RPC with the correct leader's term.
-// This is safer than BeginTerm because:
-// 1. We use the correct leader's term (not a new term), avoiding term inconsistency
-// 2. The stale leader accepts term >= its current term and demotes
-// 3. Both leaders end up with the same term (no term inconsistency)
+// Execute demotes the stale leader using SetTermPrimary with the correct leader's rule.
+// This is safer than Recruit because we use the correct leader's existing rule rather than
+// minting a new term, so both leaders end up agreeing on the same term and rule.
 func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
@@ -130,7 +136,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		return mterrors.Wrap(err, "failed to find correct leader")
 	}
 
-	a.logger.InfoContext(ctx, "demoting stale leader using DemoteStalePrimary RPC",
+	a.logger.InfoContext(ctx, "demoting stale leader via SetTermPrimary",
 		"stale_leader", poolerIDStr,
 		"correct_leader", correctLeader.MultiPooler.Id.Name,
 		"correct_leader_term", correctLeaderTerm)
@@ -144,25 +150,21 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		}
 	}()
 
-	// Call DemoteStalePrimary RPC - this will:
-	// 1. Stop postgres
-	// 2. Run pg_rewind to sync with the correct leader's postgres
-	// 3. Restart as standby
-	// 4. Clear sync replication config
-	// 5. Update topology to REPLICA
-	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, staleLeader.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
-		Source:        correctLeader.MultiPooler,
-		ConsensusTerm: correctLeaderTerm,
-		Force:         false,
-	})
-	if err != nil {
-		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
+	// Route through SetTermPrimary on the stale leader. The pooler-side handler:
+	// 1. Stops postgres
+	// 2. Runs pg_rewind to sync with the correct leader's postgres
+	// 3. Restarts as standby
+	// 4. Clears sync replication config
+	// 5. Updates topology to REPLICA
+	informReq := &consensusdatapb.SetTermPrimaryRequest{
+		Leader: topoclient.PoolerAddressFor(correctLeader.MultiPooler),
+		Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
-
-	a.logger.InfoContext(ctx, "stale leader demoted successfully",
-		"stale_leader", poolerIDStr,
-		"rewind_performed", demoteResp.RewindPerformed,
-		"lsn_position", demoteResp.LsnPosition)
+	if _, err := a.rpcClient.SetTermPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {
+		return mterrors.Wrap(err, "SetTermPrimary RPC failed")
+	}
+	a.logger.InfoContext(ctx, "stale leader demoted successfully via SetTermPrimary",
+		"stale_leader", poolerIDStr)
 
 	a.logger.InfoContext(ctx, "demote stale leader action completed",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
@@ -184,9 +186,7 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.
 		}
 
 		// Only consider poolers in the same shard
-		if pooler.MultiPooler.Database != shardKey.Database ||
-			pooler.MultiPooler.TableGroup != shardKey.TableGroup ||
-			pooler.MultiPooler.Shard != shardKey.Shard {
+		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			return true // continue
 		}
 

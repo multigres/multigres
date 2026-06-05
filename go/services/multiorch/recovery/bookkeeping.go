@@ -88,11 +88,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 			return true // continue iteration
 		}
 
-		shardKey := &clustermetadatapb.ShardKey{
-			Database:   poolerInfo.MultiPooler.Database,
-			TableGroup: poolerInfo.MultiPooler.TableGroup,
-			Shard:      poolerInfo.MultiPooler.Shard,
-		}
+		shardKey := poolerInfo.MultiPooler.ShardKey
 
 		// Get timestamps as time.Time
 		lastSeen := time.Time{}
