@@ -692,7 +692,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-	require.Contains(t, err.Error(), "transaction aborted")
+	require.Contains(t, err.Error(), "terminated during a planned failover")
 }
 
 // TestConcludeTransaction_ReservedConnTerminated covers the failover-leak fix:
@@ -716,7 +716,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
 	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "must not surface MTF01: %v", err)
-	require.Contains(t, err.Error(), "transaction aborted")
+	require.Contains(t, err.Error(), "terminated during a planned failover")
 }
 
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
@@ -743,7 +743,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		)
 		require.Error(t, err)
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-		require.Contains(t, err.Error(), "transaction aborted")
+		require.Contains(t, err.Error(), "terminated during a planned failover")
 	})
 }
 

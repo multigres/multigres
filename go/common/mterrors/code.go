@@ -58,18 +58,21 @@ func NewStatementTimeout() *PgDiagnostic {
 		"canceling statement due to statement timeout", "")
 }
 
-// NewTransactionAborted creates a PgDiagnostic for a transaction whose reserved
-// connection was terminated before it could continue or be concluded — e.g.
-// force-closed when a planned failover drain exceeded its grace period while the
-// client sat idle-in-transaction. SQLSTATE 40001 (serialization_failure) so
-// clients and ORMs retry the whole transaction; the data was rolled back, so a
-// retry is the correct recovery.
+// NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
+// connection that was terminated before its in-flight work could continue or
+// be concluded — e.g. force-closed when a planned failover drain exceeded its
+// grace period while the client sat idle. The message is deliberately not
+// transaction-specific: a reserved connection may hold a transaction or only
+// non-transactional session state (temp tables, portals, COPY, LISTEN), and
+// the same termination applies to all of them. SQLSTATE 40001
+// (serialization_failure) so clients and ORMs retry their in-flight work; the
+// connection's state was rolled back, so a retry is the correct recovery.
 //
-// This is deliberately NOT MTF01: the transaction is gone, so there is nothing
+// This is deliberately NOT MTF01: the connection is gone, so there is nothing
 // to buffer or auto-retry inside the cluster — only the client can replay it.
-func NewTransactionAborted(reservedConnID uint64) *PgDiagnostic {
+func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
-		"transaction aborted: connection terminated during a planned failover; please retry the transaction",
+		"reserved connection terminated during a planned failover; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 
