@@ -470,6 +470,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
 			assert.Less(t, propose, maxPropose,
 				"propose phase for %v should be fast (took %v)", p["new_primary"], propose)
+			setup.Timings.Record("appointment: recruit", recruit, maxRecruit)
+			setup.Timings.Record("appointment: propose", propose, maxPropose)
 		}
 	})
 

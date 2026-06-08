@@ -526,6 +526,17 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			}
 		}
 
+		// Load the extension's fixtures through multigateway before the suite, the
+		// way its own runner does (pg_graphql's bin/installcheck runs
+		// `psql -f test/fixtures.sql` first; those fixtures CREATE the extension and
+		// set its schema config). Same pooled path the test queries take.
+		if ext.FixturesFile != "" {
+			fixturesPath := filepath.Join(testDir, ext.FixturesFile)
+			if err := loadFixturesViaGateway(ctx, filepath.Join(pgBinDir, "psql"), fixturesPath, multigatewayPort, password); err != nil {
+				t.Logf("external/%s: warning: load fixtures %q failed: %v", ext.Name, ext.FixturesFile, err)
+			}
+		}
+
 		// Preload the extension when its fixtures assume it already exists:
 		// --use-existing skips pg_regress's own --load-extension step, and
 		// pgvector's fixtures open with a bare CREATE TABLE ... vector(3) (see
@@ -811,6 +822,31 @@ func createExtensionViaGateway(multigatewayPort int, password, ext string) error
 	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS "%s"`, ext)
 	if _, err := db.Exec(stmt); err != nil {
 		return fmt.Errorf("exec [%s]: %w", stmt, err)
+	}
+	return nil
+}
+
+// loadFixturesViaGateway runs an extension's fixtures SQL file through
+// multigateway with psql before its suite, mirroring how the extension's own
+// runner seeds the database (pg_graphql's bin/installcheck runs
+// `psql -v ON_ERROR_STOP=1 -f test/fixtures.sql` first). Routing it through the
+// gateway — not the primary — keeps setup on the same pooled path as the tests
+// and exercises the fixtures' own DDL (pg_graphql's fixtures CREATE the
+// extension and set the graphql schema comment). psql replays the multi-statement
+// file faithfully, including any backslash commands.
+func loadFixturesViaGateway(ctx context.Context, psqlPath, fixturesPath string, multigatewayPort int, password string) error {
+	cmd := executil.Command(ctx, psqlPath,
+		"-v", "ON_ERROR_STOP=1",
+		"-f", fixturesPath,
+		"-d", "postgres")
+	cmd.AddEnv(
+		"PGHOST=localhost",
+		fmt.Sprintf("PGPORT=%d", multigatewayPort),
+		"PGUSER=postgres",
+		"PGPASSWORD="+password,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("psql -f %s: %w\n%s", fixturesPath, err, truncateForLog(string(out), 2000))
 	}
 	return nil
 }

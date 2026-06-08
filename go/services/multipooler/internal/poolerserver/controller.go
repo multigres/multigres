@@ -52,10 +52,14 @@ type PoolerController interface {
 	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 
 	// StartRequest checks whether a new request should be admitted.
-	// It validates that the target's pooler type matches this pooler's actual type
-	// (returning MTF01 on mismatch to trigger gateway buffering), and checks
-	// serving status. During graceful shutdown, allowOnShutdown=true permits
-	// requests on existing reserved connections so in-flight transactions can complete.
+	// For fresh requests (allowOnShutdown=false) it validates that the target's
+	// pooler type matches this pooler's actual type (returning MTF01 on mismatch
+	// to trigger gateway buffering) and checks serving status. allowOnShutdown=true
+	// marks an in-flight operation on an existing reserved connection: it is
+	// admitted regardless of serving status or demotion (the reserved connection
+	// is the real gate), so in-flight transactions can complete on the live backend
+	// — or surface an honest 40001 from the executor if the connection was already
+	// force-closed during the drain.
 	StartRequest(target *query.Target, allowOnShutdown bool) error
 
 	// AwaitStateChange blocks until the pooler's type and serving status match

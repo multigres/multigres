@@ -88,7 +88,7 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
 	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
-	{"pg_graphql", KindExternal, StatusExternal, "Rust"},
+	{"pg_graphql", KindExternal, StatusCovered, "Supabase pg_graphql; Rust/pgrx crate built with cargo-pgrx; loads test/fixtures.sql before its pg_regress suite"},
 	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
 	{"pg_partman", KindExternal, StatusUnsupported, "ships a pgTAP suite, not pg_regress; built and installed as a build dependency of pgmq (create_partitioned → create_parent)"},
@@ -180,6 +180,34 @@ type ExternalExtension struct {
 	// DependsOn pg_partman. ExternalBuildList orders dependencies before the
 	// extensions that need them. Empty for self-contained extensions (pgvector).
 	DependsOn []string
+
+	// BuildSystem selects the build toolchain: "" (or "pgxs") builds a PGXS
+	// module with make; "pgrx" builds a Rust crate with cargo-pgrx. pgvector,
+	// pg_cron, and pgmq are PGXS; pg_graphql is pgrx.
+	BuildSystem string
+
+	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx". It must
+	// equal the crate's pinned pgrx dependency (pg_graphql 1.6.1 → pgrx 0.16.1),
+	// or cargo-pgrx refuses to build. Empty (and ignored) for PGXS extensions.
+	PgrxVersion string
+
+	// ContribDeps names contrib modules (by directory name) the harness must
+	// install before this extension's suite runs, because the suite CREATEs them.
+	// Unlike DependsOn (external repos), these ship in the PostgreSQL source tree
+	// and are installed with InstallContribModules. pg_graphql's tests
+	// `create extension citext`, so it sets ContribDeps: {"citext"}; without this
+	// an external-only run (no contrib suite) fails those tests with "extension
+	// citext is not available". Harmless in a full run where all contrib is
+	// already installed.
+	ContribDeps []string
+
+	// FixturesFile, when non-empty, names a SQL file (relative to TestSubdir) the
+	// harness loads through multigateway with psql before pg_regress runs, the way
+	// the extension's own runner does. pg_graphql's bin/installcheck loads
+	// test/fixtures.sql (it CREATEs the extension and sets the graphql schema
+	// comment) before the suite, so the fixtures must run first here too. Empty
+	// for extensions whose .sql files are self-contained (pgmq, pgvector).
+	FixturesFile string
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
@@ -191,6 +219,25 @@ var externalSpecs = map[string]ExternalExtension{
 	"vector": {
 		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
 		TestSubdir: "test", CreateExtension: true,
+	},
+	"pg_graphql": {
+		Name: "pg_graphql", Repo: "https://github.com/supabase/pg_graphql", Tag: "v1.6.1",
+		// Rust crate built with cargo-pgrx; the pgrx version must match the crate's
+		// pinned dependency (Cargo.toml: pgrx = "=0.16.1"). Build entry point and
+		// fixtures are at the repo root / test/.
+		BuildSystem: "pgrx", PgrxVersion: "0.16.1", TestSubdir: "test",
+		// test/fixtures.sql opens with `drop extension if exists pg_graphql;
+		// create extension pg_graphql cascade;` and sets the graphql schema
+		// comment, so the harness loads it first and must not also preload the
+		// extension itself.
+		CreateExtension: false, FixturesFile: "fixtures.sql",
+		// Several tests `create extension citext` — install it first (see
+		// ContribDeps), or they fail with "extension citext is not available".
+		ContribDeps: []string{"citext"},
+		// resolve_error_mutation_no_field carries a patch: a pg_graphql
+		// backend-local schema-cache staleness that shows on reused pooled
+		// backends — not a multigres bug. Full rationale is in that patch file's
+		// header comment (testdata/pg17/patches/external/pg_graphql/).
 	},
 	"pg_cron": {
 		Name: "pg_cron", Repo: "https://github.com/citusdata/pg_cron", Tag: "v1.6.4",
@@ -271,6 +318,25 @@ func ExternalBuildList() []ExternalExtension {
 		add(e)
 	}
 	return out
+}
+
+// ExternalContribDeps returns the deduplicated contrib modules the selected
+// external extensions need installed before their suites run (ExternalExtension.
+// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalModules. The build phase
+// installs these so external-only runs work; a full run has already installed
+// all of contrib, which makes the targeted install a harmless no-op.
+func ExternalContribDeps() []string {
+	var deps []string
+	seen := map[string]bool{}
+	for _, e := range ExternalModules() {
+		for _, d := range e.ContribDeps {
+			if !seen[d] {
+				seen[d] = true
+				deps = append(deps, d)
+			}
+		}
+	}
+	return deps
 }
 
 // CheckExternalSpecs verifies every covered external extension has a build spec.

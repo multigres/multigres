@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -690,7 +691,32 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 		nil,
 	)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "reserved connection 42 not found for user alice")
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+	require.Contains(t, err.Error(), "terminated during a planned failover")
+}
+
+// TestConcludeTransaction_ReservedConnTerminated covers the failover-leak fix:
+// when a COMMIT/ROLLBACK arrives for a reserved connection that was already
+// force-closed (e.g. the planned-failover drain exceeded its grace period while
+// the client sat idle-in-transaction), the executor must return an honest 40001
+// (transaction aborted) rather than a bare error or the misleading MTF01 — so
+// the client retries the whole transaction.
+func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
+	e := newTestExecutor()
+	e.poolManager = &stubPoolManager{reservedConnOK: false}
+
+	_, _, err := e.ConcludeTransaction(
+		context.Background(),
+		&query.Target{TableGroup: "tg"},
+		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
+		0, // TRANSACTION_CONCLUSION_UNSPECIFIED — unused on the not-found path
+		nil,
+		false,
+	)
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "must not surface MTF01: %v", err)
+	require.Contains(t, err.Error(), "terminated during a planned failover")
 }
 
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
@@ -716,7 +742,8 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 			func(client.CopyOutMessage) error { return nil },
 		)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "reserved connection 99 not found for user alice")
+		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+		require.Contains(t, err.Error(), "terminated during a planned failover")
 	})
 }
 
