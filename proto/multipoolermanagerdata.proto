@@ -154,6 +154,12 @@ message PrimaryStatus {
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
   SynchronousReplicationConfiguration sync_replication_config = 4;
+
+  // Maximum number of WAL sender processes the primary allows (the
+  // max_wal_senders setting). Surfacing this alongside connected_followers makes
+  // wal-sender capacity exhaustion visible: once connected_followers reaches
+  // max_wal_senders, additional standbys cannot stream.
+  int32 max_wal_senders = 5;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -511,6 +517,18 @@ message ExpireBackupsRequest {
 message ExpireBackupsResponse {
   // IDs of backups that were removed by the expiration.
   repeated string expired_backup_ids = 1;
+}
+
+// VerifyBackupsRequest requests a full-stanza pgbackrest verify run.
+message VerifyBackupsRequest {
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+message VerifyBackupsResponse {
+  // duration is the server-side wall-clock for the verify run.
+  google.protobuf.Duration duration = 1;
+  // raw_output is the full stdout+stderr of `pgbackrest verify`.
+  string raw_output = 2;
 }
 
 // BackupMetadata contains metadata about a backup

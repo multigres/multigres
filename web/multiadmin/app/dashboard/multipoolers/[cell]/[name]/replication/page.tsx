@@ -187,8 +187,12 @@ function PrimarySection({ primary }: { primary: PrimaryStatus }) {
         />
         <SummaryCard label="num_sync" value={sync?.num_sync ?? "—"} mono />
         <SummaryCard
-          label="Connected followers"
-          value={primary.connected_followers?.length ?? 0}
+          label="WAL senders"
+          value={
+            primary.max_wal_senders != null
+              ? `${primary.connected_followers?.length ?? 0} connected / ${primary.max_wal_senders} max`
+              : `${primary.connected_followers?.length ?? 0} connected`
+          }
           mono
         />
       </div>

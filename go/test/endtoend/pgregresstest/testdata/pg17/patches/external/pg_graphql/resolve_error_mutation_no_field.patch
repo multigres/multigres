@@ -1,0 +1,32 @@
+# Known divergence: pg_graphql's backend-local schema cache goes stale on a
+# reused pooled backend. This is NOT a multigres bug.
+#
+# pg_graphql caches the reflected GraphQL schema in backend-process memory and
+# only invalidates that cache on COMMITTED DDL. An earlier test shaped like
+# `begin; create table account(...); graphql.resolve(...); rollback;` builds the
+# cache from the uncommitted table but stamps it with the unchanged committed
+# schema version, leaving the backend holding a schema for a table that no longer
+# exists (so a Mutation type is present).
+#
+# On stock PostgreSQL each pg_regress test runs on a fresh, short-lived backend,
+# so that poisoned cache dies with the test and this test sees an empty schema
+# ("Unknown type Mutation"). multigres pools and REUSES backends, so this test
+# can land on a backend still holding the stale schema and instead reports
+# "Unknown field insertDNE on type Mutation". The transaction was rolled back
+# correctly (the table does not persist) — only pg_graphql's in-memory cache is
+# stale. Same backend-local-state class as hypopg; any backend-reusing pooler
+# (PgBouncer included) would surface it. Narrow: committed schema changes are
+# reflected correctly, so normal pg_graphql usage is unaffected.
+--- a
++++ b
+@@ -9,8 +9,8 @@
+ }
+ $$);
+ resolve
+-------------------------------------------------------------------
+-{"data": null, "errors": [{"message": "Unknown type Mutation"}]}
++-----------------------------------------------------------------------------------------
++{"data": null, "errors": [{"message": "Unknown field \"insertDNE\" on type Mutation"}]}
+ (1 row)
+
+ rollback;

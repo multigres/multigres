@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -373,9 +372,9 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	t.Logf("Wrote test data to primary: %s", testValue)
 
 	// Get primary's current LSN
-	consensusStatusResp, err := primaryClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+	statusResp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary LSN position")
-	primaryLSN := consensusStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+	primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 	// Wait for replica PostgreSQL to be ready after pg_rewind and restart

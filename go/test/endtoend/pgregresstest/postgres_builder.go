@@ -494,9 +494,12 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 
 	for _, ext := range exts {
 		cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
-		testDir := filepath.Join(cloneDir, "test")
+		// Fixtures live under ext.TestSubdir within the checkout (pgvector: test/;
+		// pg_cron: the repo root, i.e. "."). filepath.Join collapses "." back to
+		// the clone root.
+		testDir := filepath.Join(cloneDir, ext.TestSubdir)
 		if !suiteutil.FileExists(filepath.Join(testDir, "sql")) {
-			t.Logf("external/%s: no test/sql in checkout, skipping", ext.Name)
+			t.Logf("external/%s: no %s/sql in checkout, skipping", ext.Name, ext.TestSubdir)
 			continue
 		}
 
@@ -512,11 +515,38 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			t.Logf("external/%s: warning: public schema reset failed: %v", ext.Name, err)
 		}
 
-		// Preload the extension: --use-existing skips pg_regress's own
-		// --load-extension step, and pgvector's fixtures assume it is already
-		// installed (see createExtensionViaGateway).
-		if err := createExtensionViaGateway(multigatewayPort, password, ext.Name); err != nil {
-			t.Logf("external/%s: warning: CREATE EXTENSION failed: %v", ext.Name, err)
+		// Front-load the extension's scratch databases directly on the primary.
+		// multigateway blocks CREATE DATABASE by design (one-DB-per-instance; see
+		// ExternalExtension.ScratchDatabases), but the suite only needs them to
+		// exist in the catalog, not to be connectable, so create them here.
+		// Best-effort. They are dropped after the suite runs (below).
+		for _, db := range ext.ScratchDatabases {
+			if err := execOnPrimary(directPgPort, password, fmt.Sprintf("CREATE DATABASE %q", db)); err != nil {
+				t.Logf("external/%s: warning: create scratch db %q failed: %v", ext.Name, db, err)
+			}
+		}
+
+		// Load the extension's fixtures through multigateway before the suite, the
+		// way its own runner does (pg_graphql's bin/installcheck runs
+		// `psql -f test/fixtures.sql` first; those fixtures CREATE the extension and
+		// set its schema config). Same pooled path the test queries take.
+		if ext.FixturesFile != "" {
+			fixturesPath := filepath.Join(testDir, ext.FixturesFile)
+			if err := loadFixturesViaGateway(ctx, filepath.Join(pgBinDir, "psql"), fixturesPath, multigatewayPort, password); err != nil {
+				t.Logf("external/%s: warning: load fixtures %q failed: %v", ext.Name, ext.FixturesFile, err)
+			}
+		}
+
+		// Preload the extension when its fixtures assume it already exists:
+		// --use-existing skips pg_regress's own --load-extension step, and
+		// pgvector's fixtures open with a bare CREATE TABLE ... vector(3) (see
+		// createExtensionViaGateway). Extensions whose fixtures manage the
+		// extension themselves (pg_cron CREATEs it as their first statement) set
+		// CreateExtension=false so we don't collide with that.
+		if ext.CreateExtension {
+			if err := createExtensionViaGateway(multigatewayPort, password, ext.Name); err != nil {
+				t.Logf("external/%s: warning: CREATE EXTENSION failed: %v", ext.Name, err)
+			}
 		}
 
 		t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
@@ -526,7 +556,12 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			"--bindir=" + pgBinDir,
 			"--use-existing",
 			"--dbname=postgres",
-			"--load-extension=" + ext.Name,
+		}
+		// --load-extension only fires inside create_database(), which pg_regress
+		// skips under --use-existing, so it is a no-op here; pass it only for the
+		// preloaded extensions to keep intent clear.
+		if ext.CreateExtension {
+			args = append(args, "--load-extension="+ext.Name)
 		}
 		args = append(args, tests...)
 		// Run from the clone root so psql's client-side \copy resolves the
@@ -540,6 +575,16 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			outputDir: filepath.Join(pb.OutputDir, "external", ext.Name),
 			srcOutDir: cloneDir,
 		}, multigatewayPort, password)
+
+		// Drop the scratch databases now the suite has run (verification reads
+		// result files, not the live DB). WITH (FORCE) in case pg_cron's launcher
+		// opened a connection. Best-effort; the cluster is torn down after anyway.
+		for _, db := range ext.ScratchDatabases {
+			if err := execOnPrimary(directPgPort, password, fmt.Sprintf("DROP DATABASE IF EXISTS %q WITH (FORCE)", db)); err != nil {
+				t.Logf("external/%s: warning: drop scratch db %q failed: %v", ext.Name, db, err)
+			}
+		}
+
 		if res == nil {
 			t.Logf("external/%s: no test results (%v)", ext.Name, err)
 			continue
@@ -727,6 +772,27 @@ func resetContribState(directPgPort int, password string) error {
 	return nil
 }
 
+// execOnPrimary runs a single statement directly on the primary's PostgreSQL
+// (bypassing multigateway, which rejects some Tier 2 DDL like CREATE DATABASE).
+// Used to front-load fixture setup an extension's suite needs but the gateway
+// blocks; the standby picks the change up via WAL. Each call is its own
+// autocommit connection so statements that can't run in a transaction block
+// (CREATE DATABASE) work.
+func execOnPrimary(directPgPort int, password, stmt string) error {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		directPgPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(stmt); err != nil {
+		return fmt.Errorf("exec [%s]: %w", stmt, err)
+	}
+	return nil
+}
+
 // createExtensionViaGateway runs CREATE EXTENSION IF NOT EXISTS through
 // multigateway — the same path the test queries take, so there's no
 // create-on-primary-then-read-from-standby replication race, and it doubles as
@@ -756,6 +822,31 @@ func createExtensionViaGateway(multigatewayPort int, password, ext string) error
 	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS "%s"`, ext)
 	if _, err := db.Exec(stmt); err != nil {
 		return fmt.Errorf("exec [%s]: %w", stmt, err)
+	}
+	return nil
+}
+
+// loadFixturesViaGateway runs an extension's fixtures SQL file through
+// multigateway with psql before its suite, mirroring how the extension's own
+// runner seeds the database (pg_graphql's bin/installcheck runs
+// `psql -v ON_ERROR_STOP=1 -f test/fixtures.sql` first). Routing it through the
+// gateway — not the primary — keeps setup on the same pooled path as the tests
+// and exercises the fixtures' own DDL (pg_graphql's fixtures CREATE the
+// extension and set the graphql schema comment). psql replays the multi-statement
+// file faithfully, including any backslash commands.
+func loadFixturesViaGateway(ctx context.Context, psqlPath, fixturesPath string, multigatewayPort int, password string) error {
+	cmd := executil.Command(ctx, psqlPath,
+		"-v", "ON_ERROR_STOP=1",
+		"-f", fixturesPath,
+		"-d", "postgres")
+	cmd.AddEnv(
+		"PGHOST=localhost",
+		fmt.Sprintf("PGPORT=%d", multigatewayPort),
+		"PGUSER=postgres",
+		"PGPASSWORD="+password,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("psql -f %s: %w\n%s", fixturesPath, err, truncateForLog(string(out), 2000))
 	}
 	return nil
 }

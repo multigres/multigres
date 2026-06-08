@@ -87,16 +87,17 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"index_advisor", KindExternal, StatusExternal, "depends on hypopg"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
-	{"pg_cron", KindExternal, StatusExternal, ""},
-	{"pg_graphql", KindExternal, StatusExternal, "Rust"},
+	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
+	{"pg_graphql", KindExternal, StatusCovered, "Supabase pg_graphql; Rust/pgrx crate built with cargo-pgrx; loads test/fixtures.sql before its pg_regress suite"},
 	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
+	{"pg_partman", KindExternal, StatusUnsupported, "ships a pgTAP suite, not pg_regress; built and installed as a build dependency of pgmq (create_partitioned → create_parent)"},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
 	{"pgaudit", KindExternal, StatusExternal, ""},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusExternal, "depends on pgcrypto"},
-	{"pgmq", KindExternal, StatusExternal, ""},
+	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
 	{"pgsodium", KindExternal, StatusExternal, "libsodium"},
 	{"pgtap", KindExternal, StatusExternal, ""},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
@@ -112,21 +113,165 @@ var ExtensionCatalog = []ExtensionInfo{
 }
 
 // ExternalExtension describes one external (non-contrib) extension wired into
-// the external suite: its catalog name plus the git coordinates the harness
-// clones and builds it from.
+// the external suite: its catalog name, the git coordinates the harness clones
+// and builds it from, and a few knobs for the places extensions diverge from
+// the pgvector baseline (test layout, extension lifecycle, server config).
 type ExternalExtension struct {
 	Name string
 	Repo string
 	Tag  string
+
+	// BuildSubdir is the directory within the checkout that holds the PGXS
+	// Makefile, relative to the clone root. pgvector and pg_cron keep it at the
+	// repo root (""), so the harness builds there; pgmq keeps the extension under
+	// pgmq-extension/, so it uses "pgmq-extension". Empty means the repo root.
+	BuildSubdir string
+
+	// TestSubdir is the directory within the checkout that holds the shipped
+	// pg_regress fixtures (sql/ + expected/), relative to the clone root.
+	// pgvector keeps them under test/; pg_cron keeps them at the repo root, so
+	// it uses "." (filepath.Join collapses it back to the clone root). pgmq keeps
+	// them under pgmq-extension/test, alongside its BuildSubdir.
+	TestSubdir string
+
+	// CreateExtension controls whether the harness pre-creates the extension
+	// through multigateway (and passes pg_regress --load-extension) before the
+	// suite runs. pgvector's fixtures assume it already exists (they open with a
+	// bare CREATE TABLE ... vector(3) and never CREATE EXTENSION), so it needs
+	// the preload. pg_cron's fixtures manage the extension themselves
+	// (CREATE EXTENSION pg_cron VERSION '1.0' is the first statement, then they
+	// DROP and recreate it at a newer version), so preloading would make that
+	// first statement fail with "extension already exists" — it must be false.
+	CreateExtension bool
+
+	// ScratchDatabases names databases the harness creates directly on the
+	// primary (bypassing multigateway, like the public-schema reset) before the
+	// suite runs and drops afterward. This is a TEST-ONLY accommodation, NOT a
+	// product capability: multigres is one-database-per-postgres-instance by
+	// design (multigateway blocks CREATE/DROP DATABASE as Tier 2 statements;
+	// adding a database is a provisioning operation that brings up a new
+	// cluster, see docs/query_serving/unsafe_statement_rejection.md). pg_cron's
+	// test, though, uses other databases purely as *metadata*: it passes their
+	// names to cron.schedule_in_database / cron.alter_job(database := ...) and
+	// reads their ACLs from the shared pg_database catalog, all over the same
+	// `postgres` connection — it never opens a session against them (nothing in
+	// the multigres stack does; only pg_cron's in-process launcher would, and
+	// the test doesn't wait for it). So creating the physical databases here is
+	// enough to make those catalog/privilege checks run for real, while the
+	// test's own CREATE/DROP DATABASE statements still hit the gateway block
+	// (the only lines left in the patch). Reusable for any extension whose suite
+	// references databases by name without connecting to them.
+	ScratchDatabases []string
+
+	// ServerConfigFile, when non-empty, names a postgresql.conf snippet under
+	// testdata/pg<major>/external/ that the cluster must apply before postgres
+	// starts (appended at initdb time, last-write-wins over the template). Use
+	// it for extensions that need server-level configuration the pooled query
+	// path can't set, e.g. pg_cron's background worker requires
+	// shared_preload_libraries = 'pg_cron' or CREATE EXTENSION errors out. Empty
+	// for extensions that need nothing beyond the stock cluster (pgvector).
+	ServerConfigFile string
+
+	// DependsOn names other externalSpecs the harness must clone, build, and
+	// install before this extension's suite runs, because the suite CREATEs those
+	// extensions too. They are build-only: installed so CREATE EXTENSION resolves,
+	// but not tested on their own (they need not ship a pg_regress suite). pgmq's
+	// base.sql creates partitioned queues via pg_partman's create_parent, so pgmq
+	// DependsOn pg_partman. ExternalBuildList orders dependencies before the
+	// extensions that need them. Empty for self-contained extensions (pgvector).
+	DependsOn []string
+
+	// BuildSystem selects the build toolchain: "" (or "pgxs") builds a PGXS
+	// module with make; "pgrx" builds a Rust crate with cargo-pgrx. pgvector,
+	// pg_cron, and pgmq are PGXS; pg_graphql is pgrx.
+	BuildSystem string
+
+	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx". It must
+	// equal the crate's pinned pgrx dependency (pg_graphql 1.6.1 → pgrx 0.16.1),
+	// or cargo-pgrx refuses to build. Empty (and ignored) for PGXS extensions.
+	PgrxVersion string
+
+	// ContribDeps names contrib modules (by directory name) the harness must
+	// install before this extension's suite runs, because the suite CREATEs them.
+	// Unlike DependsOn (external repos), these ship in the PostgreSQL source tree
+	// and are installed with InstallContribModules. pg_graphql's tests
+	// `create extension citext`, so it sets ContribDeps: {"citext"}; without this
+	// an external-only run (no contrib suite) fails those tests with "extension
+	// citext is not available". Harmless in a full run where all contrib is
+	// already installed.
+	ContribDeps []string
+
+	// FixturesFile, when non-empty, names a SQL file (relative to TestSubdir) the
+	// harness loads through multigateway with psql before pg_regress runs, the way
+	// the extension's own runner does. pg_graphql's bin/installcheck loads
+	// test/fixtures.sql (it CREATEs the extension and sets the graphql schema
+	// comment) before the suite, so the fixtures must run first here too. Empty
+	// for extensions whose .sql files are self-contained (pgmq, pgvector).
+	FixturesFile string
 }
 
-// externalSpecs holds the build coordinates (git repo + pinned tag) for every
-// external extension the harness can build. An ExtensionCatalog entry with
-// Kind==KindExternal can only be StatusCovered if it also has a spec here; the
-// pinned tag keeps the suite reproducible (and matches the pgvector ABI the
-// from-source PostgreSQL was built against). Keyed by catalog Name.
+// externalSpecs holds the build coordinates (git repo + pinned tag) and the
+// per-extension knobs for every external extension the harness can build. An
+// ExtensionCatalog entry with Kind==KindExternal can only be StatusCovered if it
+// also has a spec here; the pinned tag keeps the suite reproducible (and matches
+// the ABI the from-source PostgreSQL was built against). Keyed by catalog Name.
 var externalSpecs = map[string]ExternalExtension{
-	"vector": {Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1"},
+	"vector": {
+		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
+		TestSubdir: "test", CreateExtension: true,
+	},
+	"pg_graphql": {
+		Name: "pg_graphql", Repo: "https://github.com/supabase/pg_graphql", Tag: "v1.6.1",
+		// Rust crate built with cargo-pgrx; the pgrx version must match the crate's
+		// pinned dependency (Cargo.toml: pgrx = "=0.16.1"). Build entry point and
+		// fixtures are at the repo root / test/.
+		BuildSystem: "pgrx", PgrxVersion: "0.16.1", TestSubdir: "test",
+		// test/fixtures.sql opens with `drop extension if exists pg_graphql;
+		// create extension pg_graphql cascade;` and sets the graphql schema
+		// comment, so the harness loads it first and must not also preload the
+		// extension itself.
+		CreateExtension: false, FixturesFile: "fixtures.sql",
+		// Several tests `create extension citext` — install it first (see
+		// ContribDeps), or they fail with "extension citext is not available".
+		ContribDeps: []string{"citext"},
+		// resolve_error_mutation_no_field carries a patch: a pg_graphql
+		// backend-local schema-cache staleness that shows on reused pooled
+		// backends — not a multigres bug. Full rationale is in that patch file's
+		// header comment (testdata/pg17/patches/external/pg_graphql/).
+	},
+	"pg_cron": {
+		Name: "pg_cron", Repo: "https://github.com/citusdata/pg_cron", Tag: "v1.6.4",
+		TestSubdir: ".", CreateExtension: false, ServerConfigFile: "pg_cron.conf",
+		// pg_cron-test.sql references pgcron_dbno/pgcron_dbyes by name (it REVOKEs
+		// CONNECT on one and schedules/alters jobs targeting both) but never
+		// connects to them; front-load them on the primary so those metadata and
+		// CONNECT-privilege checks run for real. See ScratchDatabases.
+		ScratchDatabases: []string{"pgcron_dbno", "pgcron_dbyes"},
+	},
+	// pg_partman is a build-only dependency of pgmq, never tested on its own (it
+	// ships a pgTAP suite, not pg_regress — see its StatusUnsupported catalog
+	// entry). pgmq.create_partitioned calls partman's create_parent, which works
+	// without the background worker, so no ServerConfigFile is needed; the PGXS
+	// Makefile is at the repo root, so BuildSubdir stays empty.
+	"pg_partman": {
+		Name: "pg_partman", Repo: "https://github.com/pgpartman/pg_partman", Tag: "v5.4.3",
+	},
+	"pgmq": {
+		Name: "pgmq", Repo: "https://github.com/tembo-io/pgmq", Tag: "v1.11.1",
+		// The extension lives under pgmq-extension/ (PGXS Makefile + test/), not at
+		// the repo root, so both the build and the fixtures hang off that subdir.
+		BuildSubdir: "pgmq-extension", TestSubdir: "pgmq-extension/test",
+		// Every test file CREATEs the extension itself (the topic/fifo files open
+		// with DROP EXTENSION IF EXISTS pgmq CASCADE; CREATE EXTENSION pgmq), so the
+		// harness must not preload it.
+		CreateExtension: false,
+		// base.sql creates partitioned queues via pg_partman's create_parent and
+		// CREATEs pg_partman directly; install it first. (base.sql also calls
+		// pgmq.create_unlogged, whose CREATE UNLOGGED TABLE runs as dynamic SQL
+		// inside a plpgsql function — the gateway only sees the SELECT, so the
+		// top-level unlogged-table rejection does not fire and it succeeds.)
+		DependsOn: []string{"pg_partman"},
+	},
 }
 
 // CoveredExternalExtensions returns the external extensions the suite builds and
@@ -144,6 +289,54 @@ func CoveredExternalExtensions() []ExternalExtension {
 		}
 	}
 	return exts
+}
+
+// ExternalBuildList returns every external extension the suite must clone, build,
+// and install: the extensions selected for this run (ExternalModules, which
+// honors PGEXTERNAL_TESTS) plus their build-only dependencies (DependsOn), with
+// each dependency ordered before the extension that needs it and every entry
+// deduplicated. Dependencies are resolved through externalSpecs. The build phase
+// iterates this so a narrowed run (e.g. PGEXTERNAL_TESTS="pgmq") builds only the
+// selected extensions and their deps; the test phase iterates ExternalModules
+// (dependencies ship no pg_regress suite we run).
+func ExternalBuildList() []ExternalExtension {
+	var out []ExternalExtension
+	seen := map[string]bool{}
+	add := func(spec ExternalExtension) {
+		if seen[spec.Name] {
+			return
+		}
+		seen[spec.Name] = true
+		out = append(out, spec)
+	}
+	for _, e := range ExternalModules() {
+		for _, dep := range e.DependsOn {
+			if spec, ok := externalSpecs[dep]; ok {
+				add(spec)
+			}
+		}
+		add(e)
+	}
+	return out
+}
+
+// ExternalContribDeps returns the deduplicated contrib modules the selected
+// external extensions need installed before their suites run (ExternalExtension.
+// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalModules. The build phase
+// installs these so external-only runs work; a full run has already installed
+// all of contrib, which makes the targeted install a harmless no-op.
+func ExternalContribDeps() []string {
+	var deps []string
+	seen := map[string]bool{}
+	for _, e := range ExternalModules() {
+		for _, d := range e.ContribDeps {
+			if !seen[d] {
+				seen[d] = true
+				deps = append(deps, d)
+			}
+		}
+	}
+	return deps
 }
 
 // CheckExternalSpecs verifies every covered external extension has a build spec.

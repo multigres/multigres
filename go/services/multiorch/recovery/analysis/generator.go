@@ -333,6 +333,13 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			continue
 		}
 
+		// Skip poolers that have never reported health — we have no information
+		// about their replication state, so they must not influence the
+		// connected-count check used to suppress failover.
+		if pooler.StreamSnapshotsReceived == 0 {
+			continue
+		}
+
 		replicaCount++
 
 		// Check if replica is connected to the leader's postgres
