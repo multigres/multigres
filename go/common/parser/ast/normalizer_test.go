@@ -196,6 +196,19 @@ func TestNormalize_SetConfigIsLocalGating(t *testing.T) {
 		fp2 := Normalize(selectSetConfig("request.jwt.claims", `{"sub":"bob"}`, true)).Fingerprint()
 		assert.Equal(t, fp1, fp2, "is_local=true set_config calls must share a fingerprint")
 	})
+
+	// The variable name (args[0]) stays literal even for is_local=true so the
+	// planner can enforce the synchronous_commit guard on that path; only the
+	// value (args[1]) is parameterized for plan-cache stability.
+	t.Run("is_local=true keeps the name literal but parameterizes the value", func(t *testing.T) {
+		result := Normalize(selectSetConfig("synchronous_commit", "off", true))
+		assert.Contains(t, result.NormalizedSQL, "synchronous_commit",
+			"set_config name must remain literal: %s", result.NormalizedSQL)
+		assert.NotContains(t, result.NormalizedSQL, "'off'",
+			"set_config value must be parameterized: %s", result.NormalizedSQL)
+		assert.Contains(t, result.NormalizedSQL, "$1",
+			"set_config value must be parameterized: %s", result.NormalizedSQL)
+	})
 }
 
 func TestNormalizeDoesNotMutateOriginal(t *testing.T) {
