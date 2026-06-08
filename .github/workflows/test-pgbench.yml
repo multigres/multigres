@@ -266,7 +266,10 @@ jobs:
             "$SLACK_WEBHOOK_URL"
 
       - name: Prepare baseline for cache save
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: >-
+          !cancelled() &&
+          github.event_name != 'pull_request' &&
+          steps.results.outputs.path != ''
         env:
           RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
@@ -274,7 +277,10 @@ jobs:
           cp "$RESULTS_PATH" /tmp/pgbench-baseline/results.json
 
       - name: Save current results as new baseline
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: >-
+          !cancelled() &&
+          github.event_name != 'pull_request' &&
+          steps.results.outputs.path != ''
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: /tmp/pgbench-baseline/results.json
