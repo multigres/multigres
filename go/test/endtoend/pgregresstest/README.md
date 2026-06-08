@@ -213,13 +213,15 @@ on `ExternalExtension` (`extensions.go`):
   partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
   `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
   dependencies before their dependents.
-- **`CreateExtension`** — whether the harness pre-creates the extension through
-  multigateway (and passes `--load-extension`) before the run. pgvector's
-  fixtures assume it already exists (they open with a bare
-  `CREATE TABLE ... vector(3)`), so `true`. pg_cron's fixtures create and drop
-  the extension themselves (`CREATE EXTENSION pg_cron VERSION '1.0'` is the first
-  statement), so `false` — preloading would make that statement fail with
-  "already exists".
+- **`PreCreateExtensions`** — extensions the harness `CREATE`s through multigateway
+  (each optionally into a specific schema) before the run, for fixtures that assume
+  an extension already exists. pgvector's fixtures open with a bare
+  `CREATE TABLE ... vector(3)`, so it lists `{Name: "vector"}`. pg_partman's pgTAP
+  tests expect pgtap in `public` and pg_partman in `partman` (its control file pins
+  no schema, so a bare `CREATE EXTENSION` would land it in `public` and break every
+  `partman.*` reference), so it lists both with the schema set. Left empty for
+  fixtures that manage the extension themselves (pg_cron's first statement is
+  `CREATE EXTENSION pg_cron VERSION '1.0'`; pgmq each `DROP`s and re-`CREATE`s it).
 - **`ServerConfigFile`** — a `postgresql.conf` snippet under
   `testdata/pg17/external/` the cluster must apply before postgres starts, for
   extensions needing server-level config the pooled query path can't set.
