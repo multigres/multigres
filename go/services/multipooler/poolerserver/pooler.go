@@ -183,25 +183,45 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 // Returns nil if the request is allowed, or an error if it should be rejected.
 //
 // It validates the target against this pooler's identity (tablegroup, shard, type)
-// via checkTarget, then checks serving status. A target mismatch returns MTF01,
-// which causes the gateway to buffer the request until the correct pooler is available.
+// via checkTargetLocked, then checks serving status. A PRIMARY-to-REPLICA target
+// mismatch or a non-serving status returns MTF01, which causes the gateway to
+// buffer the request until the correct pooler is available.
 //
-// During graceful shutdown (shuttingDown=true), requests on existing reserved
-// connections (allowOnShutdown=true) are still admitted so that in-flight
-// transactions can complete. New reservations and fresh queries are rejected.
+// allowOnShutdown=true marks an in-flight operation on an existing reserved
+// connection (COMMIT/ROLLBACK, temp-table cleanup, a mid-transaction statement).
+// These are admitted regardless of serving status or demotion — the reserved
+// connection is the real gate. During the graceful drain the connection is still
+// alive and the operation completes; if the drain exceeded its grace period and
+// force-closed the connection, the executor returns an honest 40001
+// (transaction aborted) so the client retries the whole transaction. New
+// reservations and fresh queries (allowOnShutdown=false) are rejected with MTF01
+// once the pooler stops serving.
 func (s *QueryPoolerServer) StartRequest(target *query.Target, allowOnShutdown bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.checkTargetLocked(target); err != nil {
+	if err := s.checkTargetLocked(target, allowOnShutdown); err != nil {
 		return err
+	}
+
+	// In-flight operations on an existing reserved connection (allowOnShutdown)
+	// are admitted regardless of serving status or demotion. The reserved
+	// connection itself is the real gate: if it still exists the operation
+	// completes on the live backend (postgres is demoted only after the drain
+	// finishes); if it was force-closed because the drain exceeded its grace
+	// period, the executor returns an honest "transaction aborted" error (40001)
+	// so the client retries the whole transaction — rather than the misleading
+	// MTF01 "failover in progress, will be retried automatically" signal, which
+	// is neither buffered nor retryable for a transaction that no longer exists.
+	if allowOnShutdown {
+		return nil
 	}
 
 	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING && !s.shuttingDown {
 		return mterrors.MTF01.New()
 	}
 
-	if s.shuttingDown && !allowOnShutdown {
+	if s.shuttingDown {
 		return mterrors.MTF01.New()
 	}
 
@@ -217,8 +237,16 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, allowOnShutdown b
 //     buffering until the new primary is discovered. All other type combinations
 //     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic).
 //
+// allowOnShutdown signals an in-flight operation on an existing reserved
+// connection. Such operations bypass the demotion (PRIMARY→REPLICA) check: the
+// reserved connection's existence is the real gate (see StartRequest), so a
+// demoted pooler whose reserved connection survived the drain can still conclude
+// its transaction, and one whose connection was force-closed surfaces an honest
+// 40001 from the executor rather than MTF01. Tablegroup/shard mismatches (real
+// routing bugs) are still rejected.
+//
 // Caller must hold s.mu.
-func (s *QueryPoolerServer) checkTargetLocked(target *query.Target) error {
+func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, allowOnShutdown bool) error {
 	if target == nil {
 		return nil
 	}
@@ -229,6 +257,10 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target) error {
 
 	if s.shard != "" && target.Shard != "" && target.Shard != s.shard {
 		return mterrors.MTD01.New("target shard %q does not match pooler shard %q", target.Shard, s.shard)
+	}
+
+	if allowOnShutdown {
+		return nil
 	}
 
 	// A PRIMARY request hitting a REPLICA means the gateway thinks this pooler is

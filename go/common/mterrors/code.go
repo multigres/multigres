@@ -41,6 +41,7 @@ const (
 	PgSSQueryCanceled           = "57014" // query_canceled
 	PgSSInternalError           = "XX000" // internal_error
 	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
+	PgSSSerializationFailure    = "40001" // serialization_failure
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
@@ -55,6 +56,21 @@ func NewQueryCanceled() *PgDiagnostic {
 func NewStatementTimeout() *PgDiagnostic {
 	return NewPgError("ERROR", PgSSQueryCanceled,
 		"canceling statement due to statement timeout", "")
+}
+
+// NewTransactionAborted creates a PgDiagnostic for a transaction whose reserved
+// connection was terminated before it could continue or be concluded — e.g.
+// force-closed when a planned failover drain exceeded its grace period while the
+// client sat idle-in-transaction. SQLSTATE 40001 (serialization_failure) so
+// clients and ORMs retry the whole transaction; the data was rolled back, so a
+// retry is the correct recovery.
+//
+// This is deliberately NOT MTF01: the transaction is gone, so there is nothing
+// to buffer or auto-retry inside the cluster — only the client can replay it.
+func NewTransactionAborted(reservedConnID uint64) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSerializationFailure,
+		"transaction aborted: connection terminated during a planned failover; please retry the transaction",
+		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
