@@ -476,3 +476,42 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 
 	return output, err
 }
+
+// ExpireBackups runs pgbackrest expire to remove backups that exceed the
+// configured retention policy. This is safe to call at any time.
+// Returns the IDs of backups that were removed.
+func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[string]string) ([]string, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ExpireBackups")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Acquire the distributed backup lease (non-stealing).
+	// Expire must not run concurrently with backup/stanza-create on any node.
+	// Uses WithBackupLease (not WithStolenBackupLease) because expire should
+	// not preempt an in-progress backup — it can wait or fail fast.
+	var expiredIDs []string
+	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
+		var expireErr error
+		expiredIDs, expireErr = pm.backup.Expire(ctx, overrides)
+		return expireErr
+	})
+	return expiredIDs, err
+}
+
+// VerifyBackups runs a full-stanza pgbackrest verify, validating every backup
+// file and WAL segment in the repository. It delegates to the backup engine;
+// see backup.Engine.Verify for the concurrency and error semantics.
+func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*backupengine.VerifyResult, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+	return pm.backup.Verify(ctx)
+}

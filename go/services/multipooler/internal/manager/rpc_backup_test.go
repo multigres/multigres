@@ -994,3 +994,38 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		assert.NotContains(t, args, "--pg2-host-port=8432")
 	})
 }
+
+func TestExpireBackups(t *testing.T) {
+	// ExpireBackups requires a running pgbackrest with a valid stanza.
+	// The actual invocation is tested by integration tests (endtoend/multipooler).
+	// This test validates the precondition checks.
+
+	t.Run("fails when not ready", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		_, err := pm.ExpireBackups(context.Background(), nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "manager is in unknown state")
+	})
+}
+
+func TestVerifyBackups(t *testing.T) {
+	// VerifyBackups requires a running pgbackrest with a valid stanza.
+	// The actual invocation, including the corrupt-backup negative path, is
+	// tested by integration tests (endtoend/multipooler) and the backup engine
+	// unit tests. This test validates the manager handler's precondition checks.
+
+	t.Run("fails when not ready", func(t *testing.T) {
+		pm := &MultiPoolerManager{}
+		_, err := pm.VerifyBackups(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "manager is in unknown state")
+	})
+
+	t.Run("fails when config not yet generated", func(t *testing.T) {
+		// Ready, but topology hasn't been loaded so no config path exists.
+		pm := createTestManager(t.TempDir(), "", "", clustermetadatapb.PoolerType_REPLICA)
+		_, err := pm.VerifyBackups(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "pgbackrest config not found")
+	})
+}
