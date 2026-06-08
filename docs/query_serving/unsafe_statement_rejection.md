@@ -202,20 +202,26 @@ normalization happening earlier in the pipeline for caching.
 - Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
   parse time.
 
-### GUC value guard — `synchronous_commit`
+### Restricted GUC value guard
 
 Separate from the tiers above (which block whole statement types or whole
-functions), a narrow guard rejects any attempt to **assign a value** to one
-specific GUC, `synchronous_commit`, regardless of the statement carrying it.
+functions), a narrow guard rejects any attempt to **assign a value** to a
+cluster-managed GUC, regardless of the statement carrying it. The set is a
+single map (`restrictedGUCs` in `restricted_guc.go`, mirroring `funcBlocklist`):
+add a GUC name + reason there and every path below enforces it.
 
-Replication durability is managed centrally: the multipooler rule store /
-`SyncStandbyManager` is the sole writer of `synchronous_commit` (via
-`ALTER SYSTEM`), and the HA contract requires `synchronous_commit = on` so that
-an acknowledged commit is durably flushed on the synchronous standby (see
+Currently the list has one entry, **`synchronous_commit`**. Replication
+durability is managed centrally: the multipooler rule store / `SyncStandbyManager`
+is the sole writer of `synchronous_commit` (via `ALTER SYSTEM`), and the HA
+contract requires `synchronous_commit = on` so that an acknowledged commit is
+durably flushed on the synchronous standby (see
 `docs/ha/decision-log/2026-02-12-synchronous-commit-on.md`). A session that
 lowers the value silently weakens that guarantee for its writes — a footgun, so
 we take the choice away. See
 `docs/ha/decision-log/2026-05-29-block-synchronous-commit-changes.md`.
+
+The paths below use `synchronous_commit` as the example; the same rules apply to
+any GUC added to `restrictedGUCs`.
 
 | Path                                          | Action                                   |
 | --------------------------------------------- | ---------------------------------------- |
@@ -234,7 +240,7 @@ Reverts are allowed because they can only restore the cluster-managed value.
 The rejection is a `feature_not_supported` (`0A000`) error pointing users at
 `RESET`.
 
-**Where it runs.** In `checkSynchronousCommitChange`, called from
+**Where it runs.** In `checkRestrictedGUCChange`, called from
 `planUnsupportedConstructs` alongside the Tier 2 and expression-level checks, so
 it covers both query protocols and is short-circuited by the plan cache. The
 `set_config(...)` form is enforced inside the same expression walker that tracks
@@ -309,18 +315,18 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 ### Key Files
 
-| File                                                       | Purpose                                                                                                                       |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                          |
-| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls                    |
-| `go/services/multigateway/planner/synchronous_commit.go`   | `checkSynchronousCommitChange()` — rejects value assignments to `synchronous_commit` across SET / ALTER ROLE / ALTER DATABASE |
-| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                                    |
-| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                                       |
-| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                        |
-| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                                              |
-| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                  |
-| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                     |
-| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction                   |
+| File                                                       | Purpose                                                                                                                                          |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                             |
+| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls                                       |
+| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE |
+| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                                                       |
+| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                                                          |
+| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                           |
+| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                                                                 |
+| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                     |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                        |
+| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction                                      |
 
 ### Error Format
 

@@ -112,11 +112,11 @@ type expressionCheckResult struct {
 
 // planUnsupportedConstructs runs the pre-dispatch rejection checks that every
 // planning path (simple `Plan()` and extended-protocol `PlanPortal()`) must
-// apply: unsupported statement types (Tier 2), the synchronous_commit GUC guard
-// (SET / ALTER ROLE / ALTER DATABASE), and the expression-level walker
-// (blocklist + rogue set_config, which also rejects set_config on
-// synchronous_commit). Returns the accepted set_config calls for Plan's SELECT
-// dispatch; PlanPortal ignores that result.
+// apply: unsupported statement types (Tier 2), the restricted-GUC guard (SET /
+// ALTER ROLE / ALTER DATABASE assignments to cluster-managed GUCs), and the
+// expression-level walker (blocklist + rogue set_config, which also rejects
+// set_config on those same GUCs). Returns the accepted set_config calls for
+// Plan's SELECT dispatch; PlanPortal ignores that result.
 //
 // Centralizing them here is the point — earlier versions called only
 // planUnsupportedStmt from PlanPortal and silently let blocklisted function
@@ -125,7 +125,7 @@ func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 	if err := planUnsupportedStmt(stmt); err != nil {
 		return nil, err
 	}
-	if err := checkSynchronousCommitChange(stmt); err != nil {
+	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
 	return inspectExpressionFuncCalls(stmt)
@@ -277,15 +277,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 			"set_config requires three arguments: (name text, value text, is_local bool)")
 	}
 
-	// Reject set_config targeting synchronous_commit regardless of is_local —
-	// it is just another reachable path for the override blocked in
-	// checkSynchronousCommitChange. The normalizer keeps the name literal (see
+	// Reject set_config targeting a cluster-managed GUC regardless of
+	// is_local — it is just another reachable path for the override blocked in
+	// checkRestrictedGUCChange. The normalizer keeps the name literal (see
 	// normalizer.go) so we can read it here on the cached and is_local=true
 	// paths too. A bound or otherwise non-literal name is a documented gap: we
 	// let it through rather than reject blindly.
-	if name, ok := constStringArg(fc.Args.Items[0]); ok &&
-		strings.EqualFold(name, synchronousCommitGUC) {
-		return nil, mterrors.NewFeatureNotSupported(errSynchronousCommitChange)
+	if name, ok := constStringArg(fc.Args.Items[0]); ok {
+		if err := restrictedGUCError(name); err != nil {
+			return nil, err
+		}
 	}
 
 	sc := &setConfigCall{}

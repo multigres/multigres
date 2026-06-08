@@ -28,10 +28,11 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 )
 
-// TestCheckSynchronousCommitChange verifies the value-level guard that blocks
-// users from overriding the cluster-managed synchronous_commit GUC across every
-// gateway-reachable statement path, while still allowing reverts.
-func TestCheckSynchronousCommitChange(t *testing.T) {
+// TestCheckRestrictedGUCChange verifies the value-level guard that blocks users
+// from overriding a cluster-managed GUC (synchronous_commit, the sole current
+// entry in restrictedGUCs) across every gateway-reachable statement path, while
+// still allowing reverts.
+func TestCheckRestrictedGUCChange(t *testing.T) {
 	tests := []struct {
 		name    string
 		sql     string
@@ -66,7 +67,7 @@ func TestCheckSynchronousCommitChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkSynchronousCommitChange(parseOne(t, tt.sql))
+			err := checkRestrictedGUCChange(parseOne(t, tt.sql))
 			if !tt.wantErr {
 				assert.NoError(t, err)
 				return

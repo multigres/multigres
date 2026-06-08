@@ -49,7 +49,8 @@ group.
 
 ## Implementation
 
-See `docs/query_serving/unsafe_statement_rejection.md` ("GUC value guard —
-`synchronous_commit`"). The guard lives in
-`go/services/multigateway/planner/synchronous_commit.go` and is wired into the
-pre-dispatch `planUnsupportedConstructs` check that covers both query protocols.
+See `docs/query_serving/unsafe_statement_rejection.md` ("Restricted GUC value
+guard"). The guard lives in
+`go/services/multigateway/planner/restricted_guc.go` — `synchronous_commit` is
+an entry in the `restrictedGUCs` map — and is wired into the pre-dispatch
+`planUnsupportedConstructs` check that covers both query protocols.
