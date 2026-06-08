@@ -18,11 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -188,36 +185,6 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	pm.logger.InfoContext(ctx, "First backup created; deferred cleanup will tear down local data directory", "shard", pm.getShardID())
 	return false, backupFound, nil
-}
-
-func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
-	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
-}
-
-// hasBootstrapSentinel reports whether the sentinel file exists. A non-existent
-// file is (false, nil); any other stat failure (e.g. permissions) is surfaced
-// as an error so callers don't silently treat it as "not present".
-func (pm *MultiPoolerManager) hasBootstrapSentinel() (bool, error) {
-	_, err := os.Stat(pm.bootstrapSentinelPath())
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
-}
-
-func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
-	return os.WriteFile(pm.bootstrapSentinelPath(), []byte("first-backup bootstrap in progress\n"), 0o644)
-}
-
-// removeBootstrapSentinel deletes the sentinel; a missing file is not an error.
-func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
-	if err := os.Remove(pm.bootstrapSentinelPath()); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
 }
 
 // runStanzaCreate runs pgbackrest stanza-create. The operation is idempotent
