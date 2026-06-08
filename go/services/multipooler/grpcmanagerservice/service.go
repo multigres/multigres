@@ -28,7 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/timeouts"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multipooler/manager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
 // managerService is the gRPC wrapper for MultiPoolerManager

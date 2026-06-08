@@ -23,8 +23,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
-	"github.com/multigres/multigres/go/services/multipooler/manager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"
