@@ -78,6 +78,12 @@ jobs:
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
 
+      - name: Write timing summary
+        if: ${{ !cancelled() }}
+        run: |
+          sudo apt-get install -y python3-scipy
+          python3 .github/scripts/timing-summary.py
+
       - name: Upload test results to Trunk
         if: ${{ !cancelled() }}
         uses: ./.github/actions/upload-test-results
@@ -85,12 +91,6 @@ jobs:
           junit-paths: integration-test-results.xml
           previous-step-outcome: ${{ steps.integration-tests.outcome }}
           allow-quarantine: "true"
-
-      - name: Write timing summary
-        if: ${{ !cancelled() }}
-        run: |
-          sudo apt-get install -y python3-scipy
-          python3 .github/scripts/timing-summary.py
 
       - name: Upload test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
