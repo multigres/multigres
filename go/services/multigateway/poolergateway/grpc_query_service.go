@@ -194,6 +194,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	portal *querypb.Portal,
 	options *querypb.ExecuteOptions,
 	portalOptions *multipoolerservice.PortalExecuteOptions,
+	reservationOptions *querypb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "portal stream execute",
@@ -205,11 +206,12 @@ func (g *grpcQueryService) PortalStreamExecute(
 
 	// Create the request
 	req := &multipoolerservice.PortalStreamExecuteRequest{
-		Target:            target,
-		PreparedStatement: preparedStatement,
-		Portal:            portal,
-		Options:           options,
-		PortalOptions:     portalOptions,
+		Target:             target,
+		PreparedStatement:  preparedStatement,
+		Portal:             portal,
+		Options:            options,
+		PortalOptions:      portalOptions,
+		ReservationOptions: reservationOptions,
 		// TODO: Add caller_id when we have authentication
 	}
 

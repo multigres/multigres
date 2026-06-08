@@ -385,6 +385,12 @@ func (sc *ScatterConn) PortalStreamExecute(
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
+	// reservationOpts carries the reservation reasons for this portal. When the
+	// portal needs a fresh reservation (Case 2), the multipooler reserves a
+	// backend with these reasons and runs the portal on it atomically — no
+	// separate no-op "SELECT 1" reserve round trip.
+	var reservationOpts *querypb.ReservationOptions
+
 	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
@@ -394,9 +400,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 	} else if conn.IsInTransaction() || state.PendingTempTableReservation {
-		// Case 2: Need a new reserved connection — for transaction, temp table, or both.
-		// We use StreamExecute with reservation options and a no-op "SELECT 1" query
-		// rather than adding a dedicated ReservePortalStreamExecute RPC.
+		// Case 2: Need a new reserved connection — for transaction, temp table,
+		// or both. Build reservation options the same way the simple
+		// StreamExecute path does and pass them on the portal RPC; the
+		// multipooler reserves-and-runs atomically.
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -409,29 +416,16 @@ func (sc *ScatterConn) PortalStreamExecute(
 			reasons |= protoutil.ReasonTempTable
 		}
 
-		sc.logger.DebugContext(ctx, "creating reserved connection for portal",
+		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",
 			"reasons", protoutil.ReasonsString(reasons))
 
-		noopEo := &querypb.ExecuteOptions{
-			UserAuth:           userAuthFrom(conn),
-			User:               conn.User(),
-			ClientConnectionId: conn.ConnectionID(),
-			SessionSettings:    state.GetSessionSettings(),
-		}
-		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
+		reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
+		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
+		// so the multipooler preserves transaction options instead of plain "BEGIN".
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
 		}
-		noopCallback := func(context.Context, *sqltypes.Result) error { return nil }
-		reservedState, reserveErr := sc.gateway.StreamExecute(
-			ctx, target, "SELECT 1", noopEo, reservationOpts, noopCallback)
-		if reserveErr != nil {
-			return fmt.Errorf("reserve connection for portal failed: %w", reserveErr)
-		}
-		sc.applyReservedState(conn, state, target, reservedState)
-		eo.ReservedConnectionId = reservedState.GetReservedConnectionId()
-		qs, err = sc.gateway.QueryServiceByID(ctx, reservedState.GetPoolerId(), target)
 	}
 	if err != nil {
 		return err
@@ -445,7 +439,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	// Use the query from the prepared statement
-	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, callback)
+	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic

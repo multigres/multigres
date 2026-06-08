@@ -88,6 +88,12 @@ type QueryService interface {
 	//   options: Execute options including max rows and reserved connection ID
 	//   portalOptions: Portal-specific knobs (e.g. include_describe). Nil
 	//     leaves all options at their defaults; non-nil overrides per-field.
+	//   reservationOptions: controls connection reservation behavior, mirroring
+	//     StreamExecute. When non-nil with non-zero reasons and no
+	//     options.ReservedConnectionId, the multipooler reserves a new backend
+	//     with these reasons (running BeginQuery first if ReasonTransaction is
+	//     set) and runs the portal on it atomically. When the connection is
+	//     already reserved, the reasons are OR'd onto it before the portal runs.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -96,6 +102,7 @@ type QueryService interface {
 		portal *query.Portal,
 		options *query.ExecuteOptions,
 		portalOptions *multipoolerpb.PortalExecuteOptions,
+		reservationOptions *query.ReservationOptions,
 		callback func(context.Context, *sqltypes.Result) error,
 	) (*query.ReservedState, error)
 

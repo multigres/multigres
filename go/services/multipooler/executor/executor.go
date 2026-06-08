@@ -569,11 +569,19 @@ func (e *Executor) Close() error {
 }
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
-// If MaxRows > 0, a reserved connection is used since the portal may be suspended and need resumption.
-// Otherwise, a regular connection is used for better pool efficiency.
+// A reserved connection is used when any of these hold: ReservedConnectionId is
+// already set, MaxRows > 0 (the portal may be suspended and need resumption), or
+// reservationOptions carries reasons (the caller wants this portal to reserve a
+// backend — e.g. it opens a transaction or temp table). Otherwise a regular
+// connection is used for better pool efficiency.
 //
 // portalOptions carries portal-only knobs (e.g. include_describe). Nil leaves
 // every field at the proto default.
+//
+// reservationOptions mirrors StreamExecute: when it carries reasons and no
+// ReservedConnectionId is set, a fresh backend is reserved with those reasons
+// (running BeginQuery first if ReasonTransaction is set) before the portal runs;
+// when a reserved connection already exists, the reasons are OR'd onto it.
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -581,6 +589,7 @@ func (e *Executor) PortalStreamExecute(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 	portalOptions *multipoolerpb.PortalExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	if target == nil {
@@ -617,12 +626,15 @@ func (e *Executor) PortalStreamExecute(
 	resultFormats := int32ToInt16Slice(portal.ResultFormats)
 
 	includeDescribe := portalOptions.GetIncludeDescribe()
+	reasons := protoutil.GetReasons(reservationOptions)
 
 	// Use reserved connection if:
 	// 1. ReservedConnectionId is already set (e.g., from transaction or previous portal)
 	// 2. MaxRows > 0 (portal may be suspended and need resumption)
-	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 {
-		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
+	// 3. reservationOptions carries reasons (caller wants this portal to reserve
+	//    a backend, e.g. it opens a transaction or temp table)
+	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 || reasons != 0 {
+		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, reservationOptions, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
 	// Use regular connection for non-suspended execution with no existing reservation
@@ -631,11 +643,19 @@ func (e *Executor) PortalStreamExecute(
 }
 
 // portalExecuteWithReserved executes a portal using a reserved connection.
+//
+// reservationOptions lets a portal reserve-and-run atomically (mirroring
+// reserveAndStreamExecute on the simple path): when the connection is freshly
+// reserved here, BEGIN runs first if ReasonTransaction is set and the remaining
+// reasons are applied; when an existing reservation is promoted, the new reasons
+// are OR'd onto it. nil/zero reservationOptions preserves the prior behavior of
+// just running the portal on the (existing or new) reserved connection.
 func (e *Executor) portalExecuteWithReserved(
 	ctx context.Context,
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	settings map[string]string,
 	user string,
 	maxRows int32,
@@ -645,6 +665,12 @@ func (e *Executor) portalExecuteWithReserved(
 ) (*query.ReservedState, error) {
 	var reservedConn *reserved.Conn
 	var err error
+
+	// Track whether this call created the reservation. A freshly reserved
+	// backend is owned by this call, so reservation-setup failures (e.g. BEGIN)
+	// release it; an existing reservation is owned by the session and must
+	// survive a single failed portal — the gateway decides its fate.
+	newlyReserved := false
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -660,6 +686,10 @@ func (e *Executor) portalExecuteWithReserved(
 		// closed by PostgreSQL. The post-acquire ensurePrepared call
 		// below is a no-op for the new-conn path because connState
 		// dedupes by canonical name.
+		//
+		// Parse is a session-level operation in PostgreSQL, so running it via
+		// the validate hook (before any BEGIN below) is safe; the prepared
+		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
@@ -668,6 +698,7 @@ func (e *Executor) portalExecuteWithReserved(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
+		newlyReserved = true
 	}
 
 	// Stamp multigres_vpid:<id> on the (possibly fresh, possibly resumed)
@@ -675,6 +706,31 @@ func (e *Executor) portalExecuteWithReserved(
 	// a backend without the tag (a freshly created reservation, or an
 	// existing one whose tag was wiped by a prior ApplySettings RESET ALL).
 	e.stampVpidOnReserved(ctx, reservedConn, options)
+
+	// Apply reservation reasons requested for this portal, mirroring
+	// reserveAndStreamExecute / streamExecuteOnReservedConn: run BEGIN when a
+	// transaction reason is added (and the connection isn't already in one),
+	// then OR the remaining reasons onto the connection. Done before
+	// Bind/Execute so the portal runs inside the transaction.
+	if reasons := protoutil.GetReasons(reservationOptions); reasons != 0 {
+		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
+			beginQuery := "BEGIN"
+			if reservationOptions.GetBeginQuery() != "" {
+				beginQuery = reservationOptions.GetBeginQuery()
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				if newlyReserved {
+					reservedConn.Release(reserved.ReleaseError)
+					return nil, err
+				}
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+			}
+		}
+		// OR the requested reasons onto the connection. AddReservationReason is
+		// idempotent, so re-adding ReasonTransaction (already set by
+		// BeginWithQuery above) is harmless.
+		reservedConn.AddReservationReason(reasons)
+	}
 
 	// Ensure the statement is prepared on this connection (with consolidation).
 	// For the new-conn branch this is a no-op because the validate hook above
