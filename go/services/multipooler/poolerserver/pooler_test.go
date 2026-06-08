@@ -104,14 +104,37 @@ func TestStartRequest_NotServing(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	// Both should fail when not serving with MTF01 (triggers gateway buffering)
+	// Fresh requests (allowOnShutdown=false) fail with MTF01 (triggers gateway buffering).
 	err := s.StartRequest(nil, false)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 
+	// In-flight ops on an existing reserved connection (allowOnShutdown=true) are
+	// admitted regardless of serving status — the reserved connection is the real
+	// gate. If it was force-closed, the executor (not StartRequest) surfaces an
+	// honest 40001 instead of the misleading MTF01.
 	err = s.StartRequest(nil, true)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+
+	// A PRIMARY-targeted op on a demoted (REPLICA) pooler is rejected with MTF01
+	// when it's a fresh request...
+	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	err := s.StartRequest(target, false)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
+
+	// ...but admitted when it's an in-flight op on an existing reserved connection
+	// (e.g. a COMMIT after a planned demotion). This lets the executor conclude the
+	// transaction on the live backend, or return an honest 40001 if the connection
+	// was force-closed during the drain.
+	err = s.StartRequest(target, true)
+	require.NoError(t, err)
 }
 
 func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {

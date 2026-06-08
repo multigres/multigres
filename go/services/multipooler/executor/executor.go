@@ -169,7 +169,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
-			return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
 		// Apply settings if they changed (e.g., SET inside a transaction).
@@ -280,7 +280,7 @@ func (e *Executor) StreamExecute(
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
-			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
 		// Apply settings if they changed (e.g., SET inside a transaction).
@@ -650,7 +650,7 @@ func (e *Executor) portalExecuteWithReserved(
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 	} else {
 		// Create a new reserved connection. Wire ensurePrepared as the
@@ -800,7 +800,7 @@ func (e *Executor) Describe(
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
 		if options.SessionSettings != nil {
@@ -950,7 +950,7 @@ func (e *Executor) CopyReady(
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return 0, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return 0, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
 		// Existing reserved conns are actively held (never idle in the
@@ -1062,7 +1062,7 @@ func (e *Executor) CopySendData(
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
-		return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		return mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 	}
 
 	e.logger.DebugContext(ctx, "sending COPY data",
@@ -1103,7 +1103,7 @@ func (e *Executor) CopyFinalize(
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
-		return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 	}
 
 	e.logger.DebugContext(ctx, "finalizing COPY",
@@ -1308,7 +1308,7 @@ func (e *Executor) CopyOutReady(
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return 0, nil, nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 		e.stampVpidOnReserved(ctx, reservedConn, options)
 		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
@@ -1393,7 +1393,7 @@ func (e *Executor) CopyOutStream(
 	user := e.getUserFromOptions(options)
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
-		return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 	}
 
 	conn := reservedConn.Conn()
@@ -1559,7 +1559,7 @@ func (e *Executor) ConcludeTransaction(
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok {
 		// Connection destroyed — return zero state so gateway clears its tracking
-		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+		return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 	}
 
 	// Execute COMMIT or ROLLBACK using the reserved connection's methods,
@@ -1646,7 +1646,7 @@ func (e *Executor) DiscardTempTables(
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok {
 		// Connection destroyed — return zero state so gateway clears its tracking
-		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+		return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 	}
 
 	// Send DISCARD TEMP to PostgreSQL to drop all temp tables on this backend.
