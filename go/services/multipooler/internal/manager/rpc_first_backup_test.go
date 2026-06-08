@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -204,6 +205,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -247,6 +249,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock as the monitor would do before calling this function
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -296,6 +299,7 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -343,9 +347,10 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 			},
 		}),
 		config: &Config{},
-		// pgBackRestConfigPath deliberately empty → configureArchiveMode will fail,
+		// pgBackRestConfigPath deliberately empty → ConfigureArchiveMode will fail,
 		// triggering the cleanup defer after InitDataDir succeeded.
 	}
+	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -406,6 +411,7 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		}),
 		config: &Config{},
 	}
+	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)

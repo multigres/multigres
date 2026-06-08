@@ -17,9 +17,10 @@ package manager
 import (
 	"context"
 	"errors"
-	"fmt"
-	"time"
+	"os"
+	"path/filepath"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -119,7 +120,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 
 	// Configure archive_mode before starting PostgreSQL.
-	if err := pm.configureArchiveMode(ctx); err != nil {
+	if err := pm.backup.ConfigureArchiveMode(ctx); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
 	}
 
@@ -157,7 +158,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			return nil
 		}
 
-		if err := pm.runStanzaCreate(leaseCtx); err != nil {
+		if err := pm.backup.StanzaCreate(leaseCtx); err != nil {
 			return mterrors.Wrap(err, "failed to create pgbackrest stanza")
 		}
 
@@ -167,7 +168,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		// the repo, so a misconfigured archive_command (bad creds, wrong
 		// path) fails cluster creation now rather than silently surviving
 		// until a restore needs WAL that was never archived.
-		if err := pm.runPgBackRestCheck(leaseCtx); err != nil {
+		if err := pm.backup.Check(leaseCtx); err != nil {
 			return mterrors.Wrap(err, "pgbackrest archive check failed")
 		}
 
@@ -187,33 +188,6 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	return false, backupFound, nil
 }
 
-// runStanzaCreate runs pgbackrest stanza-create. The operation is idempotent
-// and safe to run concurrently — no backup lease required.
-func (pm *MultiPoolerManager) runStanzaCreate(ctx context.Context) error {
-	configPath, err := pm.pgBackRestConfig()
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get pgbackrest config")
-	}
-
-	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	cmd := pm.pgbackrestCmd(stanzaCtx,
-		"--stanza="+pm.stanzaName(),
-		"--config="+configPath,
-		"stanza-create")
-
-	output, err := safeCombinedOutput(cmd)
-	if err != nil {
-		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest stanza-create failed for stanza %s: %v\nOutput: %s",
-				pm.stanzaName(), err, output))
-	}
-
-	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized", "stanza", pm.stanzaName())
-	return nil
-}
-
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
 func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
 	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
@@ -227,4 +201,34 @@ func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*cluste
 	}
 
 	return db.BootstrapDurabilityPolicy, nil
+}
+
+func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
+	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
+}
+
+// hasBootstrapSentinel reports whether the sentinel file exists. A non-existent
+// file is (false, nil); any other stat failure (e.g. permissions) is surfaced
+// as an error so callers don't silently treat it as "not present".
+func (pm *MultiPoolerManager) hasBootstrapSentinel() (bool, error) {
+	_, err := os.Stat(pm.bootstrapSentinelPath())
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
+	return os.WriteFile(pm.bootstrapSentinelPath(), []byte("first-backup bootstrap in progress\n"), 0o644)
+}
+
+// removeBootstrapSentinel deletes the sentinel; a missing file is not an error.
+func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
+	if err := os.Remove(pm.bootstrapSentinelPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

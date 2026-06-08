@@ -16,11 +16,6 @@ package manager
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/multigres/multigres/go/common/backup"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
-	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // ExpireBackups runs pgbackrest expire to remove backups that exceed the
@@ -46,77 +41,8 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 	var expiredIDs []string
 	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "expire", pm.logger, func(ctx context.Context) error {
 		var expireErr error
-		expiredIDs, expireErr = pm.expireBackupsLocked(ctx, overrides)
+		expiredIDs, expireErr = pm.backup.Expire(ctx, overrides)
 		return expireErr
 	})
 	return expiredIDs, err
-}
-
-// expireBackupsLocked runs pgbackrest expire. Caller must hold the action lock.
-// Returns the IDs of backups that were removed.
-func (pm *MultiPoolerManager) expireBackupsLocked(ctx context.Context, overrides map[string]string) ([]string, error) {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return nil, err
-	}
-
-	configPath, err := pm.pgBackRestConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	// List backups before expiration to detect what gets removed
-	beforeBackups, err := pm.listBackups(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list backups before expire: %w", err)
-	}
-	beforeIDs := make(map[string]struct{}, len(beforeBackups))
-	for _, b := range beforeBackups {
-		beforeIDs[b.BackupId] = struct{}{}
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, backup.ExpireTimeout)
-	defer cancel()
-
-	args := []string{
-		"--stanza=" + pm.stanzaName(),
-		"--config=" + configPath,
-		"expire",
-	}
-
-	args = backup.ApplyPgBackRestOverrides(args, overrides)
-
-	cmd := pm.pgbackrestCmd(ctx, args...)
-
-	var output []byte
-	err = telemetry.WithSpan(ctx, "expire-backups", func(ctx context.Context) error {
-		var runErr error
-		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest expire")
-		return runErr
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pgbackrest expire failed: %w\nOutput: %s", err, string(output))
-	}
-
-	// List backups after expiration to determine what was removed
-	afterBackups, err := pm.listBackups(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list backups after expire: %w", err)
-	}
-	afterIDs := make(map[string]struct{}, len(afterBackups))
-	for _, b := range afterBackups {
-		afterIDs[b.BackupId] = struct{}{}
-	}
-
-	// Compute expired IDs: in before but not in after
-	var expiredIDs []string
-	for id := range beforeIDs {
-		if _, ok := afterIDs[id]; !ok {
-			expiredIDs = append(expiredIDs, id)
-		}
-	}
-
-	pm.logger.InfoContext(ctx, "Backup expiration completed",
-		"expired_backup_ids", expiredIDs,
-		"expired_count", len(expiredIDs))
-	return expiredIDs, nil
 }

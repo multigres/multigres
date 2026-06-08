@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package backup
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/multigres/multigres/go/tools/executil"
 )
@@ -98,53 +96,4 @@ func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 		return combinedBuf.String(), fmt.Errorf("stderr scan: %w", stderrScanErr)
 	}
 	return combinedBuf.String(), nil
-}
-
-// runLongCommand executes a long-running command with periodic progress logging.
-// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
-// to ensure proper cleanup on context cancellation.
-func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
-	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
-
-	startTime := time.Now()
-
-	// Create a context for the logging goroutine
-	logCtx, cancelLog := context.WithCancel(ctx)
-
-	// Log progress periodically in background
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-logCtx.Done():
-				return
-			case <-ticker.C:
-				elapsed := time.Since(startTime)
-				pm.logger.InfoContext(ctx, "Command still in progress",
-					"operation", operationName,
-					"elapsed_seconds", int(elapsed.Seconds()))
-			}
-		}
-	}()
-
-	output, err := cmd.CombinedOutput()
-
-	cancelLog()
-
-	// Log completion
-	elapsed := time.Since(startTime)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Command failed",
-			"operation", operationName,
-			"elapsed_seconds", int(elapsed.Seconds()),
-			"error", err)
-	} else {
-		pm.logger.InfoContext(ctx, "Command completed",
-			"operation", operationName,
-			"elapsed_seconds", int(elapsed.Seconds()))
-	}
-
-	return output, err
 }
