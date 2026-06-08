@@ -769,23 +769,18 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 	}
 }
 
-func TestGetSynchronousReplicationConfig(t *testing.T) {
+func TestParseSyncReplicationConfig(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMock      func(*mock.QueryService)
+		standbyNames   string
+		syncCommit     string
 		expectError    bool
 		validateResult func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration)
 	}{
 		{
-			name: "FIRST method with multiple standbys",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"},
-					[][]any{{`FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"on"}}))
-			},
-			expectError: false,
+			name:         "FIRST method with multiple standbys",
+			standbyNames: `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
+			syncCommit:   "on",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST, config.SynchronousMethod)
 				assert.Equal(t, int32(2), config.NumSync)
@@ -794,15 +789,9 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "ANY method with single standby",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"},
-					[][]any{{`ANY 1 ("zone1_replica-1")`}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"remote_apply"}}))
-			},
-			expectError: false,
+			name:         "ANY method with single standby",
+			standbyNames: `ANY 1 ("zone1_replica-1")`,
+			syncCommit:   "remote_apply",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
 				assert.Equal(t, int32(1), config.NumSync)
@@ -813,71 +802,41 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "empty synchronous_standby_names",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"local"}}))
-			},
-			expectError: false,
+			name:         "empty synchronous_standby_names",
+			standbyNames: "",
+			syncCommit:   "local",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, 0, len(config.StandbyIds))
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "synchronous_commit off",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"off"}}))
-			},
-			expectError: false,
+			name:         "synchronous_commit off",
+			standbyNames: "",
+			syncCommit:   "off",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "synchronous_commit remote_write",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
-					[]string{"synchronous_commit"}, [][]any{{"remote_write"}}))
-			},
-			expectError: false,
+			name:         "synchronous_commit remote_write",
+			standbyNames: "",
+			syncCommit:   "remote_write",
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
 				assert.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
 			},
 		},
 		{
-			name: "query error on synchronous_standby_names",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("SHOW synchronous_standby_names", errors.New("connection done"))
-			},
-			expectError: true,
-		},
-		{
-			name: "query error on synchronous_commit",
-			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
-					[]string{"synchronous_standby_names"}, [][]any{{""}}))
-				m.AddQueryPatternOnceWithError("SHOW synchronous_commit", errors.New("connection done"))
-			},
-			expectError: true,
+			name:         "unknown synchronous_commit value",
+			standbyNames: "",
+			syncCommit:   "bogus",
+			expectError:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
-
-			tt.setupMock(mockQueryService)
-
-			ctx := context.Background()
-			result, err := pm.getSynchronousReplicationConfig(ctx)
+			result, err := parseSyncReplicationConfig(tt.standbyNames, tt.syncCommit)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -889,7 +848,6 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 					tt.validateResult(t, result)
 				}
 			}
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -1407,9 +1365,12 @@ func TestPauseReplication(t *testing.T) {
 // shrinking the parent context shortens the effective deadline via the
 // min-deadline semantics of context.WithTimeout.
 func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
-	t.Run("deadline expires before first poll", func(t *testing.T) {
+	t.Run("deadline already expired surfaces timeout before polling", func(t *testing.T) {
 		pm, _ := newTestManagerWithMock("default", "0-inf")
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		// Deadline already in the past: the first retry attempt observes the
+		// expired context and returns the timeout without ever polling, so no
+		// query mock is needed.
+		ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 		defer cancel()
 
 		status, err := pm.waitForReceiverDisconnect(ctx)
@@ -1419,16 +1380,15 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
 	})
 
-	t.Run("deadline expires after one poll returns still-streaming", func(t *testing.T) {
+	t.Run("deadline expires while polls keep returning still-streaming", func(t *testing.T) {
 		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
-		// Persistent (non-consumeOnce) pattern: the function may poll once or
-		// more before the deadline trips, depending on scheduling.
+		// Persistent (non-consumeOnce) pattern: the function polls repeatedly
+		// (immediately, then with exponential backoff) until the deadline trips.
 		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
 			[]string{"count", "status", "primary_conninfo"},
 			[][]any{{int64(1), "streaming", "host=primary port=5432"}}))
 
-		// 600ms leaves room for at least one 500ms tick before the deadline trips.
-		ctx, cancel := context.WithTimeout(t.Context(), 600*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 		defer cancel()
 
 		status, err := pm.waitForReceiverDisconnect(ctx)

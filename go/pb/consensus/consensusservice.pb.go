@@ -40,9 +40,8 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xc1\x04\n" +
-	"\x14MultiPoolerConsensus\x12E\n" +
-	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12~\n" +
+	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xfa\x03\n" +
+	"\x14MultiPoolerConsensus\x12~\n" +
 	"\x13UpdateConsensusRule\x122.multipoolermanagerdata.UpdateConsensusRuleRequest\x1a3.multipoolermanagerdata.UpdateConsensusRuleResponse\x12o\n" +
 	"\x0eRewindToSource\x12-.multipoolermanagerdata.RewindToSourceRequest\x1a..multipoolermanagerdata.RewindToSourceResponse\x12H\n" +
 	"\aRecruit\x12\x1d.consensusdata.RecruitRequest\x1a\x1e.consensusdata.RecruitResponse\x12H\n" +
@@ -50,37 +49,33 @@ const file_consensusservice_proto_rawDesc = "" +
 	"\x0eSetTermPrimary\x12$.consensusdata.SetTermPrimaryRequest\x1a%.consensusdata.SetTermPrimaryResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
 
 var file_consensusservice_proto_goTypes = []any{
-	(*consensusdata.StatusRequest)(nil),                        // 0: consensusdata.StatusRequest
-	(*multipoolermanagerdata.UpdateConsensusRuleRequest)(nil),  // 1: multipoolermanagerdata.UpdateConsensusRuleRequest
-	(*multipoolermanagerdata.RewindToSourceRequest)(nil),       // 2: multipoolermanagerdata.RewindToSourceRequest
-	(*consensusdata.RecruitRequest)(nil),                       // 3: consensusdata.RecruitRequest
-	(*consensusdata.ProposeRequest)(nil),                       // 4: consensusdata.ProposeRequest
-	(*consensusdata.SetTermPrimaryRequest)(nil),                // 5: consensusdata.SetTermPrimaryRequest
-	(*consensusdata.StatusResponse)(nil),                       // 6: consensusdata.StatusResponse
-	(*multipoolermanagerdata.UpdateConsensusRuleResponse)(nil), // 7: multipoolermanagerdata.UpdateConsensusRuleResponse
-	(*multipoolermanagerdata.RewindToSourceResponse)(nil),      // 8: multipoolermanagerdata.RewindToSourceResponse
-	(*consensusdata.RecruitResponse)(nil),                      // 9: consensusdata.RecruitResponse
-	(*consensusdata.ProposeResponse)(nil),                      // 10: consensusdata.ProposeResponse
-	(*consensusdata.SetTermPrimaryResponse)(nil),               // 11: consensusdata.SetTermPrimaryResponse
+	(*multipoolermanagerdata.UpdateConsensusRuleRequest)(nil),  // 0: multipoolermanagerdata.UpdateConsensusRuleRequest
+	(*multipoolermanagerdata.RewindToSourceRequest)(nil),       // 1: multipoolermanagerdata.RewindToSourceRequest
+	(*consensusdata.RecruitRequest)(nil),                       // 2: consensusdata.RecruitRequest
+	(*consensusdata.ProposeRequest)(nil),                       // 3: consensusdata.ProposeRequest
+	(*consensusdata.SetTermPrimaryRequest)(nil),                // 4: consensusdata.SetTermPrimaryRequest
+	(*multipoolermanagerdata.UpdateConsensusRuleResponse)(nil), // 5: multipoolermanagerdata.UpdateConsensusRuleResponse
+	(*multipoolermanagerdata.RewindToSourceResponse)(nil),      // 6: multipoolermanagerdata.RewindToSourceResponse
+	(*consensusdata.RecruitResponse)(nil),                      // 7: consensusdata.RecruitResponse
+	(*consensusdata.ProposeResponse)(nil),                      // 8: consensusdata.ProposeResponse
+	(*consensusdata.SetTermPrimaryResponse)(nil),               // 9: consensusdata.SetTermPrimaryResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
-	0,  // 0: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
-	1,  // 1: consensus.MultiPoolerConsensus.UpdateConsensusRule:input_type -> multipoolermanagerdata.UpdateConsensusRuleRequest
-	2,  // 2: consensus.MultiPoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
-	3,  // 3: consensus.MultiPoolerConsensus.Recruit:input_type -> consensusdata.RecruitRequest
-	4,  // 4: consensus.MultiPoolerConsensus.Propose:input_type -> consensusdata.ProposeRequest
-	5,  // 5: consensus.MultiPoolerConsensus.SetTermPrimary:input_type -> consensusdata.SetTermPrimaryRequest
-	6,  // 6: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
-	7,  // 7: consensus.MultiPoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateConsensusRuleResponse
-	8,  // 8: consensus.MultiPoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
-	9,  // 9: consensus.MultiPoolerConsensus.Recruit:output_type -> consensusdata.RecruitResponse
-	10, // 10: consensus.MultiPoolerConsensus.Propose:output_type -> consensusdata.ProposeResponse
-	11, // 11: consensus.MultiPoolerConsensus.SetTermPrimary:output_type -> consensusdata.SetTermPrimaryResponse
-	6,  // [6:12] is the sub-list for method output_type
-	0,  // [0:6] is the sub-list for method input_type
-	0,  // [0:0] is the sub-list for extension type_name
-	0,  // [0:0] is the sub-list for extension extendee
-	0,  // [0:0] is the sub-list for field type_name
+	0, // 0: consensus.MultiPoolerConsensus.UpdateConsensusRule:input_type -> multipoolermanagerdata.UpdateConsensusRuleRequest
+	1, // 1: consensus.MultiPoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
+	2, // 2: consensus.MultiPoolerConsensus.Recruit:input_type -> consensusdata.RecruitRequest
+	3, // 3: consensus.MultiPoolerConsensus.Propose:input_type -> consensusdata.ProposeRequest
+	4, // 4: consensus.MultiPoolerConsensus.SetTermPrimary:input_type -> consensusdata.SetTermPrimaryRequest
+	5, // 5: consensus.MultiPoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateConsensusRuleResponse
+	6, // 6: consensus.MultiPoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
+	7, // 7: consensus.MultiPoolerConsensus.Recruit:output_type -> consensusdata.RecruitResponse
+	8, // 8: consensus.MultiPoolerConsensus.Propose:output_type -> consensusdata.ProposeResponse
+	9, // 9: consensus.MultiPoolerConsensus.SetTermPrimary:output_type -> consensusdata.SetTermPrimaryResponse
+	5, // [5:10] is the sub-list for method output_type
+	0, // [0:5] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_consensusservice_proto_init() }

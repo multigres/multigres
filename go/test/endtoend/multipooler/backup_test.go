@@ -365,6 +365,40 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 				t.Logf("Verified %d total backups exist", len(listResp.Backups))
 			})
+
+			t.Run("VerifyBackups", func(t *testing.T) {
+				t.Log("Running full-stanza pgbackrest verify...")
+				verifyCtx := utils.WithTimeout(t, 5*time.Minute)
+				resp, err := backupClient.VerifyBackups(verifyCtx, &multipoolermanagerdata.VerifyBackupsRequest{})
+				require.NoError(t, err, "VerifyBackups should succeed against a healthy stanza")
+				require.NotNil(t, resp, "VerifyBackups response should not be nil")
+				assert.Greater(t, resp.Duration.AsDuration(), time.Duration(0), "duration must be > 0")
+				assert.NotEmpty(t, resp.RawOutput, "raw_output must include pgbackrest verify output")
+				t.Logf("Verify completed in %s; output length=%d", resp.Duration.AsDuration(), len(resp.RawOutput))
+			})
+
+			// Negative path: a corrupted repository must not pass verify. Only
+			// the filesystem backend exposes the repo as editable files; the S3
+			// backend keeps blobs inside s3mock. Corruption is reversed via
+			// t.Cleanup so the shared stanza stays healthy for later tests.
+			if backend == "filesystem" {
+				t.Run("VerifyBackups_DetectsCorruptBackup", func(t *testing.T) {
+					corruptBackupDataFile(t, setup.TempDir)
+
+					t.Log("Running pgbackrest verify against a corrupted repo...")
+					verifyCtx := utils.WithTimeout(t, 30*time.Second)
+					resp, err := backupClient.VerifyBackups(verifyCtx, &multipoolermanagerdata.VerifyBackupsRequest{})
+					t.Logf("verify-after-corruption err=%v", err)
+					if resp != nil {
+						t.Logf("verify-after-corruption output:\n%s", resp.RawOutput)
+					}
+					require.Error(t, err, "VerifyBackups must fail when a backup file is corrupted")
+					assert.Contains(t, err.Error(), "verify found problems",
+						"error should surface the pgbackrest verify failure")
+					assert.Contains(t, err.Error(), "invalid checksum",
+						"error should include the pgbackrest output identifying the corrupt file")
+				})
+			}
 		})
 	}
 }

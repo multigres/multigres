@@ -30,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -71,10 +70,10 @@ func TestReplicationAPIs(t *testing.T) {
 		_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "INSERT INTO test_wait_lsn (data) VALUES ('test data for wait lsn')", 0)
 		require.NoError(t, err, "Should be able to insert data in primary")
 
-		// Get LSN from primary using consensus Status RPC
+		// Get LSN from primary using manager Status RPC
 		ctx := utils.WithTimeout(t, 1*time.Second)
 
-		primaryPosResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
+		primaryPosResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("Target LSN from primary: %s", targetLSN)

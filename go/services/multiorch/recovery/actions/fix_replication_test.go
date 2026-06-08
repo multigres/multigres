@@ -146,13 +146,9 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 						IsInitialized: true,
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 					},
-				},
-			},
-		},
-		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
-			"multipooler-cell1-primary": {
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+						TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+					},
 				},
 			},
 		},
@@ -227,6 +223,9 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 						IsInitialized: true,
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 					},
+					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+						TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+					},
 				},
 			},
 			"multipooler-cell1-replica1": {
@@ -237,13 +236,6 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 							LastReceiveLsn:    "0/1234",
 						},
 					},
-				},
-			},
-		},
-		ConsensusStatusResponses: map[string]*consensusdatapb.StatusResponse{
-			"multipooler-cell1-primary": {
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 				},
 			},
 		},
@@ -595,19 +587,15 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 			IsInitialized: true,
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+		},
 	})
-	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-			},
+	baseFakeClient.SetStatusResponse("multipooler-cell1-replica1", &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		},
-		"multipooler-cell1-replica1": {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
-			},
-		},
-	}
+	})
 	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}
@@ -718,23 +706,19 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			IsInitialized: true,
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 1,
+			},
+		},
 	})
-	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm: 1,
-				},
+	baseFakeClient.SetStatusResponse("multipooler-cell1-replica1", &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 1,
 			},
 		},
-		"multipooler-cell1-replica1": {
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				TermRevocation: &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm: 1,
-				},
-			},
-		},
-	}
+	})
 	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}

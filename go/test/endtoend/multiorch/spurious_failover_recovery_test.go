@@ -31,6 +31,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // TestSpuriousFailoverRecovery as a regression test: after a bootstrap that
@@ -79,10 +81,13 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// recovery from the resulting state.
 	resumeRecovery := setup.DisableRecovery(t, "multiorch")
 
-	// Open a consensus gRPC client to each pooler.
+	// Open gRPC clients to each pooler — consensus for Recruit fan-out,
+	// manager for Status snapshots (ConsensusStatus is delivered as part of
+	// the manager Status response).
 	type poolerClient struct {
 		name      string
 		consensus consensuspb.MultiPoolerConsensusClient
+		manager   multipoolermanagerpb.MultiPoolerManagerClient
 	}
 	poolerClients := make([]*poolerClient, 0, len(setup.Multipoolers))
 	for name, inst := range setup.Multipoolers {
@@ -95,6 +100,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 		poolerClients = append(poolerClients, &poolerClient{
 			name:      name,
 			consensus: consensuspb.NewMultiPoolerConsensusClient(conn),
+			manager:   multipoolermanagerpb.NewMultiPoolerManagerClient(conn),
 		})
 	}
 
@@ -102,7 +108,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// TermRevocation at the next term.
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolerClients))
 	for _, pc := range poolerClients {
-		resp, err := pc.consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		resp, err := pc.manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Status on %s", pc.name)
 		require.NotNil(t, resp.GetConsensusStatus(), "ConsensusStatus from %s", pc.name)
 		statuses = append(statuses, resp.GetConsensusStatus())

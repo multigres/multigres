@@ -15,6 +15,7 @@
 package local
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -23,6 +24,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 func TestValidateUnixSocketPathLength(t *testing.T) {
@@ -238,6 +241,10 @@ func TestValidateSystemBinaries(t *testing.T) {
 		for _, b := range []string{"etcd", "pg_ctl", "postgres", "pg_isready", "pgbackrest"} {
 			assert.Contains(t, err.Error(), b)
 		}
+		// The guidance text is derived from the version constants, so it must
+		// track them rather than hardcoded numbers.
+		assert.Contains(t, err.Error(), fmt.Sprintf("PostgreSQL %d.x", constants.RequiredPostgresMajor))
+		assert.Contains(t, err.Error(), "pgBackRest >= "+minPgBackrestVersionDisplay())
 	})
 
 	t.Run("all present succeeds", func(t *testing.T) {

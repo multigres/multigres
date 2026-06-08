@@ -36,6 +36,8 @@ func (h *testHandler) Handle(_ context.Context, r slog.Record) error {
 func (h *testHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *testHandler) WithGroup(string) slog.Handler      { return h }
 
+func ptr[T any](v T) *T { return &v }
+
 // recordAttrs extracts all attributes from a slog.Record into a map.
 func recordAttrs(r slog.Record) map[string]any {
 	attrs := make(map[string]any)
@@ -55,14 +57,33 @@ func TestEmit(t *testing.T) {
 		wantLevel     slog.Level
 		wantEventType string
 		wantAttrs     map[string]any
+		wantAbsent    []string
 	}{
 		{
-			name:          "event with fields",
+			name:          "terminal promotion carries new_primary, proposed_term and phase timings",
 			outcome:       Success,
-			event:         PrimaryPromotion{NewPrimary: "pg-1", Reason: "ShardInit"},
+			event:         PrimaryPromotion{NewPrimary: "pg-1", ProposedTerm: 7, Reason: "ShardInit", RecruitMs: ptr(int64(120)), ProposeMs: ptr(int64(680))},
 			wantLevel:     slog.LevelInfo,
 			wantEventType: "primary.promotion",
-			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1", "reason": "ShardInit"},
+			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1", "proposed_term": int64(7), "reason": "ShardInit", "recruit_ms": int64(120), "propose_ms": int64(680)},
+		},
+		{
+			name:          "recruitment failure records recruit_ms but no propose_ms",
+			outcome:       Failed,
+			event:         PrimaryPromotion{ProposedTerm: 7, Reason: "LeaderIsDead", RecruitMs: ptr(int64(4200))},
+			wantLevel:     slog.LevelError,
+			wantEventType: "primary.promotion",
+			wantAttrs:     map[string]any{"outcome": "failed", "proposed_term": int64(7), "reason": "LeaderIsDead", "recruit_ms": int64(4200)},
+			wantAbsent:    []string{"new_primary", "propose_ms"},
+		},
+		{
+			name:          "started promotion omits new_primary and phase timings",
+			outcome:       Started,
+			event:         PrimaryPromotion{ProposedTerm: 7, Reason: "LeaderIsDead"},
+			wantLevel:     slog.LevelInfo,
+			wantEventType: "primary.promotion",
+			wantAttrs:     map[string]any{"outcome": "started", "proposed_term": int64(7), "reason": "LeaderIsDead"},
+			wantAbsent:    []string{"new_primary", "recruit_ms", "propose_ms"},
 		},
 	}
 
@@ -82,6 +103,9 @@ func TestEmit(t *testing.T) {
 			assert.Equal(t, tt.wantEventType, attrs["event_type"])
 			for k, v := range tt.wantAttrs {
 				assert.Equal(t, v, attrs[k], "attr %s", k)
+			}
+			for _, k := range tt.wantAbsent {
+				assert.NotContains(t, attrs, k, "attr %s should be absent", k)
 			}
 		})
 	}

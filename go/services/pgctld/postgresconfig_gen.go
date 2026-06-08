@@ -91,8 +91,8 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.MinWalSize = "1GB"
 	cnf.MaxWalSize = "4GB"
 	cnf.CheckpointCompletionTarget = 0.9
-	cnf.MaxWalSenders = 5
-	cnf.MaxReplicationSlots = 5
+	cnf.MaxWalSenders = 25
+	cnf.MaxReplicationSlots = 25
 	cnf.EffectiveCacheSize = "192MB"
 	cnf.RandomPageCost = 1.1
 	cnf.DefaultStatisticsTarget = 100

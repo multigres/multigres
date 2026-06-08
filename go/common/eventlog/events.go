@@ -22,16 +22,49 @@ func (NodeJoin) EventType() string       { return "node.join" }
 func (e NodeJoin) LogAttrs() []slog.Attr { return []slog.Attr{slog.String("node_name", e.NodeName)} }
 
 type PrimaryPromotion struct {
+	// NewPrimary is the elected leader. It is empty on the Started event because
+	// the leader is not chosen until recruitment completes; it is set on the
+	// terminal Success/Failed event.
 	NewPrimary string
-	Reason     string // why the promotion was initiated, e.g. "ShardInit" or a failover trigger
+	// ProposedTerm is the term the coordinator is driving the cohort to. Known
+	// before any RPC and stable through completion, it correlates a promotion's
+	// Started and terminal events (and the term.begin event and rule-history row).
+	ProposedTerm int64
+	Reason       string // why the promotion was initiated, e.g. "ShardInit" or a failover trigger
+	// RecruitMs and ProposeMs split the appointment latency (milliseconds,
+	// monotonic clock) into its two phases: RecruitMs from Run start until a
+	// leader is selected (recruiting a quorum), ProposeMs from leader selection
+	// until the proposal commits. They are set only on terminal events and nil
+	// where not applicable — both on Started, and ProposeMs on a recruitment
+	// failure that never reached the propose phase. Draining late recruits
+	// overlaps the propose phase but is off the commit critical path, so the
+	// split reflects time-to-select-leader vs. time-to-commit.
+	RecruitMs *int64
+	ProposeMs *int64
 }
+
+const (
+	attrRecruitMs = "recruit_ms"
+	attrProposeMs = "propose_ms"
+)
 
 func (PrimaryPromotion) EventType() string { return "primary.promotion" }
 func (e PrimaryPromotion) LogAttrs() []slog.Attr {
-	return []slog.Attr{
-		slog.String("new_primary", e.NewPrimary),
+	attrs := []slog.Attr{
+		slog.Int64("proposed_term", e.ProposedTerm),
 		slog.String("reason", e.Reason),
 	}
+	// Omitted on Started, where the leader is not yet known.
+	if e.NewPrimary != "" {
+		attrs = append(attrs, slog.String("new_primary", e.NewPrimary))
+	}
+	if e.RecruitMs != nil {
+		attrs = append(attrs, slog.Int64(attrRecruitMs, *e.RecruitMs))
+	}
+	if e.ProposeMs != nil {
+		attrs = append(attrs, slog.Int64(attrProposeMs, *e.ProposeMs))
+	}
+	return attrs
 }
 
 type BackupAttempt struct{ BackupName string }

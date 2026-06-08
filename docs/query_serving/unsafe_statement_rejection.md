@@ -137,16 +137,16 @@ list, WHERE, JOIN, INSERT values, DEFAULT expressions, CTEs, subqueries)
 and enforces rules on specific built-ins. Schema-qualified variants
 (`pg_catalog.dblink`, etc.) resolve to the same entry.
 
-| Function(s)                                                        | Category                                | Action                                                                                                                                                                           |
-| ------------------------------------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_config(name, value, is_local)`                                | Session state                           | Bare `SELECT set_config(lit, lit, false)` rewrites to `SET`. Non-literal args rejected. `is_local=true` passes through (transaction-scoped). Embedded `is_local=false` rejected. |
-| `dblink`, `dblink_exec`, `dblink_connect`, `dblink_connect_u`      | Outbound connections                    | Reject                                                                                                                                                                           |
-| `pg_read_file`, `pg_read_binary_file`, `pg_ls_dir`, `pg_stat_file` | Filesystem read                         | Reject                                                                                                                                                                           |
-| `lo_import`, `lo_export`                                           | Filesystem read/write via large objects | Reject                                                                                                                                                                           |
-| `pg_execute_server_program`                                        | Shell execution                         | Reject                                                                                                                                                                           |
-| `query_to_xml`, `query_to_xmlschema`, `query_to_xml_and_xmlschema` | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
-| `table_to_xml`, `table_to_xmlschema`, `table_to_xml_and_xmlschema` | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
-| `cursor_to_xml`, `cursor_to_xmlschema`                             | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                           |
+| Function(s)                                                                                                     | Category                                | Action                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_config(name, value, is_local)`                                                                             | Session state                           | Tracked as a `SET`, but only as a top-level SELECT target-list entry; args may be literal or bound. Other positions and `is_local` handled specially — see prose below. |
+| `dblink*` (sync entry points + async-cursor surface: `_open`, `_fetch`, `_close`, `_send_query`, `_get_result`) | Outbound connections                    | Reject                                                                                                                                                                  |
+| `pg_read_file`, `pg_read_binary_file`, `pg_ls_dir`, `pg_stat_file`                                              | Filesystem read                         | Reject                                                                                                                                                                  |
+| `lo_import`, `lo_export`                                                                                        | Filesystem read/write via large objects | Reject                                                                                                                                                                  |
+| `pg_execute_server_program`                                                                                     | Shell execution                         | Reject                                                                                                                                                                  |
+| `query_to_xml`, `query_to_xmlschema`, `query_to_xml_and_xmlschema`                                              | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                  |
+| `table_to_xml`, `table_to_xmlschema`, `table_to_xml_and_xmlschema`                                              | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                  |
+| `cursor_to_xml`, `cursor_to_xmlschema`                                                                          | Arbitrary SQL via XML helpers           | Reject                                                                                                                                                                  |
 
 **Why these specific functions:** each one is a callable equivalent of
 a Tier 2 operation or a session-state bypass. `dblink` opens outbound
@@ -159,10 +159,10 @@ so the gateway's `SessionSettings` tracker never sees it — on the next
 query the pool picks a different backend connection and the state is
 gone.
 
-**How `set_config` is handled.** The walker accepts
-`set_config(literal, literal, false)` only when it sits directly as a
-top-level SELECT target-list entry (possibly alongside other entries
-or a FROM). Every accepted shape plans the same way:
+**How `set_config` is handled.** The walker accepts a `set_config` call
+only when it sits directly as a top-level SELECT target-list entry
+(possibly alongside other entries or a FROM). Every accepted shape plans
+the same way:
 
 ```text
 Sequence[silent ApplySessionState per call, Route(original SQL)]
@@ -175,24 +175,48 @@ any sibling target-list entries and table rows). This costs one PG
 round-trip even for bare `SELECT set_config(...)`, which is a deliberate
 simplicity choice over a fast-path that would bypass PG.
 
+**Literal and bound arguments.** Each of the three slots (`name`,
+`value`, `is_local`) may be a literal constant **or** a bound parameter
+(`$1`), e.g. `SELECT set_config('search_path', $1, false)`. When any
+slot is bound, the tracking primitive is built via
+`NewApplySessionStateFromBind`, which records the `ParamRef`s and defers
+per-slot resolution to execute time — `executeSetWithBinds` decodes the
+actual values from the portal's wire-protocol Bind values before
+updating `SessionSettings`. All-literal calls use the simpler
+`NewApplySessionStateSilent`. (An earlier iteration rejected non-literal
+args outright; bound parameters are now supported because PostgREST and
+ORMs routinely parameterize the value.)
+
 `set_config(..., true)` — transaction-scoped — is accepted in any
 position but never tracked: it doesn't outlive the transaction, so
-there's nothing for the pool to carry forward.
+there's nothing for the pool to carry forward. (A _bound_ `is_local`
+can't be short-circuited at plan time; the track-or-not decision is
+deferred to `executeSetWithBinds`.)
 
 Anything else is rejected: `set_config` in a WHERE clause, nested inside
 another function's arguments, inside a CTE, in a DEFAULT expression, in
 INSERT/UPDATE — evaluation semantics in those positions (conditional,
 per-row, or hidden in a subquery) can't be faithfully represented by a
-SessionSettings update. Non-literal arguments are always rejected,
-because the value we would need to track is unknown at plan time.
+SessionSettings update. Expression-shaped arguments that are neither a
+literal nor a bound parameter (a column reference, a nested function
+call, a cast of a non-constant) are also rejected, because the value we
+would need to track is unknown at plan time. `SELECT ... INTO` is
+excluded as an allowed position too: that shape dispatches to the
+reserved temp-table route, which would drop the tracked set_config and
+leave the gateway's tracker stale relative to the backend.
 
-**Where it runs.** Inside the planner, in a single walk at the top of
-`Plan()` that also covers the statement-level Tier 2 check. Running here
-means the plan cache short-circuits the walk: a cached plan is by
-construction safe. The normalizer is configured to preserve literals
-inside `set_config(...)` calls (see `go/common/parser/ast/normalizer.go`)
-so the walker still sees the original A_Const arguments despite
-normalization happening earlier in the pipeline for caching.
+**Where it runs.** Inside the planner, in a single walk that runs as
+part of `planUnsupportedConstructs()` — the orchestrator that pairs the
+statement-level check (`planUnsupportedStmt`, covering Tier 2) with
+this expression-level walk (`inspectExpressionFuncCalls`). Both the
+simple-protocol `Plan()` and
+the extended-protocol `PlanPortal()` call `planUnsupportedConstructs()`,
+so neither path can skip a check. Running in the planner means the plan
+cache short-circuits the walk: a cached plan is by construction safe.
+The normalizer is configured to preserve literals inside
+`set_config(...)` calls (see `go/common/parser/ast/normalizer.go`) so the
+walker still sees the original A_Const arguments despite normalization
+happening earlier in the pipeline for caching.
 
 **Out of scope for this layer.**
 
@@ -267,10 +291,13 @@ execute opaque server-side code and cannot be usefully blocked.
 
 ### Architecture
 
-Both the statement-level Tier 2 filter and the expression-level walker
-run at the top of `Planner.Plan()`, before dispatch. Running in the
-planner (rather than in the executor) means a plan cache hit
-short-circuits both checks: a cached plan is by construction safe.
+Both the statement-level filter (Tier 2) and the
+expression-level walker run before dispatch, bundled behind
+`planUnsupportedConstructs()`. Both `Planner.Plan()` (simple protocol)
+and `Planner.PlanPortal()` (extended protocol) call that orchestrator,
+so neither query path can bypass a check. Running in the planner (rather
+than in the executor) means a plan cache hit short-circuits both checks:
+a cached plan is by construction safe.
 
 ```text
 Client SQL
@@ -286,17 +313,17 @@ Executor normalizes literals (A_Const -> $N) for plan cache
   (skips inside set_config() calls so the planner still sees its literals)
   |
   v
-Planner.Plan()
+Planner.Plan() / Planner.PlanPortal()
   |
-  +-- planUnsupportedStmt(stmt)          <-- Tier 2 rejection check
+  +-- planUnsupportedConstructs(stmt)    <-- orchestrates both checks
   |     |
-  |     +-- blocked? --> return feature_not_supported error
-  |
-  +-- inspectExpressionFuncCalls(stmt)   <-- expression-level filter
+  |     +-- planUnsupportedStmt(stmt)         <-- Tier 2 rejection check
+  |     |     +-- blocked? --> return feature_not_supported error
   |     |
-  |     +-- blocklisted func?            --> return feature_not_supported
-  |     +-- rogue set_config?            --> return feature_not_supported
-  |     +-- tracked set_configs found    --> returned to dispatch
+  |     +-- inspectExpressionFuncCalls(stmt)  <-- expression-level filter
+  |           +-- blocklisted func?       --> return feature_not_supported
+  |           +-- rogue set_config?       --> return feature_not_supported
+  |           +-- tracked set_configs found --> returned to dispatch (Plan only)
   |
   v
 Statement-specific planning (switch on NodeTag)
@@ -315,18 +342,19 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 ### Key Files
 
-| File                                                       | Purpose                                                                                                                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                             |
-| `go/services/multigateway/planner/unsafe_funccall.go`      | `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted set_config calls                                       |
-| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE |
-| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata (bare / mixed / plain)                                                       |
-| `go/services/multigateway/planner/planner.go`              | Runs both checks at the top of `Plan()` before dispatch                                                                                          |
-| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                           |
-| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` — the tracker-only variant used inside a Sequence                                                                 |
-| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                     |
-| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                        |
-| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, bare vs mixed plan construction                                      |
+| File                                                       | Purpose                                                                                                                                                                    |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                       |
+| `go/services/multigateway/planner/unsafe_funccall.go`      | `planUnsupportedConstructs()` orchestrator + `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls |
+| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                           |
+| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                           |
+| `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                         |
+| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                     |
+| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` (literal) and `NewApplySessionStateFromBind()` (`executeSetWithBinds` defers slot resolution to portal Bind values)                         |
+| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                                               |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                                                  |
+| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, literal + bound args, bare vs mixed plan construction                                          |
+| `go/test/endtoend/queryserving/unsafe_stmt_test.go`        | End-to-end coverage through a real multigateway → PostgreSQL: Tier 2, simple + extended protocol, in-transaction                                                           |
 
 ### Error Format
 
@@ -346,13 +374,16 @@ The SQLSTATE `0A000` (`feature_not_supported`) was chosen because:
 
 ### Protocol Coverage
 
-Both query protocols are covered:
+Both query protocols are covered, and both call the same
+`planUnsupportedConstructs()` orchestrator (statement-level check +
+expression walk) so the statement-level and expression-level rejections
+apply identically:
 
 - **Simple query protocol** (`Query` message / `'Q'`): `Plan()` calls
-  `planUnsupportedStmt()` before the main dispatch switch.
+  `planUnsupportedConstructs()` before the main dispatch switch.
 - **Extended query protocol** (`Parse`/`Bind`/`Execute`): `PlanPortal()`
-  calls `planUnsupportedStmt()` before checking whether the statement
-  needs local handling.
+  calls `planUnsupportedConstructs()` before checking whether the
+  statement needs local handling.
 
 ## Future Work
 

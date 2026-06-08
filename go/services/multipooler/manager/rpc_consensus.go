@@ -30,6 +30,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation,
@@ -296,6 +297,9 @@ func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) err
 //  4. Persist the TermRevocation only if the position is consistent.
 //  5. Return ConsensusStatus with the stable post-revoke position.
 func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "consensus/recruit")
+	defer span.End()
+
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "Recruit")
 	if err != nil {
@@ -332,27 +336,35 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 	// Stop replication participation.
 	var savedConnInfo string // non-empty if standby; used for recovery on race failure
-	if isPrimary {
-		pm.logger.InfoContext(ctx, "Recruiting primary: demoting and restarting as standby",
-			"revoked_below_term", revokedBelowTerm)
-		if err := pm.emergencyDemoteLocked(ctx, revokedBelowTerm, recruitDrainTimeout); err != nil {
+	{
+		stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
+		if isPrimary {
+			pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
+				"revoked_below_term", revokedBelowTerm)
+			err = pm.emergencyDemoteLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
+		} else {
+			// Save primary_conninfo so we can restore it if the position check fails.
+			if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {
+				pm.logger.WarnContext(stopCtx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
+			}
+			pm.logger.InfoContext(stopCtx, "Recruiting standby: pausing replication",
+				"revoked_below_term", revokedBelowTerm)
+			_, err = pm.pauseReplication(stopCtx,
+				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+				true /* wait */)
+		}
+		stopSpan.End()
+		if err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed to demote primary during recruit")
+			return nil, mterrors.Wrap(err, "failed to stop replication during recruit")
 		}
-	} else {
-		// Save primary_conninfo so we can restore it if the position check fails.
-		if savedConnInfo, err = pm.readPrimaryConnInfo(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
-		}
-		pm.logger.InfoContext(ctx, "Recruiting standby: pausing replication",
-			"revoked_below_term", revokedBelowTerm)
-		if _, err := pm.pauseReplication(ctx,
-			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-			true /* wait */); err != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed to pause replication during recruit")
-		}
-		if _, err := pm.waitForReplayStabilize(ctx); err != nil {
+	}
+
+	if !isPrimary {
+		stabilizeCtx, stabilizeSpan := telemetry.Tracer().Start(ctx, "consensus/stabilize")
+		_, err = pm.waitForReplayStabilize(stabilizeCtx)
+		stabilizeSpan.End()
+		if err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 			return nil, mterrors.Wrap(err, "failed waiting for replay to stabilize during recruit")
 		}
@@ -366,7 +378,12 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
 	}
-	if err := pm.consensusState.AcceptRevocation(ctx, stableStatus, revocation); err != nil {
+	{
+		acceptCtx, acceptSpan := telemetry.Tracer().Start(ctx, "consensus/accept-revocation")
+		err = pm.consensusState.AcceptRevocation(acceptCtx, stableStatus, revocation)
+		acceptSpan.End()
+	}
+	if err != nil {
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
 		// Attempt to restore the node to its prior replication role.
@@ -560,7 +577,7 @@ func (pm *MultiPoolerManager) Propose(ctx context.Context, req *consensusdatapb.
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.withSkipOutgoingQuorum()
 	}
-	if _, err = pm.rules.updateRule(ctx, ruleUpdate); err != nil {
+	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "propose failed: could not write rule")
 	}
 	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
@@ -722,46 +739,50 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	// A standby with rewindPending=true was emergency-demoted earlier and still
-	// has divergent WAL relative to the new primary. Routing through
-	// demoteStalePrimaryLocked runs pg_rewind, which clears rewindPending and
-	// makes the node recruitable again. Without this, the lightweight standby
-	// branch sets primary_conninfo but leaves the WAL divergent, and the next
-	// Recruit refuses with "rewind pending after emergency demotion".
-	needsRewind := pm.rewindPending.Load()
-
 	// Reported to the gateway as the new leader's term. Not term validation —
 	// the rule compare above is the gate. SetTermPrimary does not bump the local
 	// revocation: revocations are authored by coordinators via Recruit, and
 	// an SetTermPrimary is a notification, not a revoke.
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
-	if isPrimary || needsRewind {
-		pm.logger.InfoContext(ctx, "SetTermPrimary: demoting stale primary",
+	if isPrimary {
+		pm.rewindPending.Store(true)
+	}
+
+	if pm.rewindPending.Load() {
+		// If a rewind is pending, restartAsStandbyLocked() will take care of the rewind.
+		pm.logger.InfoContext(ctx, "SetTermPrimary: stale primary, restarting as standby",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber(),
-			"is_primary", isPrimary,
-			"rewind_pending", needsRewind)
-		if _, _, err := pm.demoteStalePrimaryLocked(ctx, leader, rule); err != nil {
+			"is_primary", isPrimary)
+		// restartAsStandbyLocked sets primary_conninfo to leader on success,
+		// so we don't need a separate setPrimaryConnInfoLocked call here.
+		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {
 			return nil, err
+		}
+		if err := pm.resetSynchronousReplication(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 		}
 	} else {
 		pm.logger.InfoContext(ctx, "SetTermPrimary: updating standby primary_conninfo",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
+		// Already a standby with an active stream; pause replay, swap
+		// conninfo, resume on the new primary.
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
 		}
-		// Ensure topology reflects REPLICA. This matters when postgres has
-		// already been demoted (e.g. by a prior Recruit on this node or an
-		// external pg_promote-then-restart) but the pooler's topology entry still
-		// reads PRIMARY. Without this, the stale PRIMARY label causes the
-		// stale-leader analyzer to keep firing forever. Propose has the same
-		// step on its replica branch for the same reason.
-		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetTermPrimary", "error", err)
-		}
+	}
+
+	// Ensure topology reflects REPLICA. This matters when postgres has
+	// already been demoted (e.g. by a prior Recruit on this node or an
+	// external pg_promote-then-restart) but the pooler's topology entry still
+	// reads PRIMARY. Without this, the stale PRIMARY label causes the
+	// stale-leader analyzer to keep firing forever. Propose has the same
+	// step on its replica branch for the same reason.
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetTermPrimary", "error", err)
 	}
 
 	// Advertise the new leader to the health stream so the gateway can route
@@ -787,18 +808,4 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		return nil, mterrors.Wrap(err, "failed to build consensus status after SetTermPrimary")
 	}
 	return &consensusdatapb.SetTermPrimaryResponse{ConsensusStatus: cs}, nil
-}
-
-// ConsensusStatus returns the current status of this node for consensus
-func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	consensusStatus, statusErr := pm.getInconsistentConsensusStatus(ctx)
-	if statusErr != nil {
-		pm.logger.WarnContext(ctx, "Failed to build consensus status for StatusResponse", "error", statusErr)
-	}
-
-	return &consensusdatapb.StatusResponse{
-		Id:                 pm.serviceID,
-		ConsensusStatus:    consensusStatus,
-		AvailabilityStatus: pm.buildAvailabilityStatus(),
-	}, nil
 }
