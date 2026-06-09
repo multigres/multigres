@@ -290,3 +290,26 @@ func TestRequireConfigPath(t *testing.T) {
 		assert.Equal(t, result1, result2, "should return same path on repeated calls")
 	})
 }
+
+func TestRequireBackupConfig(t *testing.T) {
+	t.Run("Error when backup config is not set", func(t *testing.T) {
+		e, _ := newTestEngine(t, t.TempDir(), "test-tg", "0", "") // no backup location
+		cfg, err := e.requireBackupConfig()
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "backup config not set")
+	})
+
+	t.Run("Returns config when set", func(t *testing.T) {
+		e, _ := newTestEngine(t, t.TempDir(), "test-tg", "0", "/tmp/backups")
+		cfg, err := e.requireBackupConfig()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg)
+	})
+}
+
+func TestEngineAccessors(t *testing.T) {
+	e, _ := newTestEngine(t, t.TempDir(), "test-tg", "myshard", "/tmp/backups")
+	assert.Equal(t, "myshard", e.shardID())
+	assert.NotNil(t, e.Metrics())
+}
