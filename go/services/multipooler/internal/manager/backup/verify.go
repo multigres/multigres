@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package backup
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/multigres/multigres/go/common/backup"
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -33,14 +33,14 @@ import (
 // "status: ok".
 var verifyStanzaErrorRe = regexp.MustCompile(`(?m)^\s*status: error`)
 
-// VerifyResult is the in-process return type for VerifyBackups. The gRPC
+// VerifyResult is the in-process return type for Verify. The gRPC
 // service layer maps this onto the proto VerifyBackupsResponse.
 type VerifyResult struct {
 	Duration  time.Duration
 	RawOutput string
 }
 
-// VerifyBackups runs `pgbackrest verify` against the full stanza (no --set),
+// Verify runs `pgbackrest verify` against the full stanza (no --set),
 // validating every backup file and WAL segment in the repository.
 //
 // pgBackRest exits 0 even when verify finds a corrupt/partial backup or an
@@ -55,31 +55,27 @@ type VerifyResult struct {
 // "missing file". This is not corruption; re-running verify clears it. Because
 // it still trips the stanza "status: error" check, such a run returns an error
 // and the caller should retry.
-func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*VerifyResult, error) {
-	if err := pm.checkReady(); err != nil {
-		return nil, err
-	}
-
-	configPath, err := pm.pgBackRestConfig()
+func (e *Engine) Verify(ctx context.Context) (*VerifyResult, error) {
+	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return nil, mterrors.Wrap(err, "pgbackrest config not found")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, backup.StanzaVerifyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, commonbackup.StanzaVerifyTimeout)
 	defer cancel()
 
 	args := []string{
-		"--stanza=" + pm.stanzaName(),
+		"--stanza=" + stanzaName,
 		"--config=" + configPath,
 		"verify",
 	}
-	cmd := pm.pgbackrestCmd(ctx, args...)
+	cmd := e.pgbackrestCmd(ctx, args...)
 
 	start := time.Now()
 	var output []byte
 	err = telemetry.WithSpan(ctx, "verify-backups", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest verify")
+		output, runErr = e.run(ctx, cmd, "pgbackrest verify")
 		return runErr
 	})
 	duration := time.Since(start)
@@ -93,7 +89,7 @@ func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*VerifyResult,
 	if verifyStanzaErrorRe.Match(output) {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify found problems in stanza %s\nOutput: %s",
-				pm.stanzaName(), string(output)))
+				stanzaName, string(output)))
 	}
 	return &VerifyResult{Duration: duration, RawOutput: string(output)}, nil
 }
