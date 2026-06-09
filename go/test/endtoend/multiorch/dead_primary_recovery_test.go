@@ -36,6 +36,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -470,8 +471,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
 			assert.Less(t, propose, maxPropose,
 				"propose phase for %v should be fast (took %v)", p["new_primary"], propose)
-			setup.Timings.Record("appointment: recruit", recruit, maxRecruit)
-			setup.Timings.Record("appointment: propose", propose, maxPropose)
+			testtiming.Record(t, "appointment: recruit", recruit, maxRecruit)
+			testtiming.Record(t, "appointment: propose", propose, maxPropose)
 		}
 	})
 
