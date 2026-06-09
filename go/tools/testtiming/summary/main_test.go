@@ -54,17 +54,17 @@ func TestCleanLabel(t *testing.T) {
 	}
 }
 
-func TestMeanCI95(t *testing.T) {
+func TestMeanCI99(t *testing.T) {
 	// n=1: mean is the sample, half-width is 0 (no CI from one point).
-	mean, margin := meanCI95([]float64{4})
+	mean, margin := meanCI99([]float64{4})
 	assert.Equal(t, 4.0, mean)
 	assert.Equal(t, 0.0, margin)
 
 	// n=5 with a known spread: mean=3, sample stddev=sqrt(2.5)≈1.5811.
-	// margin = t(0.975, df=4)≈2.7764 * sqrt(2.5)/sqrt(5) ≈ 1.963.
-	mean, margin = meanCI95([]float64{1, 2, 3, 4, 5})
+	// margin = t(0.995, df=4)≈4.6041 * sqrt(2.5)/sqrt(5) ≈ 3.256.
+	mean, margin = meanCI99([]float64{1, 2, 3, 4, 5})
 	assert.InDelta(t, 3.0, mean, 1e-9)
-	assert.InDelta(t, 1.963, margin, 1e-3)
+	assert.InDelta(t, 3.256, margin, 1e-3)
 }
 
 func TestStatusCircle(t *testing.T) {
@@ -98,7 +98,7 @@ func TestWriteTable(t *testing.T) {
 	got := sb.String()
 
 	assert.Contains(t, got, "## Test Timing")
-	assert.Contains(t, got, "| Operation | Timeout | mean ±95%CI | min | p50 | p95 | p99 | max |")
+	assert.Contains(t, got, "| Operation | Timeout | mean ±99%CI | min | p50 | p95 | p99 | max |")
 	// manager ready: mean of {3,5}=4s over a 30s limit → green, n=2.
 	assert.Contains(t, got, "🟢 manager ready | 30s |")
 	assert.Contains(t, got, "(13%, n=2)")

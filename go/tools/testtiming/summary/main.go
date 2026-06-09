@@ -15,7 +15,7 @@
 // Command summary reads the integration test JSONL output (gotestsum
 // --jsonfile), extracts the timeout-bounded timing measurements that the
 // end-to-end tests record via testtiming.Record (startup, failover, etc.), and
-// writes a mean±95%CI / min / p50 / p95 / p99 / max markdown table to
+// writes a mean±99%CI / min / p50 / p95 / p99 / max markdown table to
 // $GITHUB_STEP_SUMMARY (or stdout when that variable is unset).
 //
 // Measurements arrive as testtiming.Measurement payloads inside go test -json
@@ -51,16 +51,18 @@ const (
 // a single row.
 var poolerSuffix = regexp.MustCompile(`: pooler-\d+$`)
 
-// meanCI95 returns the mean and the half-width of a 95% CI on the mean, assuming
+// meanCI99 returns the mean and the half-width of a 99% CI on the mean, assuming
 // normality. For n<2 the half-width is 0 (a CI cannot be computed from a single
-// sample). The t critical value comes from the exact Student's t quantile.
-func meanCI95(values []float64) (mean, halfWidth float64) {
+// sample). The t critical value comes from the exact Student's t quantile; a
+// two-sided 99% interval uses the 0.995 quantile. 99% (rather than 95%) keeps
+// the upper bound from reading as anomalous on roughly 1 run in 20.
+func meanCI99(values []float64) (mean, halfWidth float64) {
 	n := len(values)
 	mean = stat.Mean(values, nil)
 	if n < 2 {
 		return mean, 0.0
 	}
-	tCrit := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(n - 1)}.Quantile(0.975)
+	tCrit := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(n - 1)}.Quantile(0.995)
 	return mean, tCrit * stat.StdDev(values, nil) / math.Sqrt(float64(n))
 }
 
@@ -162,7 +164,7 @@ func aggregate(measurements []testtiming.Measurement) (data map[string][]float64
 func writeTable(out io.Writer, data map[string][]float64, limits map[string]float64) error {
 	w := bufio.NewWriter(out)
 	fmt.Fprint(w, "## Test Timing\n\n")
-	fmt.Fprint(w, "| Operation | Timeout | mean ±95%CI | min | p50 | p95 | p99 | max |\n")
+	fmt.Fprint(w, "| Operation | Timeout | mean ±99%CI | min | p50 | p95 | p99 | max |\n")
 	fmt.Fprint(w, "|---|---|---|---|---|---|---|---|\n")
 
 	labels := make([]string, 0, len(data))
@@ -174,7 +176,7 @@ func writeTable(out io.Writer, data map[string][]float64, limits map[string]floa
 	for _, label := range labels {
 		vals := data[label]
 		limit := limits[label]
-		mean, margin := meanCI95(vals)
+		mean, margin := meanCI99(vals)
 
 		// stat.Quantile requires sorted input; sort once and reuse for min/max.
 		sorted := append([]float64(nil), vals...)
