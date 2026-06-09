@@ -53,6 +53,15 @@ type Conn struct {
 	// reservedProps tracks why the connection is reserved.
 	reservedProps *ReservationProperties
 
+	// txnSnapshot captures the session state (GUCs, role) at the moment this
+	// connection opened its current transaction. PostgreSQL reverts session
+	// SET / SET ROLE issued inside a transaction on ROLLBACK; restoring this
+	// snapshot on rollback keeps the pool's cached connstate in lock-step with
+	// the backend, so a recycled connection is never reused with stale settings.
+	// nil when not in a transaction. Accessed only from the transaction-control
+	// methods, which the gateway serializes per reserved connection.
+	txnSnapshot *connstate.TxnSnapshot
+
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
@@ -114,6 +123,10 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
+	// Snapshot the committed session-state baseline so a ROLLBACK can revert the
+	// pool's cached connstate in lock-step with PostgreSQL.
+	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+
 	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
@@ -129,6 +142,10 @@ func (c *Conn) Commit(ctx context.Context) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Committed: mid-transaction session changes are now durable and already
+	// reflected in connstate; drop the snapshot.
+	c.txnSnapshot = nil
+
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
@@ -143,6 +160,14 @@ func (c *Conn) Rollback(ctx context.Context) error {
 	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK")
 	if err != nil {
 		return fmt.Errorf("failed to rollback transaction: %w", err)
+	}
+
+	// PostgreSQL just reverted any SET / SET ROLE issued inside this transaction
+	// to the pre-transaction baseline. Revert the pool's cached connstate to the
+	// same baseline so the recycled connection is bucketed and reused correctly.
+	if c.txnSnapshot != nil {
+		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+		c.txnSnapshot = nil
 	}
 
 	c.RemoveReservationReason(protoutil.ReasonTransaction)

@@ -107,6 +107,49 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	return clone
 }
 
+// TxnSnapshot captures the parts of ConnectionState that PostgreSQL rolls back
+// together with the surrounding transaction: session GUCs set via SET, and the
+// current role set via SET ROLE / SET SESSION AUTHORIZATION. A session SET (or
+// SET ROLE) issued inside a transaction is reverted on ROLLBACK and kept on
+// COMMIT; the pool caches that state in ConnectionState and relies on it (via
+// interned-Settings pointer identity) to decide when to re-apply settings to a
+// backend. A reserved connection snapshots its state when it opens a
+// transaction and restores the snapshot if the transaction rolls back, so the
+// pool's cached view never diverges from the backend's real session state.
+//
+// Settings is interned and immutable (it is replaced wholesale via SetSettings,
+// never mutated in place), so it is captured by reference; User is copied by
+// value. Prepared statements are intentionally NOT captured here — their
+// lifecycle is owned by the prepared-statement consolidator, not this cache.
+type TxnSnapshot struct {
+	settings *Settings
+	user     string
+}
+
+// SnapshotForTxn captures the transaction-revertible parts of the state.
+// Returns nil for a nil receiver.
+func (s *ConnectionState) SnapshotForTxn() *TxnSnapshot {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return &TxnSnapshot{settings: s.Settings, user: s.User}
+}
+
+// RestoreFromTxn restores state captured by SnapshotForTxn. It is called after a
+// ROLLBACK so the pool's view matches the backend, which PostgreSQL has just
+// reverted to its pre-transaction session state. No-op for a nil snapshot.
+func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
+	if s == nil || snap == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Settings = snap.settings
+	s.User = snap.user
+}
+
 // Close cleans up the connection state.
 func (s *ConnectionState) Close() {
 	if s == nil {

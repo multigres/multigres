@@ -1626,6 +1626,21 @@ func (e *Executor) ConcludeTransaction(
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT:
 		commandTag = "COMMIT"
 		releaseReason = reserved.ReleaseCommit
+		// Reconcile the pool's cached connstate with the gateway's authoritative
+		// session settings before committing. A `ROLLBACK TO SAVEPOINT` earlier in
+		// this transaction can revert a session GUC (or role) on the backend while
+		// the pool's cached connstate still reflects the pre-rollback value, with no
+		// later settings-bearing query to re-sync it (full ROLLBACK is covered by the
+		// reserved conn's snapshot/restore; COMMIT is not). Re-applying here, inside
+		// the still-healthy transaction, brings backend and connstate back into
+		// agreement so the committed, recycled connection is bucketed and reused with
+		// the correct settings. Idempotent: ApplySettingsToConn short-circuits when
+		// connstate already matches, so this costs nothing unless a savepoint
+		// rollback actually left them diverged.
+		if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), e.sessionSettingsForPool(options.SessionSettings)); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, nil, err
+		}
 		if err := reservedConn.Commit(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return nil, nil, err
