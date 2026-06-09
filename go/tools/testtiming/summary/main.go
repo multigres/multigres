@@ -15,7 +15,7 @@
 // Command summary reads the integration test JSONL output (gotestsum
 // --jsonfile), extracts the timeout-bounded timing measurements that the
 // end-to-end tests record via testtiming.Record (startup, failover, etc.), and
-// writes a mean±99%CI / min / p50 / p95 / p99 / max markdown table to
+// writes a mean±99.9%CI / min / p50 / p95 / p99 / max markdown table to
 // $GITHUB_STEP_SUMMARY (or stdout when that variable is unset).
 //
 // Measurements arrive as testtiming.Measurement payloads inside go test -json
@@ -46,30 +46,37 @@ const (
 	critPct = 90.0
 )
 
-// poolerSuffix matches the per-instance suffix that varies between otherwise
-// identical operations (e.g. "manager ready: pooler-3"), so they aggregate into
-// a single row.
-var poolerSuffix = regexp.MustCompile(`: pooler-\d+$`)
+// poolerSuffix and failoverSuffix match the per-instance suffixes that vary
+// between otherwise identical operations, so they aggregate into a single row:
+//
+//	"manager ready: pooler-3"          -> "manager ready"
+//	"failover: pooler-1 → new primary" -> "failover"
+var (
+	poolerSuffix   = regexp.MustCompile(`: pooler-\d+$`)
+	failoverSuffix = regexp.MustCompile(`: pooler-\d+ →.*$`)
+)
 
-// meanCI99 returns the mean and the half-width of a 99% CI on the mean, assuming
-// normality. For n<2 the half-width is 0 (a CI cannot be computed from a single
-// sample). The t critical value comes from the exact Student's t quantile; a
-// two-sided 99% interval uses the 0.995 quantile. 99% (rather than 95%) keeps
-// the upper bound from reading as anomalous on roughly 1 run in 20.
-func meanCI99(values []float64) (mean, halfWidth float64) {
+// meanCI999 returns the mean and the half-width of a 99.9% CI on the mean,
+// assuming normality. For n<2 the half-width is 0 (a CI cannot be computed from
+// a single sample). The t critical value comes from the exact Student's t
+// quantile; a two-sided 99.9% interval uses the 0.9995 quantile. 99.9% keeps the
+// upper bound from reading as anomalous on roughly 1 run in 1000.
+func meanCI999(values []float64) (mean, halfWidth float64) {
 	n := len(values)
 	mean = stat.Mean(values, nil)
 	if n < 2 {
 		return mean, 0.0
 	}
-	tCrit := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(n - 1)}.Quantile(0.995)
+	tCrit := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(n - 1)}.Quantile(0.9995)
 	return mean, tCrit * stat.StdDev(values, nil) / math.Sqrt(float64(n))
 }
 
-// cleanLabel normalises labels that vary by pooler instance:
-// "manager ready: pooler-N" -> "manager ready".
+// cleanLabel normalises labels that vary by pooler instance so that per-instance
+// runs of the same operation aggregate into a single row.
 func cleanLabel(label string) string {
-	return poolerSuffix.ReplaceAllString(label, "")
+	label = poolerSuffix.ReplaceAllString(label, "")
+	label = failoverSuffix.ReplaceAllString(label, "")
+	return label
 }
 
 // formatElapsed renders a duration in seconds as a compact string.
@@ -163,8 +170,8 @@ func aggregate(measurements []testtiming.Measurement) (data map[string][]float64
 
 func writeTable(out io.Writer, data map[string][]float64, limits map[string]float64) error {
 	w := bufio.NewWriter(out)
-	fmt.Fprint(w, "## Test Timing\n\n")
-	fmt.Fprint(w, "| Operation | Timeout | mean ±99%CI | min | p50 | p95 | p99 | max |\n")
+	fmt.Fprint(w, "## Timing Summary\n\n")
+	fmt.Fprint(w, "| Operation | Timeout | mean ±99.9%CI | min | p50 | p95 | p99 | max |\n")
 	fmt.Fprint(w, "|---|---|---|---|---|---|---|---|\n")
 
 	labels := make([]string, 0, len(data))
@@ -176,7 +183,7 @@ func writeTable(out io.Writer, data map[string][]float64, limits map[string]floa
 	for _, label := range labels {
 		vals := data[label]
 		limit := limits[label]
-		mean, margin := meanCI99(vals)
+		mean, margin := meanCI999(vals)
 
 		// stat.Quantile requires sorted input; sort once and reuse for min/max.
 		sorted := append([]float64(nil), vals...)

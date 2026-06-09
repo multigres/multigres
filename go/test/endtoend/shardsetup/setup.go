@@ -844,6 +844,7 @@ func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout 
 func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
 
+	start := time.Now()
 	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
@@ -898,6 +899,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 		t.Fatalf("RequireRecovery: recovery did not complete within %s", timeout)
 	}
 
+	testtiming.Record(t, "recovery: "+orchName, time.Since(start), timeout)
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
 }
 

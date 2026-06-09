@@ -25,6 +25,8 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
+	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
 // checkPoolerCondition evaluates condition for each pooler once. Returns nil if all
@@ -201,6 +203,7 @@ func WaitForHigherTermPrimary(t *testing.T, setup *ShardSetup, oldTerm int64, mi
 
 // WaitForNewPrimary polls all multipoolers in setup until one other than oldPrimaryName
 // reports IsInitialized + PoolerType_PRIMARY + PostgresReady, then returns its name.
+// Elapsed time is recorded as a timing measurement.
 // Fails the test if no new primary is elected within timeout.
 func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
@@ -210,7 +213,8 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		poolers = append(poolers, inst)
 	}
 
-	return EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+	start := time.Now()
+	name := EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
 		func(statuses []PoolerStatusResult) (string, bool, string) {
 			for _, r := range statuses {
 				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
@@ -226,6 +230,8 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		},
 		"new primary not elected within %v", timeout,
 	)
+	testtiming.Record(t, fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), timeout)
+	return name
 }
 
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,

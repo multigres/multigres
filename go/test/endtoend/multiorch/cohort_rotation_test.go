@@ -23,6 +23,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
 // fetchLeaderCohort calls Status on the current shard leader and returns the
@@ -60,6 +61,7 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 	for _, name := range expected {
 		expectedSet[name] = struct{}{}
 	}
+	start := time.Now()
 	require.Eventually(t, func() bool {
 		members := fetchLeaderCohort(t, setup)
 		if len(members) != len(expected) {
@@ -73,6 +75,7 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 		return true
 	}, timeout, 500*time.Millisecond,
 		"cohort never converged on %v", expected)
+	testtiming.Record(t, "cohort convergence", time.Since(start), timeout)
 }
 
 // TestCohortRotation_FullReplacement exercises a full rotation of the cohort:

@@ -49,12 +49,20 @@ func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 // HasEvent checks if events contains at least one event with the given
 // event_type and outcome values.
 func HasEvent(events []map[string]any, eventType, outcome string) bool {
+	return len(FindEvents(events, eventType, outcome)) > 0
+}
+
+// FindEvents returns every event with the given event_type and outcome, in the
+// order they appear. Use this when a test needs to inspect an event's own
+// attributes (e.g. a duration field), not just assert that it occurred.
+func FindEvents(events []map[string]any, eventType, outcome string) []map[string]any {
+	var matches []map[string]any
 	for _, e := range events {
 		if e["event_type"] == eventType && e["outcome"] == outcome {
-			return true
+			matches = append(matches, e)
 		}
 	}
-	return false
+	return matches
 }
 
 // WaitForEvent polls logFile until the given event_type+outcome appears or timeout expires.

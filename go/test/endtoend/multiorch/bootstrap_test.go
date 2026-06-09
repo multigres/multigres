@@ -35,6 +35,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -355,7 +356,10 @@ func TestBootstrapInitialization(t *testing.T) {
 		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
-		shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
+		const autoRestoreTimeout = 90 * time.Second
+		restoreStart := time.Now()
+		shardsetup.EventuallyPoolerCondition(t,
+			[]*shardsetup.MultipoolerInstance{standbyInst}, autoRestoreTimeout, 1*time.Second,
 			func(r shardsetup.PoolerStatusResult) (bool, string) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
@@ -367,6 +371,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			"auto-restore should complete within timeout",
 		)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), autoRestoreTimeout)
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
