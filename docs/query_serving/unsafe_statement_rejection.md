@@ -226,6 +226,56 @@ happening earlier in the pipeline for caching.
 - Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
   parse time.
 
+### Restricted GUC value guard
+
+Separate from the tiers above (which block whole statement types or whole
+functions), a narrow guard rejects any attempt to **assign a value** to a
+cluster-managed GUC, regardless of the statement carrying it. The set is a
+single map (`restrictedGUCs` in `restricted_guc.go`, mirroring `funcBlocklist`):
+add a GUC name + reason there and every path below enforces it.
+
+Currently the list has one entry, **`synchronous_commit`**. Replication
+durability is managed centrally: the multipooler rule store / `SyncStandbyManager`
+is the sole writer of `synchronous_commit` (via `ALTER SYSTEM`), and the HA
+contract requires `synchronous_commit = on` so that an acknowledged commit is
+durably flushed on the synchronous standby (see
+`docs/ha/decision-log/2026-02-12-synchronous-commit-on.md`). A session that
+lowers the value silently weakens that guarantee for its writes — a footgun, so
+we take the choice away. See
+`docs/ha/decision-log/2026-05-29-block-synchronous-commit-changes.md`.
+
+The paths below use `synchronous_commit` as the example; the same rules apply to
+any GUC added to `restrictedGUCs`.
+
+| Path                                          | Action                                   |
+| --------------------------------------------- | ---------------------------------------- |
+| `SET synchronous_commit = x`                  | Reject                                   |
+| `SET LOCAL synchronous_commit = x`            | Reject                                   |
+| `SET synchronous_commit FROM CURRENT`         | Reject                                   |
+| `ALTER DATABASE d SET synchronous_commit = x` | Reject                                   |
+| `ALTER ROLE r SET synchronous_commit = x`     | Reject                                   |
+| `set_config('synchronous_commit', x, _)`      | Reject (both `is_local` variants)        |
+| `ALTER SYSTEM SET synchronous_commit = x`     | Already rejected (Tier 2)                |
+| `RESET synchronous_commit`                    | **Allowed** — restores the managed value |
+| `SET synchronous_commit TO DEFAULT`           | **Allowed** — restores the managed value |
+| `RESET ALL`                                   | **Allowed** — restores the managed value |
+
+Reverts are allowed because they can only restore the cluster-managed value.
+The rejection is a `feature_not_supported` (`0A000`) error pointing users at
+`RESET`.
+
+**Where it runs.** In `checkRestrictedGUCChange`, called from
+`planUnsupportedConstructs` alongside the Tier 2 and expression-level checks, so
+it covers both query protocols and is short-circuited by the plan cache. The
+`set_config(...)` form is enforced inside the same expression walker that tracks
+set_config. So that the planner can inspect the variable name even for
+transaction-scoped `set_config(..., true)`, the normalizer keeps that name
+literal (only the value is parameterized for plan-cache stability).
+
+**Known gaps** (consistent with the rest of this layer): assignments inside
+PL/pgSQL bodies, dynamic `EXECUTE`, and a `set_config` call whose variable name
+is itself non-literal are not caught.
+
 ## Other Allowed Statements With Known Risk
 
 Beyond Tier 1 (allowed pending body analysis), a few more statements
@@ -296,6 +346,7 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                       |
 | `go/services/multigateway/planner/unsafe_funccall.go`      | `planUnsupportedConstructs()` orchestrator + `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls |
+| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                           |
 | `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                           |
 | `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                         |
 | `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                     |

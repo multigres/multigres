@@ -119,11 +119,29 @@ logical lend tracked by `OnReserve`/`OnRelease`.
 admission gate called by every gRPC handler before acquiring an
 executor:
 
-| State                      | `allowOnShutdown=false`    | `allowOnShutdown=true`   |
-| -------------------------- | -------------------------- | ------------------------ |
-| SERVING, not shutting down | Allow                      | Allow                    |
-| SERVING, shutting down     | Reject (`ErrShuttingDown`) | Allow                    |
-| NOT_SERVING                | Reject (`ErrNotServing`)   | Reject (`ErrNotServing`) |
+| State                            | `allowOnShutdown=false` | `allowOnShutdown=true` |
+| -------------------------------- | ----------------------- | ---------------------- |
+| SERVING, not shutting down       | Allow                   | Allow                  |
+| SERVING, shutting down (drain)   | Reject (`MTF01`)        | Allow                  |
+| NOT_SERVING / demoted to REPLICA | Reject (`MTF01`)        | Allow                  |
+
+`allowOnShutdown=true` marks an in-flight operation on an **existing
+reserved connection**, so it is admitted regardless of serving status
+or demotion: the reserved connection itself is the real gate, not the
+pooler's serving state. Tablegroup/shard mismatches (`MTD01`) are still
+rejected. Once admitted, two outcomes are possible:
+
+- **Connection still alive** (the normal in-drain case): the operation
+  runs on the live backend. PostgreSQL is demoted only _after_ the
+  drain finishes, so a surviving reserved connection is still on the
+  primary and the transaction concludes cleanly.
+- **Connection already force-closed** (the drain exceeded its grace
+  period while the client sat idle-in-transaction): the executor
+  returns SQLSTATE `40001` (`serialization_failure`, _"transaction
+  aborted: connection terminated during a planned failover"_) so the
+  client retries the whole transaction. This is deliberately **not**
+  `MTF01` — the transaction no longer exists, so there is nothing for
+  the gateway to buffer or auto-retry; only the client can replay it.
 
 Each gRPC method sets `allowOnShutdown` based on whether it operates
 on an existing reserved connection:
@@ -137,6 +155,7 @@ on an existing reserved connection:
 | `CopyBidiExecute`           | `reservedConnId > 0` | Same                                     |
 | `ReserveStreamExecute`      | `false`              | Always a new reservation                 |
 | `ConcludeTransaction`       | `true`               | Always on existing reserved conn         |
+| `DiscardTempTables`         | `true`               | Always on existing reserved conn         |
 | `ReleaseReservedConnection` | `true`               | Always on existing reserved conn         |
 | `GetAuthCredentials`        | `false`              | Admin operation, not query path          |
 | `StreamPoolerHealth`        | No gate              | Health streaming is independent          |
@@ -162,6 +181,12 @@ reserved connections are forcibly killed via
 connections survive into a non-serving state where they could execute
 queries against a demoted replica. The force-close kills the backend
 PostgreSQL processes and returns the connections to the pool.
+
+A late operation (e.g. a `COMMIT`) that arrives after its reserved
+connection was force-closed is admitted by the gate (`allowOnShutdown`)
+but finds the connection gone, and the executor returns SQLSTATE
+`40001` so the client retries the whole transaction. See the Admission
+Control section above.
 
 When `OnStateChange` receives `SERVING`, the transition is immediate:
 set `servingStatus=SERVING` and `shuttingDown=false`.

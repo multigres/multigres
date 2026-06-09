@@ -16,7 +16,6 @@ go/services/pgctld/       @multigres/owners-cluster-management
 
 # Pooler service
 go/services/multipooler/  @multigres/owners-cluster-management
-go/multipooler/           @multigres/owners-cluster-management
 
 # SQL parser
 go/common/parser/         @multigres/owners-query-serving
