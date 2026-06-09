@@ -108,6 +108,21 @@ pg1-port=5432
 	return configPath
 }
 
+// stubPgbackrest installs a fake `pgbackrest` executable on PATH for the test,
+// so engine methods that shell out can be exercised without real pgbackrest.
+func stubPgbackrest(t *testing.T, script string) {
+	t.Helper()
+	binDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(script), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+// pgbackrestInfoStub returns a stub script that emits the given JSON for the
+// `info` subcommand and exits 0 for any other subcommand.
+func pgbackrestInfoStub(jsonOutput string) string {
+	return "#!/bin/bash\nif [[ \"$*\" == *\"info\"* ]]; then\ncat <<'JSONEOF'\n" + jsonOutput + "\nJSONEOF\nexit 0\nfi\nexit 0\n"
+}
+
 func TestFindByJobID(t *testing.T) {
 	tests := []struct {
 		name          string
