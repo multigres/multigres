@@ -140,13 +140,13 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	shardsetup.WaitForEvent(t, mo.LogFile, "primary.demotion", "success", 5*time.Second)
 	t.Log("Verified primary.demotion event in multiorch log")
 
-	// Step 9: Verify term.begin event was emitted during failover.
+	// Step 9: Verify consensus.recruit event was emitted during failover.
 	// Recruit is sent by AppointLeaderAction to all nodes during failover; the new primary is selected from the recruited set.
-	t.Log("Verifying term.begin event in new primary's multipooler log...")
+	t.Log("Verifying consensus.recruit event in new primary's multipooler log...")
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")
-	shardsetup.WaitForEvent(t, newPrimary.Multipooler.LogFile, "term.begin", "success", 5*time.Second)
-	t.Log("Verified term.begin event in new primary's multipooler log")
+	shardsetup.WaitForEvent(t, newPrimary.Multipooler.LogFile, "consensus.recruit", "success", 5*time.Second)
+	t.Log("Verified consensus.recruit event in new primary's multipooler log")
 
 	t.Log("TestDemoteStalePrimary_SIGKILL completed successfully")
 }

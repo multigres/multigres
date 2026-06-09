@@ -16,6 +16,8 @@
 package consensus
 
 import (
+	"fmt"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -51,6 +53,17 @@ func CompareRuleNumbers(a, b *clustermetadatapb.RuleNumber) int {
 		return 1
 	}
 	return 0
+}
+
+// FormatRuleNumber renders a RuleNumber for human-readable logs as
+// "coordinator_term.leader_subterm" (e.g. "7.2"). The proto's default string
+// form is verbose and not log-friendly, so prefer this helper wherever a rule
+// number is logged. A nil RuleNumber renders as "none".
+func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
+	if rn == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%d.%d", rn.GetCoordinatorTerm(), rn.GetLeaderSubterm())
 }
 
 // MostAdvancedPosition returns the highest-ranked PoolerPosition among the

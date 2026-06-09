@@ -121,17 +121,44 @@ func (e BackupLeaseLost) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("holder", e.Holder)}
 }
 
-type TermBegin struct {
-	NewTerm      int64
+type ConsensusRecruit struct {
+	Rule         string
 	PreviousTerm int64
 	RevokedRole  string // "primary" | "standby" | "" (empty = no revoke)
 }
 
-func (TermBegin) EventType() string { return "term.begin" }
-func (e TermBegin) LogAttrs() []slog.Attr {
+func (ConsensusRecruit) EventType() string { return "consensus.recruit" }
+func (e ConsensusRecruit) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.Int64("new_term", e.NewTerm),
+		slog.String("rule", e.Rule),
 		slog.Int64("previous_term", e.PreviousTerm),
 		slog.String("revoked_role", e.RevokedRole),
 	}
+}
+
+// ConsensusPromote is emitted by a multipooler node when it executes the leader
+// path of the Propose phase: it calls pg_promote and writes the new rule entry.
+// Together with consensus.recruit events from Recruit, these events let operators
+// reconstruct the full lifecycle of a term election and correlate Propose-phase
+// failures with postgres state changes.
+type ConsensusPromote struct {
+	Rule string
+}
+
+func (ConsensusPromote) EventType() string { return "consensus.promote" }
+func (e ConsensusPromote) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
+}
+
+// ConsensusSetPrimary is emitted by a multipooler node when it executes the
+// standby path of the Propose phase: it configures primary_conninfo to replicate
+// from the new leader. Together with consensus.recruit and consensus.promote
+// events, these events cover the full Propose round across all participating nodes.
+type ConsensusSetPrimary struct {
+	Rule string
+}
+
+func (ConsensusSetPrimary) EventType() string { return "consensus.set_primary" }
+func (e ConsensusSetPrimary) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
 }

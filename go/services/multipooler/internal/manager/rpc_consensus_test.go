@@ -788,14 +788,13 @@ func TestPropose(t *testing.T) {
 		{
 			// proposal_leader is some other pooler: Propose is leader-only, so
 			// it must reject this and direct the coordinator to use
-			// SetTermPrimary for followers.
-			name:        "RejectedWhenNotDesignatedLeader",
-			initialTerm: recruitedTerm,
-			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
-			req:         makeReplicaReq(),
-			setupMocks: func(m *mock.QueryService) {
-				expectStandbyReadyMocks(m)
-			},
+			// SetTermPrimary for followers. The identity check runs before any
+			// postgres queries, so no mocks are needed.
+			name:              "RejectedWhenNotDesignatedLeader",
+			initialTerm:       recruitedTerm,
+			ruleStore:         &fakeRuleStore{pos: makeRulePosition(0)},
+			req:               makeReplicaReq(),
+			setupMocks:        func(_ *mock.QueryService) {},
 			expectError:       true,
 			expectErrContains: "non-leaders should be told via SetTermPrimary",
 		},
