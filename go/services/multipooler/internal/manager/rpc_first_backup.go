@@ -188,21 +188,6 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	return false, backupFound, nil
 }
 
-// loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
-func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
-	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
-	if err != nil {
-		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
-	}
-
-	if db.BootstrapDurabilityPolicy == nil {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
-	}
-
-	return db.BootstrapDurabilityPolicy, nil
-}
-
 func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
 	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
 }
@@ -231,4 +216,19 @@ func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
 		return err
 	}
 	return nil
+}
+
+// loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
+func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	if err != nil {
+		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())
+	}
+
+	if db.BootstrapDurabilityPolicy == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"database %s has no durability_policy configured", pm.record.ShardKey().GetDatabase())
+	}
+
+	return db.BootstrapDurabilityPolicy, nil
 }
