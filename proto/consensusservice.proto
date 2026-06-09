@@ -36,19 +36,20 @@ service MultiPoolerConsensus {
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
     returns (multipoolermanagerdata.RewindToSourceResponse);
 
-  // Recruit → Propose → SetTermPrimary appointment protocol.
+  // Appointment protocol: Recruit, then concurrent Promote (to the leader) and
+  // SetPrimary (to the other cohort members).
 
   // Recruit asks a pooler to revoke all terms below the one specified and
   // record the coordinator's exclusive claim on that term.
   rpc Recruit(consensusdata.RecruitRequest) returns (consensusdata.RecruitResponse);
 
-  // Propose sends a complete shard-state proposal to a pooler. The designated
+  // Promote sends a complete shard-state proposal to a pooler. The designated
   // leader promotes its postgres; all other cohort members point replication at
   // the new primary.
-  rpc Propose(consensusdata.ProposeRequest) returns (consensusdata.ProposeResponse);
+  rpc Promote(consensusdata.PromoteRequest) returns (consensusdata.PromoteResponse);
 
-  // SetTermPrimary tells a pooler which postgres primary to follow at a given
+  // SetPrimary tells a pooler which postgres primary to follow at a given
   // consensus term. Used both to endorse in-flight proposals and to catch
   // followers up to durable decisions.
-  rpc SetTermPrimary(consensusdata.SetTermPrimaryRequest) returns (consensusdata.SetTermPrimaryResponse);
+  rpc SetPrimary(consensusdata.SetPrimaryRequest) returns (consensusdata.SetPrimaryResponse);
 }

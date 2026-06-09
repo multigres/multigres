@@ -205,10 +205,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Run("verify all nodes initialized", func(t *testing.T) {
 		// All nodes should eventually be marked initialized after bootstrap.
 		// We deliberately don't assert ConsensusStatus.TermRevocation.RevokedBelowTerm
-		// here: under the Recruit/Propose/SetTermPrimary model that field is a per-pooler
+		// here: under the Recruit/Promote/SetPrimary model that field is a per-pooler
 		// revocation promise set by Recruit, and bootstrap only requires a Recruit
 		// quorum (e.g. 2 of 3) — non-recruited members legitimately stay at term 0
-		// while still being healthy cohort participants once SetTermPrimary brings them in.
+		// while still being healthy cohort participants once SetPrimary brings them in.
 		var allInstances []*shardsetup.MultipoolerInstance
 		for _, inst := range setup.Multipoolers {
 			allInstances = append(allInstances, inst)
@@ -353,7 +353,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Wait for auto-restore to complete. We don't assert
 		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a
-		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
+		// freshly-restored standby that joins via SetPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
 		const autoRestoreTimeout = 90 * time.Second

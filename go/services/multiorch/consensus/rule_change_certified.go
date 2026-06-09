@@ -36,7 +36,7 @@ import (
 // The coordinator is a pure executor here: every identity and timing field
 // (proposed_rule.coordinator_id, .creation_time, .rule_number;
 // cert.term_revocation.*) must be populated by the caller. The coordinator
-// validates the inputs, then runs the standard Recruit + Propose fan-out
+// validates the inputs, then runs the standard Recruit + Promote fan-out
 // against the proposed cohort.
 func (c *Coordinator) ApplyCertifiedRuleChange(
 	ctx context.Context,

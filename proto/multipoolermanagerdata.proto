@@ -336,7 +336,7 @@ enum SnapshotTrigger {
   SNAPSHOT_TRIGGER_UNSPECIFIED = 0;
   // Sent immediately when the stream is first opened.
   SNAPSHOT_TRIGGER_INITIAL = 1;
-  // Triggered by a state-change broadcast (e.g. type change, SetTermPrimary).
+  // Triggered by a state-change broadcast (e.g. type change, SetPrimary).
   SNAPSHOT_TRIGGER_BROADCAST = 2;
   // Triggered by an explicit poll request from the orchestrator.
   SNAPSHOT_TRIGGER_POLL = 3;

@@ -496,7 +496,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 // TestPopulatePrimaryInfo_DemotedViaRecruit covers the scenario where a primary is
 // demoted via Recruit and restarted as a standby (emergencyDemoteLocked behavior).
 // After restart, PoolerType=REPLICA in the health snapshot and primary_term stays > 0
-// (only SetTermPrimary clears it). PrimaryReachable must be false so PrimaryIsDead
+// (only SetPrimary clears it). PrimaryReachable must be false so PrimaryIsDead
 // triggers and a new primary can be elected.
 func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 	replica := &multiorchdatapb.PoolerHealthState{

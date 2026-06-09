@@ -148,11 +148,11 @@ func TestAppointLeader(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
 	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_failover"))
 
-	// The designated leader (mp1) should receive a Propose with the full
+	// The designated leader (mp1) should receive a Promote with the full
 	// CoordinatorProposal.
 	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
-	propReq, ok := fakeClient.ProposeRequests[leaderKey]
-	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "Promote should be sent to designated leader %s", cohortIDs[0].Name)
 	require.NotNil(t, propReq.GetProposal())
 	require.Equal(t, "test_failover", propReq.GetReason())
 	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
@@ -160,14 +160,14 @@ func TestAppointLeader(t *testing.T) {
 	require.Equal(t, int64(6), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
 		"revocation term should be max prior term (5) + 1")
 
-	// Followers should receive SetTermPrimary carrying the same leader + rule
-	// (no Propose).
+	// Followers should receive SetPrimary carrying the same leader + rule
+	// (no Promote).
 	for _, id := range cohortIDs[1:] {
 		key := topoclient.MultiPoolerIDString(id)
-		_, isPropose := fakeClient.ProposeRequests[key]
-		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
-		stp, ok := fakeClient.SetTermPrimaryRequests[key]
-		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		_, isPromote := fakeClient.PromoteRequests[key]
+		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetPrimaryRequests[key]
+		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
 		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
 		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
@@ -244,11 +244,11 @@ func TestAppointInitialLeader(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
 	require.NoError(t, c.AppointInitialLeader(ctx, shardKey, cohort))
 
-	// The designated leader (mp1) should receive a Propose carrying the
+	// The designated leader (mp1) should receive a Promote carrying the
 	// bootstrap proposal.
 	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
-	propReq, ok := fakeClient.ProposeRequests[leaderKey]
-	require.True(t, ok, "Propose should be sent to designated leader %s", cohortIDs[0].Name)
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "Promote should be sent to designated leader %s", cohortIDs[0].Name)
 	require.NotNil(t, propReq.GetProposal())
 	require.Equal(t, "ShardInit", propReq.GetReason())
 	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
@@ -262,13 +262,13 @@ func TestAppointInitialLeader(t *testing.T) {
 	require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
 	require.Len(t, propRule.GetCohortMembers(), 3)
 
-	// Followers should receive SetTermPrimary carrying the same leader + rule.
+	// Followers should receive SetPrimary carrying the same leader + rule.
 	for _, id := range cohortIDs[1:] {
 		key := topoclient.MultiPoolerIDString(id)
-		_, isPropose := fakeClient.ProposeRequests[key]
-		require.False(t, isPropose, "Propose should NOT be sent to follower %s", id.Name)
-		stp, ok := fakeClient.SetTermPrimaryRequests[key]
-		require.True(t, ok, "SetTermPrimary should be sent to %s", id.Name)
+		_, isPromote := fakeClient.PromoteRequests[key]
+		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
+		stp, ok := fakeClient.SetPrimaryRequests[key]
+		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
 		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
 		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())

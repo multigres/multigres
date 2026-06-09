@@ -118,9 +118,9 @@ func local_request_MultiPoolerConsensus_Recruit_0(ctx context.Context, marshaler
 	return msg, metadata, err
 }
 
-func request_MultiPoolerConsensus_Propose_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerConsensusClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiPoolerConsensus_Promote_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerConsensusClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq consensusdata.ProposeRequest
+		protoReq consensusdata.PromoteRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
@@ -129,25 +129,25 @@ func request_MultiPoolerConsensus_Propose_0(ctx context.Context, marshaler runti
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	msg, err := client.Propose(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.Promote(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerConsensus_Propose_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerConsensusServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiPoolerConsensus_Promote_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerConsensusServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq consensusdata.ProposeRequest
+		protoReq consensusdata.PromoteRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	msg, err := server.Propose(ctx, &protoReq)
+	msg, err := server.Promote(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-func request_MultiPoolerConsensus_SetTermPrimary_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerConsensusClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiPoolerConsensus_SetPrimary_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerConsensusClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq consensusdata.SetTermPrimaryRequest
+		protoReq consensusdata.SetPrimaryRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
@@ -156,19 +156,19 @@ func request_MultiPoolerConsensus_SetTermPrimary_0(ctx context.Context, marshale
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
 	}
-	msg, err := client.SetTermPrimary(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.SetPrimary(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerConsensus_SetTermPrimary_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerConsensusServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiPoolerConsensus_SetPrimary_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerConsensusServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
-		protoReq consensusdata.SetTermPrimaryRequest
+		protoReq consensusdata.SetPrimaryRequest
 		metadata runtime.ServerMetadata
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	msg, err := server.SetTermPrimary(ctx, &protoReq)
+	msg, err := server.SetPrimary(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -238,45 +238,45 @@ func RegisterMultiPoolerConsensusHandlerServer(ctx context.Context, mux *runtime
 		}
 		forward_MultiPoolerConsensus_Recruit_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_Propose_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_Promote_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/Propose", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/Propose"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/Promote", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/Promote"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerConsensus_Propose_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiPoolerConsensus_Promote_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerConsensus_Propose_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiPoolerConsensus_Promote_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_SetTermPrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_SetPrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/SetTermPrimary", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/SetTermPrimary"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/SetPrimary", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/SetPrimary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerConsensus_SetTermPrimary_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiPoolerConsensus_SetPrimary_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerConsensus_SetTermPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiPoolerConsensus_SetPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -369,39 +369,39 @@ func RegisterMultiPoolerConsensusHandlerClient(ctx context.Context, mux *runtime
 		}
 		forward_MultiPoolerConsensus_Recruit_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_Propose_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_Promote_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/Propose", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/Propose"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/Promote", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/Promote"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerConsensus_Propose_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiPoolerConsensus_Promote_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerConsensus_Propose_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiPoolerConsensus_Promote_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_SetTermPrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiPoolerConsensus_SetPrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/SetTermPrimary", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/SetTermPrimary"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/consensus.MultiPoolerConsensus/SetPrimary", runtime.WithHTTPPathPattern("/consensus.MultiPoolerConsensus/SetPrimary"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerConsensus_SetTermPrimary_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiPoolerConsensus_SetPrimary_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerConsensus_SetTermPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiPoolerConsensus_SetPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
@@ -410,14 +410,14 @@ var (
 	pattern_MultiPoolerConsensus_UpdateConsensusRule_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "UpdateConsensusRule"}, ""))
 	pattern_MultiPoolerConsensus_RewindToSource_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "RewindToSource"}, ""))
 	pattern_MultiPoolerConsensus_Recruit_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "Recruit"}, ""))
-	pattern_MultiPoolerConsensus_Propose_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "Propose"}, ""))
-	pattern_MultiPoolerConsensus_SetTermPrimary_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "SetTermPrimary"}, ""))
+	pattern_MultiPoolerConsensus_Promote_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "Promote"}, ""))
+	pattern_MultiPoolerConsensus_SetPrimary_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"consensus.MultiPoolerConsensus", "SetPrimary"}, ""))
 )
 
 var (
 	forward_MultiPoolerConsensus_UpdateConsensusRule_0 = runtime.ForwardResponseMessage
 	forward_MultiPoolerConsensus_RewindToSource_0      = runtime.ForwardResponseMessage
 	forward_MultiPoolerConsensus_Recruit_0             = runtime.ForwardResponseMessage
-	forward_MultiPoolerConsensus_Propose_0             = runtime.ForwardResponseMessage
-	forward_MultiPoolerConsensus_SetTermPrimary_0      = runtime.ForwardResponseMessage
+	forward_MultiPoolerConsensus_Promote_0             = runtime.ForwardResponseMessage
+	forward_MultiPoolerConsensus_SetPrimary_0          = runtime.ForwardResponseMessage
 )

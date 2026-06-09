@@ -761,7 +761,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 // self-heal predicate. The function decides whether the monitor should issue
 // remedialActionFixPrimaryConnInfo on a given tick by comparing the live
 // primary_conninfo (read from postgres) against the (rule, primary) tuple
-// recorded by SetTermPrimary/Propose. The function is intentionally
+// recorded by SetPrimary/Promote. The function is intentionally
 // conservative: when in doubt, return false so the monitor takes no action.
 //
 // The cases below cover each early-exit path plus the live-vs-recorded
@@ -847,7 +847,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "RecordedRuleRevoked",
 			// revocation at term 9 outranks rule at term 5 -> reconcile would
-			// race the in-flight Recruit/Propose
+			// race the in-flight Recruit/Promote
 			seedRP: &clustermetadatapb.ReplicationPrimary{
 				Rule:    mkRule(5, recordedID),
 				Primary: mkAddress(recordedHost, recordedPort),

@@ -212,10 +212,10 @@ func (x *RecruitResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 	return nil
 }
 
-// ProposeRequest carries the coordinator's complete proposal for a new shard
+// PromoteRequest carries the coordinator's complete proposal for a new shard
 // state. Every cohort member receives this: the designated leader promotes
 // itself; all others configure replication toward the new primary.
-type ProposeRequest struct {
+type PromoteRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Proposal *CoordinatorProposal   `protobuf:"bytes,1,opt,name=proposal,proto3" json:"proposal,omitempty"`
 	// Human-readable reason for this proposal (e.g. "dead_primary", "bootstrap").
@@ -227,20 +227,20 @@ type ProposeRequest struct {
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *ProposeRequest) Reset() {
-	*x = ProposeRequest{}
+func (x *PromoteRequest) Reset() {
+	*x = PromoteRequest{}
 	mi := &file_consensusdata_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProposeRequest) String() string {
+func (x *PromoteRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProposeRequest) ProtoMessage() {}
+func (*PromoteRequest) ProtoMessage() {}
 
-func (x *ProposeRequest) ProtoReflect() protoreflect.Message {
+func (x *PromoteRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -252,54 +252,54 @@ func (x *ProposeRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProposeRequest.ProtoReflect.Descriptor instead.
-func (*ProposeRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use PromoteRequest.ProtoReflect.Descriptor instead.
+func (*PromoteRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ProposeRequest) GetProposal() *CoordinatorProposal {
+func (x *PromoteRequest) GetProposal() *CoordinatorProposal {
 	if x != nil {
 		return x.Proposal
 	}
 	return nil
 }
 
-func (x *ProposeRequest) GetReason() string {
+func (x *PromoteRequest) GetReason() string {
 	if x != nil {
 		return x.Reason
 	}
 	return ""
 }
 
-func (x *ProposeRequest) GetAcceptedNodeIds() []*clustermetadata.ID {
+func (x *PromoteRequest) GetAcceptedNodeIds() []*clustermetadata.ID {
 	if x != nil {
 		return x.AcceptedNodeIds
 	}
 	return nil
 }
 
-// ProposeResponse carries the pooler's state after applying a ProposeRequest.
-type ProposeResponse struct {
+// PromoteResponse carries the pooler's state after applying a PromoteRequest.
+type PromoteResponse struct {
 	state           protoimpl.MessageState           `protogen:"open.v1"`
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,1,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *ProposeResponse) Reset() {
-	*x = ProposeResponse{}
+func (x *PromoteResponse) Reset() {
+	*x = PromoteResponse{}
 	mi := &file_consensusdata_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProposeResponse) String() string {
+func (x *PromoteResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProposeResponse) ProtoMessage() {}
+func (*PromoteResponse) ProtoMessage() {}
 
-func (x *ProposeResponse) ProtoReflect() protoreflect.Message {
+func (x *PromoteResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -311,19 +311,19 @@ func (x *ProposeResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProposeResponse.ProtoReflect.Descriptor instead.
-func (*ProposeResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use PromoteResponse.ProtoReflect.Descriptor instead.
+func (*PromoteResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *ProposeResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
+func (x *PromoteResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
 	if x != nil {
 		return x.ConsensusStatus
 	}
 	return nil
 }
 
-// SetTermPrimaryRequest tells a pooler about the current leader and the rule
+// SetPrimaryRequest tells a pooler about the current leader and the rule
 // the caller knows the cluster is at. The pooler compares the supplied rule
 // against its own; if the supplied rule is strictly higher it applies the
 // change (standby: update primary_conninfo; stale primary: demote), otherwise
@@ -333,7 +333,7 @@ func (x *ProposeResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 // The pooler also validates that leader.id matches rule.leader_id — the
 // rule's identity is authoritative; the leader field is just the contact
 // information needed to act on that identity.
-type SetTermPrimaryRequest struct {
+type SetPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Contact info for the leader named in rule.leader_id. The pooler uses
 	// leader.host and leader.postgres_port when it rewrites primary_conninfo.
@@ -347,20 +347,20 @@ type SetTermPrimaryRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetTermPrimaryRequest) Reset() {
-	*x = SetTermPrimaryRequest{}
+func (x *SetPrimaryRequest) Reset() {
+	*x = SetPrimaryRequest{}
 	mi := &file_consensusdata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetTermPrimaryRequest) String() string {
+func (x *SetPrimaryRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetTermPrimaryRequest) ProtoMessage() {}
+func (*SetPrimaryRequest) ProtoMessage() {}
 
-func (x *SetTermPrimaryRequest) ProtoReflect() protoreflect.Message {
+func (x *SetPrimaryRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -372,48 +372,48 @@ func (x *SetTermPrimaryRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetTermPrimaryRequest.ProtoReflect.Descriptor instead.
-func (*SetTermPrimaryRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetPrimaryRequest.ProtoReflect.Descriptor instead.
+func (*SetPrimaryRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *SetTermPrimaryRequest) GetLeader() *clustermetadata.PoolerAddress {
+func (x *SetPrimaryRequest) GetLeader() *clustermetadata.PoolerAddress {
 	if x != nil {
 		return x.Leader
 	}
 	return nil
 }
 
-func (x *SetTermPrimaryRequest) GetRule() *clustermetadata.ShardRule {
+func (x *SetPrimaryRequest) GetRule() *clustermetadata.ShardRule {
 	if x != nil {
 		return x.Rule
 	}
 	return nil
 }
 
-// SetTermPrimaryResponse carries the pooler's state after processing a
-// SetTermPrimaryRequest.
-type SetTermPrimaryResponse struct {
+// SetPrimaryResponse carries the pooler's state after processing a
+// SetPrimaryRequest.
+type SetPrimaryResponse struct {
 	state           protoimpl.MessageState           `protogen:"open.v1"`
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,1,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *SetTermPrimaryResponse) Reset() {
-	*x = SetTermPrimaryResponse{}
+func (x *SetPrimaryResponse) Reset() {
+	*x = SetPrimaryResponse{}
 	mi := &file_consensusdata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetTermPrimaryResponse) String() string {
+func (x *SetPrimaryResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetTermPrimaryResponse) ProtoMessage() {}
+func (*SetPrimaryResponse) ProtoMessage() {}
 
-func (x *SetTermPrimaryResponse) ProtoReflect() protoreflect.Message {
+func (x *SetPrimaryResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_consensusdata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -425,12 +425,12 @@ func (x *SetTermPrimaryResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetTermPrimaryResponse.ProtoReflect.Descriptor instead.
-func (*SetTermPrimaryResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetPrimaryResponse.ProtoReflect.Descriptor instead.
+func (*SetPrimaryResponse) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *SetTermPrimaryResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
+func (x *SetPrimaryResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
 	if x != nil {
 		return x.ConsensusStatus
 	}
@@ -451,16 +451,16 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"^\n" +
 	"\x0fRecruitResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"\xa9\x01\n" +
-	"\x0eProposeRequest\x12>\n" +
+	"\x0ePromoteRequest\x12>\n" +
 	"\bproposal\x18\x01 \x01(\v2\".consensusdata.CoordinatorProposalR\bproposal\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12?\n" +
 	"\x11accepted_node_ids\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0facceptedNodeIds\"^\n" +
-	"\x0fProposeResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"\x7f\n" +
-	"\x15SetTermPrimaryRequest\x126\n" +
+	"\x0fPromoteResponse\x12K\n" +
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"{\n" +
+	"\x11SetPrimaryRequest\x126\n" +
 	"\x06leader\x18\x01 \x01(\v2\x1e.clustermetadata.PoolerAddressR\x06leader\x12.\n" +
-	"\x04rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"e\n" +
-	"\x16SetTermPrimaryResponse\x12K\n" +
+	"\x04rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"a\n" +
+	"\x12SetPrimaryResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatusB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
@@ -480,10 +480,10 @@ var file_consensusdata_proto_goTypes = []any{
 	(*CoordinatorProposal)(nil),             // 0: consensusdata.CoordinatorProposal
 	(*RecruitRequest)(nil),                  // 1: consensusdata.RecruitRequest
 	(*RecruitResponse)(nil),                 // 2: consensusdata.RecruitResponse
-	(*ProposeRequest)(nil),                  // 3: consensusdata.ProposeRequest
-	(*ProposeResponse)(nil),                 // 4: consensusdata.ProposeResponse
-	(*SetTermPrimaryRequest)(nil),           // 5: consensusdata.SetTermPrimaryRequest
-	(*SetTermPrimaryResponse)(nil),          // 6: consensusdata.SetTermPrimaryResponse
+	(*PromoteRequest)(nil),                  // 3: consensusdata.PromoteRequest
+	(*PromoteResponse)(nil),                 // 4: consensusdata.PromoteResponse
+	(*SetPrimaryRequest)(nil),               // 5: consensusdata.SetPrimaryRequest
+	(*SetPrimaryResponse)(nil),              // 6: consensusdata.SetPrimaryResponse
 	(*clustermetadata.TermRevocation)(nil),  // 7: clustermetadata.TermRevocation
 	(*clustermetadata.PoolerAddress)(nil),   // 8: clustermetadata.PoolerAddress
 	(*clustermetadata.ShardRule)(nil),       // 9: clustermetadata.ShardRule
@@ -496,12 +496,12 @@ var file_consensusdata_proto_depIdxs = []int32{
 	9,  // 2: consensusdata.CoordinatorProposal.proposed_rule:type_name -> clustermetadata.ShardRule
 	7,  // 3: consensusdata.RecruitRequest.term_revocation:type_name -> clustermetadata.TermRevocation
 	10, // 4: consensusdata.RecruitResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	0,  // 5: consensusdata.ProposeRequest.proposal:type_name -> consensusdata.CoordinatorProposal
-	11, // 6: consensusdata.ProposeRequest.accepted_node_ids:type_name -> clustermetadata.ID
-	10, // 7: consensusdata.ProposeResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	8,  // 8: consensusdata.SetTermPrimaryRequest.leader:type_name -> clustermetadata.PoolerAddress
-	9,  // 9: consensusdata.SetTermPrimaryRequest.rule:type_name -> clustermetadata.ShardRule
-	10, // 10: consensusdata.SetTermPrimaryResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	0,  // 5: consensusdata.PromoteRequest.proposal:type_name -> consensusdata.CoordinatorProposal
+	11, // 6: consensusdata.PromoteRequest.accepted_node_ids:type_name -> clustermetadata.ID
+	10, // 7: consensusdata.PromoteResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	8,  // 8: consensusdata.SetPrimaryRequest.leader:type_name -> clustermetadata.PoolerAddress
+	9,  // 9: consensusdata.SetPrimaryRequest.rule:type_name -> clustermetadata.ShardRule
+	10, // 10: consensusdata.SetPrimaryResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name

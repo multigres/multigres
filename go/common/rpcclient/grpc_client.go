@@ -82,8 +82,8 @@ func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 	return conn.consensusClient.Recruit(ctx, request)
 }
 
-// Propose sends a role assignment to a recruited pooler.
-func (c *Client) Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error) {
+// Promote sends a role assignment to a recruited pooler.
+func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (c *Client) Propose(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 		_ = closer()
 	}()
 
-	return conn.consensusClient.Propose(ctx, request)
+	return conn.consensusClient.Promote(ctx, request)
 }
 
 // UpdateConsensusRule updates the synchronous standby list (quorum membership).
@@ -108,8 +108,8 @@ func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadat
 	return conn.consensusClient.UpdateConsensusRule(ctx, request)
 }
 
-// SetTermPrimary tells a pooler about the current primary, gated on position comparison.
-func (c *Client) SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetTermPrimaryRequest) (*consensusdatapb.SetTermPrimaryResponse, error) {
+// SetPrimary tells a pooler about the current primary, gated on position comparison.
+func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (c *Client) SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.M
 		_ = closer()
 	}()
 
-	return conn.consensusClient.SetTermPrimary(ctx, request)
+	return conn.consensusClient.SetPrimary(ctx, request)
 }
 
 // RewindToSource performs pg_rewind to synchronize a replica with its source.

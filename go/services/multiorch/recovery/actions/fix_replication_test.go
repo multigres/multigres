@@ -209,7 +209,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 }
 
 // TestFixReplicationAction_ExecuteSuccessNotReplicating asserts that
-// fixNotReplicating routes through SetTermPrimary on the replica.
+// fixNotReplicating routes through SetPrimary on the replica.
 func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -239,7 +239,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				},
 			},
 		},
-		SetTermPrimaryResponses: map[string]*consensusdatapb.SetTermPrimaryResponse{
+		SetPrimaryResponses: map[string]*consensusdatapb.SetPrimaryResponse{
 			"multipooler-cell1-replica1": {},
 		},
 	}
@@ -305,12 +305,12 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	err := action.Execute(ctx, problem)
 	require.NoError(t, err)
 
-	// Verify SetTermPrimary was called on the replica, NOT SetPrimaryConnInfo.
-	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)")
+	// Verify SetPrimary was called on the replica, NOT SetPrimaryConnInfo.
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
 	// Verify the request carried the primary's contact info and known position.
-	informReq := fakeClient.SetTermPrimaryRequests["multipooler-cell1-replica1"]
+	informReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
 	require.NotNil(t, informReq)
 	require.NotNil(t, informReq.Leader)
 	assert.Equal(t, "primary", informReq.Leader.Id.Name)
@@ -520,7 +520,7 @@ func (c *replicationStatusClient) Status(
 //
 // Call sequence (with verifyMaxAttempts = N):
 //  1. verifyProblemExists        → no PrimaryConnInfo (triggers fix)
-//     2..N+1. verifyReplicationStarted after SetTermPrimary  → not streaming (all fail)
+//     2..N+1. verifyReplicationStarted after SetPrimary  → not streaming (all fail)
 //     N+2+.  verifyReplicationStarted after RewindToSource → streaming
 type streamingAfterRewindClient struct {
 	*rpcclient.FakeClient
@@ -546,7 +546,7 @@ func (c *streamingAfterRewindClient) Status(
 			},
 		}, nil
 	case c.replicaCallCount <= 1+c.nonStreamingCalls:
-		// verifyReplicationStarted after SetTermPrimary: WAL receiver idle
+		// verifyReplicationStarted after SetPrimary: WAL receiver idle
 		return &multipoolermanagerdatapb.StatusResponse{
 			Status: &multipoolermanagerdatapb.Status{
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -571,7 +571,7 @@ func (c *streamingAfterRewindClient) Status(
 // RewindToSource did not restore primary_conninfo after pg_rewind, leaving the WAL
 // receiver with no primary to connect to. The full path under test:
 //
-//  1. SetTermPrimary is called but the WAL receiver never starts streaming.
+//  1. SetPrimary is called but the WAL receiver never starts streaming.
 //  2. tryPgRewind → RewindToSource runs (which now restores primary_conninfo).
 //  3. verifyReplicationStarted sees "streaming" and the action succeeds.
 func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
@@ -681,10 +681,10 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 	require.NoError(t, err, "fixNotReplicating must succeed via pg_rewind path")
 
 	// Verify the expected call sequence.
-	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)",
-		"SetTermPrimary must be called first")
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)",
+		"SetPrimary must be called first")
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)",
-		"RewindToSource must be called when SetTermPrimary doesn't start streaming")
+		"RewindToSource must be called when SetPrimary doesn't start streaming")
 
 	// REGRESSION: the pooler must NOT be drained — RewindToSource succeeded and
 	// streaming started. Before the fix, primary_conninfo was wiped by pg_rewind
@@ -795,8 +795,8 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	// and the action returns nil — the problem is resolved by draining the node.
 	require.NoError(t, err)
 
-	// Verify SetTermPrimary was called (configuration was attempted)
-	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-replica1)")
+	// Verify SetPrimary was called (configuration was attempted)
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 	// Verify pg_rewind was tried after replication failed to start
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 

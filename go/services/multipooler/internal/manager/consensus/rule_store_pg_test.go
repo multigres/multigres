@@ -906,7 +906,7 @@ func testPoolerID(t *testing.T, cell, name string) *clustermetadatapb.ID {
 // bootstrapRuleState performs an externally-certified write to establish a
 // post-bootstrap state. Use this in tests that focus on rule transitions starting
 // from a non-sentinel state; the sentinel→first-rule bootstrap transition is handled
-// by the Propose RPC with external certification and is not what those tests cover.
+// by the Promote RPC with external certification and is not what those tests cover.
 func bootstrapRuleState(ctx context.Context, t *testing.T, rs *ruleStore, policy *clustermetadatapb.DurabilityPolicy, cohort []*clustermetadatapb.ID) {
 	t.Helper()
 	coordinatorID := testPoolerID(t, "zone1", "coordinator-bootstrap")

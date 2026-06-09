@@ -166,7 +166,7 @@ const (
 	SnapshotTrigger_SNAPSHOT_TRIGGER_UNSPECIFIED SnapshotTrigger = 0
 	// Sent immediately when the stream is first opened.
 	SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL SnapshotTrigger = 1
-	// Triggered by a state-change broadcast (e.g. type change, SetTermPrimary).
+	// Triggered by a state-change broadcast (e.g. type change, SetPrimary).
 	SnapshotTrigger_SNAPSHOT_TRIGGER_BROADCAST SnapshotTrigger = 2
 	// Triggered by an explicit poll request from the orchestrator.
 	SnapshotTrigger_SNAPSHOT_TRIGGER_POLL SnapshotTrigger = 3

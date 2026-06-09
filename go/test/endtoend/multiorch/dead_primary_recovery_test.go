@@ -149,7 +149,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Wait for multiorch to detect failure and elect new primary.
 		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
 		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
-		// several seconds for failover execution (Recruit + Propose).
+		// several seconds for failover execution (Recruit + Promote).
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
@@ -164,7 +164,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
 		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
 		// before the next iteration begins — otherwise the grace period would carry over.
-		// 45s budget: stale-primary demotion (via SetTermPrimary) is synchronous and
+		// 45s budget: stale-primary demotion (via SetPrimary) is synchronous and
 		// includes a 5s drain + up to ~15s pg_rewind + ~5s postgres restart on slow CI.
 		setup.RequireRecovery(t, "multiorch", 45*time.Second)
 
@@ -428,11 +428,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 	// Verify the leader appointments themselves were fast. The coordinator stamps
 	// each successful promotion with recruit_ms (Run start → leader selected) and
-	// propose_ms (leader selected → commit), measuring the appointment itself —
+	// promote_ms (leader selected → commit), measuring the appointment itself —
 	// independent of the (much larger) detection + grace-period cost that precedes
 	// it. Tracking the two phases separately matters because they can slow down
 	// for different reasons: a laggy node during recruit vs. a slow postgres
-	// promotion during propose. Any of the multiorchs may have been coordinator
+	// promotion during promote. Any of the multiorchs may have been coordinator
 	// for a given failover, so we aggregate promotion events across all logs.
 	t.Run("verify appointment timing", func(t *testing.T) {
 		var events []map[string]any
@@ -451,28 +451,28 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// detection grace period that dominates the test's overall 30s budget.
 		//
 		// Recruit needs a few round trips + WAL replay stabilizing.
-		// Propose needs pg_promote() to succeed and the rule entry to replicate.
+		// Promote needs pg_promote() to succeed and the rule entry to replicate.
 		// The test bounds are deliberately tight to catch regressions that would
 		// make a simpler failover slow.
 		const (
 			maxRecruit = 500 * time.Millisecond
-			maxPropose = 3 * time.Second
+			maxPromote = 3 * time.Second
 		)
 		for _, p := range promotions {
 			recruitMs, ok := p["recruit_ms"].(float64)
 			require.True(t, ok, "successful promotion must record recruit_ms: %v", p)
-			proposeMs, ok := p["propose_ms"].(float64)
-			require.True(t, ok, "successful promotion must record propose_ms: %v", p)
+			promoteMs, ok := p["promote_ms"].(float64)
+			require.True(t, ok, "successful promotion must record promote_ms: %v", p)
 			recruit := time.Duration(recruitMs) * time.Millisecond
-			propose := time.Duration(proposeMs) * time.Millisecond
-			t.Logf("Leader appointment (new_primary=%v, proposed_term=%v): recruit=%v, propose=%v",
-				p["new_primary"], p["proposed_term"], recruit, propose)
+			promote := time.Duration(promoteMs) * time.Millisecond
+			t.Logf("Leader appointment (new_primary=%v, proposed_term=%v): recruit=%v, promote=%v",
+				p["new_primary"], p["proposed_term"], recruit, promote)
 			assert.Less(t, recruit, maxRecruit,
 				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
-			assert.Less(t, propose, maxPropose,
-				"propose phase for %v should be fast (took %v)", p["new_primary"], propose)
+			assert.Less(t, promote, maxPromote,
+				"promote phase for %v should be fast (took %v)", p["new_primary"], promote)
 			testtiming.Record(t, "appointment: recruit", recruit, maxRecruit)
-			testtiming.Record(t, "appointment: propose", propose, maxPropose)
+			testtiming.Record(t, "appointment: promote", promote, maxPromote)
 		}
 	})
 
@@ -592,7 +592,7 @@ func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.Mu
 // streaming replication, and that the primary has added it back to its standby list.
 //
 // Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
-// Recruit/Propose/SetTermPrimary model that field is a per-pooler revocation promise
+// Recruit/Promote/SetPrimary model that field is a per-pooler revocation promise
 // (set by Recruit on cohort members). A pooler that was momentarily unavailable
 // when the coordinator ran Recruit at the new term legitimately has the older
 // term but is otherwise healthy. expectedPrimaryName/expectedTerm are kept in

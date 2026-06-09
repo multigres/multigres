@@ -65,7 +65,7 @@ var errPoolerDrained = errors.New("pooler marked as DRAINED: replication cannot 
 // Idempotency:
 // This action is fully idempotent. If multiple multiorch instances race to fix
 // the same problem, the end result will be identical. The underlying RPC
-// operations (SetTermPrimary) are implemented as idempotent operations
+// operations (SetPrimary) are implemented as idempotent operations
 // at the pooler level and serialized by action locks on the poolers, so
 // concurrent calls are safe and produce the same final state.
 
@@ -201,12 +201,12 @@ func (a *FixReplicationAction) fixNotReplicating(
 		}
 	}()
 
-	// Configure primary_conninfo on the replica via SetTermPrimary.
-	informReq := &consensusdatapb.SetTermPrimaryRequest{
+	// Configure primary_conninfo on the replica via SetPrimary.
+	informReq := &consensusdatapb.SetPrimaryRequest{
 		Leader: topoclient.PoolerAddressFor(primary.MultiPooler),
 		Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
-	if _, err := a.rpcClient.SetTermPrimary(ctx, replica.MultiPooler, informReq); err != nil {
+	if _, err := a.rpcClient.SetPrimary(ctx, replica.MultiPooler, informReq); err != nil {
 		return mterrors.Wrap(err, "failed to inform replica of primary")
 	}
 
@@ -247,7 +247,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// Cohort membership (adding the replica to synchronous_standby_names) is
 	// managed by ReconcileCohortAction separately. By the time this action
 	// returns, the replica is replicating; the cohort analyzer will pick it up
-	// on the next cycle and propose adding it to the cohort.
+	// on the next cycle and promote adding it to the cohort.
 
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
 		"replica", replica.MultiPooler.Id.Name,

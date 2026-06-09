@@ -41,7 +41,7 @@ import (
 // restoring when the orch claimed), a coordinator-led rule change Recruits
 // all cohort members, which demotes the outgoing primary. The
 // cluster must recover from that state on its own — multiorch should
-// re-recruit, propose a new leader, and clear any lingering pooler-side
+// re-recruit, promote a new leader, and clear any lingering pooler-side
 // state (e.g. rewindPending) so no problems remain.
 //
 // A 2-member cohort with AT_LEAST_2 has zero failover headroom (2-of-2
@@ -128,7 +128,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// Fan out Recruit RPCs to all three poolers concurrently. The current
 	// primary will emergency-demote as a side effect (rpc_consensus.go's
 	// Recruit handler routes through emergencyDemoteLocked when isPrimary).
-	// We deliberately do NOT issue a follow-up Propose — recovery is
+	// We deliberately do NOT issue a follow-up Promote — recovery is
 	// multiorch's job once we re-enable it below.
 	type recruitResult struct {
 		name string
