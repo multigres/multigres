@@ -376,6 +376,12 @@ enum ReservationReason {
   // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
   // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
   RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
+  // Connection is reserved because the session holds one or more session-level
+  // advisory locks (pg_advisory_lock / pg_advisory_lock_shared). These locks
+  // live on a specific backend and survive transaction boundaries, so the
+  // backend must stay pinned until every such lock is released. Transaction-level
+  // advisory locks (pg_advisory_xact_lock) do NOT set this reason.
+  RESERVATION_REASON_SESSION_ADVISORY_LOCK = 64;  // 0b1000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.
