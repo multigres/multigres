@@ -288,6 +288,13 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		return mterrors.ToGRPC(err)
 	}
 
+	// Validate reservation reasons at the gRPC trust boundary (mirrors StreamExecute).
+	if reasons := req.GetReservationOptions().GetReasons(); reasons != 0 {
+		if err := protoutil.ValidateReasons(reasons); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid reservation reasons: %v", err)
+		}
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -302,6 +309,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.Portal,
 		req.Options,
 		req.PortalOptions,
+		req.GetReservationOptions(),
 		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send notices first (if any) as separate diagnostic messages
 			for _, notice := range result.Notices {
