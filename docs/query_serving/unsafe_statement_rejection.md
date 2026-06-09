@@ -3,9 +3,8 @@
 ## Overview
 
 The multigateway inspects every SQL statement at plan time and
-classifies it into one of two statement-level tiers, plus a
-replication-safety check and an expression-level filter that run across
-all tiers:
+classifies it into one of two statement-level tiers, plus an
+expression-level filter that runs across all tiers:
 
 - **Tier 1 — statements embedding procedural code** (DO, CREATE
   FUNCTION / PROCEDURE, CREATE TRIGGER, CREATE RULE, CREATE EVENT
@@ -14,11 +13,6 @@ all tiers:
   SYSTEM, CREATE/DROP DATABASE, CREATE LANGUAGE, CREATE SUBSCRIPTION,
   CREATE FDW, CREATE SERVER). Risk is modifying the shared server
   process or crossing tenant boundaries.
-- **Replication safety — UNLOGGED tables** (CREATE UNLOGGED TABLE,
-  CREATE UNLOGGED TABLE AS, SELECT INTO UNLOGGED, ALTER TABLE ... SET
-  UNLOGGED). Risk is data that is not replicated to standbys and is
-  silently truncated on crash recovery — incompatible with a replicated,
-  highly-available cluster.
 - **Expression-level filter — dangerous built-in function calls**
   (`set_config`, `dblink*`, `pg_read_file*`, `lo_import/export`,
   `pg_execute_server_program`, `{query,table,cursor}_to_xml*`).
@@ -26,12 +20,11 @@ all tiers:
   connections, shell, arbitrary SQL) or bypassing the pooler's
   session-state tracker (set_config).
 
-The categories are handled differently because the mitigations are
+The tiers are handled differently because the mitigations are
 different (see [Handling](#handling) below). In the current
-implementation, **Tier 2, the UNLOGGED check, and the expression-level
-filter block at plan time; Tier 1 is allowed through pending deeper
-analysis**; the categories will continue to diverge as follow-up layers
-land.
+implementation, **Tier 2 and the expression-level filter block at plan
+time; Tier 1 is allowed through pending deeper analysis**; the tiers
+will continue to diverge as follow-up layers land.
 
 Blocked statements return a PostgreSQL `feature_not_supported` error
 (SQLSTATE `0A000`) with a descriptive message.
@@ -136,43 +129,6 @@ environment the control plane owns these, not tenant users.
 change is a configurable allowlist for self-hosted deployments where
 the operator explicitly opts into these.
 
-### Replication safety — UNLOGGED tables (blocked at plan time)
-
-UNLOGGED tables skip the write-ahead log. That has two consequences
-that make them unsafe in a Multigres cluster: their contents are **not
-streamed to standbys** (the table exists on the primary but is empty on
-every replica), and they are **truncated on crash recovery**. An
-application that writes to an UNLOGGED table and then reads it back
-after a failover — or from a replica — silently sees no rows. Blocking
-at creation time is the only place we can catch this before data loss.
-
-| Statement                      | AST Node              | Persistence / subcommand carried on                 | Example                               |
-| ------------------------------ | --------------------- | --------------------------------------------------- | ------------------------------------- |
-| `CREATE UNLOGGED TABLE`        | `T_CreateStmt`        | `CreateStmt.Relation.RelPersistence == 'u'`         | `CREATE UNLOGGED TABLE t (id int)`    |
-| `CREATE UNLOGGED TABLE AS`     | `T_CreateTableAsStmt` | `CreateTableAsStmt.Into.Rel.RelPersistence`         | `CREATE UNLOGGED TABLE t AS SELECT 1` |
-| `SELECT ... INTO UNLOGGED`     | `T_SelectStmt`        | `SelectStmt.IntoClause.Rel.RelPersistence`          | `SELECT 1 AS id INTO UNLOGGED t`      |
-| `ALTER TABLE ... SET UNLOGGED` | `T_AlterTableStmt`    | an `AlterTableCmd` with `Subtype == AT_SetUnLogged` | `ALTER TABLE t SET UNLOGGED`          |
-
-Two parser subtleties worth noting:
-
-- **`SELECT ... INTO` is a `SelectStmt`, not a `CreateTableAsStmt`, at
-  plan time.** PostgreSQL only rewrites it into a `CreateTableAsStmt`
-  during later parse analysis, which the gateway does not run — so the
-  persistence flag lives on `SelectStmt.IntoClause.Rel` here. (This is
-  exactly the form the unit tests missed and the end-to-end test caught.)
-- **An `ALTER TABLE` may carry several subcommands** (e.g.
-  `ADD COLUMN x int, SET UNLOGGED`), so the check scans every
-  `AlterTableCmd` for `AT_SetUnLogged`.
-
-The check is **field/subcommand-conditional**, not a blanket
-statement-type rejection like Tier 2: only the UNLOGGED persistence flag
-(or the `SET UNLOGGED` subcommand) is rejected. Ordinary
-(`RELPERSISTENCE_PERMANENT`) and temporary (`RELPERSISTENCE_TEMP`)
-tables, plain `ALTER TABLE` subcommands, and `ALTER TABLE ... SET LOGGED`
-(the harmless inverse, restoring WAL logging) all pass straight through.
-It is enforced inside `planUnsupportedStmt()` alongside the Tier 2 switch
-cases.
-
 ### Expression-level filter — dangerous built-in function calls
 
 The statement-level tiers above block whole statements. A second layer
@@ -251,9 +207,9 @@ leave the gateway's tracker stale relative to the backend.
 
 **Where it runs.** Inside the planner, in a single walk that runs as
 part of `planUnsupportedConstructs()` — the orchestrator that pairs the
-statement-level check (`planUnsupportedStmt`, covering Tier 2 and the
-UNLOGGED rejection) with this expression-level walk
-(`inspectExpressionFuncCalls`). Both the simple-protocol `Plan()` and
+statement-level check (`planUnsupportedStmt`, covering Tier 2) with
+this expression-level walk (`inspectExpressionFuncCalls`). Both the
+simple-protocol `Plan()` and
 the extended-protocol `PlanPortal()` call `planUnsupportedConstructs()`,
 so neither path can skip a check. Running in the planner means the plan
 cache short-circuits the walk: a cached plan is by construction safe.
@@ -270,6 +226,56 @@ happening earlier in the pipeline for caching.
 - Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
   parse time.
 
+### Restricted GUC value guard
+
+Separate from the tiers above (which block whole statement types or whole
+functions), a narrow guard rejects any attempt to **assign a value** to a
+cluster-managed GUC, regardless of the statement carrying it. The set is a
+single map (`restrictedGUCs` in `restricted_guc.go`, mirroring `funcBlocklist`):
+add a GUC name + reason there and every path below enforces it.
+
+Currently the list has one entry, **`synchronous_commit`**. Replication
+durability is managed centrally: the multipooler rule store / `SyncStandbyManager`
+is the sole writer of `synchronous_commit` (via `ALTER SYSTEM`), and the HA
+contract requires `synchronous_commit = on` so that an acknowledged commit is
+durably flushed on the synchronous standby (see
+`docs/ha/decision-log/2026-02-12-synchronous-commit-on.md`). A session that
+lowers the value silently weakens that guarantee for its writes — a footgun, so
+we take the choice away. See
+`docs/ha/decision-log/2026-05-29-block-synchronous-commit-changes.md`.
+
+The paths below use `synchronous_commit` as the example; the same rules apply to
+any GUC added to `restrictedGUCs`.
+
+| Path                                          | Action                                   |
+| --------------------------------------------- | ---------------------------------------- |
+| `SET synchronous_commit = x`                  | Reject                                   |
+| `SET LOCAL synchronous_commit = x`            | Reject                                   |
+| `SET synchronous_commit FROM CURRENT`         | Reject                                   |
+| `ALTER DATABASE d SET synchronous_commit = x` | Reject                                   |
+| `ALTER ROLE r SET synchronous_commit = x`     | Reject                                   |
+| `set_config('synchronous_commit', x, _)`      | Reject (both `is_local` variants)        |
+| `ALTER SYSTEM SET synchronous_commit = x`     | Already rejected (Tier 2)                |
+| `RESET synchronous_commit`                    | **Allowed** — restores the managed value |
+| `SET synchronous_commit TO DEFAULT`           | **Allowed** — restores the managed value |
+| `RESET ALL`                                   | **Allowed** — restores the managed value |
+
+Reverts are allowed because they can only restore the cluster-managed value.
+The rejection is a `feature_not_supported` (`0A000`) error pointing users at
+`RESET`.
+
+**Where it runs.** In `checkRestrictedGUCChange`, called from
+`planUnsupportedConstructs` alongside the Tier 2 and expression-level checks, so
+it covers both query protocols and is short-circuited by the plan cache. The
+`set_config(...)` form is enforced inside the same expression walker that tracks
+set_config. So that the planner can inspect the variable name even for
+transaction-scoped `set_config(..., true)`, the normalizer keeps that name
+literal (only the value is parameterized for plan-cache stability).
+
+**Known gaps** (consistent with the rest of this layer): assignments inside
+PL/pgSQL bodies, dynamic `EXECUTE`, and a `set_config` call whose variable name
+is itself non-literal are not caught.
+
 ## Other Allowed Statements With Known Risk
 
 Beyond Tier 1 (allowed pending body analysis), a few more statements
@@ -285,7 +291,7 @@ execute opaque server-side code and cannot be usefully blocked.
 
 ### Architecture
 
-Both the statement-level filter (Tier 2 + UNLOGGED) and the
+Both the statement-level filter (Tier 2) and the
 expression-level walker run before dispatch, bundled behind
 `planUnsupportedConstructs()`. Both `Planner.Plan()` (simple protocol)
 and `Planner.PlanPortal()` (extended protocol) call that orchestrator,
@@ -311,7 +317,7 @@ Planner.Plan() / Planner.PlanPortal()
   |
   +-- planUnsupportedConstructs(stmt)    <-- orchestrates both checks
   |     |
-  |     +-- planUnsupportedStmt(stmt)         <-- Tier 2 + UNLOGGED check
+  |     +-- planUnsupportedStmt(stmt)         <-- Tier 2 rejection check
   |     |     +-- blocked? --> return feature_not_supported error
   |     |
   |     +-- inspectExpressionFuncCalls(stmt)  <-- expression-level filter
@@ -338,16 +344,17 @@ alongside `planUnsupportedStmt()` and run its own body walker.
 
 | File                                                       | Purpose                                                                                                                                                                    |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements and UNLOGGED tables                                                   |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                       |
 | `go/services/multigateway/planner/unsafe_funccall.go`      | `planUnsupportedConstructs()` orchestrator + `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls |
+| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                           |
 | `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                           |
 | `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                         |
 | `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                     |
 | `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` (literal) and `NewApplySessionStateFromBind()` (`executeSetWithBinds` defers slot resolution to portal Bind values)                         |
 | `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                                               |
-| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2, UNLOGGED) and allowed (Tier 1 + regular) statement types                                                                                        |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                                                  |
 | `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, literal + bound args, bare vs mixed plan construction                                          |
-| `go/test/endtoend/queryserving/unsafe_stmt_test.go`        | End-to-end coverage through a real multigateway → PostgreSQL: Tier 2, UNLOGGED, simple + extended protocol, in-transaction                                                 |
+| `go/test/endtoend/queryserving/unsafe_stmt_test.go`        | End-to-end coverage through a real multigateway → PostgreSQL: Tier 2, simple + extended protocol, in-transaction                                                           |
 
 ### Error Format
 

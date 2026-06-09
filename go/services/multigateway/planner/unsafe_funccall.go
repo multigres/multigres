@@ -110,17 +110,22 @@ type expressionCheckResult struct {
 	SetConfigs []setConfigCall
 }
 
-// planUnsupportedConstructs runs the two pre-dispatch rejection checks that
-// every planning path (simple `Plan()` and extended-protocol `PlanPortal()`)
-// must apply: unsupported statement types (Tier 2) and the expression-level
-// walker (blocklist + rogue set_config). Returns the accepted set_config
-// calls for Plan's SELECT dispatch; PlanPortal ignores that result.
+// planUnsupportedConstructs runs the pre-dispatch rejection checks that every
+// planning path (simple `Plan()` and extended-protocol `PlanPortal()`) must
+// apply: unsupported statement types (Tier 2), the restricted-GUC guard (SET /
+// ALTER ROLE / ALTER DATABASE assignments to cluster-managed GUCs), and the
+// expression-level walker (blocklist + rogue set_config, which also rejects
+// set_config on those same GUCs). Returns the accepted set_config calls for
+// Plan's SELECT dispatch; PlanPortal ignores that result.
 //
-// Centralizing the pair here is the point — earlier versions called only
+// Centralizing them here is the point — earlier versions called only
 // planUnsupportedStmt from PlanPortal and silently let blocklisted function
 // calls through on non-cacheable extended-protocol paths.
 func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 	if err := planUnsupportedStmt(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
 	return inspectExpressionFuncCalls(stmt)
@@ -270,6 +275,18 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	if fc.Args == nil || fc.Args.Len() != 3 {
 		return nil, mterrors.NewFeatureNotSupported(
 			"set_config requires three arguments: (name text, value text, is_local bool)")
+	}
+
+	// Reject set_config targeting a cluster-managed GUC regardless of
+	// is_local — it is just another reachable path for the override blocked in
+	// checkRestrictedGUCChange. The normalizer keeps the name literal (see
+	// normalizer.go) so we can read it here on the cached and is_local=true
+	// paths too. A bound or otherwise non-literal name is a documented gap: we
+	// let it through rather than reject blindly.
+	if name, ok := constStringArg(fc.Args.Items[0]); ok {
+		if err := restrictedGUCError(name); err != nil {
+			return nil, err
+		}
 	}
 
 	sc := &setConfigCall{}

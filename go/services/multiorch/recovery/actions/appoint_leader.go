@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -154,7 +155,10 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "AppointLeader",
 		Description: "Elect a new primary for the shard using consensus",
-		Timeout:     60 * time.Second,
+		// Two sequential phases each bounded by RuleWriteTimeout
+		// (Recruit, then concurrent Propose/SetTermPrimary), plus margin so the
+		// action context does not race its own phases to the deadline.
+		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true, // can retry if it fails
 	}

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 	"github.com/multigres/multigres/go/test/utils"
@@ -153,11 +154,29 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Phase 2d: Clone, build, and install external extensions (only when that
 	// suite will run). Each is a PGXS module living outside the PostgreSQL source
 	// tree (e.g. pgvector); it is built against the just-installed PostgreSQL so
-	// its .so matches the running server's ABI.
+	// its .so matches the running server's ABI. ExternalBuildList includes the
+	// covered extensions plus their build-only dependencies (e.g. pg_partman for
+	// pgmq), ordered so dependencies install first.
 	if runExternal {
 		t.Logf("Phase 2d: Installing external extensions...")
-		for _, ext := range CoveredExternalExtensions() {
-			if _, err := builder.InstallExternalExtension(t, buildCtx, ext.Name, ext.Repo, ext.Tag); err != nil {
+		// Install contrib modules the external extensions depend on (e.g.
+		// pg_graphql's tests `create extension citext`). In a full run contrib is
+		// already installed; this makes external-only runs self-sufficient.
+		if deps := ExternalContribDeps(); len(deps) > 0 {
+			if err := builder.InstallContribModules(t, buildCtx, deps); err != nil {
+				t.Fatalf("Failed to install external contrib deps %v: %v", deps, err)
+			}
+		}
+		for _, ext := range ExternalBuildList() {
+			spec := pgbuilder.ExtensionBuildSpec{
+				Name:        ext.Name,
+				Repo:        ext.Repo,
+				Tag:         ext.Tag,
+				BuildSubdir: ext.BuildSubdir,
+				BuildSystem: ext.BuildSystem,
+				PgrxVersion: ext.PgrxVersion,
+			}
+			if _, err := builder.InstallExternalExtension(t, buildCtx, spec); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)
 			}
 		}
