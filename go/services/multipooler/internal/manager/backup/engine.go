@@ -45,10 +45,6 @@ type Identity interface {
 type Settings struct {
 	// PgpassPath, when set, is exported as PGPASSFILE for pgbackrest commands.
 	PgpassPath string
-	// TLS material for pgBackRest TLS server connections.
-	CAFile   string
-	CertFile string
-	KeyFile  string
 	// PgDataDir is the PostgreSQL data directory (for archive-command config in
 	// postgresql.auto.conf).
 	PgDataDir string

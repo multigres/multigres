@@ -347,9 +347,10 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 			},
 		}),
 		config: &Config{},
-		// pgBackRestConfigPath deliberately empty → ConfigureArchiveMode will fail,
-		// triggering the cleanup defer after InitDataDir succeeded.
 	}
+	// SetConfigPath is deliberately not called → the engine has no config path,
+	// so ConfigureArchiveMode will fail, triggering the cleanup defer after
+	// InitDataDir succeeded.
 	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")

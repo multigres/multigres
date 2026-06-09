@@ -141,7 +141,7 @@ func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int
 }
 
 // setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.
-// Callers must set pm.pgbackrestConfigPath to the returned path after creating the manager.
+// Callers must feed the returned path to pm.backup.SetConfigPath after creating the manager.
 func setupMockPgBackRestConfig(t *testing.T, poolerDir string) string {
 	t.Helper()
 
@@ -231,7 +231,6 @@ func TestBackup_Validation(t *testing.T) {
 			backupLocation := "/tmp/test-backups"
 			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
 			pm := createTestManagerWithBackupLocation(tt.poolerDir, "", "", tt.poolerType, backupLocation)
-			pm.pgBackRestConfigPath = configPath
 			pm.backup.SetConfigPath(configPath)
 
 			// Setup primary info for replica poolers (required for backup)
@@ -285,7 +284,6 @@ func TestGetBackups_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
 			pm := createTestManager(tt.poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-			pm.pgBackRestConfigPath = configPath
 			pm.backup.SetConfigPath(configPath)
 
 			result, err := pm.GetBackups(ctx, tt.limit)
@@ -560,7 +558,6 @@ pg1-path=/tmp/pg_data
 
 	// Create test manager with the pooler directory
 	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-	pm.pgBackRestConfigPath = pgctldConfigPath
 	pm.backup.SetConfigPath(pgctldConfigPath)
 
 	// Setup primary info (required for replica backups)
@@ -690,11 +687,10 @@ exit 0
 						Database:   "test-database",
 					},
 				}),
-				state:                ManagerStateReady,
-				actionLock:           actionlock.NewActionLock(),
-				logger:               slog.Default(),
-				pgMonitor:            timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
-				pgBackRestConfigPath: configPath,
+				state:      ManagerStateReady,
+				actionLock: actionlock.NewActionLock(),
+				logger:     slog.Default(),
+				pgMonitor:  timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 			}
 			pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 			pm.backup.SetBackupConfig(backupConfig)
