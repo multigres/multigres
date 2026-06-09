@@ -727,12 +727,27 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		// Generic credential-lookup failure (pooler unreachable, parse
-		// error, transport error not carrying a PgDiagnostic). Fail
-		// closed with the same opaque message PG sends for wrong
-		// passwords so the client does not learn whether the user
-		// exists; operators see the underlying cause in the logs.
+		// Generic credential-lookup failure. If the upstream returned a
+		// PgDiagnostic (e.g. "planned failover in progress" from the
+		// pooler), forward it so the client can distinguish a transient
+		// cluster condition from a wrong password and act accordingly
+		// (retry, alert, etc.). For all other errors (transport, parse,
+		// pooler unreachable) fail closed with the opaque password-auth
+		// message so the client does not learn whether the user exists.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			// Auth-phase errors must be FATAL to signal connection teardown.
+			fatal := *pgDiag
+			fatal.Severity = "FATAL"
+			if werr := c.writeError(&fatal); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			if werr := c.flush(); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			return AuthOutcomeLookupError, errAuthRejected
+		}
 		return AuthOutcomeLookupError, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 	}
 	c.credentials = creds

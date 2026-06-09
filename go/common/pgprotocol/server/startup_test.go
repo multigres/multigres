@@ -1338,6 +1338,35 @@ func TestReplicationStartup_RejectedOnCredentialLookupError(t *testing.T) {
 	assert.Equal(t, 1, provider.calls)
 }
 
+// TestSCRAM_CredentialLookupPgDiagnosticForwarded verifies that when the
+// credential provider returns a *mterrors.PgDiagnostic (e.g. "planned
+// failover in progress" from an upstream pooler), the gateway forwards that
+// diagnostic to the client verbatim rather than masking it as a generic
+// "password authentication failed". This lets clients distinguish a transient
+// cluster condition from a wrong password.
+func TestSCRAM_CredentialLookupPgDiagnosticForwarded(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.err = mterrors.NewPgError("ERROR", "57P03", "planned failover in progress", "")
+	_, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "postgres",
+		"database": "postgres",
+	})
+
+	// The upstream PgDiagnostic is forwarded as FATAL (auth errors must be
+	// FATAL to signal teardown), preserving the original SQLSTATE and message.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "FATAL", fields['S'], "severity must be promoted to FATAL")
+	assert.Equal(t, "57P03", fields['C'], "SQLSTATE must be forwarded verbatim")
+	assert.Contains(t, fields['M'], "planned failover in progress")
+
+	require.ErrorIs(t, <-errCh, errAuthRejected)
+	assert.Equal(t, 1, provider.calls)
+}
+
 // TestReplicationStartup_InvalidValueRejected confirms an unrecognized
 // `replication` value produces InvalidParameterValue (22023) before
 // authentication runs, matching PostgreSQL's GUC parsing. The error
