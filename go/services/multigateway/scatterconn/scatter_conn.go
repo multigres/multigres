@@ -188,6 +188,15 @@ func (sc *ScatterConn) StreamExecute(
 
 	ss := state.GetMatchingShardState(target)
 
+	// This statement may touch a session-level advisory lock (acquire or
+	// release). When it does, ask the multipooler to re-probe pg_locks afterward
+	// and unpin if none remain — keeping that probe off the per-statement hot
+	// path. One-shot: consume it here and attach it to whichever reservation path
+	// runs below (Case 3 has no reserved connection, so there's nothing to
+	// recheck).
+	recheckAdvisory := state.PendingAdvisoryLockRecheck
+	state.PendingAdvisoryLockRecheck = false
+
 	// Case 1: Already have reserved connection - use it
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		sc.logger.DebugContext(ctx, "using existing reserved connection",
@@ -261,6 +270,15 @@ func (sc *ScatterConn) StreamExecute(
 			reservationOpts.ReleasePortalNames = append(reservationOpts.ReleasePortalNames, releaseNames...)
 		}
 
+		// If this statement touched an advisory lock, ask for a post-statement
+		// pg_locks recheck so the multipooler unpins once the last lock is gone.
+		if recheckAdvisory {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.RecheckAdvisoryLocks = true
+		}
+
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		sc.applyReservedState(conn, state, target, reservedState)
 
@@ -310,6 +328,9 @@ func (sc *ScatterConn) StreamExecute(
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
 		}
+		// A new reservation created by an advisory acquire also wants a recheck
+		// (so a failed pg_try_advisory_lock unpins immediately).
+		reservationOpts.RecheckAdvisoryLocks = recheckAdvisory
 		reservedState, err := sc.gateway.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
@@ -407,6 +428,11 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// separate no-op "SELECT 1" reserve round trip.
 	var reservationOpts *querypb.ReservationOptions
 
+	// One-shot advisory recheck signal — attached to reservationOpts after the
+	// reservation path below is chosen (see the end of the if/else).
+	recheckAdvisory := state.PendingAdvisoryLockRecheck
+	state.PendingAdvisoryLockRecheck = false
+
 	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
@@ -458,6 +484,18 @@ func (sc *ScatterConn) PortalStreamExecute(
 			state.PendingBeginQuery = ""
 		}
 	}
+
+	// If this portal touched an advisory lock, ask for a post-statement
+	// pg_locks recheck (covers both the existing-reservation and new-reservation
+	// paths above). A bare release on an already-pinned session needs options
+	// allocated just to carry the flag.
+	if recheckAdvisory {
+		if reservationOpts == nil {
+			reservationOpts = &querypb.ReservationOptions{}
+		}
+		reservationOpts.RecheckAdvisoryLocks = true
+	}
+
 	if err != nil {
 		return err
 	}

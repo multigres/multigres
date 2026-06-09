@@ -117,6 +117,19 @@ var sessionAdvisoryLockAcquireFuncs = map[string]struct{}{
 	"pg_try_advisory_lock_shared": {},
 }
 
+// sessionAdvisoryLockReleaseFuncs is the set of built-in functions that release
+// a SESSION-level advisory lock. Seeing one of these is the signal to re-probe
+// pg_locks and unpin if the session no longer holds any advisory lock —
+// PostgreSQL is still the authority on the reference count, this just decides
+// when to ask. pg_advisory_unlock / _shared are reference-counted single-key
+// releases; pg_advisory_unlock_all drops everything. The transaction-scoped
+// variants are excluded for the same reason as the acquire set.
+var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
+	"pg_advisory_unlock":        {},
+	"pg_advisory_unlock_shared": {},
+	"pg_advisory_unlock_all":    {},
+}
+
 // statementAnalysis carries the result of analyzing a statement before
 // dispatch: the planning signals gathered from its expression tree (which
 // set_config calls to track, whether it acquires a session-level advisory
@@ -141,6 +154,16 @@ type statementAnalysis struct {
 	// can't see — are not detected here and remain a pre-existing pooling
 	// limitation, the same way temp tables created via dynamic SQL are.
 	AcquiresSessionAdvisoryLock bool
+
+	// ReleasesSessionAdvisoryLock is true if any FuncCall in the statement is a
+	// session-level advisory unlock (see sessionAdvisoryLockReleaseFuncs). It's
+	// the signal that the multipooler should re-probe pg_locks after this
+	// statement and unpin the backend if no advisory lock remains. Same
+	// best-effort caveat as AcquiresSessionAdvisoryLock: an unlock hidden in a
+	// function body or dynamic SQL isn't seen here, so the session stays pinned
+	// (conservatively) until the next observed advisory statement, DISCARD ALL,
+	// or disconnect — never a leak.
+	ReleasesSessionAdvisoryLock bool
 }
 
 // analyzeStatement is the single pre-dispatch analysis pass that every planning
@@ -227,6 +250,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			result.AcquiresSessionAdvisoryLock = true
 			// Keep walking: a statement can mix an advisory lock with other
 			// calls we still need to inspect (e.g. a blocklisted function).
+			return true
+		}
+		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
+			result.ReleasesSessionAdvisoryLock = true
 			return true
 		}
 		if name != "set_config" {

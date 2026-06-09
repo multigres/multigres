@@ -58,6 +58,13 @@ type PlannerOptions struct {
 	// advisory lock, so its route must keep the backend pinned for the lock's
 	// lifetime (AdvisoryLockRoute rather than a plain Route).
 	PinForAdvisoryLock bool
+
+	// RecheckForAdvisoryLock indicates the statement touches session-level
+	// advisory locks (an acquire or a release), so the multipooler should
+	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
+	// PinForAdvisoryLock: every acquire also wants a recheck (to catch a failed
+	// pg_try_advisory_lock), and a bare release wants only the recheck.
+	RecheckForAdvisoryLock bool
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -120,7 +127,8 @@ func (p *Planner) Plan(
 	// (planDefault / planSelectStmt), which fold them into whatever plan they
 	// would otherwise produce.
 	opts := PlannerOptions{
-		PinForAdvisoryLock: analysis.AcquiresSessionAdvisoryLock,
+		PinForAdvisoryLock:     analysis.AcquiresSessionAdvisoryLock,
+		RecheckForAdvisoryLock: analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock,
 	}
 
 	// Dispatch to appropriate planner function based on statement type
@@ -266,14 +274,19 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 }
 
 // routePrimitive builds the routing primitive for an ordinary query: a plain
-// Route, or an AdvisoryLockRoute wrapping it when opts.PinForAdvisoryLock is
-// set. Centralizing this lets the set_config Sequence path (planSelectStmt) and
-// the bare-route path (planDefault) fold in the pin the same way, so a query
-// that both takes an advisory lock and tracks a set_config keeps both behaviors.
+// Route, or an AdvisoryLockRoute wrapping it when the statement touches
+// session-level advisory locks. Centralizing this lets the set_config Sequence
+// path (planSelectStmt) and the bare-route path (planDefault) fold in the
+// advisory handling the same way, so a query that both takes an advisory lock
+// and tracks a set_config keeps both behaviors.
+//
+// We wrap on RecheckForAdvisoryLock (the superset): an acquire wants both a pin
+// and a recheck, a bare release wants only the recheck. The wrapper carries the
+// pin intent separately so a release doesn't reserve a connection.
 func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlannerOptions) engine.Primitive {
 	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-	if opts.PinForAdvisoryLock {
-		return engine.NewAdvisoryLockRoute(route)
+	if opts.RecheckForAdvisoryLock {
+		return engine.NewAdvisoryLockRoute(route, opts.PinForAdvisoryLock)
 	}
 	return route
 }

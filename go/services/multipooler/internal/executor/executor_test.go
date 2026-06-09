@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -53,6 +54,10 @@ type mockReservedConn struct {
 
 	beginErr     error
 	streamingErr error
+
+	queryCalls   []string
+	queryResults []*sqltypes.Result
+	queryErr     error
 
 	pinnedPortals   []string
 	releasedPortals []string
@@ -116,6 +121,14 @@ func (m *mockReservedConn) ReleasePortal(portalName string) bool {
 	return false
 }
 
+func (m *mockReservedConn) Query(_ context.Context, sql string) ([]*sqltypes.Result, error) {
+	m.queryCalls = append(m.queryCalls, sql)
+	if m.queryErr != nil {
+		return nil, m.queryErr
+	}
+	return m.queryResults, nil
+}
+
 func (m *mockReservedConn) Release(reason reserved.ReleaseReason) {
 	m.releaseCalls = append(m.releaseCalls, reason)
 }
@@ -173,6 +186,136 @@ func newTestExecutor() *Executor {
 }
 
 func noopCallback(_ context.Context, _ *sqltypes.Result) error { return nil }
+
+// boolResult builds a single-row, single-column result holding a PostgreSQL
+// boolean ("t"/"f"), as the pg_locks advisory probe returns.
+func boolResult(b bool) []*sqltypes.Result {
+	v := "f"
+	if b {
+		v = "t"
+	}
+	return []*sqltypes.Result{makeResult(makeRow(v))}
+}
+
+// TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld verifies that after a
+// statement on an advisory-lock-reserved connection, if PostgreSQL still
+// reports an advisory lock the connection stays reserved.
+func TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock,
+		queryResults:     boolResult(true),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "should probe pg_locks once")
+	require.Empty(t, rc.releaseCalls, "connection must stay reserved while a lock is held")
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, state.GetReservationReasons())
+}
+
+// TestStreamExecuteOnReservedConn_AdvisoryLockReleased verifies that when the
+// probe reports no advisory locks remain, the reason is cleared and the
+// connection is released back to the pool.
+func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock,
+		queryResults:     boolResult(false),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
+		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls)
+	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, rc.removedReasons,
+		"advisory-lock reason must be cleared when no locks remain")
+	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseAdvisoryUnlock}, rc.releaseCalls,
+		"connection must be released once the last advisory lock is gone")
+	require.Nil(t, state, "released connection should report a nil (zero) reservation state")
+}
+
+// TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn verifies that the
+// probe is skipped while a transaction is open — ReasonTransaction keeps the
+// connection pinned and transaction-level advisory locks would pollute the
+// probe.
+func TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonTransaction,
+	}
+	e := newTestExecutor()
+
+	_, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, rc.queryCalls, "must not probe pg_locks inside a transaction")
+	require.Empty(t, rc.releaseCalls)
+}
+
+// TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned verifies that a
+// failed probe leaves the connection pinned rather than risking a lock leak.
+func TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock,
+		queryErr:         errors.New("probe boom"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, rc.releaseCalls, "probe failure must not release the connection")
+	require.NotNil(t, state)
+}
+
+// TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe verifies the gating:
+// an ordinary statement on an advisory-pinned connection (recheck flag NOT set)
+// must not probe pg_locks at all, keeping the probe off the per-statement hot
+// path. The gateway only sets the recheck flag for statements that touch
+// advisory locks.
+func TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock,
+		queryResults:     boolResult(false), // would unpin IF the probe ran
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{}, // no RecheckAdvisoryLocks
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, rc.queryCalls, "must not probe pg_locks without the recheck signal")
+	require.Empty(t, rc.releaseCalls, "must stay reserved without a recheck")
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, state.GetReservationReasons())
+}
 
 // TestStreamExecuteOnReservedConn_AddsTransactionViaBegin covers the new code
 // path the reviewer flagged: an existing reserved connection (e.g. from a temp

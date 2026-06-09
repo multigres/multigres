@@ -26,33 +26,37 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
-// TestPlan_SessionAdvisoryLockPins verifies that statements acquiring a
-// session-level advisory lock are dispatched through AdvisoryLockRoute so the
-// backend is pinned, while transaction-level locks and unlock calls are not.
-func TestPlan_SessionAdvisoryLockPins(t *testing.T) {
+// TestPlan_SessionAdvisoryLockRouting verifies how statements that touch
+// session-level advisory locks are routed. Both acquires and releases go
+// through AdvisoryLockRoute (so the multipooler re-probes pg_locks afterward),
+// but only acquires set the pin intent that reserves the backend. Transaction-
+// level locks and unrelated queries route through a plain Route.
+func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 	tests := []struct {
-		name       string
-		sql        string
-		wantPinned bool
+		name         string
+		sql          string
+		wantAdvisory bool // routed through AdvisoryLockRoute (acquire or release)
+		wantPin      bool // reserves the backend (acquire only)
 	}{
-		{name: "exclusive", sql: "SELECT pg_advisory_lock(101)", wantPinned: true},
-		{name: "shared", sql: "SELECT pg_advisory_lock_shared(101)", wantPinned: true},
-		{name: "try", sql: "SELECT pg_try_advisory_lock(101)", wantPinned: true},
-		{name: "try_shared", sql: "SELECT pg_try_advisory_lock_shared(101)", wantPinned: true},
-		{name: "two_key", sql: "SELECT pg_advisory_lock(7, 9)", wantPinned: true},
-		{name: "schema_qualified", sql: "SELECT pg_catalog.pg_advisory_lock(101)", wantPinned: true},
-		{name: "inside_larger_select", sql: "SELECT pg_advisory_lock(101), 42", wantPinned: true},
+		{name: "exclusive", sql: "SELECT pg_advisory_lock(101)", wantAdvisory: true, wantPin: true},
+		{name: "shared", sql: "SELECT pg_advisory_lock_shared(101)", wantAdvisory: true, wantPin: true},
+		{name: "try", sql: "SELECT pg_try_advisory_lock(101)", wantAdvisory: true, wantPin: true},
+		{name: "try_shared", sql: "SELECT pg_try_advisory_lock_shared(101)", wantAdvisory: true, wantPin: true},
+		{name: "two_key", sql: "SELECT pg_advisory_lock(7, 9)", wantAdvisory: true, wantPin: true},
+		{name: "schema_qualified", sql: "SELECT pg_catalog.pg_advisory_lock(101)", wantAdvisory: true, wantPin: true},
+		{name: "inside_larger_select", sql: "SELECT pg_advisory_lock(101), 42", wantAdvisory: true, wantPin: true},
+
+		// Releases route through AdvisoryLockRoute for the recheck, but do not pin.
+		{name: "unlock", sql: "SELECT pg_advisory_unlock(101)", wantAdvisory: true, wantPin: false},
+		{name: "unlock_shared", sql: "SELECT pg_advisory_unlock_shared(101)", wantAdvisory: true, wantPin: false},
+		{name: "unlock_all", sql: "SELECT pg_advisory_unlock_all()", wantAdvisory: true, wantPin: false},
 
 		// Transaction-level locks are out of scope — released at transaction end.
-		{name: "xact_lock", sql: "SELECT pg_advisory_xact_lock(101)", wantPinned: false},
-		{name: "xact_shared", sql: "SELECT pg_advisory_xact_lock_shared(101)", wantPinned: false},
-
-		// Unlock calls do not acquire anything, so they must not pin.
-		{name: "unlock", sql: "SELECT pg_advisory_unlock(101)", wantPinned: false},
-		{name: "unlock_all", sql: "SELECT pg_advisory_unlock_all()", wantPinned: false},
+		{name: "xact_lock", sql: "SELECT pg_advisory_xact_lock(101)", wantAdvisory: false, wantPin: false},
+		{name: "xact_unlock", sql: "SELECT pg_advisory_xact_lock_shared(101)", wantAdvisory: false, wantPin: false},
 
 		// Unrelated queries are unaffected.
-		{name: "plain_select", sql: "SELECT 1", wantPinned: false},
+		{name: "plain_select", sql: "SELECT 1", wantAdvisory: false, wantPin: false},
 	}
 
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
@@ -65,9 +69,10 @@ func TestPlan_SessionAdvisoryLockPins(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
-			_, isAdvisory := plan.Primitive.(*engine.AdvisoryLockRoute)
-			if tt.wantPinned {
-				assert.True(t, isAdvisory, "expected AdvisoryLockRoute, got %T", plan.Primitive)
+			route, isAdvisory := plan.Primitive.(*engine.AdvisoryLockRoute)
+			if tt.wantAdvisory {
+				require.True(t, isAdvisory, "expected AdvisoryLockRoute, got %T", plan.Primitive)
+				assert.Equal(t, tt.wantPin, route.Pins(), "pin intent for %q", tt.sql)
 				assert.Equal(t, engine.PlanTypeAdvisoryLockRoute, plan.Type,
 					"plan.Type must be set for observability")
 			} else {

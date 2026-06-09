@@ -25,12 +25,20 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// AdvisoryLockRoute wraps an ordinary Route for a query that acquires a
-// session-level advisory lock (pg_advisory_lock / pg_advisory_lock_shared and
-// their try-variants). Before delegating execution to the inner Route, it sets
-// PendingAdvisoryLockReservation on the state so ScatterConn creates (or
-// promotes to) a reserved connection with ReasonSessionAdvisoryLock, following
-// the same pattern as TempTableRoute.
+// AdvisoryLockRoute wraps an ordinary Route for a query that touches
+// session-level advisory locks — either acquiring one (pg_advisory_lock /
+// pg_advisory_lock_shared and their try-variants) or releasing one
+// (pg_advisory_unlock / _shared / _all). Before delegating execution to the
+// inner Route it sets gateway state flags that ScatterConn turns into
+// reservation options:
+//
+//   - pin == true (acquire): PendingAdvisoryLockReservation, so ScatterConn
+//     creates (or promotes to) a reserved connection with
+//     ReasonSessionAdvisoryLock — following the same pattern as TempTableRoute.
+//   - always: PendingAdvisoryLockRecheck, so ScatterConn asks the multipooler to
+//     re-probe pg_locks after the statement and unpin if no advisory lock
+//     remains. This is what lets the (otherwise per-statement) probe run only on
+//     statements that actually touch advisory locks.
 //
 // Wrapping the Route (rather than re-implementing routing) keeps bind-variable
 // reconstruction in one place: `SELECT pg_advisory_lock(101)` is normalized to
@@ -40,21 +48,33 @@ import (
 // Session-level advisory locks live on the specific backend that executed the
 // acquiring call and survive transaction boundaries, so the session must stay
 // pinned to that backend until every such lock is released. The multipooler
-// authoritatively decides when to unpin by probing pg_locks after subsequent
-// statements (see the executor), so this primitive only establishes the pin.
+// authoritatively decides when to unpin (by probing pg_locks); this primitive
+// only establishes the pin and signals when a recheck is worthwhile.
 type AdvisoryLockRoute struct {
 	inner *Route
+	// pin is true when the statement acquires a lock (reserve the backend);
+	// false for a bare release (recheck only).
+	pin bool
 }
 
-// NewAdvisoryLockRoute wraps an existing Route so the session is pinned for the
-// lifetime of the session-level advisory lock the query acquires.
-func NewAdvisoryLockRoute(inner *Route) *AdvisoryLockRoute {
-	return &AdvisoryLockRoute{inner: inner}
+// NewAdvisoryLockRoute wraps an existing Route for a statement that touches
+// session-level advisory locks. pin reserves the backend (set for acquisitions);
+// a recheck is always requested.
+func NewAdvisoryLockRoute(inner *Route, pin bool) *AdvisoryLockRoute {
+	return &AdvisoryLockRoute{inner: inner, pin: pin}
 }
 
-// StreamExecute sets the advisory-lock reservation flag and delegates to the
-// inner Route. ScatterConn sees the flag and reserves the connection with
-// ReasonSessionAdvisoryLock.
+// signal sets the gateway state flags consumed by ScatterConn before the inner
+// Route runs.
+func (a *AdvisoryLockRoute) signal(state *handler.MultiGatewayConnectionState) {
+	if a.pin {
+		state.PendingAdvisoryLockReservation = true
+	}
+	state.PendingAdvisoryLockRecheck = true
+}
+
+// StreamExecute sets the advisory-lock state flags and delegates to the inner
+// Route.
 func (a *AdvisoryLockRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -63,12 +83,12 @@ func (a *AdvisoryLockRoute) StreamExecute(
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	state.PendingAdvisoryLockReservation = true
+	a.signal(state)
 	return a.inner.StreamExecute(ctx, exec, conn, state, bindVars, callback)
 }
 
-// PortalStreamExecute sets the advisory-lock reservation flag and delegates to
-// the inner Route for the extended-protocol path.
+// PortalStreamExecute sets the advisory-lock state flags and delegates to the
+// inner Route for the extended-protocol path.
 func (a *AdvisoryLockRoute) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -79,9 +99,14 @@ func (a *AdvisoryLockRoute) PortalStreamExecute(
 	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	state.PendingAdvisoryLockReservation = true
+	a.signal(state)
 	return a.inner.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 }
+
+// Pins reports whether this route reserves the backend (true for an acquire,
+// false for a bare release that only requests a recheck). Exposed for
+// observability and tests.
+func (a *AdvisoryLockRoute) Pins() bool { return a.pin }
 
 // GetTableGroup returns the target tablegroup.
 func (a *AdvisoryLockRoute) GetTableGroup() string { return a.inner.GetTableGroup() }
