@@ -32,17 +32,6 @@ import (
 // Backup performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
 func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobID string, pg2Args []string, poolerType clustermetadatapb.PoolerType) (retBackupID string, retErr error) {
-	// Record the attempt (and its eventual outcome) up front, so a failed
-	// precondition below still counts as an attempt and a failure.
-	e.metrics.IncBackupAttempts(ctx)
-	defer func() {
-		if retErr == nil {
-			e.metrics.IncBackupSuccesses(ctx)
-		} else {
-			e.metrics.IncBackupFailures(ctx)
-		}
-	}()
-
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}

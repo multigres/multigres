@@ -289,7 +289,7 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		config:       &Config{},
 		record:       newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()}),
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
@@ -841,7 +841,7 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Mock ListBackups to return a complete backup
 	// This is tested via the actual implementation
@@ -862,7 +862,7 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	result := pm.hasCompleteBackups(ctx)
 
@@ -878,7 +878,7 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock to block hasCompleteBackups
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-holder")

@@ -334,19 +334,14 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// The ReplTracker is registered later when heartbeat is started.
 	pm.servingState = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
 
-	// Construct the pgBackRest engine. It registers the pgBackRest health
-	// metrics and owns all pgBackRest interaction. The pgbackrest.conf path,
-	// pgpass file, and repo config are supplied later (SetConfigPath /
-	// SetPgpassPath / SetBackupConfig) once topology and the backup location
-	// have loaded.
-	var engineErr error
-	pm.backup, engineErr = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
+	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
+	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
+	// supplied later (SetConfigPath / SetPgpassPath / SetBackupConfig) once
+	// topology and the backup location have loaded.
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
 		PgpassPath: pm.pgpassPath,
 		PgDataDir:  postgresDataDir(),
 	})
-	if engineErr != nil {
-		logger.Warn("failed to construct pgBackRest engine", "error", engineErr)
-	}
 
 	return pm, nil
 }

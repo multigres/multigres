@@ -78,8 +78,7 @@ func newTestEngine(t *testing.T, poolerDir, tableGroup, shard, backupLocation st
 	run := func(ctx context.Context, cmd *executil.Cmd, _ string) ([]byte, error) {
 		return cmd.CombinedOutput()
 	}
-	e, err := NewEngine(logger, run, fid, Settings{})
-	require.NoError(t, err)
+	e := NewEngine(logger, run, fid, Settings{PgDataDir: poolerDir})
 	if backupConfig != nil {
 		e.SetBackupConfig(backupConfig)
 	}

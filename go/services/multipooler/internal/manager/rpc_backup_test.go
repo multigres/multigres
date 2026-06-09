@@ -114,7 +114,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 
 	// Build the backup engine the way the production constructor does, feeding
 	// it the resolved repo config when one was supplied.
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: poolerDir})
 	if backupConfig != nil {
 		pm.backup.SetBackupConfig(backupConfig)
 	}
@@ -692,7 +692,7 @@ exit 0
 				logger:     slog.Default(),
 				pgMonitor:  timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 			}
-			pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+			pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: poolerDir})
 			pm.backup.SetBackupConfig(backupConfig)
 			pm.backup.SetConfigPath(configPath)
 

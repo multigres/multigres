@@ -75,12 +75,17 @@ type Engine struct {
 // NewEngine constructs a backup engine and its metrics from the given fixed
 // dependencies. The pgbackrest.conf path and repo config are supplied later via
 // SetConfigPath / SetBackupConfig.
-func NewEngine(logger *slog.Logger, run RunFunc, id Identity, settings Settings) (*Engine, error) {
+//
+// Metric registration is best-effort: NewMetrics always returns usable (no-op on
+// failure) counters, so a registration error is logged and a working engine is
+// still returned rather than failing construction (which previously left the
+// manager with a nil engine that panicked on first use).
+func NewEngine(logger *slog.Logger, run RunFunc, id Identity, settings Settings) *Engine {
 	metrics, err := NewMetrics()
 	if err != nil {
-		return nil, err
+		logger.Warn("pgBackRest metric registration partially failed; backup metrics may be incomplete", "error", err)
 	}
-	return &Engine{logger: logger, run: run, metrics: metrics, id: id, settings: settings, pgpassPath: settings.PgpassPath}, nil
+	return &Engine{logger: logger, run: run, metrics: metrics, id: id, settings: settings, pgpassPath: settings.PgpassPath}
 }
 
 // SetConfigPath sets the path to this pooler's pgbackrest.conf, resolved once

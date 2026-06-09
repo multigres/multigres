@@ -26,10 +26,24 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
+// autoConfPath returns the path to postgresql.auto.conf in the PostgreSQL data
+// directory, or an error if that directory was not configured at construction.
+// Guarding here avoids filepath.Join("", ...) silently producing a relative
+// path that would operate on the wrong file.
+func (e *Engine) autoConfPath() (string, error) {
+	if e.settings.PgDataDir == "" {
+		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "postgres data directory not configured")
+	}
+	return filepath.Join(e.settings.PgDataDir, "postgresql.auto.conf"), nil
+}
+
 // RemoveArchiveConfig removes archive configuration lines from postgresql.auto.conf
 // This is used after restore to remove the primary's archive config before applying the standby's config
 func (e *Engine) RemoveArchiveConfig() error {
-	autoConfPath := filepath.Join(e.settings.PgDataDir, "postgresql.auto.conf")
+	autoConfPath, err := e.autoConfPath()
+	if err != nil {
+		return err
+	}
 
 	content, err := os.ReadFile(autoConfPath)
 	if err != nil {
@@ -73,7 +87,10 @@ func (e *Engine) ConfigureArchiveMode(ctx context.Context) error {
 			fmt.Sprintf("pgbackrest config file not found at %s - ensure pgctld generated the config successfully", configPath))
 	}
 
-	autoConfPath := filepath.Join(e.settings.PgDataDir, "postgresql.auto.conf")
+	autoConfPath, err := e.autoConfPath()
+	if err != nil {
+		return err
+	}
 
 	// Check if archive_mode is already configured to avoid duplicates
 	if _, err := os.Stat(autoConfPath); err == nil {

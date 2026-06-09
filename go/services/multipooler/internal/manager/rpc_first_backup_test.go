@@ -205,7 +205,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock as the monitor would do before calling this function
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -299,7 +299,7 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		}),
 		config: &Config{},
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -351,7 +351,7 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	// SetConfigPath is deliberately not called → the engine has no config path,
 	// so ConfigureArchiveMode will fail, triggering the cleanup defer after
 	// InitDataDir succeeded.
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -412,7 +412,7 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		}),
 		config: &Config{},
 	}
-	pm.backup, _ = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)

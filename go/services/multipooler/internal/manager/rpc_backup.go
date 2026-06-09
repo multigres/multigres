@@ -67,6 +67,21 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 
 // backupLocked performs a backup. Caller must hold the action lock and backup lease.
 func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+	// Record the attempt and its eventual outcome up front, so a failed
+	// precondition below (pooler role, backup type, primary resolution) still
+	// counts as an attempt and a failure — mirroring restoreFromBackupLocked.
+	// The engine performs the pgBackRest work; the manager owns these
+	// operation-level metrics.
+	metrics := pm.backup.Metrics()
+	metrics.IncBackupAttempts(ctx)
+	defer func() {
+		if retErr == nil {
+			metrics.IncBackupSuccesses(ctx)
+		} else {
+			metrics.IncBackupFailures(ctx)
+		}
+	}()
+
 	// Policy and primary-source resolution are owned by the manager (it has the
 	// role and the consensus-recorded primary); the engine is pure pgBackRest.
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
