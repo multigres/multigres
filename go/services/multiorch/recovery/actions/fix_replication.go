@@ -202,12 +202,12 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}()
 
 	// Configure primary_conninfo on the replica via SetPrimary.
-	informReq := &consensusdatapb.SetPrimaryRequest{
+	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		Leader: topoclient.PoolerAddressFor(primary.MultiPooler),
 		Rule:   primary.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
-	if _, err := a.rpcClient.SetPrimary(ctx, replica.MultiPooler, informReq); err != nil {
-		return mterrors.Wrap(err, "failed to inform replica of primary")
+	if _, err := a.rpcClient.SetPrimary(ctx, replica.MultiPooler, setPrimaryReq); err != nil {
+		return mterrors.Wrap(err, "SetPrimary RPC failed")
 	}
 
 	// Verify replication started

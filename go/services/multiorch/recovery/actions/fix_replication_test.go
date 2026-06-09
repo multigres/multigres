@@ -310,13 +310,13 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 
 	// Verify the request carried the primary's contact info and known position.
-	informReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
-	require.NotNil(t, informReq)
-	require.NotNil(t, informReq.Leader)
-	assert.Equal(t, "primary", informReq.Leader.Id.Name)
-	assert.Equal(t, "primary.example.com", informReq.Leader.GetHost())
-	require.NotNil(t, informReq.Rule)
-	assert.Equal(t, int64(1), informReq.Rule.GetRuleNumber().GetCoordinatorTerm())
+	setPrimaryReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
+	require.NotNil(t, setPrimaryReq)
+	require.NotNil(t, setPrimaryReq.Leader)
+	assert.Equal(t, "primary", setPrimaryReq.Leader.Id.Name)
+	assert.Equal(t, "primary.example.com", setPrimaryReq.Leader.GetHost())
+	require.NotNil(t, setPrimaryReq.Rule)
+	assert.Equal(t, int64(1), setPrimaryReq.Rule.GetRuleNumber().GetCoordinatorTerm())
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {

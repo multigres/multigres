@@ -156,11 +156,11 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 3. Restarts as standby
 	// 4. Clears sync replication config
 	// 5. Updates topology to REPLICA
-	informReq := &consensusdatapb.SetPrimaryRequest{
+	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		Leader: topoclient.PoolerAddressFor(correctLeader.MultiPooler),
 		Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
 	}
-	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.MultiPooler, informReq); err != nil {
+	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.MultiPooler, setPrimaryReq); err != nil {
 		return mterrors.Wrap(err, "SetPrimary RPC failed")
 	}
 	a.logger.InfoContext(ctx, "stale leader demoted successfully via SetPrimary",
