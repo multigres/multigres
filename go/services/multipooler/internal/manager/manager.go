@@ -190,6 +190,13 @@ type MultiPoolerManager struct {
 	// process restart implicitly clears it.
 	walReceiverManuallyStopped atomic.Bool
 
+	// replayManuallyPaused is set when StopReplication paused WAL replay
+	// (REPLAY_ONLY / REPLAY_AND_RECEIVER modes) — an explicit signal that apply
+	// should stay paused. It tells the postgres monitor not to self-heal the
+	// pause by resuming replay. Cleared by StartReplication. Not persisted; a
+	// process restart implicitly clears it.
+	replayManuallyPaused atomic.Bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
@@ -1613,6 +1620,9 @@ type postgresState struct {
 	backupsAvailable         bool
 	isPrimary                bool
 	bootstrapSentinelPresent bool
+	// replayPaused reports whether WAL replay (apply) is paused. Only meaningful
+	// for a standby (postgresRunning && !isPrimary); false otherwise.
+	replayPaused bool
 	// primaryTerm is the coordinator term at which this pooler is the primary
 	// per the highest known rule. 0 if we are not the primary for that rule.
 	primaryTerm int64
@@ -1626,6 +1636,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.backupsAvailable == b.backupsAvailable &&
 		a.isPrimary == b.isPrimary &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
+		a.replayPaused == b.replayPaused &&
 		a.primaryTerm == b.primaryTerm
 }
 
@@ -1647,6 +1658,11 @@ const (
 	// primary regardless of how it got out of sync (failed SetTermPrimary apply,
 	// hand edit, snapshot restore, etc.).
 	remedialActionFixPrimaryConnInfo
+	// remedialActionResumeReplay means a standby has WAL replay paused without an
+	// explicit stop (neither replayManuallyPaused nor walReceiverManuallyStopped
+	// is set), so the monitor resumes it. Recovers a standby left paused by an
+	// interrupted operation.
+	remedialActionResumeReplay
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1771,6 +1787,10 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		// which falls back to the cached rule when postgres is unreachable.
 		if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
 			state.primaryTerm = commonconsensus.LeaderTerm(cs)
+		}
+		// Replay pause only applies to a standby; skip the query on a primary.
+		if !state.isPrimary {
+			state.replayPaused = pm.isWALReplayPaused(ctx)
 		}
 	}
 
@@ -1934,6 +1954,17 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 			// remedialActionFixPrimaryConnInfo iteration runs
 			// pg_rewind dry-run before re-establishing replication. Cheap
 			// when no divergence, conclusive when there is.
+			//
+			// Self-heal paused WAL replay. setPrimaryConnInfoLocked no longer
+			// resumes replay as a side effect of writing conninfo (replay
+			// pause/resume is owned by StopReplication/StartReplication), so a
+			// standby left paused by an interrupted op would otherwise keep
+			// receiving WAL without ever applying it. Resume it unless apply was
+			// explicitly paused (replayManuallyPaused); a RECEIVER_ONLY stop
+			// doesn't pause replay, and REPLAY_AND_RECEIVER sets this flag too.
+			if currentState.replayPaused && !pm.replayManuallyPaused.Load() {
+				return remedialActionResumeReplay
+			}
 		}
 		// Pooler type already matches; check for a stale GUC that needs re-applying.
 		// Only reconcile the GUC when actually running as primary: synchronous_standby_names
@@ -2028,9 +2059,14 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// re-establishing replication. This would let the monitor self-heal
 		// a stuck-replica scenario without waiting for orch's
 		// FixReplicationAction to issue a RewindToSource RPC.
-		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort,
-			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile primary_conninfo", "error", err)
+		}
+
+	case remedialActionResumeReplay:
+		pm.logger.InfoContext(ctx, "MonitorPostgres: WAL replay paused on standby without an explicit stop; resuming")
+		if err := pm.resumeWALReplay(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to resume WAL replay", "error", err)
 		}
 
 	case remedialActionStartPostgres:

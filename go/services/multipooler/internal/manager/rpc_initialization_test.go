@@ -396,13 +396,14 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 // This is a table-driven test covering all decision paths in the monitor loop.
 func TestDetermineRemedialAction(t *testing.T) {
 	tests := []struct {
-		name               string
-		state              postgresState
-		poolerType         clustermetadatapb.PoolerType
-		primaryTerm        int64
-		resignedLeaderTerm int64
-		inconsistentGUC    bool
-		expectedAction     remedialAction
+		name                 string
+		state                postgresState
+		poolerType           clustermetadatapb.PoolerType
+		primaryTerm          int64
+		resignedLeaderTerm   int64
+		inconsistentGUC      bool
+		replayManuallyPaused bool
+		expectedAction       remedialAction
 	}{
 		{
 			name:           "pgctld_unavailable",
@@ -534,6 +535,31 @@ func TestDetermineRemedialAction(t *testing.T) {
 			inconsistentGUC: true,
 			expectedAction:  remedialActionReconcileGUC,
 		},
+		{
+			// Standby with replay paused and no explicit stop: the monitor resumes it.
+			name: "postgres_ready_replica_replay_paused_resumes",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+				replayPaused:    true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionResumeReplay,
+		},
+		{
+			// Replay paused but explicitly via StopReplication: leave it alone.
+			name: "postgres_ready_replica_replay_paused_manually",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+				replayPaused:    true,
+			},
+			poolerType:           clustermetadatapb.PoolerType_REPLICA,
+			replayManuallyPaused: true,
+			expectedAction:       remedialActionNone,
+		},
 	}
 
 	for _, tt := range tests {
@@ -546,6 +572,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			pm.consensusState = consensus.NewConsensusState("", nil)
 			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
 			pm.rules = &fakeRuleStore{inconsistentGUC: tt.inconsistentGUC}
+			pm.replayManuallyPaused.Store(tt.replayManuallyPaused)
 			tt.state.primaryTerm = tt.primaryTerm
 
 			got := pm.determineRemedialAction(t.Context(), tt.state)

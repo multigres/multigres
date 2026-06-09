@@ -217,13 +217,6 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
-	// pauseReplication(REPLAY_ONLY): pg_wal_replay_pause + verify paused.
-	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
-		mock.MakeQueryResult(nil, nil))
-	replayStateCols := []string{"replay_lsn", "is_paused"}
-	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
-		mock.MakeQueryResult(replayStateCols, [][]any{{"0/100", true}}))
-
 	// Capture the rendered primary_conninfo so we can assert host=primary-host.
 	var capturedConnInfoSQL string
 	mockQueryService.AddQueryPatternWithCallback(
@@ -233,10 +226,9 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	)
 	expectReloadConfig(mockQueryService)
 
-	// startReplicationAfter=true: waitForDatabaseConnection + pg_wal_replay_resume.
-	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
-		mock.MakeQueryResult(nil, nil))
+	// After reload, setPrimaryConnInfoLocked waits for the WAL receiver to target
+	// the new primary.
+	expectReceiverTargeting(mockQueryService)
 
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
@@ -287,7 +279,8 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 		mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(mockQueryService)
 
-	// 5. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
+	// 5. setPrimaryConnInfoLocked: rewrite primary_conninfo, reload, then wait
+	// for the WAL receiver to target the new primary.
 	var capturedConnInfoSQL string
 	mockQueryService.AddQueryPatternWithCallback(
 		"ALTER SYSTEM SET primary_conninfo",
@@ -295,6 +288,7 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 		func(sql string) { capturedConnInfoSQL = sql },
 	)
 	expectReloadConfig(mockQueryService)
+	expectReceiverTargeting(mockQueryService)
 
 	// 6. getStandbyReplayLSN — best-effort LSN read after demote.
 	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",

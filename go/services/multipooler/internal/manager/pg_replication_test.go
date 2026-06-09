@@ -45,6 +45,15 @@ func expectReloadConfig(m *mock.QueryService) {
 		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2026-01-01 00:00:01+00"}}))
 }
 
+// expectReceiverTargeting sets up the mock query expectation for
+// MultiPoolerManager.waitForReceiverTargeting. Returning a zero WAL-receiver
+// count satisfies the "no receiver" arm so the wait loop exits on the first
+// poll, regardless of the target host/port.
+func expectReceiverTargeting(m *mock.QueryService) {
+	m.AddQueryPattern("conninfo FROM pg_stat_wal_receiver",
+		mock.MakeQueryResult([]string{"count", "conninfo"}, [][]any{{int64(0), ""}}))
+}
+
 // expectReloadConfigFailure sets up the mock query expectations for a call to
 // MultiPoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
 // The wait loop is never entered.
@@ -1651,4 +1660,58 @@ func TestQueryReplicationStatus(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestConninfoTargets(t *testing.T) {
+	tests := []struct {
+		name     string
+		conninfo string
+		host     string
+		port     int32
+		want     bool
+	}{
+		{"matches host and port", "user=postgres host=primary-host port=5432 application_name=x", "primary-host", 5432, true},
+		{"order independent", "port=5432 host=primary-host", "primary-host", 5432, true},
+		{"host prefix is not a match", "host=pg-1 port=5432", "pg-10", 5432, false},
+		{"port mismatch", "host=primary-host port=5433", "primary-host", 5432, false},
+		{"host mismatch", "host=other port=5432", "primary-host", 5432, false},
+		{"empty", "", "primary-host", 5432, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, conninfoTargets(tt.conninfo, tt.host, tt.port))
+		})
+	}
+}
+
+func TestWaitForReceiverTargeting(t *testing.T) {
+	const receiverQuery = "conninfo FROM pg_stat_wal_receiver"
+
+	t.Run("no receiver returns immediately", func(t *testing.T) {
+		m := mock.NewQueryService()
+		m.AddQueryPattern(receiverQuery,
+			mock.MakeQueryResult([]string{"count", "conninfo"}, [][]any{{int64(0), ""}}))
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(3)})
+		require.NoError(t, pm.waitForReceiverTargeting(t.Context(), "primary-host", 5432))
+	})
+
+	t.Run("receiver targeting the new primary returns", func(t *testing.T) {
+		m := mock.NewQueryService()
+		m.AddQueryPattern(receiverQuery,
+			mock.MakeQueryResult([]string{"count", "conninfo"}, [][]any{{int64(1), "host=primary-host port=5432 user=postgres"}}))
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(3)})
+		require.NoError(t, pm.waitForReceiverTargeting(t.Context(), "primary-host", 5432))
+	})
+
+	t.Run("receiver still on old primary times out", func(t *testing.T) {
+		m := mock.NewQueryService()
+		m.AddQueryPattern(receiverQuery,
+			mock.MakeQueryResult([]string{"count", "conninfo"}, [][]any{{int64(1), "host=old-primary port=5432 user=postgres"}}))
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(3)})
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		err := pm.waitForReceiverTargeting(ctx, "primary-host", 5432)
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+	})
 }

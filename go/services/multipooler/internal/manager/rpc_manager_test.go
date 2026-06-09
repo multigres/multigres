@@ -1028,6 +1028,8 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	// pg_conf_load_time after reload (different value signals reload completed)
 	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
 		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	// setPrimaryConnInfoLocked then waits for the WAL receiver to target the new primary.
+	expectReceiverTargeting(mockQueryService)
 
 	config := &Config{
 		TopoClient: ts,
@@ -1144,6 +1146,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
 	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
 		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	expectReceiverTargeting(mockQueryService)
 
 	config := &Config{
 		TopoClient: ts,

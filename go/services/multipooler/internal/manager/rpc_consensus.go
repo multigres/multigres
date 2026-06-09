@@ -769,10 +769,9 @@ func (pm *MultiPoolerManager) SetTermPrimary(ctx context.Context, req *consensus
 		pm.logger.InfoContext(ctx, "SetTermPrimary: updating standby primary_conninfo",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
-		// Already a standby with an active stream; pause replay, swap
-		// conninfo, resume on the new primary.
-		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
-			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+		// Already a standby with an active stream; point conninfo at the new
+		// primary.
+		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port); err != nil {
 			return nil, err
 		}
 	}
