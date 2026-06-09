@@ -821,6 +821,42 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 	return pool.GetReservedConn(connID)
 }
 
+// UpdateReservedConnSessionState records the latest authoritative gateway
+// session settings on a reserved connection without executing SQL. A nil/empty
+// settings map is a known-clean desired state, distinct from unknown.
+func (m *Manager) UpdateReservedConnSessionState(conn *reserved.Conn, settings map[string]string) {
+	if conn == nil {
+		return
+	}
+	conn.SetAuthoritativeSettings(m.settingsCache.GetOrCreate(settings), true)
+}
+
+// PrepareReservedConn records the latest authoritative settings and reconciles
+// an existing reserved connection before user-visible backend work. If the
+// connection is marked untrusted, force reconciliation avoids stale connstate
+// pointer-equality no-ops.
+func (m *Manager) PrepareReservedConn(ctx context.Context, conn *reserved.Conn, settings map[string]string) error {
+	if conn == nil {
+		return nil
+	}
+	desired := m.settingsCache.GetOrCreate(settings)
+	conn.SetAuthoritativeSettings(desired, true)
+
+	if conn.SessionStateUntrusted() {
+		if err := conn.Conn().ForceApplySettings(ctx, desired); err != nil {
+			return err
+		}
+		conn.ClearSessionStateUntrusted()
+		return nil
+	}
+
+	current := conn.Conn().Settings()
+	if desired == current {
+		return nil
+	}
+	return conn.Conn().ApplySettings(ctx, desired)
+}
+
 // ApplySettingsToConn ensures the connection's settings match the given session
 // settings. ApplySettings handles the diff internally: it resets removed
 // variables via individual RESET commands (safe inside transactions, unlike

@@ -33,6 +33,7 @@ type reservedConnAPI interface {
 	BeginWithQuery(ctx context.Context, beginQuery string) error
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
+	MarkSessionStateUntrusted()
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
 	// Query runs a simple query and buffers all results. Used for internal
 	// probes (e.g. checking pg_locks to decide whether a session still holds an
@@ -47,9 +48,10 @@ type reservedConnAPI interface {
 	// when the last pin clears AND no other reservation reasons remain —
 	// callers should then release the backend to the pool.
 	ReleasePortal(portalName string) bool
-	// Release returns the backend to the pool, recording the reason in the
-	// reserved-pool telemetry.
-	Release(reason reserved.ReleaseReason)
+	// ReleaseClean returns the backend to the pool after release finalization.
+	ReleaseClean(reason reserved.CleanReleaseReason)
+	// ReleaseDirty taints/closes the backend instead of returning it to the pool.
+	ReleaseDirty(reason reserved.DirtyReleaseReason)
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.

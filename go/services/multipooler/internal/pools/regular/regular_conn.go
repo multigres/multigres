@@ -153,6 +153,25 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 	return nil
 }
 
+// ForceApplySettings reconciles the backend to desired without trusting the
+// tracked current settings. It is used when the pooler's connstate cache may be
+// stale (for example after ROLLBACK TO SAVEPOINT reverted backend GUC state
+// invisibly). The method resets backend session settings first, then applies the
+// desired baseline and updates connstate only after the SQL succeeds.
+func (c *Conn) ForceApplySettings(ctx context.Context, desired *connstate.Settings) error {
+	query := "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL"
+	if applySQL := desired.ApplyQuery(); applySQL != "" {
+		query += "; " + applySQL
+	}
+
+	if _, err := c.Query(ctx, query); err != nil {
+		return fmt.Errorf("failed to force apply settings: %w", err)
+	}
+
+	c.State().SetSettings(desired)
+	return nil
+}
+
 // ResetAllSettings resets the connection to a clean state.
 //
 // Executes RESET ROLE, RESET SESSION AUTHORIZATION, then RESET ALL.

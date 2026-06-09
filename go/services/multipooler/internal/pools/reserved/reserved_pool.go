@@ -31,12 +31,19 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
+const defaultReleaseFinalizationTimeout = 5 * time.Second
+
 // PoolConfig holds configuration for the reserved pool.
 type PoolConfig struct {
 	// InactivityTimeout is the maximum duration a reserved connection can be inactive
 	// (no client activity) before being killed. A value of 0 means no timeout.
 	// Default: 30s
 	InactivityTimeout time.Duration
+
+	// ReleaseFinalizationTimeout bounds clean-release reconciliation before the
+	// backend is recycled into the regular pool. On timeout/failure the backend is
+	// tainted/closed instead of reused. Default: 5s.
+	ReleaseFinalizationTimeout time.Duration
 
 	// Logger for pool operations.
 	Logger *slog.Logger
@@ -102,6 +109,9 @@ type Pool struct {
 func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	if config.InactivityTimeout <= 0 {
 		config.InactivityTimeout = 30 * time.Second
+	}
+	if config.ReleaseFinalizationTimeout <= 0 {
+		config.ReleaseFinalizationTimeout = defaultReleaseFinalizationTimeout
 	}
 
 	logger := config.Logger
@@ -185,6 +195,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 
 	// Create reserved connection.
 	rc := newConn(pooled, connID, p)
+	rc.SetAuthoritativeSettings(settings, true)
 	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
@@ -325,10 +336,10 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	// Taint the connection - it's dead after kill.
 	rc.pooled.Taint()
 
-	// Release handles OnRelease, Recycle, and metrics. The CAS inside
-	// Release prevents double-release if an in-flight request also calls
-	// Release after Kill causes it to fail.
-	rc.Release(ReleaseKill)
+	// ReleaseDirty handles OnRelease, Recycle, and metrics. The CAS inside
+	// ReleaseDirty prevents double-release if an in-flight request also calls
+	// release after Kill causes it to fail.
+	rc.ReleaseDirty(DirtyReleaseKill)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
@@ -337,16 +348,16 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	return nil
 }
 
-// release is called when a reserved connection is released.
-func (p *Pool) release(rc *Conn, reason ReleaseReason) {
+// release is called when a reserved connection is released. Clean releases run
+// the release-boundary finalizer before the backend can re-enter the regular
+// pool; dirty releases taint/close instead. OnRelease is intentionally invoked
+// after finalization/recycle so finalizing backends remain counted as lent.
+func (p *Pool) release(rc *Conn, reason ReleaseReason, dirty bool) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
-	if p.config.OnRelease != nil {
-		p.config.OnRelease()
-	}
 
 	// Update metrics based on reason.
 	switch reason {
@@ -358,25 +369,58 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		p.timeoutCount.Add(1)
 	case ReleaseKill:
 		p.killCount.Add(1)
-	case ReleaseError:
+	}
+
+	// Dirty releases and replication sockets must never be reused.
+	if dirty || (rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
+		rc.pooled.Taint()
+	} else if err := p.finalizeCleanRelease(rc); err != nil {
+		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
+			"conn_id", rc.ConnID(),
+			"reason", reason.String(),
+			"error", err)
 		rc.pooled.Taint()
 	}
 
-	// Replication conns cannot be returned to the pool: their socket has
-	// replication=database in its startup packet and is bound to a walsender
-	// backend that may own a slot. Taint regardless of release reason so the
-	// upcoming Recycle frees the cap slot AND closes the socket.
-	if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
-		rc.pooled.Taint()
-	}
-
-	// Return the underlying connection to the pool.
-	// If the connection is in a bad state, the caller should have tainted it.
+	// Return the underlying connection to the pool, or close/free capacity if it
+	// was tainted above.
 	rc.pooled.Recycle()
+
+	if p.config.OnRelease != nil {
+		p.config.OnRelease()
+	}
 
 	p.logger.Debug("reserved connection released",
 		"conn_id", rc.ConnID(),
-		"reason", reason.String())
+		"reason", reason.String(),
+		"dirty", dirty)
+}
+
+func (p *Pool) finalizeCleanRelease(rc *Conn) error {
+	desired, known := rc.AuthoritativeSettings()
+	if !known {
+		return errors.New("authoritative session settings unknown")
+	}
+
+	conn := rc.Conn()
+	if !rc.SessionStateUntrusted() && conn.Settings() == desired {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(p.ctx, p.config.ReleaseFinalizationTimeout)
+	defer cancel()
+
+	var err error
+	if rc.SessionStateUntrusted() {
+		err = conn.ForceApplySettings(ctx, desired)
+	} else {
+		err = conn.ApplySettings(ctx, desired)
+	}
+	if err != nil {
+		return err
+	}
+	rc.ClearSessionStateUntrusted()
+	return nil
 }
 
 // Close closes all reserved connections, the underlying regular pool, and the pool itself.

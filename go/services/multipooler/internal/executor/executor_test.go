@@ -59,10 +59,12 @@ type mockReservedConn struct {
 	queryResults []*sqltypes.Result
 	queryErr     error
 
-	pinnedPortals   []string
-	releasedPortals []string
-	releaseCalls    []reserved.ReleaseReason
-	openHoldCursors map[string]bool
+	pinnedPortals     []string
+	releasedPortals   []string
+	cleanReleaseCalls []reserved.CleanReleaseReason
+	dirtyReleaseCalls []reserved.DirtyReleaseReason
+	markedUntrusted   bool
+	openHoldCursors   map[string]bool
 }
 
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
@@ -129,8 +131,16 @@ func (m *mockReservedConn) Query(_ context.Context, sql string) ([]*sqltypes.Res
 	return m.queryResults, nil
 }
 
-func (m *mockReservedConn) Release(reason reserved.ReleaseReason) {
-	m.releaseCalls = append(m.releaseCalls, reason)
+func (m *mockReservedConn) ReleaseClean(reason reserved.CleanReleaseReason) {
+	m.cleanReleaseCalls = append(m.cleanReleaseCalls, reason)
+}
+
+func (m *mockReservedConn) ReleaseDirty(reason reserved.DirtyReleaseReason) {
+	m.dirtyReleaseCalls = append(m.dirtyReleaseCalls, reason)
+}
+
+func (m *mockReservedConn) MarkSessionStateUntrusted() {
+	m.markedUntrusted = true
 }
 
 // Compile-time check.
@@ -161,6 +171,12 @@ func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, st
 
 func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) {
 	return m.reservedConn, m.reservedConnOK
+}
+
+func (m *stubPoolManager) UpdateReservedConnSessionState(*reserved.Conn, map[string]string) {}
+
+func (m *stubPoolManager) PrepareReservedConn(context.Context, *reserved.Conn, map[string]string) error {
+	return nil
 }
 
 func (m *stubPoolManager) ApplySettingsToConn(context.Context, *regular.Conn, map[string]string) error {
@@ -217,7 +233,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "should probe pg_locks once")
-	require.Empty(t, rc.releaseCalls, "connection must stay reserved while a lock is held")
+	require.Empty(t, rc.cleanReleaseCalls, "connection must stay reserved while a lock is held")
+	require.Empty(t, rc.dirtyReleaseCalls, "connection must stay reserved while a lock is held")
 	require.NotNil(t, state)
 	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, state.GetReservationReasons())
 }
@@ -243,7 +260,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
 	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls)
 	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, rc.removedReasons,
 		"advisory-lock reason must be cleared when no locks remain")
-	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseAdvisoryUnlock}, rc.releaseCalls,
+	require.Equal(t, []reserved.CleanReleaseReason{reserved.CleanReleaseAdvisoryUnlock}, rc.cleanReleaseCalls,
 		"connection must be released once the last advisory lock is gone")
 	require.Nil(t, state, "released connection should report a nil (zero) reservation state")
 }
@@ -268,7 +285,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Empty(t, rc.queryCalls, "must not probe pg_locks inside a transaction")
-	require.Empty(t, rc.releaseCalls)
+	require.Empty(t, rc.cleanReleaseCalls)
+	require.Empty(t, rc.dirtyReleaseCalls)
 }
 
 // TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned verifies that a
@@ -288,7 +306,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned(t *testing.T)
 	)
 
 	require.NoError(t, err)
-	require.Empty(t, rc.releaseCalls, "probe failure must not release the connection")
+	require.Empty(t, rc.cleanReleaseCalls, "probe failure must not release the connection")
+	require.Empty(t, rc.dirtyReleaseCalls, "probe failure must not release the connection")
 	require.NotNil(t, state)
 }
 
@@ -312,7 +331,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryEmptyProbeKeepsPinned(t *testing.T)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "should still probe")
-	require.Empty(t, rc.releaseCalls, "empty probe result must not release the connection")
+	require.Empty(t, rc.cleanReleaseCalls, "empty probe result must not release the connection")
+	require.Empty(t, rc.dirtyReleaseCalls, "empty probe result must not release the connection")
 	require.Empty(t, rc.removedReasons, "advisory reason must be kept on an empty probe result")
 	require.NotNil(t, state)
 }
@@ -338,7 +358,8 @@ func TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Empty(t, rc.queryCalls, "must not probe pg_locks without the recheck signal")
-	require.Empty(t, rc.releaseCalls, "must stay reserved without a recheck")
+	require.Empty(t, rc.cleanReleaseCalls, "must stay reserved without a recheck")
+	require.Empty(t, rc.dirtyReleaseCalls, "must stay reserved without a recheck")
 	require.NotNil(t, state)
 	require.Equal(t, protoutil.ReasonSessionAdvisoryLock, state.GetReservationReasons())
 }
@@ -509,7 +530,8 @@ func TestStreamExecuteOnReservedConn_PinPortalSuccess(t *testing.T) {
 	require.Equal(t, []string{"c1"}, rc.pinnedPortals,
 		"pin should be registered for the WITH HOLD cursor")
 	require.Empty(t, rc.releasedPortals, "no release on success")
-	require.Empty(t, rc.releaseCalls, "connection should not be released on a successful pin")
+	require.Empty(t, rc.cleanReleaseCalls, "connection should not be released on a successful pin")
+	require.Empty(t, rc.dirtyReleaseCalls, "connection should not be released on a successful pin")
 	require.True(t, rc.streamingCalled)
 	require.Equal(t, uint64(42), state.GetReservedConnectionId())
 	require.Equal(t,
@@ -544,7 +566,7 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureRollsBack(t *testing.T) {
 		"failed DECLARE must roll back every pin it added")
 	require.Equal(t, uint32(0), rc.remainingReasons,
 		"no reasons should remain after rollback")
-	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseError}, rc.releaseCalls,
+	require.Equal(t, []reserved.DirtyReleaseReason{reserved.DirtyReleaseError}, rc.dirtyReleaseCalls,
 		"connection should be released when the rollback drains the last reason")
 	require.Nil(t, state, "released conn must surface as zero ReservedState")
 }
@@ -572,7 +594,9 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 	require.Error(t, err)
 	require.Equal(t, []string{"bad"}, rc.releasedPortals,
 		"failed DECLARE must roll back the pin")
-	require.Empty(t, rc.releaseCalls,
+	require.Empty(t, rc.cleanReleaseCalls,
+		"connection must stay reserved while the transaction reason persists")
+	require.Empty(t, rc.dirtyReleaseCalls,
 		"connection must stay reserved while the transaction reason persists")
 	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons,
 		"transaction reason must survive pin rollback")
@@ -601,7 +625,7 @@ func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T)
 	require.NoError(t, err)
 	require.True(t, rc.streamingCalled, "CLOSE must reach the backend before the pin is dropped")
 	require.Equal(t, []string{"c1"}, rc.releasedPortals)
-	require.Equal(t, []reserved.ReleaseReason{reserved.ReleasePortalComplete}, rc.releaseCalls,
+	require.Equal(t, []reserved.CleanReleaseReason{reserved.CleanReleasePortalComplete}, rc.cleanReleaseCalls,
 		"draining the final ReasonPortal must release the backend")
 	require.Nil(t, state, "released conn must surface as zero ReservedState")
 }
@@ -626,9 +650,37 @@ func TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons(t *testing.T
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"c1"}, rc.releasedPortals)
-	require.Empty(t, rc.releaseCalls,
+	require.Empty(t, rc.cleanReleaseCalls,
+		"conn must stay reserved while ReasonTransaction is set")
+	require.Empty(t, rc.dirtyReleaseCalls,
 		"conn must stay reserved while ReasonTransaction is set")
 	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons)
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
+}
+
+// TestStreamExecuteOnReservedConn_MarkSessionStateUntrusted verifies that a
+// statement carrying ReservationOptions.MarkSessionStateUntrusted (e.g. a
+// ROLLBACK TO SAVEPOINT) marks the reserved connection's session state
+// untrusted so the next reconciliation is forced.
+func TestStreamExecuteOnReservedConn_MarkSessionStateUntrusted(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "ROLLBACK TO SAVEPOINT sp",
+		&query.ReservationOptions{MarkSessionStateUntrusted: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.True(t, rc.markedUntrusted,
+		"ROLLBACK TO SAVEPOINT must mark the reserved connection untrusted")
+	require.Empty(t, rc.cleanReleaseCalls)
+	require.Empty(t, rc.dirtyReleaseCalls)
 	require.Equal(t, uint64(42), state.GetReservedConnectionId())
 }
 
@@ -818,7 +870,7 @@ func TestStampVpidOnReserved_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	rconn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer rconn.Release(reserved.ReleaseCommit)
+	defer rconn.ReleaseClean(reserved.CleanReleaseCommit)
 
 	e := &Executor{vpidStampEnabled: true}
 	server.ResetQueryLog()
