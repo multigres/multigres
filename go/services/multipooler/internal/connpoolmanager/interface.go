@@ -108,6 +108,12 @@ type PoolManager interface {
 	// Used during graceful shutdown to wait for in-flight queries to complete.
 	WaitForDrain(ctx context.Context) error
 
+	// WaitForReservedDrain blocks until all RESERVED connections (transactions,
+	// temp tables, portals, COPY) have been released or ctx is cancelled. It
+	// ignores transient single-query borrows, so the first stage of a graceful
+	// drain can wait for transactions while still serving single queries.
+	WaitForReservedDrain(ctx context.Context) error
+
 	// CloseReservedConnections kills all active reserved connections across all user pools.
 	// Used after drain grace period expires to prevent reserved connections from being
 	// used in a non-serving state.
