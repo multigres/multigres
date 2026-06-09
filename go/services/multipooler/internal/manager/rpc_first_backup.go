@@ -163,7 +163,7 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		}
 
 		// Prove the archive pipeline works end-to-end before declaring the
-		// shard bootstrapped. configureArchiveMode wrote archive_command
+		// shard bootstrapped. ConfigureArchiveMode wrote archive_command
 		// above; `check` forces a WAL switch and confirms the segment reaches
 		// the repo, so a misconfigured archive_command (bad creds, wrong
 		// path) fails cluster creation now rather than silently surviving
