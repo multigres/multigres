@@ -90,6 +90,14 @@ type MultiGatewayConnectionState struct {
 	// cleared after the reservation is created.
 	PendingTempTableReservation bool
 
+	// PendingAdvisoryLockReservation is set by the planner (via
+	// AdvisoryLockRoute) when the current query acquires a session-level
+	// advisory lock. ScatterConn consumes it to create (or promote to) a
+	// reserved connection with ReasonSessionAdvisoryLock, pinning the backend
+	// for the lifetime of the lock. One-shot: cleared after the reservation is
+	// created.
+	PendingAdvisoryLockReservation bool
+
 	// PendingPinPortals carries the cursor names that the next StreamExecute
 	// must register on the reserved backend's portal set via
 	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a

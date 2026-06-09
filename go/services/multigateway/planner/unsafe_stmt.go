@@ -19,7 +19,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// planUnsupportedStmt rejects Tier 2 statements — server-level operations
+// rejectUnsupportedStatement rejects Tier 2 statements — server-level operations
 // that should not be available through a shared connection pooler in a
 // hosted environment: LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, CREATE
 // LANGUAGE, CREATE SUBSCRIPTION, CREATE FOREIGN DATA WRAPPER, CREATE SERVER.
@@ -37,7 +37,7 @@ import (
 //
 // Returns a *mterrors.PgDiagnostic with SQLSTATE 0A000 (feature_not_supported)
 // if the statement is Tier 2, or nil otherwise.
-func planUnsupportedStmt(stmt ast.Stmt) error {
+func rejectUnsupportedStatement(stmt ast.Stmt) error {
 	switch stmt.NodeTag() {
 	// -- Tier 2: unsafe for hosted infrastructure --
 

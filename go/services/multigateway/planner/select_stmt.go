@@ -17,7 +17,6 @@ package planner
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -50,9 +49,10 @@ func (p *Planner) planSelectStmt(
 	stmt *ast.SelectStmt,
 	conn *server.Conn,
 	setConfigs []setConfigCall,
+	opts PlannerOptions,
 ) (*engine.Plan, error) {
 	if len(setConfigs) == 0 {
-		return p.planDefault(sql, stmt, conn)
+		return p.planDefault(sql, stmt, conn, opts)
 	}
 
 	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
@@ -69,7 +69,11 @@ func (p *Planner) planSelectStmt(
 			primitives = append(primitives, engine.NewApplySessionStateSilent(sql, base))
 		}
 	}
-	primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	// The trailing route runs the SELECT itself. routePrimitive folds in the
+	// advisory-lock pin when needed, so a `SELECT set_config(...),
+	// pg_advisory_lock(...)` both tracks the session setting (via the
+	// ApplySessionState primitives above) and pins the backend for the lock.
+	primitives = append(primitives, p.routePrimitive(sql, stmt, opts))
 	return engine.NewPlan(sql, engine.NewSequence(primitives)), nil
 }
 
