@@ -208,6 +208,9 @@ export interface PrimaryStatus {
   ready?: boolean;
   connected_followers?: ID[];
   sync_replication_config?: SyncReplicationConfig;
+  // Server-wide cap on WAL sender processes (max_wal_senders). Once
+  // connected_followers reaches this, additional standbys cannot stream.
+  max_wal_senders?: number;
 }
 
 export interface SyncReplicationConfig {

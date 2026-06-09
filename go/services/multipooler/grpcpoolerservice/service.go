@@ -33,10 +33,10 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
-	"github.com/multigres/multigres/go/services/multipooler/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
@@ -288,6 +288,13 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		return mterrors.ToGRPC(err)
 	}
 
+	// Validate reservation reasons at the gRPC trust boundary (mirrors StreamExecute).
+	if reasons := req.GetReservationOptions().GetReasons(); reasons != 0 {
+		if err := protoutil.ValidateReasons(reasons); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid reservation reasons: %v", err)
+		}
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -302,6 +309,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.Portal,
 		req.Options,
 		req.PortalOptions,
+		req.GetReservationOptions(),
 		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send notices first (if any) as separate diagnostic messages
 			for _, notice := range result.Notices {

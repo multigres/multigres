@@ -17,9 +17,10 @@ name: pgproto Wire-Protocol Conformance Suite
 # The suite gates on zero *unpatched* divergences: known divergences are
 # recorded as patches (testdata/patches/), so the Go test fails on anything
 # left. There is no baseline/regression tracking — the expected state is simply
-# "no unpatched divergences". Runs on the "Run Extended Query Serving Tests" PR
-# label (so a PR that introduces a divergence goes red) and once daily on cron
-# (which Slack-alerts on any failure).
+# "no unpatched divergences". Runs when a PR is labeled with either
+# "Run Extended Query Serving Tests" or "Run all Query Serving Tests" (so a PR
+# that introduces a divergence goes red) and once daily on cron (which
+# Slack-alerts on any failure).
 on: # yamllint disable-line rule:truthy
   schedule:
     - cron: "30 9 * * *" # Daily 09:30 UTC
@@ -34,7 +35,8 @@ jobs:
     name: Run pgproto conformance suite
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests')
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
+      contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
     runs-on: ubuntu-24.04
     environment:
       name: ci

@@ -240,12 +240,13 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 	portalOptions *multipoolerpb.PortalExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, callback)
+		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
 		return err
 	})
 	return state, err

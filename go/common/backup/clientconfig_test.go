@@ -15,6 +15,7 @@
 package backup
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,6 +80,20 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 	for _, key := range global.Keys() {
 		assert.False(t, strings.HasPrefix(key.Name(), "tls-server-"), "client config should not contain TLS server settings")
 	}
+
+	// process-max values derived from runtime.NumCPU(). With the test's CPU
+	// count we don't pin a specific number, but the four expected sections
+	// must exist and each must carry a process-max line.
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Regexp(t, `(?ms)^\[global\][^[]*?^process-max=\d+`, string(content),
+		"[global] section must contain process-max")
+	assert.Regexp(t, `(?m)^\[global:archive-get\]\s*\nprocess-max=\d+`, string(content),
+		"[global:archive-get] section must contain process-max")
+	assert.Regexp(t, `(?m)^\[global:archive-push\]\s*\nprocess-max=\d+`, string(content),
+		"[global:archive-push] section must contain process-max")
+	assert.Regexp(t, `(?m)^\[multigres:backup\]\s*\nprocess-max=\d+`, string(content),
+		"[multigres:backup] section must contain process-max")
 }
 
 func TestWriteClientConfig_S3(t *testing.T) {

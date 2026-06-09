@@ -1,0 +1,25 @@
+--- a
++++ b
+@@ -143,6 +143,7 @@
+ ERROR: database "hopedoesnotexist" does not exist
+ -- Create a database that does not allow connection
+ create database pgcron_dbno;
++ERROR: CREATE DATABASE is not supported through the connection pooler
+ revoke connect on database pgcron_dbno from public;
+ -- create a test user
+ create user pgcron_cront with password 'pwd';
+@@ -152,6 +153,7 @@
+ ERROR: User pgcron_cront does not have CONNECT privilege on pgcron_dbno
+ -- Create a database that does allow connections
+ create database pgcron_dbyes;
++ERROR: CREATE DATABASE is not supported through the connection pooler
+ -- Schedule a job on the database that does accept connections for a non existing user
+ SELECT cron.schedule_in_database(job_name:='user does not exist', schedule:='0 11 * * *', command:='VACUUM',database:='pgcron_dbyes',username:='pgcron_useraqwxszedc');
+ ERROR: role "pgcron_useraqwxszedc" does not exist
+@@ -304,4 +306,6 @@
+ DROP EXTENSION pg_cron;
+ drop user pgcron_cront;
+ drop database pgcron_dbno;
++ERROR: DROP DATABASE is not supported through the connection pooler
+ drop database pgcron_dbyes;
++ERROR: DROP DATABASE is not supported through the connection pooler

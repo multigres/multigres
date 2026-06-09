@@ -71,6 +71,11 @@ service MultiPoolerManager {
   rpc ExpireBackups(multipoolermanagerdata.ExpireBackupsRequest)
     returns (multipoolermanagerdata.ExpireBackupsResponse);
 
+  // VerifyBackups runs a full-stanza pgbackrest verify (no --set). This is
+  // a periodic backup-integrity check; not scoped to any single backup.
+  rpc VerifyBackups(multipoolermanagerdata.VerifyBackupsRequest)
+    returns (multipoolermanagerdata.VerifyBackupsResponse);
+
 
   //
   // PostgreSQL Monitoring Control

@@ -35,7 +35,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerConsensus_Status_FullMethodName              = "/consensus.MultiPoolerConsensus/Status"
 	MultiPoolerConsensus_UpdateConsensusRule_FullMethodName = "/consensus.MultiPoolerConsensus/UpdateConsensusRule"
 	MultiPoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultiPoolerConsensus/RewindToSource"
 	MultiPoolerConsensus_Recruit_FullMethodName             = "/consensus.MultiPoolerConsensus/Recruit"
@@ -47,13 +46,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiPoolerConsensus provides consensus APIs for leader election and HA operations
+// MultiPoolerConsensus provides consensus APIs for leader election and HA operations.
 type MultiPoolerConsensusClient interface {
-	// Status provides the current status of the consensus service, including the
-	// health of the cluster, the current leader, and any ongoing elections. This
-	// is used by MultiOrch to monitor the cluster and determine if it needs to
-	// trigger failover or other recovery actions.
-	Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error)
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -80,16 +74,6 @@ type multiPoolerConsensusClient struct {
 
 func NewMultiPoolerConsensusClient(cc grpc.ClientConnInterface) MultiPoolerConsensusClient {
 	return &multiPoolerConsensusClient{cc}
-}
-
-func (c *multiPoolerConsensusClient) Status(ctx context.Context, in *consensusdata.StatusRequest, opts ...grpc.CallOption) (*consensusdata.StatusResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(consensusdata.StatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Status_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
@@ -146,13 +130,8 @@ func (c *multiPoolerConsensusClient) SetTermPrimary(ctx context.Context, in *con
 // All implementations must embed UnimplementedMultiPoolerConsensusServer
 // for forward compatibility.
 //
-// MultiPoolerConsensus provides consensus APIs for leader election and HA operations
+// MultiPoolerConsensus provides consensus APIs for leader election and HA operations.
 type MultiPoolerConsensusServer interface {
-	// Status provides the current status of the consensus service, including the
-	// health of the cluster, the current leader, and any ongoing elections. This
-	// is used by MultiOrch to monitor the cluster and determine if it needs to
-	// trigger failover or other recovery actions.
-	Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error)
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -181,9 +160,6 @@ type MultiPoolerConsensusServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMultiPoolerConsensusServer struct{}
 
-func (UnimplementedMultiPoolerConsensusServer) Status(context.Context, *consensusdata.StatusRequest) (*consensusdata.StatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
-}
 func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConsensusRule not implemented")
 }
@@ -218,24 +194,6 @@ func RegisterMultiPoolerConsensusServer(s grpc.ServiceRegistrar, srv MultiPooler
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&MultiPoolerConsensus_ServiceDesc, srv)
-}
-
-func _MultiPoolerConsensus_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(consensusdata.StatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).Status(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerConsensus_Status_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).Status(ctx, req.(*consensusdata.StatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -335,10 +293,6 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "consensus.MultiPoolerConsensus",
 	HandlerType: (*MultiPoolerConsensusServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Status",
-			Handler:    _MultiPoolerConsensus_Status_Handler,
-		},
 		{
 			MethodName: "UpdateConsensusRule",
 			Handler:    _MultiPoolerConsensus_UpdateConsensusRule_Handler,

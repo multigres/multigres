@@ -23,6 +23,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -212,7 +213,10 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "ShardInit",
 		Description: "Establish initial cohort and appoint first leader for a bootstrapped shard",
-		Timeout:     60 * time.Second,
+		// Two sequential phases each bounded by RuleWriteTimeout
+		// (Recruit, then concurrent Propose/SetTermPrimary), plus margin so the
+		// action context does not race its own phases to the deadline.
+		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}

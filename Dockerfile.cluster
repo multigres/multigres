@@ -72,8 +72,10 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install pgBackRest from the PostgreSQL APT repository plus procps (pgrep is
-# used by the entrypoint to detect if the gateway dies).
+# Install pgBackRest and pgvector from the PostgreSQL APT repository plus procps
+# (pgrep is used by the entrypoint to detect if the gateway dies). pgvector is
+# preinstalled so compatibility suites can CREATE EXTENSION vector against the
+# bundled PostgreSQL; the PGDG package is built for these exact pg17 binaries.
 # hadolint ignore=DL3008
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -86,6 +88,7 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     pgbackrest \
+    postgresql-17-pgvector \
     procps && \
     pgbackrest version && \
     apt-get remove -y gnupg lsb-release && \

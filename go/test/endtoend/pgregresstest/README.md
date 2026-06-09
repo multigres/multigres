@@ -49,17 +49,20 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Four env vars enable it; setting more
+The test is **disabled by default**. Five env vars enable it; setting more
 than one is fine (the union runs):
 
 - `RUN_EXTENDED_QUERY_SERVING_TESTS=1` — runs **all** suites (regression,
-  isolation, contrib). This is what CI uses (matches the "Run Extended Query
-  Serving Tests" PR label).
+  isolation, contrib, external). This is what CI uses (matches the "Run Extended
+  Query Serving Tests" PR label, and also the broader "Run all Query Serving
+  Tests" label).
 - `RUN_PGREGRESS=1` — runs the regression suite only. Useful for local
   iteration when you don't need isolation.
 - `RUN_PGISOLATION=1` — runs the isolation suite only.
 - `RUN_PGCONTRIB=1` — runs the contrib extension suite only (see
   "Contrib Extension Tests" below).
+- `RUN_PGEXTERNAL=1` — runs the external extension suite only (see
+  "External Extension Tests" below).
 
 ```bash
 # Run both suites (unified report) — same as CI
@@ -86,6 +89,9 @@ PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -
 
 # Run specific contrib modules only (directory names under contrib/)
 PGCONTRIB_TESTS="citext hstore" RUN_PGCONTRIB=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific external extensions only (catalog names)
+PGEXTERNAL_TESTS="vector" RUN_PGEXTERNAL=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 ## Contrib Extension Tests
@@ -132,6 +138,128 @@ results: covered extensions expand to one row per sub-test with the live
 pass/fail, while pending/unsupported/external extensions show a single row with
 the reason. The table is the living coverage tracker — it updates automatically
 as catalog entries move to `covered` and their suites run.
+
+## External Extension Tests
+
+The external suite runs the pg_regress suites of extensions that live **outside**
+the PostgreSQL source tree (separate repositories), executed through
+multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
+pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), `pgmq` (tembo-io
+message queue), and `pg_graphql` (Supabase GraphQL). `externalSpecs` also holds
+build-only dependencies that are installed but not tested on their own —
+`pg_partman`, which pgmq's partitioned-queue tests require (see `DependsOn`
+below).
+
+How it works, and how it differs from the contrib suite:
+
+- **Build**: most external extensions are [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
+  modules. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
+  the per-run build root, then runs `make && make install` with
+  `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
+  against the exact server ABI the cluster runs (the same guarantee the suite
+  gives `regress.so`). pgvector, pg_cron, and pgmq need only a C compiler — no
+  extra system libs. Rust extensions (`BuildSystem: "pgrx"`, e.g. pg_graphql) are
+  built with [cargo-pgrx](https://github.com/pgcentralfoundation/pgrx) instead:
+  the harness installs the pinned `cargo-pgrx` (it must match the crate's `pgrx`
+  dependency), then `cargo pgrx init --pgNN <pg_config>` adopts the from-source
+  server and `cargo pgrx install --pg-config <pg_config>` builds and installs the
+  extension into it. CI provisions the Rust toolchain; the from-source server
+  guarantees the same ABI as the PGXS path.
+- **Test execution**: unlike contrib we cannot use `make installcheck`. Under
+  PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
+  PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
+  not installed. The harness instead invokes the `pg_regress` it built directly,
+  with the same flags the contrib suite relies on
+  (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
+  DATABASE) plus the extension's `--inputdir`. The test list is derived from
+  `<TestSubdir>/sql/*.sql`, mirroring the extension's
+  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`.
+- **Per-extension isolation** and **verification** work exactly like contrib:
+  the `public` schema is reset on the primary between extensions, and results go
+  through the same patch pipeline (`PGREGRESS_PATCH_MODE`). Genuine
+  multigres-specific output differences are captured under
+  `testdata/pg17/patches/external/<ext>/`.
+
+### Per-extension knobs
+
+Extensions diverge from the pgvector baseline in a few ways, captured as fields
+on `ExternalExtension` (`extensions.go`):
+
+- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make) or `"pgrx"`
+  (cargo-pgrx, Rust). pg_graphql is `pgrx`; everything else is PGXS.
+- **`PgrxVersion`** — for `pgrx` extensions, the pinned `cargo-pgrx` CLI version.
+  It must equal the crate's `pgrx` dependency (pg_graphql 1.6.1 → `0.16.1`) or the
+  build is refused. Ignored for PGXS.
+- **`BuildSubdir`** — where the build entry point (PGXS `Makefile` or pgrx crate)
+  lives in the checkout. pgvector and pg_cron keep it at the repo root (`""`);
+  pgmq keeps the extension under `pgmq-extension/`, so it builds there.
+- **`FixturesFile`** — a SQL file (relative to `TestSubdir`) the harness loads
+  through multigateway with `psql` before the suite, mirroring the extension's own
+  runner. pg_graphql's `bin/installcheck` runs `psql -f test/fixtures.sql` first
+  (it `CREATE`s the extension and sets the `graphql` schema comment), so the
+  harness does too. Empty for extensions whose `.sql` files are self-contained.
+- **`ContribDeps`** — contrib modules (by directory name) the harness installs
+  with `InstallContribModules` before the suite, because the suite `CREATE`s them.
+  pg_graphql's tests `create extension citext`, so it sets
+  `ContribDeps: {"citext"}`; without it an external-only run fails those tests
+  with "extension citext is not available". A full run has already installed all
+  of contrib, so the targeted install is a no-op.
+- **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
+  checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
+  root (`.`); pgmq keeps them under `pgmq-extension/test`.
+- **`DependsOn`** — other `externalSpecs` the harness clones, builds, and installs
+  first because the suite `CREATE`s them too. They are build-only (not tested on
+  their own, so they need not ship a pg_regress suite). pgmq's `base.sql` creates
+  partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
+  `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
+  dependencies before their dependents.
+- **`PreCreateExtensions`** — extensions the harness `CREATE`s through multigateway
+  (each optionally into a specific schema) before the run, for fixtures that assume
+  an extension already exists. pgvector's fixtures open with a bare
+  `CREATE TABLE ... vector(3)`, so it lists `{Name: "vector"}`. pg_partman's pgTAP
+  tests expect pgtap in `public` and pg_partman in `partman` (its control file pins
+  no schema, so a bare `CREATE EXTENSION` would land it in `public` and break every
+  `partman.*` reference), so it lists both with the schema set. Left empty for
+  fixtures that manage the extension themselves (pg_cron's first statement is
+  `CREATE EXTENSION pg_cron VERSION '1.0'`; pgmq each `DROP`s and re-`CREATE`s it).
+- **`ServerConfigFile`** — a `postgresql.conf` snippet under
+  `testdata/pg17/external/` the cluster must apply before postgres starts, for
+  extensions needing server-level config the pooled query path can't set.
+  pg_cron's background worker requires `shared_preload_libraries = 'pg_cron'`
+  (`pg_cron.conf`), or `CREATE EXTENSION pg_cron` errors out. The snippet is
+  appended at initdb time and only when the external suite runs (the library it
+  loads is only installed then), so regression/isolation-only runs are
+  unaffected. Note: with the shared cluster, a `ServerConfigFile` applied for a
+  combined `RUN_EXTENDED_QUERY_SERVING_TESTS` run is in effect for the other
+  suites too; pg_cron's launcher is idle with no scheduled jobs.
+- **`ScratchDatabases`** — databases the harness creates directly on the primary
+  (bypassing the gateway) before the suite and drops afterward. This is a
+  **test-only** accommodation, not a product capability: multigres is
+  one-database-per-instance and the gateway blocks `CREATE`/`DROP DATABASE` by
+  design (adding a database is a provisioning operation, see
+  `docs/query_serving/unsafe_statement_rejection.md`). It exists because some
+  suites reference other databases purely as _metadata_ — pg_cron passes a DB
+  name to `cron.schedule_in_database` / `alter_job(database := ...)` and reads
+  its ACL from the shared `pg_database` catalog, all over the same `postgres`
+  connection, never opening a session against it. Creating the physical database
+  is enough to make those catalog/privilege checks run for real; the suite's own
+  `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
+  left in pg_cron's patch). Don't use this to fake reachability of a feature
+  multigres genuinely blocks — only for name/metadata references like the above.
+
+Enrolling another external extension is a small catalog edit: add its
+`externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
+`ExtensionCatalog` row to `StatusCovered`. The catalog and report update
+automatically. PGXS and Rust/pgrx extensions are both supported (CI provisions
+the Rust toolchain); extensions that need other toolchains the harness doesn't
+provision (e.g. `wrappers`) or that the pooler blocks by design (outbound
+connections) stay `StatusExternal` / `StatusUnsupported`.
+
+Regenerate the patches after an output change with:
+
+```bash
+make pgexternal-update-patches   # RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate
+```
 
 ### First Run vs Cached Runs
 
@@ -229,6 +357,41 @@ RUN_EXTENDED_QUERY_SERVING_TESTS=1 go test -v -timeout 60m ./go/test/endtoend/pg
 1. Clear build cache: `rm -rf /tmp/multigres_pg_cache/builds`
 2. Free up space (source ~200MB, builds ~500MB)
 3. Use custom cache location: `export MULTIGRES_PG_CACHE_DIR=~/multigres_cache`
+
+## Live Results & Badges
+
+The nightly CI run publishes the current pass count to GitHub Pages as
+[shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON, so the
+README badges (and any blog post or doc that embeds them) render the live number
+and update automatically after each run — no markdown edits.
+
+Each suite gets a stable JSON URL under `https://multigres.github.io/multigres/pgregress/`:
+
+<!-- markdownlint-disable MD013 -->
+
+| Suite             | JSON endpoint                                                            | Badge markdown                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Overall           | `https://multigres.github.io/multigres/pgregress/overall.json`           | `![Overall](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/overall.json)`                     |
+| Regression        | `https://multigres.github.io/multigres/pgregress/regression.json`        | `![Regression](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/regression.json)`               |
+| Isolation         | `https://multigres.github.io/multigres/pgregress/isolation.json`         | `![Isolation](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/isolation.json)`                 |
+| Contrib Extension | `https://multigres.github.io/multigres/pgregress/contrib-extension.json` | `![Contrib Extension](https://img.shields.io/endpoint?url=https://multigres.github.io/multigres/pgregress/contrib-extension.json)` |
+
+<!-- markdownlint-enable MD013 -->
+
+The Go test writes these files (`WriteBadgeEndpoints` in `postgres_builder.go`)
+into a `badges/` directory next to `results.json`, and the `test-pgregress.yml`
+workflow pushes that directory to the `gh-pages` branch under `pgregress/` on
+scheduled/manual runs.
+
+### One-time setup
+
+GitHub Pages must be enabled once for the badges to resolve:
+
+1. **Settings → Pages → Build and deployment → Source: _Deploy from a branch_**,
+   branch `gh-pages`, folder `/ (root)`.
+2. Trigger the workflow once (**Actions → PostgreSQL Compatibility Tests → Run
+   workflow**) so the first JSON files are published. Until then the badges show
+   shields.io's "endpoint not found" placeholder.
 
 ## Architecture
 

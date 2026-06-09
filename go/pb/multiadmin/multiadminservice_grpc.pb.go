@@ -45,6 +45,7 @@ const (
 	MultiAdminService_GetBackupJobStatus_FullMethodName         = "/multiadmin.MultiAdminService/GetBackupJobStatus"
 	MultiAdminService_GetBackups_FullMethodName                 = "/multiadmin.MultiAdminService/GetBackups"
 	MultiAdminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiAdminService/ExpireBackups"
+	MultiAdminService_VerifyBackups_FullMethodName              = "/multiadmin.MultiAdminService/VerifyBackups"
 	MultiAdminService_GetPoolerStatus_FullMethodName            = "/multiadmin.MultiAdminService/GetPoolerStatus"
 	MultiAdminService_SetPostgresRestartsEnabled_FullMethodName = "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled"
 	MultiAdminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiAdminService/GetGatewayQueries"
@@ -82,6 +83,8 @@ type MultiAdminServiceClient interface {
 	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(ctx context.Context, in *ExpireBackupsRequest, opts ...grpc.CallOption) (*ExpireBackupsResponse, error)
+	// VerifyBackups runs pgbackrest verify for a shard.
+	VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
 	GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error)
@@ -235,6 +238,16 @@ func (c *multiAdminServiceClient) ExpireBackups(ctx context.Context, in *ExpireB
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyBackupsResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_VerifyBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiAdminServiceClient) GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetPoolerStatusResponse)
@@ -315,6 +328,8 @@ type MultiAdminServiceServer interface {
 	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
 	// ExpireBackups removes old backups according to retention policy
 	ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error)
+	// VerifyBackups runs pgbackrest verify for a shard.
+	VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
 	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
 	GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error)
@@ -383,6 +398,9 @@ func (UnimplementedMultiAdminServiceServer) GetBackups(context.Context, *GetBack
 }
 func (UnimplementedMultiAdminServiceServer) ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExpireBackups not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyBackups not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPoolerStatus not implemented")
@@ -636,6 +654,24 @@ func _MultiAdminService_ExpireBackups_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).VerifyBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_VerifyBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).VerifyBackups(ctx, req.(*VerifyBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiAdminService_GetPoolerStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPoolerStatusRequest)
 	if err := dec(in); err != nil {
@@ -780,6 +816,10 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExpireBackups",
 			Handler:    _MultiAdminService_ExpireBackups_Handler,
+		},
+		{
+			MethodName: "VerifyBackups",
+			Handler:    _MultiAdminService_VerifyBackups_Handler,
 		},
 		{
 			MethodName: "GetPoolerStatus",

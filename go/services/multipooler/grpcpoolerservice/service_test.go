@@ -157,7 +157,7 @@ func (m *mockCopyQueryService) StreamExecute(context.Context, *query.Target, str
 	return nil, nil
 }
 
-func (m *mockCopyQueryService) PortalStreamExecute(context.Context, *query.Target, *query.PreparedStatement, *query.Portal, *query.ExecuteOptions, *multipoolerpb.PortalExecuteOptions, func(context.Context, *sqltypes.Result) error) (*query.ReservedState, error) {
+func (m *mockCopyQueryService) PortalStreamExecute(context.Context, *query.Target, *query.PreparedStatement, *query.Portal, *query.ExecuteOptions, *multipoolerpb.PortalExecuteOptions, *query.ReservationOptions, func(context.Context, *sqltypes.Result) error) (*query.ReservedState, error) {
 	return nil, nil
 }
 

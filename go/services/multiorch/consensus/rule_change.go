@@ -78,6 +78,7 @@ func (r *coordinatorLedRuleChange) Run(
 	if revocation == nil {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Run: revocation is required")
 	}
+	proposedTerm := revocation.GetRevokedBelowTerm()
 
 	// Extract cached consensus statuses for the pre-vote feasibility check.
 	var initialStatuses []*clustermetadatapb.ConsensusStatus
@@ -88,11 +89,12 @@ func (r *coordinatorLedRuleChange) Run(
 	}
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
-		"proposed_term", revocation.GetRevokedBelowTerm(),
+		"proposed_term", proposedTerm,
 		"cohort_size", len(cohort))
 
 	// Back off if any node recently accepted a revocation — another coordinator
-	// may be running an election.
+	// may be running an election. A backoff is a decision not to start this
+	// appointment, so it precedes the Started event below rather than failing one.
 	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
 	}
@@ -102,6 +104,21 @@ func (r *coordinatorLedRuleChange) Run(
 	if err := r.checkProposalPossible(revocation, initialStatuses); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
 	}
+
+	// Mark the start of the appointment before any RPCs go out. The leader is not
+	// chosen until recruitment completes, so new_primary is omitted here; the
+	// terminal Success/Failed event below carries it. proposed_term correlates
+	// this Started event with its terminal event for tracing.
+	//
+	// start and selectedAt bracket the two latency phases reported on the
+	// terminal event: recruit (start → leader selected) and propose (leader
+	// selected → commit). Monotonic, so unaffected by wall-clock adjustments.
+	start := time.Now()
+	var selectedAt time.Time
+	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
+		ProposedTerm: proposedTerm,
+		Reason:       r.reason,
+	})
 
 	// Recruit all nodes concurrently.
 	type recruitResult struct {
@@ -178,14 +195,22 @@ func (r *coordinatorLedRuleChange) Run(
 			Reason:          r.reason,
 			AcceptedNodeIds: ids,
 		}
-		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
-			NewPrimary: p.GetProposalLeader().GetId().GetName(),
-			Reason:     r.reason,
-		})
+		selectedAt = time.Now()
 	}
 
 	if propReq == nil {
 		_, err := r.tryBuildProposal(revocation, statuses)
+		// Recruitment never assembled a viable proposal: no leader was chosen,
+		// so the appointment failed before commit. Emit the terminal event that
+		// closes out the Started above (new_primary unknown). All elapsed time
+		// was spent recruiting; the propose phase never began, so ProposeMs is
+		// left nil.
+		recruitMs := time.Since(start).Milliseconds()
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+			ProposedTerm: proposedTerm,
+			Reason:       r.reason,
+			RecruitMs:    &recruitMs,
+		}, "error", err)
 		return mterrors.Wrap(err, "recruitment failed")
 	}
 	for _, p := range recruits {
@@ -230,16 +255,24 @@ func (r *coordinatorLedRuleChange) Run(
 	}
 
 	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
+	recruitMs := selectedAt.Sub(start).Milliseconds()
+	proposeMs := time.Since(selectedAt).Milliseconds()
 	if leaderErr != nil {
 		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-			NewPrimary: newPrimary,
-			Reason:     r.reason,
+			NewPrimary:   newPrimary,
+			ProposedTerm: proposedTerm,
+			Reason:       r.reason,
+			RecruitMs:    &recruitMs,
+			ProposeMs:    &proposeMs,
 		}, "error", leaderErr)
 		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
 	}
 	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, eventlog.PrimaryPromotion{
-		NewPrimary: newPrimary,
-		Reason:     r.reason,
+		NewPrimary:   newPrimary,
+		ProposedTerm: proposedTerm,
+		Reason:       r.reason,
+		RecruitMs:    &recruitMs,
+		ProposeMs:    &proposeMs,
 	})
 	return nil
 }
@@ -251,7 +284,7 @@ func (r *coordinatorLedRuleChange) recruit(
 	p *multiorchdatapb.PoolerHealthState,
 	revocation *clustermetadatapb.TermRevocation,
 ) *clustermetadatapb.ConsensusStatus {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
@@ -286,7 +319,7 @@ func (r *coordinatorLedRuleChange) propose(
 	req *consensusdatapb.ProposeRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	if isLeader {
 		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
