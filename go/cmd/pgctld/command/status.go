@@ -114,21 +114,31 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 		Port:    config.Port,
 	}
 
-	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		result.Status = statusStopped
-		result.Message = "PostgreSQL server is stopped"
-		return result, nil
-	}
-
-	// Process exists — verify it is actually accepting connections.
-	// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
-	// is treated as not running so that multipooler and multiorch can detect
-	// the failure and trigger recovery rather than waiting indefinitely.
-	if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
-		result.Status = statusStopped
-		result.Message = "PostgreSQL process exists but is not accepting connections"
-		return result, nil
+	// Determine liveness. The local process check (postmaster.pid + signal) is a
+	// cheap fast path, but it produces false negatives when pgctld runs as a
+	// different OS user than postgres (cannot signal the process) or cannot read
+	// PGDATA. A successful connectivity probe is therefore authoritative: if
+	// PostgreSQL accepts connections, it is running regardless of process ownership.
+	if isPostgreSQLRunning(config.PostgresDataDir) {
+		// Process exists — verify it is actually accepting connections.
+		// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
+		// is treated as not running so that multipooler and multiorch can detect
+		// the failure and trigger recovery rather than waiting indefinitely.
+		if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+			result.Status = statusStopped
+			result.Message = "PostgreSQL process exists but is not accepting connections"
+			return result, nil
+		}
+	} else {
+		// The local process check could not confirm a running postmaster. Fall
+		// back to a connectivity probe before declaring the server stopped.
+		if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+			result.Status = statusStopped
+			result.Message = "PostgreSQL server is stopped"
+			return result, nil
+		}
+		logger.WarnContext(ctx, "PostgreSQL is accepting connections but the local process check failed; pgctld may be running as a different OS user than postgres or cannot read PGDATA",
+			"data_dir", config.PostgresDataDir)
 	}
 
 	// Server is running and accepting connections

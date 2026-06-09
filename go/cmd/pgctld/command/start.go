@@ -432,8 +432,14 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
-	// On Unix, sending signal 0 checks if process exists without actually sending a signal.
-	// This is the standard way to check if a process is running.
+	// On Unix, sending signal 0 checks if the process exists without actually
+	// sending a signal.
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	if err == nil {
+		return true
+	}
+	// EPERM means the process exists but is owned by a different OS user
+	// (e.g. pgctld running as 'multigres' while postgres runs as 'postgres').
+	// Only ESRCH / ErrProcessDone means the process is actually gone.
+	return errors.Is(err, syscall.EPERM)
 }

@@ -15,8 +15,10 @@
 package command
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 func TestRunStart(t *testing.T) {
@@ -199,6 +202,31 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			assert.Equal(t, tt.isRunning, result)
 		})
 	}
+}
+
+func TestIsProcessRunning(t *testing.T) {
+	t.Run("running process (self)", func(t *testing.T) {
+		assert.True(t, isProcessRunning(os.Getpid()))
+	})
+
+	t.Run("dead process", func(t *testing.T) {
+		cmd := exec.Command("sleep", "3600")
+		require.NoError(t, cmd.Start())
+		pid := cmd.Process.Pid
+		go func() { _ = cmd.Wait() }() // reap concurrently so TerminatePID sees the PID released
+		require.True(t, executil.TerminatePID(context.Background(), pid))
+		assert.False(t, isProcessRunning(pid))
+	})
+
+	t.Run("process owned by another user (EPERM means alive)", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root: kill(1, 0) succeeds rather than returning EPERM, so the cross-user path cannot be exercised")
+		}
+		// PID 1 (init/launchd) always exists and is owned by root. A non-root
+		// kill(1, 0) returns EPERM, which must be treated as "process is alive"
+		// — this is the multigres-runs-as-different-user-than-postgres case.
+		assert.True(t, isProcessRunning(1))
+	})
 }
 
 func TestInitializeDataDir(t *testing.T) {
