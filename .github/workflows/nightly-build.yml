@@ -12,20 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+---
 name: Nightly Build
 
-on:
+on: # yamllint disable-line rule:truthy
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "Git ref to build"
-        required: false
-        default: "main"
   schedule:
     - cron: "0 5 * * *" # 05:00 UTC nightly
 
 concurrency:
-  group: nightly-build-${{ github.event.inputs.ref || 'main' }}
+  group: nightly-build-main
   cancel-in-progress: false
 
 permissions:
@@ -60,7 +56,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
+          ref: main
           persist-credentials: false
 
       - name: Determine SHA
@@ -91,15 +87,17 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.determine-sha.outputs.full_sha }}
-            multigres.branch.ref=${{ github.event.inputs.ref || 'main' }}
+            multigres.branch.ref=main
           tags: |
             type=raw,value=nightly-{{date 'YYYY-MM-DD'}}.${{ steps.determine-sha.outputs.sha }},priority=900
             type=raw,value=nightly,priority=600
             type=raw,value=nightly-sha-${{ steps.determine-sha.outputs.sha }},priority=500
 
       - name: Report image version
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          echo "Nightly Docker image version: ${{ steps.meta.outputs.version }}"
+          echo "Nightly Docker image version: ${VERSION}"
 
       - name: Build and push nightly image
         id: build
