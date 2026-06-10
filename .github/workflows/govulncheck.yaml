@@ -1,12 +1,12 @@
 name: Go vulnerability check
 
-on:
+"on":
   schedule:
-    - cron: '0 6 * * *' # daily at 06:00 UTC
+    - cron: "0 6 * * *" # daily at 06:00 UTC
   pull_request:
     paths:
-      - 'go.mod'
-      - 'go.sum'
+      - "go.mod"
+      - "go.sum"
   workflow_dispatch: {}
 
 permissions: {}
