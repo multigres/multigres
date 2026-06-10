@@ -291,6 +291,31 @@ func TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned(t *testing.T)
 	require.NotNil(t, state)
 }
 
+// TestStreamExecuteOnReservedConn_AdvisoryEmptyProbeKeepsPinned verifies that an
+// unexpected empty probe result (no rows) is treated like a probe failure: the
+// connection stays pinned rather than being released with held defaulting to
+// false, which would risk leaking the client's locks.
+func TestStreamExecuteOnReservedConn_AdvisoryEmptyProbeKeepsPinned(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock,
+		queryResults:     nil, // probe returned no rows
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
+		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "should still probe")
+	require.Empty(t, rc.releaseCalls, "empty probe result must not release the connection")
+	require.Empty(t, rc.removedReasons, "advisory reason must be kept on an empty probe result")
+	require.NotNil(t, state)
+}
+
 // TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe verifies the gating:
 // an ordinary statement on an advisory-pinned connection (recheck flag NOT set)
 // must not probe pg_locks at all, keeping the probe off the per-statement hot

@@ -610,13 +610,21 @@ func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reserve
 		return false
 	}
 
+	// SELECT EXISTS always returns exactly one row, so an empty result is
+	// unexpected — treat it like a probe failure and stay pinned rather than
+	// fall through with held=false and risk releasing a backend that may still
+	// hold the client's locks.
+	if len(results) == 0 {
+		e.logger.WarnContext(ctx, "advisory-lock probe returned no rows; keeping connection pinned",
+			"reserved_conn_id", rc.ConnID())
+		return false
+	}
+
 	var held bool
-	if len(results) > 0 {
-		if scanErr := ScanSingleRow(results[0], &held); scanErr != nil {
-			e.logger.WarnContext(ctx, "advisory-lock probe returned unexpected result; keeping connection pinned",
-				"reserved_conn_id", rc.ConnID(), "error", scanErr)
-			return false
-		}
+	if scanErr := ScanSingleRow(results[0], &held); scanErr != nil {
+		e.logger.WarnContext(ctx, "advisory-lock probe returned unexpected result; keeping connection pinned",
+			"reserved_conn_id", rc.ConnID(), "error", scanErr)
+		return false
 	}
 	if held {
 		return false
