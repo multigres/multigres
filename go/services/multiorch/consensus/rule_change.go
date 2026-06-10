@@ -319,12 +319,18 @@ func (r *coordinatorLedRuleChange) propose(
 	req *consensusdatapb.ProposeRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+		// The leader's Propose RPC blocks until pg_promote() completes and the new
+		// postgres finishes WAL replay before accepting connections. That can take
+		// minutes on large databases, so we do NOT add RemoteOperationTimeout here —
+		// the caller's context (from AppointLeaderAction) provides the outer bound.
+		_, err := r.coordinator.rpcClient.Propose(ctx, p.MultiPooler, req)
 		return err
 	}
+	// SetTermPrimary just writes the replication target and returns quickly;
+	// enforce a short deadline so a slow follower doesn't stall the cycle.
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
+	defer cancel()
 	proposal := req.GetProposal()
 	_, err := r.coordinator.rpcClient.SetTermPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetTermPrimaryRequest{
 		Leader: proposal.GetProposalLeader(),
