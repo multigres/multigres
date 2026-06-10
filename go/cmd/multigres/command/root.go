@@ -22,6 +22,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -49,8 +50,9 @@ func GetRootCommand() *cobra.Command {
 	var span trace.Span
 
 	root := &cobra.Command{
-		Use:   "multigres",
-		Short: "The command-line companion for managing and developing with Multigres clusters",
+		Use:     "multigres",
+		Version: version.String("multigres"),
+		Short:   "The command-line companion for managing and developing with Multigres clusters",
 		Long: `The Multigres CLI makes distributed Postgres feel as easy as running Postgres locally.
 
 A single binary that gives developers confidence when experimenting,
@@ -102,6 +104,8 @@ Configuration:
 			return nil
 		},
 	}
+
+	root.SetVersionTemplate("{{.Version}}\n")
 
 	// Add any other servenv flags
 	mc.vc.RegisterFlags(root.PersistentFlags())

@@ -27,8 +27,13 @@ RUN apk add --no-cache git=2.52.0-r0 make=4.4.1-r3 bash=5.3.3-r1
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Release metadata injected into binaries via the Makefile's -ldflags.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
 COPY . .
-RUN make build-release
+RUN make build-release VERSION=$VERSION COMMIT=$COMMIT DATE=$DATE
 
 # =========================================================================
 # Stage 2: Download and verify the etcd binaries

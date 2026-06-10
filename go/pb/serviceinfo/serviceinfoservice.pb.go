@@ -117,8 +117,9 @@ func (x *GetBuildInfoResponse) GetBuildInfo() *BuildInfo {
 }
 
 // BuildInfo describes the source revision and build settings of the
-// running binary. Fields are populated from runtime/debug.BuildInfo,
-// which Go injects automatically when -buildvcs is true (the default).
+// running binary. VCS fields are populated from BuildInfo
+// (auto-embedded by Go when -buildvcs is true, the default), the
+// release version is injected at link time via -ldflags.
 type BuildInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// revision is the VCS commit SHA (e.g. "60c52835c693523...").
@@ -138,7 +139,10 @@ type BuildInfo struct {
 	// "github.com/multigres/multigres/go/cmd/multipooler"). Identifies
 	// which binary is responding when callers proxy through a discovery
 	// layer.
-	MainPath      string `protobuf:"bytes,5,opt,name=main_path,json=mainPath,proto3" json:"main_path,omitempty"`
+	MainPath string `protobuf:"bytes,5,opt,name=main_path,json=mainPath,proto3" json:"main_path,omitempty"`
+	// version is the release tag (e.g. "v0.1.0") injected at link time
+	// via -ldflags. "dev" for builds without an injected tag.
+	Version       string `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -208,6 +212,13 @@ func (x *BuildInfo) GetMainPath() string {
 	return ""
 }
 
+func (x *BuildInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 var File_serviceinfoservice_proto protoreflect.FileDescriptor
 
 const file_serviceinfoservice_proto_rawDesc = "" +
@@ -216,7 +227,7 @@ const file_serviceinfoservice_proto_rawDesc = "" +
 	"\x13GetBuildInfoRequest\"M\n" +
 	"\x14GetBuildInfoResponse\x125\n" +
 	"\n" +
-	"build_info\x18\x01 \x01(\v2\x16.serviceinfo.BuildInfoR\tbuildInfo\"\xbc\x01\n" +
+	"build_info\x18\x01 \x01(\v2\x16.serviceinfo.BuildInfoR\tbuildInfo\"\xd6\x01\n" +
 	"\tBuildInfo\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\tR\brevision\x12\x1a\n" +
 	"\bmodified\x18\x02 \x01(\bR\bmodified\x12;\n" +
@@ -224,7 +235,8 @@ const file_serviceinfoservice_proto_rawDesc = "" +
 	"commitTime\x12\x1d\n" +
 	"\n" +
 	"go_version\x18\x04 \x01(\tR\tgoVersion\x12\x1b\n" +
-	"\tmain_path\x18\x05 \x01(\tR\bmainPath2d\n" +
+	"\tmain_path\x18\x05 \x01(\tR\bmainPath\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion2d\n" +
 	"\vServiceInfo\x12U\n" +
 	"\fGetBuildInfo\x12 .serviceinfo.GetBuildInfoRequest\x1a!.serviceinfo.GetBuildInfoResponse\"\x00B2Z0github.com/multigres/multigres/go/pb/serviceinfob\x06proto3"
 
