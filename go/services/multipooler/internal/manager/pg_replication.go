@@ -78,6 +78,25 @@ func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
 	return inRecovery, nil
 }
 
+// isWALReplayPaused reports whether WAL replay (apply) is currently paused on
+// this standby. Returns false on error so the monitor does not act on an
+// unknown state.
+func (pm *MultiPoolerManager) isWALReplayPaused(ctx context.Context) bool {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT pg_is_wal_replay_paused()")
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to query pg_is_wal_replay_paused", "error", err)
+		return false
+	}
+	var paused bool
+	if err := executor.ScanSingleRow(result, &paused); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to scan pg_is_wal_replay_paused result", "error", err)
+		return false
+	}
+	return paused
+}
+
 // getPrimaryLSN gets the current WAL write location (primary only)
 func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -529,6 +548,68 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 			}
 			return status, true, nil
 		})
+}
+
+// waitForReceiverTargeting waits until either no WAL receiver is running, or the
+// running receiver is configured to connect to host:port. It does not wait for
+// the connection to succeed — only for the receiver to be pointed at the
+// intended primary. This distinguishes a receiver freshly (re)started after a
+// primary_conninfo change from a lingering one still using the old target;
+// PostgreSQL restarts the receiver on reload, but not atomically, so a naive
+// "is a receiver streaming?" check can see the stale connection.
+//
+// Matching is done against the receiver's own conninfo (echoed in
+// pg_stat_wal_receiver with sensitive fields obfuscated) rather than
+// sender_host/sender_port, which report the resolved connection and may not
+// string-match the configured host (e.g. localhost vs 127.0.0.1).
+func (pm *MultiPoolerManager) waitForReceiverTargeting(ctx context.Context, host string, port int32) error {
+	var (
+		lastCount    int64 = -1
+		lastConnInfo string
+	)
+	_, err := pm.pollForReplicationStatus(ctx,
+		"timeout waiting for WAL receiver to target the new primary",
+		"context cancelled while waiting for WAL receiver to target the new primary",
+		func(cause error) {
+			pm.logger.ErrorContext(ctx, "WAL receiver did not target the new primary",
+				"cause", cause,
+				"host", host,
+				"port", port,
+				"last_receiver_count", lastCount,
+				"last_receiver_conninfo", lastConnInfo)
+		},
+		func(waitCtx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, bool, error) {
+			result, err := pm.query(waitCtx, `SELECT
+				(SELECT COUNT(*) FROM pg_stat_wal_receiver),
+				coalesce((SELECT conninfo FROM pg_stat_wal_receiver LIMIT 1), '')`)
+			if err != nil {
+				return nil, false, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+			}
+			if err := executor.ScanSingleRow(result, &lastCount, &lastConnInfo); err != nil {
+				return nil, false, mterrors.Wrap(err, "failed to scan pg_stat_wal_receiver row")
+			}
+			done := lastCount == 0 || conninfoTargets(lastConnInfo, host, port)
+			return nil, done, nil
+		})
+	return err
+}
+
+// conninfoTargets reports whether a libpq conninfo string is configured to
+// connect to host:port. It matches whole space-separated key=value tokens so a
+// host prefix (e.g. "pg-1" vs "pg-10") doesn't yield a false positive.
+func conninfoTargets(conninfo, host string, port int32) bool {
+	hostToken := "host=" + host
+	portToken := fmt.Sprintf("port=%d", port)
+	var hasHost, hasPort bool
+	for field := range strings.FieldsSeq(conninfo) {
+		switch field {
+		case hostToken:
+			hasHost = true
+		case portToken:
+			hasPort = true
+		}
+	}
+	return hasHost && hasPort
 }
 
 // pauseReplication pauses replication based on the specified mode.

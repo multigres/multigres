@@ -99,7 +99,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 // flag before rewriting conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
 // this point — a stale-primary detection is an escalated event that
 // supersedes an older admin pause.
-func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool) error {
+func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host string, port int32) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -128,14 +128,6 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 
 	appName := pm.servicePoolerID
 
-	// Optionally stop replication before making changes
-	if stopReplicationBefore {
-		_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, false)
-		if err != nil {
-			return err
-		}
-	}
-
 	// Build primary_conninfo connection string
 	// Format: host=<host> port=<port> user=<user> application_name=<name> [passfile=<path>]
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle.
@@ -163,27 +155,19 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		return err
 	}
 
-	// Optionally start replication after making changes.
-	// Note: If replication was already running when setPrimaryConnInfoLocked was called,
-	// even if we don't set startReplicationAfter to true, replication will be running.
-	if startReplicationAfter {
-		// Wait for database to be available after restart
-		if err := pm.waitForDatabaseConnection(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after restart", "error", err)
-			return mterrors.Wrap(err, "failed to reconnect to database")
-		}
-
-		pm.logger.InfoContext(ctx, "Starting replication after setting primary_conninfo")
-		if err := pm.resumeWALReplay(ctx); err != nil {
-			return err
-		}
+	// PostgreSQL restarts the WAL receiver against the new primary on reload,
+	// but not atomically. Wait until that has taken effect: either no receiver
+	// is running, or the running receiver targets the host:port we just set
+	// (not a lingering one still pointed at the old primary). We don't wait for
+	// the connection to succeed — confirming the target is enough; whether
+	// replication is actually flowing is the orchestrator's job to verify.
+	if err := pm.waitForReceiverTargeting(ctx, host, port); err != nil {
+		return err
 	}
 
 	pm.logger.InfoContext(ctx, "setPrimaryConnInfo completed successfully",
 		"host", host,
-		"port", port,
-		"stop_replication_before", stopReplicationBefore,
-		"start_replication_after", startReplicationAfter)
+		"port", port)
 
 	return nil
 }
@@ -210,14 +194,17 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Clear both manual-stop signals (receiver stopped / replay paused) so the
+	// monitor's self-heal is re-enabled; broadcast if either was set.
 	started := pm.walReceiverManuallyStopped.CompareAndSwap(true, false)
+	started = pm.replayManuallyPaused.CompareAndSwap(true, false) || started
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
 
-	// Resume WAL replay on the standby
+	// Resume WAL replay on the standby.
 	if err := pm.resumeWALReplay(ctx); err != nil {
 		return err
 	}
@@ -264,6 +251,15 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 		if pm.walReceiverManuallyStopped.CompareAndSwap(false, true) {
 			pm.broadcastHealth()
 		}
+	}
+
+	// Modes that pause WAL replay are an explicit signal that apply should stay
+	// paused; mark it so the postgres monitor does not resume replay on its own.
+	// Cleared by StartReplication.
+	switch mode {
+	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
+		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
+		pm.replayManuallyPaused.Store(true)
 	}
 
 	return nil
@@ -978,11 +974,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	// the WAL receiver idle. Discovered in the mg-scale12 AZ-outage test
 	// (2026-05-29). Idempotent re-write when conninfo already points at
 	// source.
-	//
-	// (false, false): postgres just restarted, so there's no in-flight
-	// replication to pause, and WAL replay isn't paused — it starts
-	// automatically once postgres reads the new conninfo.
-	if err := pm.setPrimaryConnInfoLocked(ctx, sourceHost, sourcePort, false, false); err != nil {
+	if err := pm.setPrimaryConnInfoLocked(ctx, sourceHost, sourcePort); err != nil {
 		return false, mterrors.Wrap(err, "set primary_conninfo after restart as standby")
 	}
 
