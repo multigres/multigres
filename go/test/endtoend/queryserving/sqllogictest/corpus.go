@@ -15,11 +15,14 @@
 package sqllogictest
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -122,4 +125,64 @@ func ensureUpstreamCorpus(t *testing.T, ctx context.Context) (string, error) {
 
 	t.Logf("sqllogictest corpus ready at %s (sha=%s)", dir, CorpusCommit)
 	return dir, nil
+}
+
+// postgresPassingRaw is the committed allowlist of corpus-relative paths that
+// pass against a standalone PostgreSQL baseline. In regression mode the suite
+// runs only these files (against multigateway only); for them the corpus's
+// embedded expected output is the postgres-correct output, so a multigateway
+// pass is equivalent to a live diff against postgres. See the file header for
+// how it is generated.
+//
+//go:embed testdata/postgres_passing.txt
+var postgresPassingRaw string
+
+// postgresPassingSet parses postgresPassingRaw into a set of corpus-relative
+// paths. Blank lines and #-prefixed comments are ignored.
+func postgresPassingSet() map[string]bool {
+	set := make(map[string]bool)
+	sc := bufio.NewScanner(strings.NewReader(postgresPassingRaw))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		set[line] = true
+	}
+	return set
+}
+
+// filterToPostgresPassing keeps only the corpus files whose corpus-relative
+// path appears in the embedded postgres-passing allowlist, preserving input
+// order. Any allowlisted path absent from the corpus is reported via t.Errorf
+// — that signals the allowlist has drifted from the pinned corpus commit and
+// must be regenerated.
+func filterToPostgresPassing(t *testing.T, corpusRoot string, files []string) []string {
+	t.Helper()
+	set := postgresPassingSet()
+	seen := make(map[string]bool, len(set))
+	kept := make([]string, 0, len(set))
+	for _, f := range files {
+		rel, err := filepath.Rel(corpusRoot, f)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if set[rel] {
+			kept = append(kept, f)
+			seen[rel] = true
+		}
+	}
+	var missing []string
+	for p := range set {
+		if !seen[p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("postgres-passing allowlist has %d entr(ies) not present in the corpus (commit %s); "+
+			"regenerate testdata/postgres_passing.txt: %v", len(missing), CorpusCommit, missing)
+	}
+	return kept
 }

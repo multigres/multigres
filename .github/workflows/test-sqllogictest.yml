@@ -69,6 +69,11 @@ jobs:
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
+          # Run only the committed postgres-passing allowlist, against
+          # multigateway only (the postgres baseline is assumed passing by
+          # definition of the allowlist). This keeps the run well within the
+          # timeout; the full 622-file differential run is for local/manual use.
+          SLT_REGRESSION_MODE: "1"
         run: |
           go test -json -v -run TestPostgreSQLSqlLogicTest \
             ./go/test/endtoend/queryserving/sqllogictest/... \
