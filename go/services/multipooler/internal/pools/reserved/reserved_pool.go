@@ -442,6 +442,15 @@ func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
 	return p.conns.SetCapacity(ctx, newcap)
 }
 
+// InvalidateDefaults marks every pooled connection stale so it reconnects on its
+// next borrow, re-reading per-database/role GUC defaults changed by ALTER
+// DATABASE/ROLE ... SET (or an extension that runs one). Connections currently
+// checked out as live reserved connections (open transactions / temp tables)
+// are unaffected; they refresh after they are released back to the pool.
+func (p *Pool) InvalidateDefaults() {
+	p.conns.InvalidateDefaults()
+}
+
 // Requested returns the number of currently requested connections (borrowed + waiters).
 // Used for demand tracking in the rebalancer.
 func (p *Pool) Requested() int64 {

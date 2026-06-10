@@ -30,6 +30,9 @@ import (
 type mockConnection struct {
 	settings *connstate.Settings
 	closed   atomic.Bool
+	// id distinguishes distinct backends produced by a counting connector, so a
+	// test can tell a reused connection from a freshly (re)established one.
+	id int
 }
 
 func newMockConnection() *mockConnection {
@@ -98,6 +101,84 @@ func TestPoolBasicGetPut(t *testing.T) {
 	conn2, err := pool.Get(ctx)
 	require.NoError(t, err)
 	assert.Same(t, conn1, conn2)
+}
+
+func TestPoolInvalidateDefaults_LazyReconnectOnBorrow(t *testing.T) {
+	var created atomic.Int64
+	ctx := context.Background()
+	pool := NewPool[*mockConnection](ctx, &Config{Name: "test", Capacity: 4, MaxIdleCount: 4})
+	pool.Open(func(_ context.Context, _ context.Context) (*mockConnection, error) {
+		c := newMockConnection()
+		c.id = int(created.Add(1)) // 1, 2, 3, ...
+		return c, nil
+	}, nil)
+	defer pool.Close()
+
+	// Borrow + recycle: establishes backend id=1 in the clean stack.
+	c1, err := pool.Get(ctx)
+	require.NoError(t, err)
+	first := c1.Conn
+	require.Equal(t, 1, first.id)
+	c1.Recycle()
+
+	// Without an invalidation, the same backend is reused.
+	c2, err := pool.Get(ctx)
+	require.NoError(t, err)
+	require.Same(t, first, c2.Conn, "should reuse the same backend without invalidation")
+	c2.Recycle()
+
+	// Invalidate defaults: the next borrow must reconnect a fresh backend so it
+	// re-reads per-database/role GUC defaults.
+	pool.InvalidateDefaults()
+
+	c3, err := pool.Get(ctx)
+	require.NoError(t, err)
+	require.NotSame(t, first, c3.Conn, "stale connection must be reconnected after InvalidateDefaults")
+	require.True(t, first.IsClosed(), "stale backend must be closed on reconnect")
+	require.Equal(t, 2, c3.Conn.id, "borrow must return the freshly reconnected backend")
+	require.False(t, c3.Conn.IsClosed())
+	c3.Recycle()
+
+	// Capacity is preserved across the reconnect (slot reused, not leaked).
+	assert.Equal(t, int64(1), pool.Stats().Active)
+
+	// Generation is now current again: a borrow without a fresh bump reuses the
+	// refreshed backend (no spurious reconnect).
+	c4, err := pool.Get(ctx)
+	require.NoError(t, err)
+	require.Same(t, c3.Conn, c4.Conn, "no reconnect when the generation is current")
+	c4.Recycle()
+}
+
+func TestPoolInvalidateDefaults_ReconnectPreservesTargetSettings(t *testing.T) {
+	var created atomic.Int64
+	ctx := context.Background()
+	pool := NewPool[*mockConnection](ctx, &Config{Name: "test", Capacity: 4, MaxIdleCount: 4})
+	pool.Open(func(_ context.Context, _ context.Context) (*mockConnection, error) {
+		c := newMockConnection()
+		c.id = int(created.Add(1))
+		return c, nil
+	}, nil)
+	defer pool.Close()
+
+	settings := connstate.NewSettings(map[string]string{"timezone": "UTC"}, 1)
+
+	c1, err := pool.GetWithSettings(ctx, settings)
+	require.NoError(t, err)
+	first := c1.Conn
+	require.Same(t, settings, c1.Conn.Settings())
+	c1.Recycle()
+
+	// After an invalidation, the stale backend is reconnected AND the target
+	// settings are re-applied on top of the fresh backend.
+	pool.InvalidateDefaults()
+
+	c2, err := pool.GetWithSettings(ctx, settings)
+	require.NoError(t, err)
+	require.NotSame(t, first, c2.Conn, "stale settings connection must be reconnected")
+	require.True(t, first.IsClosed())
+	require.Same(t, settings, c2.Conn.Settings(), "target settings must be applied to the fresh backend")
+	c2.Recycle()
 }
 
 func TestPoolGetWithSettings(t *testing.T) {

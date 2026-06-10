@@ -31,6 +31,16 @@ type Pooled[C Connection] struct {
 	// This is used for idle timeout tracking.
 	timeUsed timestamp
 
+	// generation is the pool's defaults-generation at the time this connection
+	// was (re)established. When the pool's generation is bumped (see
+	// Pool.InvalidateDefaults), a connection whose generation is older is stale:
+	// its backend cached per-database/role GUC defaults (pg_db_role_setting) that
+	// have since changed (ALTER DATABASE/ROLE ... SET, or an extension that runs
+	// one). The pool lazily reconnects such a connection on its next borrow so the
+	// fresh backend re-reads those defaults. Owned by whoever currently holds the
+	// connection (single owner at a time), so it needs no synchronization.
+	generation int64
+
 	// pool is a reference to the pool that owns this connection.
 	// Used for the Recycle pattern.
 	pool *Pool[C]

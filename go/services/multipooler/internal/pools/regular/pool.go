@@ -159,6 +159,13 @@ func (p *Pool) InnerPool() *connpool.Pool[*Conn] {
 	return p.pool
 }
 
+// InvalidateDefaults marks every pooled connection stale so it reconnects on its
+// next borrow, re-reading per-database/role GUC defaults changed by ALTER
+// DATABASE/ROLE ... SET (or an extension that runs one).
+func (p *Pool) InvalidateDefaults() {
+	p.pool.InvalidateDefaults()
+}
+
 // Requested returns the number of currently requested connections (borrowed + waiters).
 // Used for demand tracking in the rebalancer.
 func (p *Pool) Requested() int64 {

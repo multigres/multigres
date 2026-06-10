@@ -90,6 +90,14 @@ type MultiGatewayConnectionState struct {
 	// cleared after the reservation is created.
 	PendingTempTableReservation bool
 
+	// PendingInvalidateConnectionDefaults is set by the planner (via Route) when
+	// the current statement changes per-database/role session GUC defaults
+	// (ALTER DATABASE/ROLE ... SET, or an allowlisted CREATE EXTENSION).
+	// ScatterConn consumes it to set ExecuteOptions.InvalidatesConnectionDefaults
+	// so the multipooler refreshes its pooled connections once the change is
+	// durable. One-shot: cleared after the request is sent.
+	PendingInvalidateConnectionDefaults bool
+
 	// PendingPinPortals carries the cursor names that the next StreamExecute
 	// must register on the reserved backend's portal set via
 	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a

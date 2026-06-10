@@ -114,3 +114,10 @@ func (p *Pool) Close() {
 func (p *Pool) Stats() connpool.PoolStats {
 	return p.pool.Stats()
 }
+
+// InvalidateDefaults marks every pooled connection stale so it reconnects on its
+// next borrow, re-reading per-database/role GUC defaults changed by ALTER
+// DATABASE/ROLE ... SET (or an extension that runs one).
+func (p *Pool) InvalidateDefaults() {
+	p.pool.InvalidateDefaults()
+}

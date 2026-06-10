@@ -325,6 +325,19 @@ message ExecuteOptions {
   // functions can map virtual PIDs (visible to clients) back to real
   // backend PIDs via pg_stat_activity.
   uint32 client_connection_id = 8;
+
+  // invalidates_connection_defaults marks a statement that changes
+  // per-database or per-role session GUC defaults (pg_db_role_setting):
+  // ALTER DATABASE ... SET / ALTER ROLE ... SET that pins a value, or a
+  // CREATE EXTENSION on the multigateway planner's allowlist of extensions
+  // known to run such an ALTER internally (e.g. postgis_topology's
+  // AddToSearchPath). The multigateway sets it during planning. PostgreSQL
+  // applies these defaults only at session start, so already-open pooled
+  // backends would keep serving stale defaults; on success the multipooler
+  // bumps its pools' defaults generation (at COMMIT when the statement runs
+  // inside an explicit transaction) so each pooled connection reconnects on
+  // its next borrow and re-reads the new defaults.
+  bool invalidates_connection_defaults = 9;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

@@ -126,6 +126,10 @@ var _ reservedConnAPI = (*mockReservedConn)(nil)
 type stubPoolManager struct {
 	reservedConn   *reserved.Conn
 	reservedConnOK bool
+
+	// invalidateDefaultsCalls counts InvalidateConnectionDefaults invocations so
+	// tests can assert when the executor bumps the pool's defaults generation.
+	invalidateDefaultsCalls int
 }
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
@@ -134,6 +138,7 @@ func (m *stubPoolManager) CloseForReopen()                                      
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
 func (m *stubPoolManager) GetAdminConn(context.Context) (admin.PooledConn, error)  { return nil, nil }
+func (m *stubPoolManager) InvalidateConnectionDefaults()                           { m.invalidateDefaultsCalls++ }
 func (m *stubPoolManager) GetRegularConn(context.Context, string, []byte, []byte) (regular.PooledConn, error) {
 	return nil, nil
 }

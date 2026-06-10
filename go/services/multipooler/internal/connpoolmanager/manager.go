@@ -529,6 +529,35 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 	return adminPool.Get(ctx)
 }
 
+// InvalidateConnectionDefaults marks every pooled connection — across all user
+// pools and the shared admin pool — stale so it reconnects on its next borrow.
+// A fresh backend re-reads per-database/role GUC defaults (pg_db_role_setting),
+// picking up changes made by ALTER DATABASE/ROLE ... SET (or an extension that
+// runs one, e.g. postgis_topology's AddToSearchPath). PostgreSQL applies those
+// defaults only at session start, so an already-open pooled backend would
+// otherwise keep serving stale defaults until it reconnects.
+//
+// The bump is lazy and non-disruptive: it never closes a borrowed or idle
+// connection eagerly; each connection refreshes when it is next borrowed (see
+// connpool.Pool.refreshIfStale). Invalidating across all users is intentional
+// over-approximation — an unnecessary refresh only costs a reconnect, whereas a
+// missed one would leak stale defaults.
+func (m *Manager) InvalidateConnectionDefaults() {
+	if pools := m.userPoolsSnapshot.Load(); pools != nil {
+		for _, pool := range *pools {
+			pool.InvalidateDefaults()
+		}
+	}
+	// Mirror GetAdminConn's nil-safe read: Close() clears m.adminPool under
+	// createMu, so a snapshot taken here is either the live pool or nil.
+	m.createMu.Lock()
+	adminPool := m.adminPool
+	m.createMu.Unlock()
+	if adminPool != nil {
+		adminPool.InvalidateDefaults()
+	}
+}
+
 // --- Regular Pool Operations ---
 
 // GetRegularConn acquires a regular connection for the specified user,
