@@ -1,0 +1,18 @@
+# multigateway rejects user changes to synchronous_commit (#1088): durability is
+# owned by the cluster (SyncStandbyManager keeps the primary at
+# synchronous_commit=on), so a session may not reassign it through the pooler.
+# test_setup runs `SET synchronous_commit = on` to stabilize hint-bit timing, but
+# the cluster already enforces that value, so the SET is redundant here and is now
+# rejected with a feature_not_supported ERROR instead of succeeding silently. The
+# rejection is intentional; this patch records the resulting expected-output diff.
+# See go/services/multigateway/planner/restricted_guc.go.
+--- a
++++ b
+@@ -13,6 +13,7 @@
+ -- that source of variability.
+ --
+ SET synchronous_commit = on;
++ERROR: setting synchronous_commit is not supported: replication durability is managed by the cluster; use RESET synchronous_commit (or SET synchronous_commit TO DEFAULT) to restore the managed value
+ --
+ -- Postgres formerly made the public schema read/write by default,
+ -- and most of the core regression tests still expect that.
