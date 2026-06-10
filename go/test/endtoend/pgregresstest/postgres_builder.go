@@ -386,11 +386,23 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 	return merged, nil
 }
 
-// resetContribState drops and recreates the public schema on the primary's
-// PostgreSQL directly (bypassing multigateway, which rejects schema DDL),
-// clearing every object and extension a previous contrib module installed
-// there. Contrib test fixtures assume a clean database; sharing one postgres
-// DB across modules otherwise leaks types/extensions between them.
+// resetContribState resets the shared postgres database to a clean baseline on
+// the primary's PostgreSQL directly (bypassing multigateway, which rejects
+// schema DDL), clearing everything a previous module's suite installed:
+//
+//  1. every extension except the built-in plpgsql — extensions whose control
+//     file pins a non-public schema (pgmq → pgmq, pgsodium → pgsodium,
+//     pg_graphql → graphql) survive a public-only reset, and leftovers poison
+//     later suites' catalog-introspection output (pgtap's extensions_are sees
+//     them as "extra"; its aretap helper even breaks on any schema matching
+//     LIKE 'pg_%' with the unescaped underscore wildcard, e.g. pgmq);
+//  2. every user schema except public — preserving the system schemas and
+//     `multigres`, which holds multipooler's internal heartbeat/leader state
+//     (see multipooler's pg_multischema.go) and must outlive the reset;
+//  3. the public schema itself, dropped and recreated with stock grants.
+//
+// Test fixtures assume a clean database; sharing one postgres DB across
+// modules otherwise leaks types/extensions/schemas between them.
 func resetContribState(directPgPort int, password string) error {
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
 		directPgPort, password)
@@ -399,6 +411,39 @@ func resetContribState(directPgPort int, password string) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer db.Close()
+
+	// Drop leftover extensions first: extension-created schemas (pg_cron's cron)
+	// are owned by the extension and go away with it; the schema sweep below
+	// catches the rest.
+	rows, err := db.Query(`SELECT extname FROM pg_extension WHERE extname <> 'plpgsql'`)
+	if err != nil {
+		return fmt.Errorf("list extensions: %w", err)
+	}
+	exts, err := collectStrings(rows)
+	if err != nil {
+		return fmt.Errorf("list extensions: %w", err)
+	}
+	for _, ext := range exts {
+		if _, err := db.Exec(fmt.Sprintf("DROP EXTENSION IF EXISTS %q CASCADE", ext)); err != nil {
+			return fmt.Errorf("drop extension %q: %w", ext, err)
+		}
+	}
+
+	rows, err = db.Query(`SELECT nspname FROM pg_namespace
+		WHERE nspname NOT LIKE 'pg\_%'
+		  AND nspname NOT IN ('information_schema', 'public', 'multigres')`)
+	if err != nil {
+		return fmt.Errorf("list schemas: %w", err)
+	}
+	schemas, err := collectStrings(rows)
+	if err != nil {
+		return fmt.Errorf("list schemas: %w", err)
+	}
+	for _, schema := range schemas {
+		if _, err := db.Exec(fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
+			return fmt.Errorf("drop schema %q: %w", schema, err)
+		}
+	}
 
 	stmts := []string{
 		"DROP SCHEMA IF EXISTS public CASCADE",
@@ -412,6 +457,21 @@ func resetContribState(directPgPort int, password string) error {
 		}
 	}
 	return nil
+}
+
+// collectStrings drains a single-column query result into a slice, closing the
+// rows. Used by resetContribState's catalog sweeps.
+func collectStrings(rows *sql.Rows) ([]string, error) {
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 // execOnPrimary runs a single statement directly on the primary's PostgreSQL

@@ -59,9 +59,12 @@ jobs:
         run: |
           sudo apt-get update
           # uuid-dev (libuuid / e2fs) is required for ./configure --with-uuid (uuid-ossp);
-          # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+).
-          # Both are enabled only when the contrib extension suite runs.
-          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev
+          # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+;
+          # enabled for the contrib suite, and for external runs whose extensions
+          # depend on pgcrypto, e.g. pgjwt).
+          # libsodium-dev + pkg-config are required to build the pgsodium external
+          # extension (ExtensionBuildSpec.PkgConfigDeps).
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev libsodium-dev pkg-config
 
       - name: Build
         run: make build

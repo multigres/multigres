@@ -205,19 +205,39 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 	return merged, nil
 }
 
-// listRegressTests returns the regression test names for an external extension,
-// derived from the .sql files under <testDir>/sql. This mirrors the PGXS
-// convention REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql)).
-// Names are sorted so the run order is deterministic and matches make's sorted
+// listRegressTests returns the regression test names for an external extension.
+// When the spec pins an explicit list (ExternalExtension.RegressTests, mirroring
+// a Makefile whose REGRESS is not a plain wildcard — plpgsql_check ships
+// per-major-version files), that list is returned as-is, in REGRESS order.
+// Otherwise the names are derived from the .sql files under <testDir>/sql,
+// mirroring the PGXS convention
+// REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql)),
+// minus any file matching ExcludeGlobs (matched against the "sql/<name>.sql"
+// path relative to testDir, the same convention the pgTAP path uses — pgtap
+// excludes its prepared-statement fixture files this way). Derived names are
+// sorted so the run order is deterministic and matches make's sorted
 // $(wildcard).
-func listRegressTests(testDir string) []string {
+func listRegressTests(ext ExternalExtension, testDir string) []string {
+	if len(ext.RegressTests) > 0 {
+		return ext.RegressTests
+	}
 	matches, err := filepath.Glob(filepath.Join(testDir, "sql", "*.sql"))
 	if err != nil {
 		return nil
 	}
 	sort.Strings(matches)
 	names := make([]string, 0, len(matches))
+next:
 	for _, m := range matches {
+		rel, relErr := filepath.Rel(testDir, m)
+		if relErr != nil {
+			rel = filepath.Join("sql", filepath.Base(m))
+		}
+		for _, ex := range ext.ExcludeGlobs {
+			if ok, _ := filepath.Match(ex, rel); ok {
+				continue next
+			}
+		}
 		names = append(names, strings.TrimSuffix(filepath.Base(m), ".sql"))
 	}
 	return names
@@ -242,10 +262,19 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 		t.Logf("external/%s: no %s/sql in checkout, skipping", ext.Name, ext.TestSubdir)
 		return nil, nil
 	}
-	tests := listRegressTests(testDir)
+	tests := listRegressTests(ext, testDir)
 	if len(tests) == 0 {
 		t.Logf("external/%s: no .sql tests found, skipping", ext.Name)
 		return nil, nil
+	}
+
+	// expected/ usually sits next to sql/ under TestSubdir, but pg_regress's
+	// --expecteddir is a separate knob (defaulting to the CWD, not --inputdir)
+	// and hypopg-style layouts keep expected/ at the repo root. ExpectedSubdir
+	// mirrors that; empty means the common side-by-side layout.
+	expectedDir := testDir
+	if ext.ExpectedSubdir != "" {
+		expectedDir = filepath.Join(cloneDir, ext.ExpectedSubdir)
 	}
 
 	// Load the extension's fixtures through multigateway before the suite, the way
@@ -276,6 +305,7 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	args := []string{
 		"--inputdir=" + testDir,
 		"--outputdir=" + cloneDir,
+		"--expecteddir=" + expectedDir,
 		"--bindir=" + pgBinDir,
 		"--use-existing",
 		"--dbname=postgres",
@@ -297,10 +327,10 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	}
 
 	// Re-evaluate each test via the patch pipeline. pg_regress wrote results to
-	// <cloneDir>/results (--outputdir); expected lives in <testDir>/expected, and
-	// patches are per-extension under patches/external/<ext>.
+	// <cloneDir>/results (--outputdir); expected lives in <expectedDir>/expected,
+	// and patches are per-extension under patches/external/<ext>.
 	patchDir := filepath.Join(PatchesDir(), "external", ext.Name)
-	pb.verifyModuleResults(ctx, testDir, filepath.Join(cloneDir, "results"), patchDir, res, GetPatchMode())
+	pb.verifyModuleResults(ctx, expectedDir, filepath.Join(cloneDir, "results"), patchDir, res, GetPatchMode())
 	return res, err
 }
 

@@ -1,0 +1,60 @@
+# Known divergence: pgTAP's prepared/execute assertion variants fail through
+# multigateway because SQL-level PREPARE is gateway-managed BY DESIGN.
+#
+# throwtap.sql runs `PREPARE meow AS ...` and then asserts that
+# throws_ok('meow', ...) / lives_ok('EXECUTE meow') behave like their plain-SQL
+# variants. multigateway stores SQL-level PREPARE in the gateway's consolidator
+# under a canonical name; the backend session never sees a statement named
+# `meow` (see go/services/multigateway/planner/execute_unwrap.go). pgTAP runs
+# these via `EXECUTE meow` INSIDE a plpgsql function body, which the gateway
+# cannot see or rewrite, so the backend raises "prepared statement does not
+# exist" and the four assertions fail.
+#
+# Only these four assertions exercise that pattern; the other 93 assertions in
+# the file pass and stay verified. The sibling files whose entire subject is
+# this pattern (performs_ok, performs_within, resultset, valueset) abort their
+# wrapping transaction on the first such error and are excluded instead
+# (ExcludeGlobs on the pgtap spec in extensions.go).
+--- a
++++ b
+@@ -17,9 +17,15 @@
+ ok 15 - single-argument form should pass
+ ok 16 - single-argument form should have the proper description
+ ok 17 - single-argument form should have the proper diagnostics
+-ok 18 - prepared statement & errcode should pass
++not ok 18 - prepared statement & errcode should pass
++# Failed test 18: "prepared statement & errcode should pass"
++# have: false
++# want: true
+ ok 19 - prepared statement & errcode should have the proper description
+-ok 20 - execute & errcode should pass
++not ok 20 - execute & errcode should pass
++# Failed test 20: "execute & errcode should pass"
++# have: false
++# want: true
+ ok 21 - execute & errcode should have the proper description
+ ok 22 - invalid errcode should fail
+ ok 23 - invalid errcode should have the proper description
+@@ -29,9 +35,15 @@
+ ok 27 - throws_ok diagnostics should have the proper description
+ ok 28 - throws_ok diagnostics should have the proper diagnostics
+ ok 29 - lives_ok() should work
+-ok 30 - lives_ok(prepared) should pass
++not ok 30 - lives_ok(prepared) should pass
++# Failed test 30: "lives_ok(prepared) should pass"
++# have: false
++# want: true
+ ok 31 - lives_ok(prepared) should have the proper description
+-ok 32 - lives_ok(execute) should pass
++not ok 32 - lives_ok(execute) should pass
++# Failed test 32: "lives_ok(execute) should pass"
++# have: false
++# want: true
+ ok 33 - lives_ok(execute) should have the proper description
+ ok 34 - lives_ok failure diagnostics should fail
+ ok 35 - lives_ok failure diagnostics should have the proper description
+@@ -97,3 +109,4 @@
+ ok 95 - lives_ok with check_assert(false) should fail
+ ok 96 - lives_ok with check_assert(false) should have the proper description
+ ok 97 - lives_ok with check_assert(false) should have the proper diagnostics
++# Looks like you failed 4 tests of 97
