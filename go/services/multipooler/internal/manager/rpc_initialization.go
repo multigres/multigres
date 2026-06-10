@@ -15,17 +15,14 @@
 package manager
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -283,79 +280,4 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 	// This should not be reached due to the context check in the loop, but just in case
 	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
-}
-
-// removeArchiveConfigFromAutoConf removes archive configuration lines from postgresql.auto.conf
-// This is used after restore to remove the primary's archive config before applying the standby's config
-func (pm *MultiPoolerManager) removeArchiveConfigFromAutoConf() error {
-	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
-
-	content, err := os.ReadFile(autoConfPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // File doesn't exist, nothing to remove
-		}
-		return fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
-	}
-
-	var filtered []string
-	for line := range strings.SplitSeq(string(content), "\n") {
-		trimmed := strings.TrimSpace(line)
-		// Skip archive-related lines
-		if strings.HasPrefix(trimmed, "archive_mode") ||
-			strings.HasPrefix(trimmed, "archive_command") ||
-			trimmed == "# Archive mode for pgbackrest backups" {
-			continue
-		}
-		filtered = append(filtered, line)
-	}
-
-	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
-}
-
-// configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
-// This must be called after InitDataDir but BEFORE starting PostgreSQL
-func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
-	configPath, err := pm.pgBackRestConfig()
-	if err != nil {
-		return mterrors.Wrap(err, "failed to initialize pgbackrest")
-	}
-
-	// Check if pgbackrest config file exists before configuring archive mode
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("pgbackrest config file not found at %s - ensure pgctld generated the config successfully", configPath))
-	}
-
-	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
-
-	// Check if archive_mode is already configured to avoid duplicates
-	if _, err := os.Stat(autoConfPath); err == nil {
-		content, err := os.ReadFile(autoConfPath)
-		if err == nil && bytes.Contains(content, []byte("archive_mode")) {
-			pm.logger.InfoContext(ctx, "archive_mode already configured, skipping", "auto_conf", autoConfPath)
-			return nil
-		}
-	}
-
-	// Configure archive_mode in postgresql.auto.conf
-	// Following the pattern from test/endtoend/multipooler/setup_test.go:479-498
-	archiveConfig := fmt.Sprintf(`
-# Archive mode for pgbackrest backups
-archive_mode = 'on'
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, pm.stanzaName(), configPath)
-
-	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to open postgresql.auto.conf")
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(archiveConfig); err != nil {
-		return mterrors.Wrap(err, "failed to write archive config")
-	}
-
-	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", pm.stanzaName(), "backup_type", pm.backupConfig.Type())
-	return nil
 }

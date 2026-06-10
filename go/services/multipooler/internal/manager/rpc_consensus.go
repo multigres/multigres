@@ -333,7 +333,9 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.Wrap(err, "failed to determine role for recruit")
 	}
 
-	termEvent := eventlog.TermBegin{NewTerm: revokedBelowTerm}
+	termEvent := eventlog.ConsensusRecruit{
+		Rule: commonconsensus.FormatRuleNumber(revocation.GetOutgoingRule()),
+	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
 
 	// Stop replication participation.
@@ -483,6 +485,34 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"proposal.proposed_rule.creation_time is required")
 	}
+	// Promote is only valid for the designated leader. Non-leaders should
+	// receive the leader's identity via SetPrimary, which handles
+	// replication setup without requiring a prior Recruit.
+	if !proto.Equal(pm.serviceID, proposalLeader.GetId()) {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"Promote received on %s but proposal_leader is %s; non-leaders should be told via SetPrimary",
+			pm.serviceID.GetName(), proposalLeader.GetId().GetName())
+	}
+
+	promoteEvent := eventlog.ConsensusPromote{
+		Rule: commonconsensus.FormatRuleNumber(proposedRule.GetRuleNumber()),
+	}
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, promoteEvent)
+
+	resp, err := pm.promoteLocked(ctx, req)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, promoteEvent, "error", err)
+	} else {
+		eventlog.Emit(ctx, pm.logger, eventlog.Success, promoteEvent)
+	}
+	return resp, err
+}
+
+func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+	proposal := req.GetProposal()
+	revocation := proposal.GetTermRevocation()
+	proposalLeader := proposal.GetProposalLeader()
+	proposedRule := proposal.GetProposedRule()
 
 	revokedBelowTerm := revocation.GetRevokedBelowTerm()
 	coordinatorID := revocation.GetAcceptedCoordinatorId()
@@ -537,15 +567,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	if connInfo != "" {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"primary_conninfo is set (%q); call Recruit before Promote to stop replication", connInfo)
-	}
-
-	// Promote is only valid for the designated leader. Non-leaders should
-	// receive the leader's identity via SetPrimary, which handles
-	// replication setup without requiring a prior Recruit.
-	if !proto.Equal(pm.serviceID, proposalLeader.GetId()) {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"Promote received on %s but proposal_leader is %s; non-leaders should be told via SetPrimary",
-			pm.serviceID.GetName(), proposalLeader.GetId().GetName())
 	}
 
 	// Leader path: promote postgres, write rule, enable query service.
@@ -734,6 +755,26 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: cs}, nil
 	}
+
+	// Both no-op gates passed — this call will actually reconfigure replication.
+	setPrimaryEvent := eventlog.ConsensusSetPrimary{
+		Rule: commonconsensus.FormatRuleNumber(rule.GetRuleNumber()),
+	}
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, setPrimaryEvent)
+
+	resp, err := pm.setPrimaryLocked(ctx, req)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, setPrimaryEvent, "error", err)
+	} else {
+		eventlog.Emit(ctx, pm.logger, eventlog.Success, setPrimaryEvent)
+	}
+	return resp, err
+}
+
+func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+	leader := req.GetLeader()
+	rule := req.GetRule()
+	port := leader.GetPostgresPort()
 
 	// Decide between "standby update" and "stale-primary demote" based on
 	// actual postgres recovery state rather than topology — a node mid-promote

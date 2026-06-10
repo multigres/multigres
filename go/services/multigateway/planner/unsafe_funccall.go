@@ -101,37 +101,103 @@ func (sc setConfigCall) hasBoundParams() bool {
 	return sc.NameBind != nil || sc.ValueBind != nil || sc.IsLocalBind != nil
 }
 
-// expressionCheckResult carries the output of inspectExpressionFuncCalls.
-type expressionCheckResult struct {
+// sessionAdvisoryLockAcquireFuncs is the set of built-in functions that acquire
+// a SESSION-level advisory lock. Holding one of these locks pins the backend to
+// the client session: the lock lives on the backend that ran the call and
+// survives transaction boundaries, so the gateway must keep routing the session
+// to that backend until the lock is released.
+//
+// The transaction-scoped variants (pg_advisory_xact_lock, ...) are deliberately
+// excluded — those locks are released at transaction end and never outlive a
+// pooled backend's involvement in the session, so they need no pinning.
+var sessionAdvisoryLockAcquireFuncs = map[string]struct{}{
+	"pg_advisory_lock":            {},
+	"pg_advisory_lock_shared":     {},
+	"pg_try_advisory_lock":        {},
+	"pg_try_advisory_lock_shared": {},
+}
+
+// sessionAdvisoryLockReleaseFuncs is the set of built-in functions that release
+// a SESSION-level advisory lock. Seeing one of these is the signal to re-probe
+// pg_locks and unpin if the session no longer holds any advisory lock —
+// PostgreSQL is still the authority on the reference count, this just decides
+// when to ask. pg_advisory_unlock / _shared are reference-counted single-key
+// releases; pg_advisory_unlock_all drops everything. The transaction-scoped
+// variants are excluded for the same reason as the acquire set.
+var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
+	"pg_advisory_unlock":        {},
+	"pg_advisory_unlock_shared": {},
+	"pg_advisory_unlock_all":    {},
+}
+
+// statementAnalysis carries the result of analyzing a statement before
+// dispatch: the planning signals gathered from its expression tree (which
+// set_config calls to track, whether it acquires a session-level advisory
+// lock). Rejection of unsupported constructs happens as part of the same pass
+// and surfaces as an error rather than a field here.
+type statementAnalysis struct {
 	// SetConfigs are the set_config calls the planner accepted — i.e., they
 	// appear in an allowed position (directly as a SelectStmt target-list
 	// entry), with literal arguments and is_local=false. Ordering matches
 	// the target-list positions left-to-right.
 	SetConfigs []setConfigCall
+
+	// AcquiresSessionAdvisoryLock is true if any FuncCall in the statement is a
+	// session-level advisory lock acquisition (see
+	// sessionAdvisoryLockAcquireFuncs). The planner uses this to route the
+	// statement through a reserved connection with ReasonSessionAdvisoryLock so
+	// the backend is pinned for the lifetime of the lock.
+	//
+	// This is best-effort: it catches advisory locks taken directly in the
+	// statement text (the overwhelming common case). Locks acquired indirectly —
+	// inside a PL/pgSQL function body, a trigger, or dynamic SQL the parser
+	// can't see — are not detected here and remain a pre-existing pooling
+	// limitation, the same way temp tables created via dynamic SQL are.
+	AcquiresSessionAdvisoryLock bool
+
+	// ReleasesSessionAdvisoryLock is true if any FuncCall in the statement is a
+	// session-level advisory unlock (see sessionAdvisoryLockReleaseFuncs). It's
+	// the signal that the multipooler should re-probe pg_locks after this
+	// statement and unpin the backend if no advisory lock remains. Same
+	// best-effort caveat as AcquiresSessionAdvisoryLock: an unlock hidden in a
+	// function body or dynamic SQL isn't seen here, so the session stays pinned
+	// (conservatively) until the next observed advisory statement, DISCARD ALL,
+	// or disconnect — never a leak.
+	ReleasesSessionAdvisoryLock bool
 }
 
-// planUnsupportedConstructs runs the pre-dispatch rejection checks that every
-// planning path (simple `Plan()` and extended-protocol `PlanPortal()`) must
-// apply: unsupported statement types (Tier 2), the restricted-GUC guard (SET /
-// ALTER ROLE / ALTER DATABASE assignments to cluster-managed GUCs), and the
-// expression-level walker (blocklist + rogue set_config, which also rejects
-// set_config on those same GUCs). Returns the accepted set_config calls for
-// Plan's SELECT dispatch; PlanPortal ignores that result.
+// analyzeStatement is the single pre-dispatch analysis pass that every planning
+// path (simple `Plan()` and extended-protocol `PlanPortal()`) must apply. It
+// does two things in one place:
 //
-// Centralizing them here is the point — earlier versions called only
-// planUnsupportedStmt from PlanPortal and silently let blocklisted function
-// calls through on non-cacheable extended-protocol paths.
-func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
-	if err := planUnsupportedStmt(stmt); err != nil {
+//   - Rejects unsupported constructs: Tier 2 statement types (LOAD, ALTER
+//     SYSTEM, CREATE/DROP DATABASE, ...), changes to cluster-managed GUCs (the
+//     restricted-GUC guard, covering SET / ALTER ROLE / ALTER DATABASE and
+//     set_config on those same GUCs), and blocklisted or misplaced FuncCalls in
+//     expression trees. These surface as an error.
+//   - Gathers planning signals from the expression tree (accepted set_config
+//     calls, session-level advisory-lock acquisition) into statementAnalysis,
+//     which the routing builders fold into the plan.
+//
+// This mirrors how Vitess separates Normalize (runs on every query, builds the
+// cache key) from semantic Analyze (runs only when a query is actually being
+// planned): the normalizer stays policy-free, and everything that depends on
+// gateway routing policy lives here, on the cache-miss planning path.
+//
+// Centralizing both concerns here is the point — earlier versions ran only the
+// statement-type rejection from PlanPortal and silently let blocklisted
+// function calls through on non-cacheable extended-protocol paths.
+func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
+	if err := rejectUnsupportedStatement(stmt); err != nil {
 		return nil, err
 	}
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
-	return inspectExpressionFuncCalls(stmt)
+	return analyzeFunctionCalls(stmt)
 }
 
-// inspectExpressionFuncCalls walks every FuncCall in stmt and either:
+// analyzeFunctionCalls walks every FuncCall in stmt and either:
 //   - returns an error to reject the statement (blocklisted function call,
 //     or a set_config in a disallowed position / with unsafe arguments), or
 //   - returns a result describing any accepted set_config calls that the
@@ -155,12 +221,12 @@ func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 // (so the validator can extract the name/value), but allows recursion when
 // is_local is literal true (those calls are accepted but not tracked, and
 // parameterizing them keeps the plan cache stable for hot patterns).
-func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
+func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	if stmt == nil {
-		return &expressionCheckResult{}, nil
+		return &statementAnalysis{}, nil
 	}
 
-	result := &expressionCheckResult{}
+	result := &statementAnalysis{}
 	allowedSetConfigs := collectTopLevelSetConfigs(stmt)
 
 	var walkErr error
@@ -179,6 +245,16 @@ func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 		if msg, blocked := funcBlocklist[name]; blocked {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
+		}
+		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
+			result.AcquiresSessionAdvisoryLock = true
+			// Keep walking: a statement can mix an advisory lock with other
+			// calls we still need to inspect (e.g. a blocklisted function).
+			return true
+		}
+		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
+			result.ReleasesSessionAdvisoryLock = true
+			return true
 		}
 		if name != "set_config" {
 			return true
@@ -212,7 +288,7 @@ func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 // collectTopLevelSetConfigs returns the set of FuncCall pointers that occupy
 // an allowed position for set_config — "directly as the Val of a ResTarget
 // in the top-level SelectStmt's TargetList". The identity set is used by
-// inspectExpressionFuncCalls to distinguish allowed calls from the same
+// analyzeFunctionCalls to distinguish allowed calls from the same
 // function name appearing in a WHERE clause or subquery.
 //
 // This does NOT recurse into WithClause CTEs or set-operation subqueries:

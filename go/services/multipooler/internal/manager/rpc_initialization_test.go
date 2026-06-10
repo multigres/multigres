@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -288,6 +289,7 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		config:       &Config{},
 		record:       newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()}),
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
@@ -839,8 +841,9 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
-	// Mock listBackups to return a complete backup
+	// Mock ListBackups to return a complete backup
 	// This is tested via the actual implementation
 	// For unit test, we verify hasCompleteBackups returns false when no backups
 	result := pm.hasCompleteBackups(ctx)
@@ -859,6 +862,7 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	result := pm.hasCompleteBackups(ctx)
 
@@ -874,6 +878,7 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 		config:     &Config{},
 		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock to block hasCompleteBackups
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-holder")

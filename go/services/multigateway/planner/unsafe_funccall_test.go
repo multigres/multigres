@@ -97,7 +97,7 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.Nil(t, result)
 			require.Error(t, err)
 
@@ -197,7 +197,7 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCalls, result.SetConfigs)
@@ -270,7 +270,7 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
@@ -326,7 +326,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
@@ -357,7 +357,7 @@ func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "is_local literal true must not produce a tracker entry")
@@ -382,7 +382,7 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	for _, sql := range allowed {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)

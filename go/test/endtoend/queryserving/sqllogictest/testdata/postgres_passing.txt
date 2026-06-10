@@ -1,0 +1,179 @@
+# sqllogictest corpus files that pass against a standalone PostgreSQL baseline.
+#
+# Generated from the differential suite's full run (all 622 corpus files x
+# both wire protocols x both targets). A file appears here iff it passes
+# against the standalone PostgreSQL baseline; for those files the corpus's
+# embedded expected output IS the postgres-correct output, so running them
+# against multigateway and checking they pass is equivalent to a live diff
+# against postgres.
+#
+# CI runs ONLY these files, and ONLY against multigateway (SLT_REGRESSION_MODE=1):
+# the postgres baseline is assumed passing by definition of this list. Any
+# file here that fails on multigateway is a real proxy divergence/regression.
+#
+# Source run: https://github.com/multigres/multigres/actions/runs/26817719179
+# Corpus commit: c67f97bf3ca7e590d12e073408bcacaf2ff0f3a0 (gregrahn/sqllogictest)
+# The set is identical across the simple and extended protocols.
+#
+# To regenerate: run the suite WITHOUT SLT_REGRESSION_MODE (full differential
+# run) and extract files where postgres.passed==true from results.json:
+#   jq -r '.[0].tests[] | select(.postgres.passed) | .name' results.json | sort -u
+#
+# One corpus-relative path per line. Blank lines and #-comments are ignored.
+test/evidence/slt_lang_aggfunc.test
+test/evidence/slt_lang_createtrigger.test
+test/evidence/slt_lang_dropindex.test
+test/evidence/slt_lang_droptable.test
+test/evidence/slt_lang_droptrigger.test
+test/evidence/slt_lang_dropview.test
+test/evidence/slt_lang_reindex.test
+test/evidence/slt_lang_replace.test
+test/index/between/1/slt_good_0.test
+test/index/between/10/slt_good_0.test
+test/index/between/10/slt_good_1.test
+test/index/between/10/slt_good_2.test
+test/index/between/10/slt_good_3.test
+test/index/between/10/slt_good_4.test
+test/index/between/10/slt_good_5.test
+test/index/between/100/slt_good_0.test
+test/index/between/100/slt_good_1.test
+test/index/between/100/slt_good_2.test
+test/index/between/100/slt_good_3.test
+test/index/between/100/slt_good_4.test
+test/index/between/1000/slt_good_0.test
+test/index/commute/10/slt_good_0.test
+test/index/commute/10/slt_good_1.test
+test/index/commute/10/slt_good_10.test
+test/index/commute/10/slt_good_11.test
+test/index/commute/10/slt_good_12.test
+test/index/commute/10/slt_good_13.test
+test/index/commute/10/slt_good_14.test
+test/index/commute/10/slt_good_15.test
+test/index/commute/10/slt_good_16.test
+test/index/commute/10/slt_good_17.test
+test/index/commute/10/slt_good_18.test
+test/index/commute/10/slt_good_19.test
+test/index/commute/10/slt_good_2.test
+test/index/commute/10/slt_good_20.test
+test/index/commute/10/slt_good_21.test
+test/index/commute/10/slt_good_22.test
+test/index/commute/10/slt_good_23.test
+test/index/commute/10/slt_good_24.test
+test/index/commute/10/slt_good_25.test
+test/index/commute/10/slt_good_26.test
+test/index/commute/10/slt_good_27.test
+test/index/commute/10/slt_good_28.test
+test/index/commute/10/slt_good_29.test
+test/index/commute/10/slt_good_3.test
+test/index/commute/10/slt_good_30.test
+test/index/commute/10/slt_good_31.test
+test/index/commute/10/slt_good_32.test
+test/index/commute/10/slt_good_33.test
+test/index/commute/10/slt_good_34.test
+test/index/commute/10/slt_good_4.test
+test/index/commute/10/slt_good_5.test
+test/index/commute/10/slt_good_6.test
+test/index/commute/10/slt_good_7.test
+test/index/commute/10/slt_good_8.test
+test/index/commute/10/slt_good_9.test
+test/index/commute/100/slt_good_0.test
+test/index/commute/100/slt_good_1.test
+test/index/commute/100/slt_good_10.test
+test/index/commute/100/slt_good_11.test
+test/index/commute/100/slt_good_12.test
+test/index/commute/100/slt_good_2.test
+test/index/commute/100/slt_good_3.test
+test/index/commute/100/slt_good_4.test
+test/index/commute/100/slt_good_5.test
+test/index/commute/100/slt_good_6.test
+test/index/commute/100/slt_good_7.test
+test/index/commute/100/slt_good_8.test
+test/index/commute/100/slt_good_9.test
+test/index/commute/1000/slt_good_0.test
+test/index/commute/1000/slt_good_1.test
+test/index/commute/1000/slt_good_2.test
+test/index/commute/1000/slt_good_3.test
+test/index/delete/1/slt_good_0.test
+test/index/delete/10/slt_good_0.test
+test/index/delete/10/slt_good_1.test
+test/index/delete/10/slt_good_2.test
+test/index/delete/10/slt_good_3.test
+test/index/delete/10/slt_good_4.test
+test/index/delete/10/slt_good_5.test
+test/index/delete/100/slt_good_0.test
+test/index/delete/100/slt_good_1.test
+test/index/delete/100/slt_good_2.test
+test/index/delete/100/slt_good_3.test
+test/index/delete/1000/slt_good_0.test
+test/index/delete/1000/slt_good_1.test
+test/index/delete/10000/slt_good_0.test
+test/index/in/10/slt_good_0.test
+test/index/in/10/slt_good_1.test
+test/index/in/10/slt_good_2.test
+test/index/in/10/slt_good_3.test
+test/index/in/10/slt_good_4.test
+test/index/in/10/slt_good_5.test
+test/index/in/100/slt_good_0.test
+test/index/in/100/slt_good_1.test
+test/index/in/100/slt_good_2.test
+test/index/in/100/slt_good_3.test
+test/index/in/100/slt_good_4.test
+test/index/in/1000/slt_good_0.test
+test/index/in/1000/slt_good_1.test
+test/index/orderby/10/slt_good_0.test
+test/index/orderby/10/slt_good_1.test
+test/index/orderby/10/slt_good_10.test
+test/index/orderby/10/slt_good_11.test
+test/index/orderby/10/slt_good_12.test
+test/index/orderby/10/slt_good_13.test
+test/index/orderby/10/slt_good_14.test
+test/index/orderby/10/slt_good_15.test
+test/index/orderby/10/slt_good_16.test
+test/index/orderby/10/slt_good_17.test
+test/index/orderby/10/slt_good_18.test
+test/index/orderby/10/slt_good_19.test
+test/index/orderby/10/slt_good_2.test
+test/index/orderby/10/slt_good_20.test
+test/index/orderby/10/slt_good_21.test
+test/index/orderby/10/slt_good_22.test
+test/index/orderby/10/slt_good_23.test
+test/index/orderby/10/slt_good_24.test
+test/index/orderby/10/slt_good_25.test
+test/index/orderby/10/slt_good_3.test
+test/index/orderby/10/slt_good_4.test
+test/index/orderby/10/slt_good_5.test
+test/index/orderby/10/slt_good_6.test
+test/index/orderby/10/slt_good_7.test
+test/index/orderby/10/slt_good_8.test
+test/index/orderby/10/slt_good_9.test
+test/index/orderby/100/slt_good_0.test
+test/index/orderby/100/slt_good_1.test
+test/index/orderby/100/slt_good_2.test
+test/index/orderby/100/slt_good_3.test
+test/index/orderby/1000/slt_good_0.test
+test/index/orderby_nosort/10/slt_good_12.test
+test/index/orderby_nosort/10/slt_good_15.test
+test/index/orderby_nosort/10/slt_good_16.test
+test/index/orderby_nosort/10/slt_good_17.test
+test/index/orderby_nosort/10/slt_good_18.test
+test/index/orderby_nosort/10/slt_good_20.test
+test/index/orderby_nosort/10/slt_good_21.test
+test/index/orderby_nosort/10/slt_good_22.test
+test/index/orderby_nosort/10/slt_good_23.test
+test/index/orderby_nosort/10/slt_good_24.test
+test/index/orderby_nosort/10/slt_good_26.test
+test/index/orderby_nosort/10/slt_good_28.test
+test/index/orderby_nosort/10/slt_good_29.test
+test/index/orderby_nosort/10/slt_good_31.test
+test/index/orderby_nosort/10/slt_good_32.test
+test/index/orderby_nosort/10/slt_good_33.test
+test/index/orderby_nosort/10/slt_good_34.test
+test/index/orderby_nosort/10/slt_good_35.test
+test/index/orderby_nosort/10/slt_good_36.test
+test/index/orderby_nosort/10/slt_good_37.test
+test/index/orderby_nosort/10/slt_good_38.test
+test/index/random/1000/slt_good_2.test
+test/index/random/1000/slt_good_3.test
+test/index/view/10/slt_good_0.test
+test/random/select/slt_good_125.test
+test/random/select/slt_good_126.test

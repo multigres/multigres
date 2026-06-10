@@ -34,6 +34,10 @@ type reservedConnAPI interface {
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
+	// Query runs a simple query and buffers all results. Used for internal
+	// probes (e.g. checking pg_locks to decide whether a session still holds an
+	// advisory lock), not for streaming client query results.
+	Query(ctx context.Context, sql string) ([]*sqltypes.Result, error)
 	// ReserveForPortal pins the named portal/cursor on this reserved
 	// connection. Used for DECLARE … WITH HOLD so the cursor survives
 	// COMMIT — the multipooler's reservation bitmask keeps ReasonPortal

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package backup
 
 import (
 	"context"
@@ -22,25 +22,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-func TestRunPgBackRestCheck(t *testing.T) {
+func TestCheck(t *testing.T) {
 	// The real `pgbackrest check` invocation is exercised by integration
 	// tests (endtoend/multipooler). This validates the config-missing guard.
 	t.Run("errors when pgbackrest config is missing", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
-		err := pm.runPgBackRestCheck(context.Background())
+		e := &Engine{}
+		err := e.Check(context.Background())
 		require.Error(t, err)
 	})
 }
 
-// TestRunPgBackRestCheck_ExecPaths drives runPgBackRestCheck against a stubbed
-// `pgbackrest` binary on PATH. Unlike verify, check relies on pgBackRest's exit
-// code, so this covers the success (exit 0) and failure (non-zero) paths the
-// in-process unit test cannot otherwise reach.
-func TestRunPgBackRestCheck_ExecPaths(t *testing.T) {
+// TestCheck_ExecPaths drives Check against a stubbed `pgbackrest` binary on
+// PATH. Unlike verify, check relies on pgBackRest's exit code, so this covers
+// the success (exit 0) and failure (non-zero) paths the in-process unit test
+// cannot otherwise reach.
+func TestCheck_ExecPaths(t *testing.T) {
 	tests := []struct {
 		name        string
 		exitCode    int
@@ -67,10 +65,10 @@ func TestRunPgBackRestCheck_ExecPaths(t *testing.T) {
 			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 			poolerDir := t.TempDir()
-			pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-			pm.pgBackRestConfigPath = setupMockPgBackRestConfig(t, poolerDir)
+			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
+			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
-			err := pm.runPgBackRestCheck(context.Background())
+			err := e.Check(context.Background())
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errContains)
