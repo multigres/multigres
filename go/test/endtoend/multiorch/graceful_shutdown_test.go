@@ -116,7 +116,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	// multiorch should elect a new primary quickly: LeaderResignedAnalyzer
 	// fires as soon as it sees INELIGIBLE on the leader, then
-	// AppointLeaderAction (Recruit + Propose) runs on the surviving cohort
+	// AppointLeaderAction (Recruit + Promote) runs on the surviving cohort
 	// — concurrently with the old primary's pgctld.Stop, because runFailover
 	// excludes the resigned pooler from the cohort before recruit.
 	t.Logf("Waiting for multiorch to elect a new primary...")

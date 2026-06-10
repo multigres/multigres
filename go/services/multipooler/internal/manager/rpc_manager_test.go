@@ -963,7 +963,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 // TestRewindToSource_RestoresPrimaryConnInfo is a regression test for the bug where
 // RewindToSource did not call setPrimaryConnInfoLocked after pg_rewind. When actual
 // pg_rewind runs it syncs postgresql.auto.conf from the source (which has no
-// primary_conninfo), wiping the value set by the earlier SetTermPrimary call and
+// primary_conninfo), wiping the value set by the earlier SetPrimary call and
 // leaving the WAL receiver with no primary to connect to.
 func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

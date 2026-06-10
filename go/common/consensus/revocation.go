@@ -87,7 +87,7 @@ func NewTermRevocation(
 
 // IsRuleRevoked reports whether the pooler's recorded revocation forbids
 // applying a rule (e.g. one delivered by a follower-side rule-propagation
-// RPC such as SetTermPrimary). The rule represents durable WAL state the
+// RPC such as SetPrimary). The rule represents durable WAL state the
 // cohort has reached; the revocation is this pooler's promise to refuse
 // work below a given coordinator term. The predicate is a pure function of
 // the two consensus messages; callers handle storage I/O, locking, and any

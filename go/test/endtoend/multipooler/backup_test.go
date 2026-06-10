@@ -232,11 +232,11 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
-					// Configure replication after restore via SetTermPrimary, using a
+					// Configure replication after restore via SetPrimary, using a
 					// rule strictly higher than anything the restored node carries so
 					// the standby branch fires.
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyConsensusClient.SetTermPrimary(setPrimaryCtx, &consensusdatapb.SetTermPrimaryRequest{
+					_, err = standbyConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
 						Leader: &clustermetadatapb.PoolerAddress{
 							Id:           primaryID,
 							Host:         "localhost",
@@ -638,10 +638,10 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				}
 				// Use a high coordinator term so the supplied rule is strictly
 				// higher than whatever the restored node carries, forcing the
-				// standby branch of SetTermPrimary to apply.
+				// standby branch of SetPrimary to apply.
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
-				_, err = standbyRestoreConsensusClient.SetTermPrimary(setPrimaryCtx, &consensusdatapb.SetTermPrimaryRequest{
+				_, err = standbyRestoreConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
 					Leader: &clustermetadatapb.PoolerAddress{
 						Id:           primaryID,
 						Host:         "localhost",

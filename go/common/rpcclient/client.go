@@ -144,19 +144,19 @@ type MultiPoolerClient interface {
 	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
 	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
 
-	// Propose sends a role assignment to a recruited pooler: promote to primary (if designated
+	// Promote sends a role assignment to a recruited pooler: promote to primary (if designated
 	// leader) or point replication at the new primary (if replica).
-	Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error)
+	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error)
 
 	// UpdateConsensusRule updates the synchronous standby list (quorum membership).
 	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error)
 
-	// SetTermPrimary tells a pooler about the current primary and the position the
+	// SetPrimary tells a pooler about the current primary and the position the
 	// caller knows the cluster is at. The pooler applies the change (update
 	// primary_conninfo if standby, demote if stale primary) only when the
 	// supplied position is strictly higher than its own. Otherwise it returns
 	// success without changes.
-	SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetTermPrimaryRequest) (*consensusdatapb.SetTermPrimaryResponse, error)
+	SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error)
 
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)

@@ -93,7 +93,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 //
 // Refuses with FAILED_PRECONDITION when StopReplication previously cleared
 // primary_conninfo and set the manual-stop flag — every conninfo writer
-// (SetTermPrimary's standby branch and the postgres-monitor self-heal)
+// (SetPrimary's standby branch and the postgres-monitor self-heal)
 // funnels through here, so this single check is what keeps the admin pause
 // honored against routine reconciliation. Use StartReplication to clear the
 // flag before rewriting conninfo. demoteStalePrimaryLocked clears the flag itself before reaching
@@ -257,7 +257,7 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	// does not "self-heal" the cleared conninfo back to the recorded primary,
 	// and so this pooler publishes COHORT_ELIGIBILITY_INELIGIBLE while
 	// stopped. Cleared the next time something re-establishes the primary
-	// link (SetTermPrimary / setPrimaryConnInfoLocked / demoteStalePrimaryLocked).
+	// link (SetPrimary / setPrimaryConnInfoLocked / demoteStalePrimaryLocked).
 	switch mode {
 	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER:
@@ -444,7 +444,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	currentCohort := pos.GetRule().GetCohortMembers()
 
 	// Check if synchronous replication is configured (i.e. the primary already
-	// has a cohort recorded from a previous Propose/promotion).
+	// has a cohort recorded from a previous Promote/promotion).
 	if len(currentCohort) == 0 {
 		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -837,7 +837,7 @@ func (pm *MultiPoolerManager) SetPostgresRestartsEnabled(ctx context.Context, re
 }
 
 // ====================================================================================
-// Helper methods for stale-primary demotion (used by SetTermPrimary)
+// Helper methods for stale-primary demotion (used by SetPrimary)
 // ====================================================================================
 
 // pgctldStopWithEscalation walks pgctldStopModes calling pgctld.Stop, returning
@@ -880,7 +880,7 @@ func (pm *MultiPoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 }
 
 // restartAsStandbyLocked is the shared core of RewindToSource and the
-// stale-primary branch of SetTermPrimary: it pauses the manager, stops
+// stale-primary branch of SetPrimary: it pauses the manager, stops
 // postgres, runs pg_rewind against source iff rewindPending is set
 // (patching pgbackrest paths in postgresql.auto.conf after the rewind
 // copies them from source), then restarts postgres as standby and
@@ -888,7 +888,7 @@ func (pm *MultiPoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 //
 // Gating on rewindPending: callers raise the flag when this node's WAL may
 // have diverged from the cluster's chosen history (emergencyDemoteLocked
-// sets it after an emergency demote; SetTermPrimary's stale-primary branch
+// sets it after an emergency demote; SetPrimary's stale-primary branch
 // and RewindToSource set it before calling here). When the flag is clear we
 // skip even the pg_rewind dry-run — the WAL is trusted and we just need to
 // come back as a standby. The flag is cleared as soon as pg_rewind returns

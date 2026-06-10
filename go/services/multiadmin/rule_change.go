@@ -90,7 +90,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 
 // pickOrch returns a multiorch to forward the rule change to. It prefers an
 // orch in the same cell as the proposed leader (cross-cell traffic during
-// Recruit/Propose is wasteful) and falls back to any orch in any other cell.
+// Recruit/Promote is wasteful) and falls back to any orch in any other cell.
 //
 // Per-cell listing errors are tolerated as long as we find at least one
 // orch somewhere — they only surface if no orch is found in any cell, in

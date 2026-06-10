@@ -95,7 +95,7 @@ const failoverCohortReachableThreshold = 10 * time.Second
 // TODO: during a rule change, if some recruitable replicas would not require
 // a pg_rewind to follow the chosen leader, prefer them over candidates that
 // would. Picking a rewind-free replica makes failover faster; picking one
-// that needs rewinding is not fatal — the SetTermPrimary path runs pg_rewind
+// that needs rewinding is not fatal — the SetPrimary path runs pg_rewind
 // before the node serves writes or replicates.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
 	liveCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))

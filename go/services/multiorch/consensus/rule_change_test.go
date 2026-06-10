@@ -313,12 +313,12 @@ func TestRun_Success(t *testing.T) {
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// mp1 (leader) receives Propose; mp2 (follower) receives SetTermPrimary.
+	// mp1 (leader) receives Promote; mp2 (follower) receives SetPrimary.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
 	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key], "leader should receive Propose")
-	assert.Nil(t, fc.ProposeRequests[mp2Key], "follower should not receive Propose")
-	assert.NotNil(t, fc.SetTermPrimaryRequests[mp2Key], "follower should receive SetTermPrimary")
+	assert.NotNil(t, fc.PromoteRequests[mp1Key], "leader should receive Promote")
+	assert.Nil(t, fc.PromoteRequests[mp2Key], "follower should not receive Promote")
+	assert.NotNil(t, fc.SetPrimaryRequests[mp2Key], "follower should receive SetPrimary")
 }
 
 func TestRun_EarlyExit(t *testing.T) {
@@ -429,8 +429,8 @@ func TestRun_PreValidateFails(t *testing.T) {
 	assert.Empty(t, fc.GetCallLog())
 }
 
-func TestRun_LeaderProposeFails(t *testing.T) {
-	// Propose fails for the leader — Run should return an error.
+func TestRun_LeaderPromoteFails(t *testing.T) {
+	// Promote fails for the leader — Run should return an error.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -464,16 +464,16 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 		},
 	}
 
-	// Inject the Propose error for the leader inside tryBuildProposal: at the point
+	// Inject the Promote error for the leader inside tryBuildProposal: at the point
 	// tryBuildProposal(minNodes=2) is called, both Recruit goroutines have already sent
 	// their results to the channel and returned, so writing fc.Errors here is
-	// safe — proposeAll goroutines haven't launched yet, establishing a
+	// safe — promoteAll goroutines haven't launched yet, establishing a
 	// happens-before edge via goroutine creation.
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		if len(statuses) < 2 {
 			return nil, errors.New("need 2 nodes")
 		}
-		fc.Errors[mp1Key] = errors.New("propose rejected by leader")
+		fc.Errors[mp1Key] = errors.New("promote rejected by leader")
 		return proposal, nil
 	}
 
@@ -483,8 +483,8 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to accept proposal")
 }
 
-func TestRun_NonLeaderProposeFails(t *testing.T) {
-	// Propose fails for a non-leader — Run should succeed (non-leader failures are non-fatal).
+func TestRun_NonLeaderPromoteFails(t *testing.T) {
+	// Promote fails for a non-leader — Run should succeed (non-leader failures are non-fatal).
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -517,23 +517,23 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 		},
 	}
 
-	// Inject a Propose error for the non-leader (mp2).
-	// We only want Propose to fail, not Recruit — so use ProposeResponses error
+	// Inject a Promote error for the non-leader (mp2).
+	// We only want Promote to fail, not Recruit — so use PromoteResponses error
 	// by setting errors only after recruitment is done. Since Errors applies to
 	// all RPC calls, we instead set error on mp2 after recruit by using a
 	// custom tryBuildProposal that installs the error mid-flight.
 	//
 	// Simpler approach: set an error on mp2 before Run. Recruit will also fail,
 	// but Recruit failure just means no status from mp2, and mp1 alone satisfies
-	// minNodes=1. We propose to just mp1 (the leader), which succeeds.
+	// minNodes=1. We promote to just mp1 (the leader), which succeeds.
 	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	fc.Errors[mp2Key] = errors.New("standby propose rejected")
+	fc.Errors[mp2Key] = errors.New("standby promote rejected")
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// Leader (mp1) received Propose.
+	// Leader (mp1) received Promote.
 	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key])
+	assert.NotNil(t, fc.PromoteRequests[mp1Key])
 }

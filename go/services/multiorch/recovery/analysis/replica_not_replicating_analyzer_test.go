@@ -118,7 +118,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// Skip the problem when there's no usable primary yet.
 	// HighestTermReachableLeader is nil whenever the leader's rule hasn't
 	// been observed (findHighestTermLeader filters those out), so we have no
-	// rule to put in SetTermPrimaryRequest. Waiting one cycle is cheap; the next
+	// rule to put in SetPrimaryRequest. Waiting one cycle is cheap; the next
 	// health snapshot will repopulate the field.
 	t.Run("skips when no usable primary is known", func(t *testing.T) {
 		sa := &ShardAnalysis{

@@ -160,7 +160,7 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 func (a *ReconcileCohortAction) Priority() types.Priority {
 	// Cohort drift is not service-impacting until durability is at risk;
 	// run after replication repair (PriorityHigh) so a new pooler is fully
-	// streaming before we propose adding it.
+	// streaming before we promote adding it.
 	return types.PriorityNormal
 }
 

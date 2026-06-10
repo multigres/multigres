@@ -29,7 +29,7 @@ import (
 )
 
 // newLeaderAddress builds a PoolerAddress suitable for use as the leader in a
-// SetTermPrimaryRequest.
+// SetPrimaryRequest.
 func newLeaderAddress(name, host string, port int32) *clustermetadatapb.PoolerAddress {
 	return &clustermetadatapb.PoolerAddress{
 		Id: &clustermetadatapb.ID{
@@ -43,7 +43,7 @@ func newLeaderAddress(name, host string, port int32) *clustermetadatapb.PoolerAd
 }
 
 // ruleAtTermForLeader builds a ShardRule with the given coordinator_term and
-// the leader_id matching the supplied leader. Used to satisfy SetTermPrimary's
+// the leader_id matching the supplied leader. Used to satisfy SetPrimary's
 // leader.id == rule.leader_id validation in tests.
 func ruleAtTermForLeader(leader *clustermetadatapb.PoolerAddress, term int64) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
@@ -52,26 +52,26 @@ func ruleAtTermForLeader(leader *clustermetadatapb.PoolerAddress, term int64) *c
 	}
 }
 
-func TestSetTermPrimary_ValidationErrors(t *testing.T) {
+func TestSetPrimary_ValidationErrors(t *testing.T) {
 	validLeader := newLeaderAddress("p1", "host", 5432)
 	tests := []struct {
 		name           string
-		req            *consensusdatapb.SetTermPrimaryRequest
+		req            *consensusdatapb.SetPrimaryRequest
 		expectErrMatch string
 	}{
 		{
 			name:           "NilLeader",
-			req:            &consensusdatapb.SetTermPrimaryRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
+			req:            &consensusdatapb.SetPrimaryRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
 			expectErrMatch: "leader is required",
 		},
 		{
 			name:           "NilRule",
-			req:            &consensusdatapb.SetTermPrimaryRequest{Leader: validLeader},
+			req:            &consensusdatapb.SetPrimaryRequest{Leader: validLeader},
 			expectErrMatch: "rule is required",
 		},
 		{
 			name: "RuleMissingLeaderId",
-			req: &consensusdatapb.SetTermPrimaryRequest{
+			req: &consensusdatapb.SetPrimaryRequest{
 				Leader: validLeader,
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -81,7 +81,7 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "LeaderIdMismatchesRule",
-			req: &consensusdatapb.SetTermPrimaryRequest{
+			req: &consensusdatapb.SetPrimaryRequest{
 				Leader: validLeader,
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -94,7 +94,7 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "MissingHost",
-			req: &consensusdatapb.SetTermPrimaryRequest{
+			req: &consensusdatapb.SetPrimaryRequest{
 				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
@@ -102,30 +102,30 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 		},
 		{
 			name: "MissingPostgresPort",
-			req: &consensusdatapb.SetTermPrimaryRequest{
+			req: &consensusdatapb.SetPrimaryRequest{
 				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
 				Rule:   ruleAtTermForLeader(validLeader, 5),
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
 		{
-			// SetTermPrimary is the follower-side RPC. If the coordinator routes
+			// SetPrimary is the follower-side RPC. If the coordinator routes
 			// this call to the designated leader itself, reject with INVALID_ARGUMENT
-			// and direct the caller to Propose, which carries the full
+			// and direct the caller to Promote, which carries the full
 			// CoordinatorProposal a leader needs to safely promote.
 			//
 			// setupManagerWithMockDB creates a pooler whose serviceID names
 			// "test-pooler" in cell "zone1", so building leader with the same ID
 			// triggers the self-leader guard.
 			name: "LeaderIsSelf",
-			req: func() *consensusdatapb.SetTermPrimaryRequest {
+			req: func() *consensusdatapb.SetPrimaryRequest {
 				selfLeader := newLeaderAddress("test-pooler", "host", 5432)
-				return &consensusdatapb.SetTermPrimaryRequest{
+				return &consensusdatapb.SetPrimaryRequest{
 					Leader: selfLeader,
 					Rule:   ruleAtTermForLeader(selfLeader, 5),
 				}
 			}(),
-			expectErrMatch: "leader is self; designated leaders are appointed via Propose",
+			expectErrMatch: "leader is self; designated leaders are appointed via Promote",
 		},
 	}
 
@@ -134,7 +134,7 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(5)})
 
-			resp, err := pm.SetTermPrimary(t.Context(), tt.req)
+			resp, err := pm.SetPrimary(t.Context(), tt.req)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErrMatch)
 			assert.Nil(t, resp)
@@ -142,11 +142,11 @@ func TestSetTermPrimary_ValidationErrors(t *testing.T) {
 	}
 }
 
-// TestSetTermPrimary_NoOpWhenPositionNotHigher verifies that SetTermPrimary returns success
+// TestSetPrimary_NoOpWhenPositionNotHigher verifies that SetPrimary returns success
 // without touching primary_conninfo when the supplied position is equal to or
 // lower than this pooler's own observed position. This is the staleness gate
 // that keeps out-of-order recovery rounds from clobbering fresh state.
-func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
+func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 	tests := []struct {
 		name        string
 		selfTerm    int64
@@ -167,7 +167,7 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
-			// The only postgres call SetTermPrimary must make in the no-op path is
+			// The only postgres call SetPrimary must make in the no-op path is
 			// ObservePosition, which is handled by the fakeRuleStore — no SQL
 			// at all should hit the mock query service.
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(tt.selfTerm)})
@@ -175,25 +175,25 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			incomingRule := tt.incomingPos.GetRule()
 			incomingRule.LeaderId = leader.GetId()
-			req := &consensusdatapb.SetTermPrimaryRequest{
+			req := &consensusdatapb.SetPrimaryRequest{
 				Leader: leader,
 				Rule:   incomingRule,
 			}
-			resp, err := pm.SetTermPrimary(t.Context(), req)
+			resp, err := pm.SetPrimary(t.Context(), req)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
 			// (rule, primary) MUST be recorded even on no-op paths — that's
 			// the substrate multiorch reads from the health stream to skip
-			// future redundant SetTermPrimary calls. The proof that the apply
+			// future redundant SetPrimary calls. The proof that the apply
 			// branch wasn't reached is that no apply-path postgres queries
 			// were issued (ExpectationsWereMet below).
 			highest := pm.consensusState.GetReplicationPrimary()
-			require.NotNil(t, highest, "SetTermPrimary should record the rule even on no-op")
+			require.NotNil(t, highest, "SetPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
-			require.NotNil(t, highest.GetPrimary(), "SetTermPrimary should record the primary even on no-op")
+			require.NotNil(t, highest.GetPrimary(), "SetPrimary should record the primary even on no-op")
 			assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
 			assert.Equal(t, "primary-host", highest.GetPrimary().GetHost())
 
@@ -202,14 +202,14 @@ func TestSetTermPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 	}
 }
 
-// TestSetTermPrimary_StandbyAppliesNewPrimary verifies the standby branch: when the
-// receiver is in recovery and the incoming position is higher, SetTermPrimary issues
+// TestSetPrimary_StandbyAppliesNewPrimary verifies the standby branch: when the
+// receiver is in recovery and the incoming position is higher, SetPrimary issues
 // the same setPrimaryConnInfo work (stop replication -> ALTER SYSTEM SET
 // primary_conninfo -> reload -> start replication).
-func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
+func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
-	// SetTermPrimary's isPrimary check: returns true for "in recovery" -> standby.
+	// SetPrimary's isPrimary check: returns true for "in recovery" -> standby.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
@@ -241,11 +241,11 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.SetTermPrimaryRequest{
+	req := &consensusdatapb.SetPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
 	}
-	resp, err := pm.SetTermPrimary(t.Context(), req)
+	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
@@ -259,17 +259,17 @@ func TestSetTermPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Equal(t, "primary-host", recorded.GetHost())
 }
 
-// TestSetTermPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
+// TestSetPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
 // when the receiver is acting as primary (pg_is_in_recovery=false) and the
-// supplied position is higher, SetTermPrimary must drive a full demote — pg_rewind,
+// supplied position is higher, SetPrimary must drive a full demote — pg_rewind,
 // restart as standby, set primary_conninfo at the new primary, flip topology
 // to REPLICA, and update the gateway's leader observation. The revocation is
-// intentionally NOT touched (SetTermPrimary is a notification, not a recruit;
+// intentionally NOT touched (SetPrimary is a notification, not a recruit;
 // revocations are authored by coordinators via Recruit).
-func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
+func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
-	// 1. SetTermPrimary's own isPrimary check: not in recovery -> take the demote branch.
+	// 1. SetPrimary's own isPrimary check: not in recovery -> take the demote branch.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
@@ -302,18 +302,18 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 
 	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
 
-	// Seed an initial revocation so we can verify SetTermPrimary leaves it
+	// Seed an initial revocation so we can verify SetPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
 	consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 	_, err := pm.consensusState.Load()
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.SetTermPrimaryRequest{
+	req := &consensusdatapb.SetPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 10),
 	}
-	resp, err := pm.SetTermPrimary(t.Context(), req)
+	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
@@ -328,13 +328,13 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
 
-	// SetTermPrimary must NOT touch term_revocation. The revocation seeded above
+	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
-	// by coordinators via Recruit, not by side effects of SetTermPrimary.
+	// by coordinators via Recruit, not by side effects of SetPrimary.
 	rev, err := pm.consensusState.GetInconsistentRevocation()
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
-		"SetTermPrimary must not bump revoked_below_term — that's a coordinator responsibility")
+		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 
 	// Gateway leader observation should reflect the new primary.
 	healthState := pm.healthStreamer.getState()
@@ -343,13 +343,13 @@ func TestSetTermPrimary_StalePrimaryDemotes(t *testing.T) {
 	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
 }
 
-// TestSetTermPrimary_IgnoresRevokedRule verifies that when the incoming rule is
+// TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is
 // revoked by the pooler's recorded revocation (i.e. coordinator_term below
-// revoked_below_term and the outgoing-rule override does not fire), SetTermPrimary
+// revoked_below_term and the outgoing-rule override does not fire), SetPrimary
 // returns success without touching postgres and without recording the rule.
 // The override scenarios are unit-tested at the IsRuleRevoked predicate; this
 // pins the RPC-level behavior.
-func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
+func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 	tests := []struct {
 		name         string
 		revokedBelow int64
@@ -389,12 +389,12 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 			require.NoError(t, err)
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
-			req := &consensusdatapb.SetTermPrimaryRequest{
+			req := &consensusdatapb.SetPrimaryRequest{
 				Leader: leader,
 				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
 			}
-			resp, err := pm.SetTermPrimary(t.Context(), req)
-			require.NoError(t, err, "SetTermPrimary should silently ignore revoked rules")
+			resp, err := pm.SetPrimary(t.Context(), req)
+			require.NoError(t, err, "SetPrimary should silently ignore revoked rules")
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.ConsensusStatus)
 
@@ -402,22 +402,22 @@ func TestSetTermPrimary_IgnoresRevokedRule(t *testing.T) {
 			// is not the substrate multiorch should read from a refused FYI.
 			// This is also the proof the apply branch wasn't reached.
 			highest := pm.consensusState.GetReplicationPrimary()
-			assert.Nil(t, highest, "revoked SetTermPrimary should not be recorded")
+			assert.Nil(t, highest, "revoked SetPrimary should not be recorded")
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
-// TestSetTermPrimary_AppliesViaOutgoingRuleOverride verifies that an SetTermPrimary whose
+// TestSetPrimary_AppliesViaOutgoingRuleOverride verifies that an SetPrimary whose
 // rule term is below revoked_below_term is accepted when the rule strictly
 // exceeds the revocation's recorded outgoing_rule — the runaway-recruit
 // self-heal path. To avoid wiring full postgres mocks for the apply branch,
-// the test sets self's rule term above the incoming rule so SetTermPrimary takes
+// the test sets self's rule term above the incoming rule so SetPrimary takes
 // its "not higher, no-op" branch after the revocation check passes; the
 // (rule, leader) tuple is still recorded by RecordTermPrimary, which is the
 // observable proving the override fired.
-func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
+func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
 	const selfRuleTerm = 10
@@ -433,11 +433,11 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
-	req := &consensusdatapb.SetTermPrimaryRequest{
+	req := &consensusdatapb.SetPrimaryRequest{
 		Leader: leader,
 		Rule:   ruleAtTermForLeader(leader, 3),
 	}
-	resp, err := pm.SetTermPrimary(t.Context(), req)
+	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.ConsensusStatus)
@@ -454,8 +454,8 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
-// TestSetTermPrimary_ApplyPathErrors covers the post-revocation-check error
-// paths in SetTermPrimary: ObservePosition, isPrimary, and the standby branch's
+// TestSetPrimary_ApplyPathErrors covers the post-revocation-check error
+// paths in SetPrimary: ObservePosition, isPrimary, and the standby branch's
 // setPrimaryConnInfoLocked. Each case drives the handler past validation and
 // the revocation gate, then injects a failure at a single downstream step
 // and asserts the error is propagated (wrapped) to the caller.
@@ -463,21 +463,21 @@ func TestSetTermPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 // The stale-primary branch's demote error path is already exercised end-to-end
 // by TestDemoteStalePrimary_UpdatesConsensusTerm in rpc_manager_test.go, so
 // it's not re-tested here.
-func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
+func TestSetPrimary_ApplyPathErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		// ruleStore overrides the default fakeRuleStore. Used to inject
 		// ObservePosition failures.
 		ruleStore *fakeRuleStore
 		// setupMocks runs after the default fakeRuleStore (if used) but before
-		// the SetTermPrimary call, to inject postgres-query failures.
+		// the SetPrimary call, to inject postgres-query failures.
 		setupMocks     func(*mock.QueryService)
 		expectErrMatch string
 	}{
 		{
-			// ObservePosition fails: SetTermPrimary cannot decide whether the
+			// ObservePosition fails: SetPrimary cannot decide whether the
 			// incoming rule is higher than the recorded one. Caller learns about
-			// the failure rather than silently dropping the SetTermPrimary.
+			// the failure rather than silently dropping the SetPrimary.
 			name: "ObservePositionFails",
 			ruleStore: &fakeRuleStore{
 				pos:        makeRulePosition(3),
@@ -487,7 +487,7 @@ func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
 			expectErrMatch: "failed to observe local position",
 		},
 		{
-			// isPrimary check (pg_is_in_recovery) fails: SetTermPrimary cannot
+			// isPrimary check (pg_is_in_recovery) fails: SetPrimary cannot
 			// route between the standby and stale-primary branches.
 			name:      "IsPrimaryQueryFails",
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(3)},
@@ -529,11 +529,11 @@ func TestSetTermPrimary_ApplyPathErrors(t *testing.T) {
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
-			req := &consensusdatapb.SetTermPrimaryRequest{
+			req := &consensusdatapb.SetPrimaryRequest{
 				Leader: leader,
 				Rule:   ruleAtTermForLeader(leader, 10),
 			}
-			resp, err := pm.SetTermPrimary(t.Context(), req)
+			resp, err := pm.SetPrimary(t.Context(), req)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectErrMatch)
 			assert.Nil(t, resp)

@@ -57,7 +57,7 @@ func TestRecordTermPrimary(t *testing.T) {
 		wantPrimaryUnchanged bool // primary should still equal seedPrimary
 	}{
 		{
-			name:        "FirstSetTermPrimary_RecordsBoth",
+			name:        "FirstSetPrimary_RecordsBoth",
 			callRule:    ruleAt(5, 0),
 			callPrimary: primaryAt("p1", "hostA", 5432),
 			wantRule:    ruleAt(5, 0),

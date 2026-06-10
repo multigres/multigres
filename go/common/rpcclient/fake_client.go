@@ -57,9 +57,9 @@ type FakeClient struct {
 	mu sync.RWMutex
 
 	// Consensus service responses - keyed by pooler ID
-	RecruitResponses        map[string]*consensusdatapb.RecruitResponse
-	ProposeResponses        map[string]*consensusdatapb.ProposeResponse
-	SetTermPrimaryResponses map[string]*consensusdatapb.SetTermPrimaryResponse
+	RecruitResponses    map[string]*consensusdatapb.RecruitResponse
+	PromoteResponses    map[string]*consensusdatapb.PromoteResponse
+	SetPrimaryResponses map[string]*consensusdatapb.SetPrimaryResponse
 
 	// Manager service responses - keyed by pooler ID
 	WaitForLSNResponses          map[string]*multipoolermanagerdatapb.WaitForLSNResponse
@@ -84,8 +84,8 @@ type FakeClient struct {
 	CallLog []string
 
 	// Request tracking for verification in tests
-	ProposeRequests        map[string]*consensusdatapb.ProposeRequest
-	SetTermPrimaryRequests map[string]*consensusdatapb.SetTermPrimaryRequest
+	PromoteRequests    map[string]*consensusdatapb.PromoteRequest
+	SetPrimaryRequests map[string]*consensusdatapb.SetPrimaryRequest
 
 	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
 	// is created. Tests use this to capture the stream and inject snapshots.
@@ -96,8 +96,8 @@ type FakeClient struct {
 func NewFakeClient() *FakeClient {
 	return &FakeClient{
 		RecruitResponses:                    make(map[string]*consensusdatapb.RecruitResponse),
-		ProposeResponses:                    make(map[string]*consensusdatapb.ProposeResponse),
-		SetTermPrimaryResponses:             make(map[string]*consensusdatapb.SetTermPrimaryResponse),
+		PromoteResponses:                    make(map[string]*consensusdatapb.PromoteResponse),
+		SetPrimaryResponses:                 make(map[string]*consensusdatapb.SetPrimaryResponse),
 		WaitForLSNResponses:                 make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		StartReplicationResponses:           make(map[string]*multipoolermanagerdatapb.StartReplicationResponse),
 		StopReplicationResponses:            make(map[string]*multipoolermanagerdatapb.StopReplicationResponse),
@@ -111,8 +111,8 @@ func NewFakeClient() *FakeClient {
 		SetPostgresRestartsEnabledResponses: make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                              make(map[string]error),
 		CallLog:                             make([]string, 0),
-		ProposeRequests:                     make(map[string]*consensusdatapb.ProposeRequest),
-		SetTermPrimaryRequests:              make(map[string]*consensusdatapb.SetTermPrimaryRequest),
+		PromoteRequests:                     make(map[string]*consensusdatapb.PromoteRequest),
+		SetPrimaryRequests:                  make(map[string]*consensusdatapb.SetPrimaryRequest),
 	}
 }
 
@@ -214,12 +214,12 @@ func (f *FakeClient) Recruit(ctx context.Context, pooler *clustermetadatapb.Mult
 	return resp, nil
 }
 
-func (f *FakeClient) Propose(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.ProposeRequest) (*consensusdatapb.ProposeResponse, error) {
+func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("Propose", poolerID)
+	f.logCall("Promote", poolerID)
 
 	f.mu.Lock()
-	f.ProposeRequests[poolerID] = request
+	f.PromoteRequests[poolerID] = request
 	f.mu.Unlock()
 
 	if err := f.checkError(poolerID); err != nil {
@@ -228,21 +228,21 @@ func (f *FakeClient) Propose(ctx context.Context, pooler *clustermetadatapb.Mult
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.ProposeResponses[poolerID]; ok {
+	if resp, ok := f.PromoteResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &consensusdatapb.ProposeResponse{}, nil
+	return &consensusdatapb.PromoteResponse{}, nil
 }
 
-func (f *FakeClient) SetTermPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetTermPrimaryRequest) (*consensusdatapb.SetTermPrimaryResponse, error) {
+func (f *FakeClient) SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("SetTermPrimary", poolerID)
+	f.logCall("SetPrimary", poolerID)
 
 	f.mu.Lock()
-	if f.SetTermPrimaryRequests == nil {
-		f.SetTermPrimaryRequests = make(map[string]*consensusdatapb.SetTermPrimaryRequest)
+	if f.SetPrimaryRequests == nil {
+		f.SetPrimaryRequests = make(map[string]*consensusdatapb.SetPrimaryRequest)
 	}
-	f.SetTermPrimaryRequests[poolerID] = request
+	f.SetPrimaryRequests[poolerID] = request
 	f.mu.Unlock()
 
 	if err := f.checkError(poolerID); err != nil {
@@ -251,10 +251,10 @@ func (f *FakeClient) SetTermPrimary(ctx context.Context, pooler *clustermetadata
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.SetTermPrimaryResponses[poolerID]; ok {
+	if resp, ok := f.SetPrimaryResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &consensusdatapb.SetTermPrimaryResponse{}, nil
+	return &consensusdatapb.SetPrimaryResponse{}, nil
 }
 
 func (f *FakeClient) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {

@@ -91,7 +91,7 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 
 // ReplicationPrimaryMatches reports whether a pooler's published
 // ReplicationPrimary already names target as its primary at a rule no older
-// than targetRule. Coordinators use this to skip SetTermPrimary RPCs that
+// than targetRule. Coordinators use this to skip SetPrimary RPCs that
 // wouldn't change anything on the pooler.
 //
 // Returns false when:
