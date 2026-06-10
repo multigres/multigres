@@ -231,8 +231,7 @@
   },
   {
     "comment": "create_view - Statement 53",
-    "query": "CREATE TEMPORARY SEQUENCE seq1_temp",
-    "expected": "CREATE SEQUENCE seq1_temp"
+    "query": "CREATE TEMPORARY SEQUENCE seq1_temp"
   },
   {
     "comment": "create_view - Statement 54",

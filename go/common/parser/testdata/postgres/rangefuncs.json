@@ -528,13 +528,11 @@
   },
   {
     "comment": "rangefuncs - Statement 110",
-    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq1",
-    "expected": "CREATE SEQUENCE rngfunc_rescan_seq1"
+    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq1"
   },
   {
     "comment": "rangefuncs - Statement 111",
-    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq2",
-    "expected": "CREATE SEQUENCE rngfunc_rescan_seq2"
+    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq2"
   },
   {
     "comment": "rangefuncs - Statement 112",

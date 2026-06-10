@@ -1150,7 +1150,7 @@ const (
 	yyInitialStackSize = 16
 )
 
-//line postgres.y:15633
+//line postgres.y:15643
 
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
@@ -14521,7 +14521,7 @@ var yyPgo = [...]int{
 	257, 4982, 12, 4980, 3614, 455, 4979, 72,
 }
 
-//line postgres.y:15633
+//line postgres.y:15643
 type yySymType struct {
 	union    any
 	ival     int
@@ -38109,6 +38109,7 @@ yydefault:
 			view := yyDollar[4].rangevarUnion()
 			view.RelPersistence = rune(yyDollar[2].runeUnion())
 			stmt := &ast.ViewStmt{
+				BaseNode:        ast.BaseNode{Tag: ast.T_ViewStmt},
 				View:            view,
 				Aliases:         yyDollar[5].listUnion(),
 				Query:           yyDollar[8].stmtUnion(),
@@ -38122,12 +38123,13 @@ yydefault:
 	case 2546:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10803
+//line postgres.y:10804
 		{
 			// Apply OptTemp persistence to the view RangeVar
 			view := yyDollar[6].rangevarUnion()
 			view.RelPersistence = rune(yyDollar[4].runeUnion())
 			stmt := &ast.ViewStmt{
+				BaseNode:        ast.BaseNode{Tag: ast.T_ViewStmt},
 				View:            view,
 				Aliases:         yyDollar[7].listUnion(),
 				Query:           yyDollar[10].stmtUnion(),
@@ -38141,12 +38143,13 @@ yydefault:
 	case 2547:
 		yyDollar = yyS[yypt-12 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10819
+//line postgres.y:10821
 		{
 			// RECURSIVE VIEW requires explicit column list
 			view := yyDollar[5].rangevarUnion()
 			view.RelPersistence = rune(yyDollar[2].runeUnion())
 			stmt := &ast.ViewStmt{
+				BaseNode:        ast.BaseNode{Tag: ast.T_ViewStmt},
 				View:            view,
 				Aliases:         yyDollar[7].listUnion(),
 				Query:           yyDollar[11].stmtUnion(),
@@ -38160,12 +38163,13 @@ yydefault:
 	case 2548:
 		yyDollar = yyS[yypt-14 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10835
+//line postgres.y:10838
 		{
 			// RECURSIVE VIEW requires explicit column list
 			view := yyDollar[7].rangevarUnion()
 			view.RelPersistence = rune(yyDollar[4].runeUnion())
 			stmt := &ast.ViewStmt{
+				BaseNode:        ast.BaseNode{Tag: ast.T_ViewStmt},
 				View:            view,
 				Aliases:         yyDollar[9].listUnion(),
 				Query:           yyDollar[13].stmtUnion(),
@@ -38179,7 +38183,7 @@ yydefault:
 	case 2549:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:10852
+//line postgres.y:10856
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -38187,39 +38191,39 @@ yydefault:
 	case 2550:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:10853
+//line postgres.y:10857
 		{
 			yyLOCAL = nil
 		}
 		yyVAL.union = yyLOCAL
 	case 2551:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10857
+//line postgres.y:10861
 		{
 			yyVAL.ival = int(ast.CASCADED_CHECK_OPTION)
 		}
 	case 2552:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10858
+//line postgres.y:10862
 		{
 			yyVAL.ival = int(ast.CASCADED_CHECK_OPTION)
 		}
 	case 2553:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10859
+//line postgres.y:10863
 		{
 			yyVAL.ival = int(ast.LOCAL_CHECK_OPTION)
 		}
 	case 2554:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10860
+//line postgres.y:10864
 		{
 			yyVAL.ival = int(ast.NO_CHECK_OPTION)
 		}
 	case 2555:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10871
+//line postgres.y:10875
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[3].str, false)
 			n.Authrole = yyDollar[5].rolespecUnion()
@@ -38230,7 +38234,7 @@ yydefault:
 	case 2556:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10878
+//line postgres.y:10882
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[3].str, false)
 			n.Authrole = nil
@@ -38241,7 +38245,7 @@ yydefault:
 	case 2557:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10885
+//line postgres.y:10889
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[6].str, true)
 			n.Authrole = yyDollar[8].rolespecUnion()
@@ -38252,7 +38256,7 @@ yydefault:
 	case 2558:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10892
+//line postgres.y:10896
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[6].str, true)
 			n.Authrole = nil
@@ -38263,7 +38267,7 @@ yydefault:
 	case 2559:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10908
+//line postgres.y:10912
 		{
 			n := ast.NewCreatedbStmt(yyDollar[3].str, yyDollar[5].listUnion())
 			yyLOCAL = n
@@ -38272,7 +38276,7 @@ yydefault:
 	case 2560:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10921
+//line postgres.y:10925
 		{
 			n := ast.NewDropdbStmt(yyDollar[3].str, false, nil)
 			yyLOCAL = n
@@ -38281,7 +38285,7 @@ yydefault:
 	case 2561:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10926
+//line postgres.y:10930
 		{
 			n := ast.NewDropdbStmt(yyDollar[5].str, true, nil)
 			yyLOCAL = n
@@ -38290,7 +38294,7 @@ yydefault:
 	case 2562:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10931
+//line postgres.y:10935
 		{
 			n := ast.NewDropdbStmt(yyDollar[3].str, false, yyDollar[6].listUnion())
 			yyLOCAL = n
@@ -38299,7 +38303,7 @@ yydefault:
 	case 2563:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10936
+//line postgres.y:10940
 		{
 			n := ast.NewDropdbStmt(yyDollar[5].str, true, yyDollar[8].listUnion())
 			yyLOCAL = n
@@ -38308,7 +38312,7 @@ yydefault:
 	case 2564:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:10943
+//line postgres.y:10947
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -38316,7 +38320,7 @@ yydefault:
 	case 2565:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:10944
+//line postgres.y:10948
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 			yyLOCAL.Append(yyDollar[3].defeltUnion())
@@ -38325,7 +38329,7 @@ yydefault:
 	case 2566:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:10948
+//line postgres.y:10952
 		{
 			yyLOCAL = ast.NewDefElem("force", nil)
 		}
@@ -38333,7 +38337,7 @@ yydefault:
 	case 2567:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10958
+//line postgres.y:10962
 		{
 			n := ast.NewDropTableSpaceStmt(yyDollar[3].str, false)
 			yyLOCAL = n
@@ -38342,7 +38346,7 @@ yydefault:
 	case 2568:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10963
+//line postgres.y:10967
 		{
 			n := ast.NewDropTableSpaceStmt(yyDollar[5].str, true)
 			yyLOCAL = n
@@ -38351,7 +38355,7 @@ yydefault:
 	case 2569:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10977
+//line postgres.y:10981
 		{
 			n := ast.NewDropOwnedStmt(yyDollar[4].listUnion(), yyDollar[5].dropBehavUnion())
 			yyLOCAL = n
@@ -38360,7 +38364,7 @@ yydefault:
 	case 2570:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10985
+//line postgres.y:10989
 		{
 			n := ast.NewReassignOwnedStmt(yyDollar[4].listUnion(), yyDollar[6].rolespecUnion())
 			yyLOCAL = n
@@ -38369,7 +38373,7 @@ yydefault:
 	case 2571:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:10999
+//line postgres.y:11003
 		{
 			n := ast.NewCreateDomainStmt(yyDollar[3].listUnion(), yyDollar[5].typnamUnion())
 			// Use SplitColQualList to separate constraints and collate clause
@@ -38382,7 +38386,7 @@ yydefault:
 	case 2572:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11017
+//line postgres.y:11021
 		{
 			n := ast.NewAlterDomainStmt('T', yyDollar[3].listUnion())
 			n.Def = yyDollar[4].nodeUnion()
@@ -38392,7 +38396,7 @@ yydefault:
 	case 2573:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11023
+//line postgres.y:11027
 		{
 			n := ast.NewAlterDomainStmt('N', yyDollar[3].listUnion())
 			yyLOCAL = n
@@ -38401,7 +38405,7 @@ yydefault:
 	case 2574:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11028
+//line postgres.y:11032
 		{
 			n := ast.NewAlterDomainStmt('O', yyDollar[3].listUnion())
 			yyLOCAL = n
@@ -38410,7 +38414,7 @@ yydefault:
 	case 2575:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11033
+//line postgres.y:11037
 		{
 			n := ast.NewAlterDomainStmt('C', yyDollar[3].listUnion())
 			n.Def = yyDollar[5].nodeUnion()
@@ -38420,7 +38424,7 @@ yydefault:
 	case 2576:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11039
+//line postgres.y:11043
 		{
 			n := ast.NewAlterDomainStmt('X', yyDollar[3].listUnion())
 			n.Name = yyDollar[6].str
@@ -38432,7 +38436,7 @@ yydefault:
 	case 2577:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11047
+//line postgres.y:11051
 		{
 			n := ast.NewAlterDomainStmt('X', yyDollar[3].listUnion())
 			n.Name = yyDollar[8].str
@@ -38444,7 +38448,7 @@ yydefault:
 	case 2578:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11055
+//line postgres.y:11059
 		{
 			n := ast.NewAlterDomainStmt('V', yyDollar[3].listUnion())
 			n.Name = yyDollar[6].str
@@ -38454,7 +38458,7 @@ yydefault:
 	case 2579:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11070
+//line postgres.y:11074
 		{
 			// Store the full aggr_args result [args, position_indicator] for proper deparsing
 			n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, yyDollar[4].listUnion(), yyDollar[5].listUnion(), yyDollar[6].listUnion(), false, yyDollar[2].bvalUnion())
@@ -38464,7 +38468,7 @@ yydefault:
 	case 2580:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11076
+//line postgres.y:11080
 		{
 			// old-style (pre-8.2) syntax for CREATE AGGREGATE
 			n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, true, yyDollar[4].listUnion(), nil, yyDollar[5].listUnion(), false, yyDollar[2].bvalUnion())
@@ -38474,7 +38478,7 @@ yydefault:
 	case 2581:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11082
+//line postgres.y:11086
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_OPERATOR, false, yyDollar[3].listUnion(), nil, yyDollar[4].listUnion(), false, false)
 			yyLOCAL = n
@@ -38483,7 +38487,7 @@ yydefault:
 	case 2582:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11087
+//line postgres.y:11091
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, yyDollar[3].listUnion(), nil, yyDollar[4].listUnion(), false, false)
 			yyLOCAL = n
@@ -38492,7 +38496,7 @@ yydefault:
 	case 2583:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11092
+//line postgres.y:11096
 		{
 			// Shell type (identified by lack of definition)
 			n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, yyDollar[3].listUnion(), nil, nil, false, false)
@@ -38502,7 +38506,7 @@ yydefault:
 	case 2584:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11098
+//line postgres.y:11102
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSPARSER, false, yyDollar[5].listUnion(), nil, yyDollar[6].listUnion(), false, false)
 			yyLOCAL = n
@@ -38511,7 +38515,7 @@ yydefault:
 	case 2585:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11103
+//line postgres.y:11107
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSDICTIONARY, false, yyDollar[5].listUnion(), nil, yyDollar[6].listUnion(), false, false)
 			yyLOCAL = n
@@ -38520,7 +38524,7 @@ yydefault:
 	case 2586:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11108
+//line postgres.y:11112
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSTEMPLATE, false, yyDollar[5].listUnion(), nil, yyDollar[6].listUnion(), false, false)
 			yyLOCAL = n
@@ -38529,7 +38533,7 @@ yydefault:
 	case 2587:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11113
+//line postgres.y:11117
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSCONFIGURATION, false, yyDollar[5].listUnion(), nil, yyDollar[6].listUnion(), false, false)
 			yyLOCAL = n
@@ -38538,7 +38542,7 @@ yydefault:
 	case 2588:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11118
+//line postgres.y:11122
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[3].listUnion(), nil, yyDollar[4].listUnion(), false, false)
 			yyLOCAL = n
@@ -38547,7 +38551,7 @@ yydefault:
 	case 2589:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11123
+//line postgres.y:11127
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[6].listUnion(), nil, yyDollar[7].listUnion(), true, false)
 			yyLOCAL = n
@@ -38556,7 +38560,7 @@ yydefault:
 	case 2590:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11128
+//line postgres.y:11132
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[3].listUnion(), nil, ast.NewNodeList(yyDollar[5].listUnion()), false, false)
 			yyLOCAL = n
@@ -38565,7 +38569,7 @@ yydefault:
 	case 2591:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11133
+//line postgres.y:11137
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[6].listUnion(), nil, ast.NewNodeList(yyDollar[8].listUnion()), true, false)
 			yyLOCAL = n
@@ -38574,7 +38578,7 @@ yydefault:
 	case 2592:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11138
+//line postgres.y:11142
 		{
 			typevar, err := makeRangeVarFromAnyName(yyDollar[3].listUnion(), 0)
 			if err != nil {
@@ -38589,7 +38593,7 @@ yydefault:
 	case 2593:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11149
+//line postgres.y:11153
 		{
 			n := ast.NewCreateEnumStmt(yyDollar[3].listUnion(), yyDollar[7].listUnion())
 			yyLOCAL = n
@@ -38598,7 +38602,7 @@ yydefault:
 	case 2594:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11154
+//line postgres.y:11158
 		{
 			n := ast.NewCreateRangeStmt(yyDollar[3].listUnion(), yyDollar[6].listUnion())
 			yyLOCAL = n
@@ -38607,25 +38611,31 @@ yydefault:
 	case 2595:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11168
+//line postgres.y:11172
 		{
-			n := ast.NewCreateSeqStmt(yyDollar[4].rangevarUnion(), yyDollar[5].listUnion(), 0, false, false)
+			// Apply OptTemp persistence to the sequence RangeVar so the
+			// gateway can detect temp sequences and reserve a connection.
+			seq := yyDollar[4].rangevarUnion()
+			seq.RelPersistence = rune(yyDollar[2].runeUnion())
+			n := ast.NewCreateSeqStmt(seq, yyDollar[5].listUnion(), 0, false, false)
 			yyLOCAL = n
 		}
 		yyVAL.union = yyLOCAL
 	case 2596:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11173
+//line postgres.y:11181
 		{
-			n := ast.NewCreateSeqStmt(yyDollar[7].rangevarUnion(), yyDollar[8].listUnion(), 0, false, true)
+			seq := yyDollar[7].rangevarUnion()
+			seq.RelPersistence = rune(yyDollar[2].runeUnion())
+			n := ast.NewCreateSeqStmt(seq, yyDollar[8].listUnion(), 0, false, true)
 			yyLOCAL = n
 		}
 		yyVAL.union = yyLOCAL
 	case 2597:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11180
+//line postgres.y:11190
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -38633,7 +38643,7 @@ yydefault:
 	case 2598:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11181
+//line postgres.y:11191
 		{
 			yyLOCAL = nil
 		}
@@ -38641,7 +38651,7 @@ yydefault:
 	case 2599:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11192
+//line postgres.y:11202
 		{
 			yyLOCAL = ast.NewAlterSeqStmt(yyDollar[3].rangevarUnion(), yyDollar[4].listUnion(), false, false)
 		}
@@ -38649,7 +38659,7 @@ yydefault:
 	case 2600:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11196
+//line postgres.y:11206
 		{
 			yyLOCAL = ast.NewAlterSeqStmt(yyDollar[5].rangevarUnion(), yyDollar[6].listUnion(), false, true)
 		}
@@ -38657,7 +38667,7 @@ yydefault:
 	case 2601:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11209
+//line postgres.y:11219
 		{
 			n := ast.NewCreateExtensionStmt(yyDollar[3].str, false, yyDollar[5].listUnion())
 			yyLOCAL = n
@@ -38666,7 +38676,7 @@ yydefault:
 	case 2602:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11214
+//line postgres.y:11224
 		{
 			n := ast.NewCreateExtensionStmt(yyDollar[6].str, true, yyDollar[8].listUnion())
 			yyLOCAL = n
@@ -38675,7 +38685,7 @@ yydefault:
 	case 2603:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11222
+//line postgres.y:11232
 		{
 			if yyDollar[1].listUnion() == nil {
 				yyLOCAL = ast.NewNodeList(yyDollar[2].defeltUnion())
@@ -38688,7 +38698,7 @@ yydefault:
 	case 2604:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11231
+//line postgres.y:11241
 		{
 			yyLOCAL = nil
 		}
@@ -38696,7 +38706,7 @@ yydefault:
 	case 2605:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11238
+//line postgres.y:11248
 		{
 			yyLOCAL = ast.NewDefElem("schema", ast.NewString(yyDollar[2].str))
 		}
@@ -38704,14 +38714,14 @@ yydefault:
 	case 2606:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11242
+//line postgres.y:11252
 		{
 			yyLOCAL = ast.NewDefElem("version", ast.NewString(yyDollar[2].str))
 		}
 		yyVAL.union = yyLOCAL
 	case 2607:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11246
+//line postgres.y:11256
 		{
 			yylex.Error("CREATE EXTENSION ... FROM is no longer supported")
 			return 1
@@ -38719,7 +38729,7 @@ yydefault:
 	case 2608:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11251
+//line postgres.y:11261
 		{
 			yyLOCAL = ast.NewDefElem("cascade", ast.NewBoolean(true))
 		}
@@ -38727,7 +38737,7 @@ yydefault:
 	case 2609:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11264
+//line postgres.y:11274
 		{
 			n := ast.NewAlterExtensionStmt(yyDollar[3].str, yyDollar[5].listUnion())
 			yyLOCAL = n
@@ -38736,7 +38746,7 @@ yydefault:
 	case 2610:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11272
+//line postgres.y:11282
 		{
 			if yyDollar[1].listUnion() == nil {
 				yyLOCAL = ast.NewNodeList(yyDollar[2].defeltUnion())
@@ -38749,7 +38759,7 @@ yydefault:
 	case 2611:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11281
+//line postgres.y:11291
 		{
 			yyLOCAL = nil
 		}
@@ -38757,7 +38767,7 @@ yydefault:
 	case 2612:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11288
+//line postgres.y:11298
 		{
 			yyLOCAL = ast.NewDefElem("to", ast.NewString(yyDollar[2].str))
 		}
@@ -38765,7 +38775,7 @@ yydefault:
 	case 2613:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11301
+//line postgres.y:11311
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(yyDollar[5].objTypeUnion()), ast.NewString(yyDollar[6].str))
 		}
@@ -38773,7 +38783,7 @@ yydefault:
 	case 2614:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11305
+//line postgres.y:11315
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(yyDollar[5].objTypeUnion()), yyDollar[6].listUnion())
 		}
@@ -38781,7 +38791,7 @@ yydefault:
 	case 2615:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11309
+//line postgres.y:11319
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_AGGREGATE), yyDollar[6].objwithargsUnion())
 		}
@@ -38789,7 +38799,7 @@ yydefault:
 	case 2616:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11313
+//line postgres.y:11323
 		{
 			// CAST takes two TypeNames as a NodeList
 			list := ast.NewNodeList(yyDollar[7].typnamUnion())
@@ -38800,7 +38810,7 @@ yydefault:
 	case 2617:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11320
+//line postgres.y:11330
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_DOMAIN), yyDollar[6].typnamUnion())
 		}
@@ -38808,7 +38818,7 @@ yydefault:
 	case 2618:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11324
+//line postgres.y:11334
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_FUNCTION), yyDollar[6].objwithargsUnion())
 		}
@@ -38816,7 +38826,7 @@ yydefault:
 	case 2619:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11328
+//line postgres.y:11338
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_OPERATOR), yyDollar[6].objwithargsUnion())
 		}
@@ -38824,7 +38834,7 @@ yydefault:
 	case 2620:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11332
+//line postgres.y:11342
 		{
 			// OPERATOR CLASS takes method name + class name as NodeList
 			list := ast.NewNodeList(ast.NewString(yyDollar[9].str)) // method first
@@ -38837,7 +38847,7 @@ yydefault:
 	case 2621:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11341
+//line postgres.y:11351
 		{
 			// OPERATOR FAMILY takes method name + family name as NodeList
 			list := ast.NewNodeList(ast.NewString(yyDollar[9].str)) // method first
@@ -38850,7 +38860,7 @@ yydefault:
 	case 2622:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11350
+//line postgres.y:11360
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_PROCEDURE), yyDollar[6].objwithargsUnion())
 		}
@@ -38858,7 +38868,7 @@ yydefault:
 	case 2623:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11354
+//line postgres.y:11364
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_ROUTINE), yyDollar[6].objwithargsUnion())
 		}
@@ -38866,7 +38876,7 @@ yydefault:
 	case 2624:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11358
+//line postgres.y:11368
 		{
 			list := ast.NewNodeList(yyDollar[7].typnamUnion(), ast.NewString(yyDollar[9].str))
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_TRANSFORM), list)
@@ -38875,7 +38885,7 @@ yydefault:
 	case 2625:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11363
+//line postgres.y:11373
 		{
 			yyLOCAL = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_TYPE), yyDollar[6].typnamUnion())
 		}
@@ -38883,7 +38893,7 @@ yydefault:
 	case 2626:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11375
+//line postgres.y:11385
 		{
 			yyLOCAL = ast.NewCreateFdwStmt(yyDollar[5].str, yyDollar[6].listUnion(), yyDollar[7].listUnion())
 		}
@@ -38891,7 +38901,7 @@ yydefault:
 	case 2627:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11381
+//line postgres.y:11391
 		{
 			yyLOCAL = ast.NewAlterFdwStmt(yyDollar[5].str, yyDollar[6].listUnion(), yyDollar[7].listUnion())
 		}
@@ -38899,7 +38909,7 @@ yydefault:
 	case 2628:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11385
+//line postgres.y:11395
 		{
 			yyLOCAL = ast.NewAlterFdwStmt(yyDollar[5].str, yyDollar[6].listUnion(), nil)
 		}
@@ -38907,7 +38917,7 @@ yydefault:
 	case 2629:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11391
+//line postgres.y:11401
 		{
 			yyLOCAL = ast.NewDefElem("handler", yyDollar[2].listUnion())
 		}
@@ -38915,7 +38925,7 @@ yydefault:
 	case 2630:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11392
+//line postgres.y:11402
 		{
 			yyLOCAL = ast.NewDefElem("handler", nil)
 		}
@@ -38923,7 +38933,7 @@ yydefault:
 	case 2631:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11393
+//line postgres.y:11403
 		{
 			yyLOCAL = ast.NewDefElem("validator", yyDollar[2].listUnion())
 		}
@@ -38931,7 +38941,7 @@ yydefault:
 	case 2632:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11394
+//line postgres.y:11404
 		{
 			yyLOCAL = ast.NewDefElem("validator", nil)
 		}
@@ -38939,7 +38949,7 @@ yydefault:
 	case 2633:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11398
+//line postgres.y:11408
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -38947,7 +38957,7 @@ yydefault:
 	case 2634:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11399
+//line postgres.y:11409
 		{
 			yyDollar[1].listUnion().Append(yyDollar[2].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -38956,7 +38966,7 @@ yydefault:
 	case 2635:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11403
+//line postgres.y:11413
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -38964,7 +38974,7 @@ yydefault:
 	case 2636:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11404
+//line postgres.y:11414
 		{
 			yyLOCAL = nil
 		}
@@ -38972,7 +38982,7 @@ yydefault:
 	case 2637:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11408
+//line postgres.y:11418
 		{
 			yyLOCAL = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
@@ -38980,7 +38990,7 @@ yydefault:
 	case 2638:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11409
+//line postgres.y:11419
 		{
 			result := ast.NewNodeList(ast.NewString(yyDollar[1].str))
 			for _, item := range yyDollar[2].listUnion().Items {
@@ -38992,7 +39002,7 @@ yydefault:
 	case 2639:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11426
+//line postgres.y:11436
 		{
 			yyLOCAL = ast.NewCreateForeignServerStmt(yyDollar[3].str, yyDollar[4].str, yyDollar[5].str, yyDollar[9].str, yyDollar[10].listUnion(), false)
 		}
@@ -39000,7 +39010,7 @@ yydefault:
 	case 2640:
 		yyDollar = yyS[yypt-13 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11431
+//line postgres.y:11441
 		{
 			yyLOCAL = ast.NewCreateForeignServerStmt(yyDollar[6].str, yyDollar[7].str, yyDollar[8].str, yyDollar[12].str, yyDollar[13].listUnion(), true)
 		}
@@ -39008,7 +39018,7 @@ yydefault:
 	case 2641:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11437
+//line postgres.y:11447
 		{
 			yyLOCAL = ast.NewAlterForeignServerStmt(yyDollar[3].str, yyDollar[4].str, yyDollar[5].listUnion(), true)
 		}
@@ -39016,7 +39026,7 @@ yydefault:
 	case 2642:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11441
+//line postgres.y:11451
 		{
 			yyLOCAL = ast.NewAlterForeignServerStmt(yyDollar[3].str, yyDollar[4].str, nil, true)
 		}
@@ -39024,51 +39034,51 @@ yydefault:
 	case 2643:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11445
+//line postgres.y:11455
 		{
 			yyLOCAL = ast.NewAlterForeignServerStmt(yyDollar[3].str, "", yyDollar[4].listUnion(), false)
 		}
 		yyVAL.union = yyLOCAL
 	case 2644:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11451
+//line postgres.y:11461
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2645:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11452
+//line postgres.y:11462
 		{
 			yyVAL.str = ""
 		}
 	case 2646:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11456
+//line postgres.y:11466
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2647:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11457
+//line postgres.y:11467
 		{
 			yyVAL.str = ""
 		}
 	case 2648:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11461
+//line postgres.y:11471
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2649:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11462
+//line postgres.y:11472
 		{
 			yyVAL.str = ""
 		}
 	case 2650:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11475
+//line postgres.y:11485
 		{
 			yyLOCAL = ast.NewCreateForeignTableStmt(yyDollar[4].rangevarUnion(), yyDollar[6].listUnion(), yyDollar[8].listUnion(), yyDollar[10].str, yyDollar[11].listUnion(), nil, false)
 		}
@@ -39076,7 +39086,7 @@ yydefault:
 	case 2651:
 		yyDollar = yyS[yypt-14 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11481
+//line postgres.y:11491
 		{
 			yyLOCAL = ast.NewCreateForeignTableStmt(yyDollar[7].rangevarUnion(), yyDollar[9].listUnion(), yyDollar[11].listUnion(), yyDollar[13].str, yyDollar[14].listUnion(), nil, true)
 		}
@@ -39084,7 +39094,7 @@ yydefault:
 	case 2652:
 		yyDollar = yyS[yypt-12 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11487
+//line postgres.y:11497
 		{
 			yyLOCAL = ast.NewCreateForeignTableStmt(yyDollar[4].rangevarUnion(), yyDollar[8].listUnion(), ast.NewNodeList(yyDollar[7].rangevarUnion()), yyDollar[11].str, yyDollar[12].listUnion(), yyDollar[9].partboundspecUnion(), false)
 		}
@@ -39092,7 +39102,7 @@ yydefault:
 	case 2653:
 		yyDollar = yyS[yypt-15 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11493
+//line postgres.y:11503
 		{
 			yyLOCAL = ast.NewCreateForeignTableStmt(yyDollar[7].rangevarUnion(), yyDollar[11].listUnion(), ast.NewNodeList(yyDollar[10].rangevarUnion()), yyDollar[14].str, yyDollar[15].listUnion(), yyDollar[12].partboundspecUnion(), true)
 		}
@@ -39100,7 +39110,7 @@ yydefault:
 	case 2654:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11507
+//line postgres.y:11517
 		{
 			stmt := ast.NewImportForeignSchemaStmt(
 				ast.NewString(yyDollar[8].str),           // server name
@@ -39116,7 +39126,7 @@ yydefault:
 	case 2655:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ImportQual
-//line postgres.y:11522
+//line postgres.y:11532
 		{
 			qual := &ImportQual{
 				typ:        yyDollar[1].importqualtypeUnion(),
@@ -39128,7 +39138,7 @@ yydefault:
 	case 2656:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ImportQual
-//line postgres.y:11530
+//line postgres.y:11540
 		{
 			qual := &ImportQual{
 				typ:        ast.FDW_IMPORT_SCHEMA_ALL,
@@ -39140,7 +39150,7 @@ yydefault:
 	case 2657:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.ImportForeignSchemaType
-//line postgres.y:11540
+//line postgres.y:11550
 		{
 			yyLOCAL = ast.FDW_IMPORT_SCHEMA_LIMIT_TO
 		}
@@ -39148,7 +39158,7 @@ yydefault:
 	case 2658:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.ImportForeignSchemaType
-//line postgres.y:11541
+//line postgres.y:11551
 		{
 			yyLOCAL = ast.FDW_IMPORT_SCHEMA_EXCEPT
 		}
@@ -39156,7 +39166,7 @@ yydefault:
 	case 2659:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11551
+//line postgres.y:11561
 		{
 			yyLOCAL = ast.NewCreateUserMappingStmt(yyDollar[5].rolespecUnion(), yyDollar[7].str, yyDollar[8].listUnion(), false)
 		}
@@ -39164,7 +39174,7 @@ yydefault:
 	case 2660:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11555
+//line postgres.y:11565
 		{
 			yyLOCAL = ast.NewCreateUserMappingStmt(yyDollar[8].rolespecUnion(), yyDollar[10].str, yyDollar[11].listUnion(), true)
 		}
@@ -39172,7 +39182,7 @@ yydefault:
 	case 2661:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11561
+//line postgres.y:11571
 		{
 			yyLOCAL = ast.NewAlterUserMappingStmt(yyDollar[5].rolespecUnion(), yyDollar[7].str, yyDollar[8].listUnion())
 		}
@@ -39180,7 +39190,7 @@ yydefault:
 	case 2662:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11567
+//line postgres.y:11577
 		{
 			yyLOCAL = ast.NewDropUserMappingStmt(yyDollar[5].rolespecUnion(), yyDollar[7].str, false)
 		}
@@ -39188,7 +39198,7 @@ yydefault:
 	case 2663:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11571
+//line postgres.y:11581
 		{
 			yyLOCAL = ast.NewDropUserMappingStmt(yyDollar[7].rolespecUnion(), yyDollar[9].str, true)
 		}
@@ -39196,7 +39206,7 @@ yydefault:
 	case 2664:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:11577
+//line postgres.y:11587
 		{
 			yyLOCAL = yyDollar[1].rolespecUnion()
 		}
@@ -39204,7 +39214,7 @@ yydefault:
 	case 2665:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:11578
+//line postgres.y:11588
 		{
 			yyLOCAL = ast.NewRoleSpec(ast.ROLESPEC_CURRENT_USER, "")
 		}
@@ -39212,7 +39222,7 @@ yydefault:
 	case 2666:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11583
+//line postgres.y:11593
 		{
 			// For aggregates like COUNT(*)
 			// Return a list with [nil, -1] matching PostgreSQL's list_make2(NIL, makeInteger(-1))
@@ -39222,7 +39232,7 @@ yydefault:
 	case 2667:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11589
+//line postgres.y:11599
 		{
 			// Regular aggregate arguments
 			// Return a list with [args, -1] matching PostgreSQL's list_make2($2, makeInteger(-1))
@@ -39232,7 +39242,7 @@ yydefault:
 	case 2668:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11595
+//line postgres.y:11605
 		{
 			// Ordered-set aggregate without direct arguments
 			// Return a list with [args, 0] matching PostgreSQL's list_make2($4, makeInteger(0))
@@ -39242,7 +39252,7 @@ yydefault:
 	case 2669:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11601
+//line postgres.y:11611
 		{
 			// Hypothetical-set aggregate
 			// This is the only case requiring consistency checking in PostgreSQL
@@ -39257,7 +39267,7 @@ yydefault:
 	case 2670:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11615
+//line postgres.y:11625
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -39265,7 +39275,7 @@ yydefault:
 	case 2671:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11619
+//line postgres.y:11629
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -39274,7 +39284,7 @@ yydefault:
 	case 2672:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:11627
+//line postgres.y:11637
 		{
 			yyLOCAL = yyDollar[1].funparamUnion()
 		}
@@ -39282,7 +39292,7 @@ yydefault:
 	case 2673:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11634
+//line postgres.y:11644
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -39290,7 +39300,7 @@ yydefault:
 	case 2674:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11641
+//line postgres.y:11651
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -39298,7 +39308,7 @@ yydefault:
 	case 2675:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11645
+//line postgres.y:11655
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -39307,7 +39317,7 @@ yydefault:
 	case 2676:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:11653
+//line postgres.y:11663
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, yyDollar[3].nodeUnion())
 		}
@@ -39315,7 +39325,7 @@ yydefault:
 	case 2677:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11660
+//line postgres.y:11670
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].listUnion())
 			n.NewVal = yyDollar[7].str
@@ -39327,7 +39337,7 @@ yydefault:
 	case 2678:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11668
+//line postgres.y:11678
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].listUnion())
 			n.NewVal = yyDollar[7].str
@@ -39340,7 +39350,7 @@ yydefault:
 	case 2679:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11677
+//line postgres.y:11687
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].listUnion())
 			n.NewVal = yyDollar[7].str
@@ -39353,7 +39363,7 @@ yydefault:
 	case 2680:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11686
+//line postgres.y:11696
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].listUnion())
 			n.OldVal = yyDollar[6].str
@@ -39364,7 +39374,7 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 2681:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11694
+//line postgres.y:11704
 		{
 			// Following PostgreSQL's approach - DROP VALUE is parsed but not implemented
 			// PostgreSQL throws an error saying "dropping an enum value is not implemented"
@@ -39374,7 +39384,7 @@ yydefault:
 	case 2682:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11710
+//line postgres.y:11720
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -39382,7 +39392,7 @@ yydefault:
 	case 2683:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11712
+//line postgres.y:11722
 		{
 			yyLOCAL = nil
 		}
@@ -39390,7 +39400,7 @@ yydefault:
 	case 2684:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11717
+//line postgres.y:11727
 		{
 			yyLOCAL = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
@@ -39398,7 +39408,7 @@ yydefault:
 	case 2685:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11719
+//line postgres.y:11729
 		{
 			yyDollar[1].listUnion().Append(ast.NewString(yyDollar[3].str))
 			yyLOCAL = yyDollar[1].listUnion()
@@ -39407,7 +39417,7 @@ yydefault:
 	case 2686:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:11724
+//line postgres.y:11734
 		{
 			if constraint, ok := yyDollar[3].nodeUnion().(*ast.Constraint); ok {
 				constraint.Conname = yyDollar[2].str
@@ -39420,7 +39430,7 @@ yydefault:
 	case 2687:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:11733
+//line postgres.y:11743
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -39428,7 +39438,7 @@ yydefault:
 	case 2688:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:11738
+//line postgres.y:11748
 		{
 			n := ast.NewConstraint(ast.CONSTR_CHECK)
 			n.RawExpr = yyDollar[3].nodeUnion()
@@ -39443,7 +39453,7 @@ yydefault:
 	case 2689:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:11749
+//line postgres.y:11759
 		{
 			n := ast.NewConstraint(ast.CONSTR_NOTNULL)
 			// In PostgreSQL, domain NOT NULL constraints have keys = list_make1(makeString("value"))
@@ -39458,7 +39468,7 @@ yydefault:
 	case 2690:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11769
+//line postgres.y:11779
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[7].stmtUnion(), yyDollar[5].intoUnion(), ast.OBJECT_MATVIEW, false, false)
 			/* cram additional flags into the IntoClause */
@@ -39470,7 +39480,7 @@ yydefault:
 	case 2691:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11777
+//line postgres.y:11787
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[10].stmtUnion(), yyDollar[8].intoUnion(), ast.OBJECT_MATVIEW, false, true)
 			/* cram additional flags into the IntoClause */
@@ -39482,7 +39492,7 @@ yydefault:
 	case 2692:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11788
+//line postgres.y:11798
 		{
 			n := ast.NewRefreshMatViewStmt(yyDollar[4].bvalUnion(), !yyDollar[6].bvalUnion(), yyDollar[5].rangevarUnion())
 			yyLOCAL = n
@@ -39490,7 +39500,7 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 2693:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11803
+//line postgres.y:11813
 		{
 			yylex.Error("CREATE ASSERTION is not yet implemented")
 			return 1
@@ -39500,7 +39510,7 @@ yydefault:
 	case 2694:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11819
+//line postgres.y:11829
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[6].stmtUnion(), yyDollar[4].intoUnion(), ast.OBJECT_TABLE, false, false)
 			/* cram additional flags into the IntoClause */
@@ -39514,7 +39524,7 @@ yydefault:
 	case 2695:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11829
+//line postgres.y:11839
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[9].stmtUnion(), yyDollar[7].intoUnion(), ast.OBJECT_TABLE, false, true)
 			/* cram additional flags into the IntoClause */
@@ -39528,7 +39538,7 @@ yydefault:
 	case 2696:
 		yyDollar = yyS[yypt-13 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11849
+//line postgres.y:11859
 		{
 			n := &ast.RuleStmt{
 				BaseNode:    ast.BaseNode{Tag: ast.T_RuleStmt},
@@ -39546,7 +39556,7 @@ yydefault:
 	case 2697:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11865
+//line postgres.y:11875
 		{
 			yyLOCAL = nil
 		}
@@ -39554,7 +39564,7 @@ yydefault:
 	case 2698:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11866
+//line postgres.y:11876
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].stmtUnion())
 		}
@@ -39562,7 +39572,7 @@ yydefault:
 	case 2699:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11867
+//line postgres.y:11877
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -39570,7 +39580,7 @@ yydefault:
 	case 2700:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11872
+//line postgres.y:11882
 		{
 			if yyDollar[3].stmtUnion() != nil {
 				if yyDollar[1].listUnion() != nil {
@@ -39585,7 +39595,7 @@ yydefault:
 	case 2701:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11883
+//line postgres.y:11893
 		{
 			if yyDollar[1].stmtUnion() != nil {
 				yyLOCAL = ast.NewNodeList(yyDollar[1].stmtUnion())
@@ -39597,7 +39607,7 @@ yydefault:
 	case 2707:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11901
+//line postgres.y:11911
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -39605,7 +39615,7 @@ yydefault:
 	case 2708:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:11902
+//line postgres.y:11912
 		{
 			yyLOCAL = nil
 		}
@@ -39613,7 +39623,7 @@ yydefault:
 	case 2709:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11906
+//line postgres.y:11916
 		{
 			yyLOCAL = true
 		}
@@ -39621,7 +39631,7 @@ yydefault:
 	case 2710:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11907
+//line postgres.y:11917
 		{
 			yyLOCAL = false
 		}
@@ -39629,7 +39639,7 @@ yydefault:
 	case 2711:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11908
+//line postgres.y:11918
 		{
 			yyLOCAL = false
 		}
@@ -39637,7 +39647,7 @@ yydefault:
 	case 2712:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL rune
-//line postgres.y:11911
+//line postgres.y:11921
 		{
 			yyLOCAL = ast.RELPERSISTENCE_UNLOGGED
 		}
@@ -39645,7 +39655,7 @@ yydefault:
 	case 2713:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL rune
-//line postgres.y:11912
+//line postgres.y:11922
 		{
 			yyLOCAL = ast.RELPERSISTENCE_PERMANENT
 		}
@@ -39653,7 +39663,7 @@ yydefault:
 	case 2714:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.IntoClause
-//line postgres.y:11917
+//line postgres.y:11927
 		{
 			yyLOCAL = &ast.IntoClause{
 				Rel:            yyDollar[1].rangevarUnion(),
@@ -39667,7 +39677,7 @@ yydefault:
 	case 2715:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11929
+//line postgres.y:11939
 		{
 			yyLOCAL = true
 		}
@@ -39675,7 +39685,7 @@ yydefault:
 	case 2716:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11930
+//line postgres.y:11940
 		{
 			yyLOCAL = false
 		}
@@ -39683,7 +39693,7 @@ yydefault:
 	case 2717:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:11931
+//line postgres.y:11941
 		{
 			yyLOCAL = true
 		}
@@ -39691,7 +39701,7 @@ yydefault:
 	case 2718:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11936
+//line postgres.y:11946
 		{
 			if yyDollar[1].listUnion() == nil {
 				yyLOCAL = ast.NewNodeList(yyDollar[2].stmtUnion())
@@ -39704,7 +39714,7 @@ yydefault:
 	case 2719:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:11945
+//line postgres.y:11955
 		{
 			yyLOCAL = nil
 		}
@@ -39712,7 +39722,7 @@ yydefault:
 	case 2726:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11958
+//line postgres.y:11968
 		{
 			yyLOCAL = yyDollar[1].vsetstmtUnion()
 		}
@@ -39720,7 +39730,7 @@ yydefault:
 	case 2727:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11960
+//line postgres.y:11970
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_CURRENT, yyDollar[1].str, nil, false)
 		}
@@ -39728,7 +39738,7 @@ yydefault:
 	case 2728:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11964
+//line postgres.y:11974
 		{
 			if yyDollar[3].nodeUnion() == nil {
 				yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "timezone", nil, false)
@@ -39741,7 +39751,7 @@ yydefault:
 	case 2729:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11973
+//line postgres.y:11983
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "catalog", args, false)
@@ -39750,7 +39760,7 @@ yydefault:
 	case 2730:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11978
+//line postgres.y:11988
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "search_path", args, false)
@@ -39759,7 +39769,7 @@ yydefault:
 	case 2731:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11983
+//line postgres.y:11993
 		{
 			var args *ast.NodeList
 			if yyDollar[2].str != "" {
@@ -39771,7 +39781,7 @@ yydefault:
 	case 2732:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11991
+//line postgres.y:12001
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "role", args, false)
@@ -39780,7 +39790,7 @@ yydefault:
 	case 2733:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:11996
+//line postgres.y:12006
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[3].str))
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "session_authorization", args, false)
@@ -39789,7 +39799,7 @@ yydefault:
 	case 2734:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12001
+//line postgres.y:12011
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "session_authorization", nil, false)
 		}
@@ -39797,7 +39807,7 @@ yydefault:
 	case 2735:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12005
+//line postgres.y:12015
 		{
 			var value string
 			if yyDollar[3].ival == int(ast.XMLOPTION_DOCUMENT) {
@@ -39812,7 +39822,7 @@ yydefault:
 	case 2736:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12016
+//line postgres.y:12026
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[3].str))
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "transaction_snapshot", args, false)
@@ -39821,7 +39831,7 @@ yydefault:
 	case 2737:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12024
+//line postgres.y:12034
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, yyDollar[1].str, yyDollar[3].listUnion(), false)
 		}
@@ -39829,7 +39839,7 @@ yydefault:
 	case 2738:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12028
+//line postgres.y:12038
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, yyDollar[1].str, yyDollar[3].listUnion(), false)
 		}
@@ -39837,7 +39847,7 @@ yydefault:
 	case 2739:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12032
+//line postgres.y:12042
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, yyDollar[1].str, nil, false)
 		}
@@ -39845,27 +39855,27 @@ yydefault:
 	case 2740:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.VariableSetStmt
-//line postgres.y:12036
+//line postgres.y:12046
 		{
 			yyLOCAL = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, yyDollar[1].str, nil, false)
 		}
 		yyVAL.union = yyLOCAL
 	case 2741:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12043
+//line postgres.y:12053
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2742:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12047
+//line postgres.y:12057
 		{
 			yyVAL.str = yyDollar[1].str + "." + yyDollar[3].str
 		}
 	case 2743:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12054
+//line postgres.y:12064
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].nodeUnion())
@@ -39875,7 +39885,7 @@ yydefault:
 	case 2744:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12060
+//line postgres.y:12070
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -39884,7 +39894,7 @@ yydefault:
 	case 2745:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12067
+//line postgres.y:12077
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -39892,7 +39902,7 @@ yydefault:
 	case 2746:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12068
+//line postgres.y:12078
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -39900,7 +39910,7 @@ yydefault:
 	case 2747:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12072
+//line postgres.y:12082
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -39908,7 +39918,7 @@ yydefault:
 	case 2748:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12073
+//line postgres.y:12083
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -39916,7 +39926,7 @@ yydefault:
 	case 2749:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12075
+//line postgres.y:12085
 		{
 			t := yyDollar[1].typnamUnion()
 			t.Typmods = yyDollar[3].listUnion()
@@ -39927,7 +39937,7 @@ yydefault:
 	case 2750:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12082
+//line postgres.y:12092
 		{
 			t := yyDollar[1].typnamUnion()
 			// INTERVAL_FULL_RANGE equivalent and precision
@@ -39939,7 +39949,7 @@ yydefault:
 	case 2751:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12089
+//line postgres.y:12099
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -39947,7 +39957,7 @@ yydefault:
 	case 2752:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12090
+//line postgres.y:12100
 		{
 			yyLOCAL = nil
 		}
@@ -39955,81 +39965,81 @@ yydefault:
 	case 2753:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12091
+//line postgres.y:12101
 		{
 			yyLOCAL = ast.NewString("local")
 		}
 		yyVAL.union = yyLOCAL
 	case 2754:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12095
+//line postgres.y:12105
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2755:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12096
+//line postgres.y:12106
 		{
 			yyVAL.str = "default"
 		}
 	case 2756:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12097
+//line postgres.y:12107
 		{
 			yyVAL.str = ""
 		}
 	case 2757:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12101
+//line postgres.y:12111
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2758:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12102
+//line postgres.y:12112
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2759:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12106
+//line postgres.y:12116
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2760:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12107
+//line postgres.y:12117
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2761:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12108
+//line postgres.y:12118
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2762:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12109
+//line postgres.y:12119
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2763:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12113
+//line postgres.y:12123
 		{
 			yyVAL.ival = int(ast.XMLOPTION_DOCUMENT)
 		}
 	case 2764:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12114
+//line postgres.y:12124
 		{
 			yyVAL.ival = int(ast.XMLOPTION_CONTENT)
 		}
 	case 2765:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12119
+//line postgres.y:12129
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].nodeUnion())
@@ -40039,7 +40049,7 @@ yydefault:
 	case 2766:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12125
+//line postgres.y:12135
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40048,7 +40058,7 @@ yydefault:
 	case 2767:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12130
+//line postgres.y:12140
 		{
 			yyDollar[1].listUnion().Append(yyDollar[2].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40057,7 +40067,7 @@ yydefault:
 	case 2768:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12138
+//line postgres.y:12148
 		{
 			yyLOCAL = ast.NewDefElem("transaction_isolation", ast.NewString(yyDollar[3].str))
 		}
@@ -40065,7 +40075,7 @@ yydefault:
 	case 2769:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12142
+//line postgres.y:12152
 		{
 			yyLOCAL = ast.NewDefElem("transaction_read_only", ast.NewBoolean(true))
 		}
@@ -40073,7 +40083,7 @@ yydefault:
 	case 2770:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12146
+//line postgres.y:12156
 		{
 			yyLOCAL = ast.NewDefElem("transaction_read_only", ast.NewBoolean(false))
 		}
@@ -40081,7 +40091,7 @@ yydefault:
 	case 2771:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12150
+//line postgres.y:12160
 		{
 			yyLOCAL = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(true))
 		}
@@ -40089,39 +40099,39 @@ yydefault:
 	case 2772:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12154
+//line postgres.y:12164
 		{
 			yyLOCAL = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(false))
 		}
 		yyVAL.union = yyLOCAL
 	case 2773:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12160
+//line postgres.y:12170
 		{
 			yyVAL.str = "read uncommitted"
 		}
 	case 2774:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12161
+//line postgres.y:12171
 		{
 			yyVAL.str = "read committed"
 		}
 	case 2775:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12162
+//line postgres.y:12172
 		{
 			yyVAL.str = "repeatable read"
 		}
 	case 2776:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12163
+//line postgres.y:12173
 		{
 			yyVAL.str = "serializable"
 		}
 	case 2777:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12167
+//line postgres.y:12177
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -40129,7 +40139,7 @@ yydefault:
 	case 2778:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12168
+//line postgres.y:12178
 		{
 			yyLOCAL = nil
 		}
@@ -40137,7 +40147,7 @@ yydefault:
 	case 2779:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12172
+//line postgres.y:12182
 		{
 			yyLOCAL = yyDollar[1].typnamUnion()
 		}
@@ -40145,7 +40155,7 @@ yydefault:
 	case 2780:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12173
+//line postgres.y:12183
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -40153,7 +40163,7 @@ yydefault:
 	case 2781:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12174
+//line postgres.y:12184
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -40161,7 +40171,7 @@ yydefault:
 	case 2782:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12177
+//line postgres.y:12187
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -40169,7 +40179,7 @@ yydefault:
 	case 2783:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12178
+//line postgres.y:12188
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -40177,7 +40187,7 @@ yydefault:
 	case 2784:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12179
+//line postgres.y:12189
 		{
 			yyLOCAL = ast.NewString("none")
 		}
@@ -40185,7 +40195,7 @@ yydefault:
 	case 2785:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12183
+//line postgres.y:12193
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -40193,7 +40203,7 @@ yydefault:
 	case 2786:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12184
+//line postgres.y:12194
 		{
 			yyLOCAL = nil
 		}
@@ -40201,7 +40211,7 @@ yydefault:
 	case 2787:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12188
+//line postgres.y:12198
 		{
 			yyLOCAL = yyDollar[2].nodeUnion()
 		}
@@ -40209,7 +40219,7 @@ yydefault:
 	case 2788:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12189
+//line postgres.y:12199
 		{
 			yyLOCAL = nil
 		}
@@ -40217,7 +40227,7 @@ yydefault:
 	case 2789:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12193
+//line postgres.y:12203
 		{
 			yyLOCAL = yyDollar[3].listUnion()
 		}
@@ -40225,7 +40235,7 @@ yydefault:
 	case 2790:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12198
+//line postgres.y:12208
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[1].defeltUnion())
@@ -40234,7 +40244,7 @@ yydefault:
 	case 2791:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12203
+//line postgres.y:12213
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40243,7 +40253,7 @@ yydefault:
 	case 2792:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12211
+//line postgres.y:12221
 		{
 			yyLOCAL = yyDollar[1].defeltUnion()
 		}
@@ -40251,7 +40261,7 @@ yydefault:
 	case 2793:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12215
+//line postgres.y:12225
 		{
 			elem := yyDollar[2].defeltUnion()
 			elem.Defaction = ast.DEFELEM_SET
@@ -40261,7 +40271,7 @@ yydefault:
 	case 2794:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12221
+//line postgres.y:12231
 		{
 			elem := yyDollar[2].defeltUnion()
 			elem.Defaction = ast.DEFELEM_ADD
@@ -40271,27 +40281,27 @@ yydefault:
 	case 2795:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12227
+//line postgres.y:12237
 		{
 			yyLOCAL = ast.NewDefElemExtended("", yyDollar[2].str, nil, ast.DEFELEM_DROP)
 		}
 		yyVAL.union = yyLOCAL
 	case 2796:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12233
+//line postgres.y:12243
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2797:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12234
+//line postgres.y:12244
 		{
 			yyVAL.str = ""
 		}
 	case 2798:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12238
+//line postgres.y:12248
 		{
 			yyLOCAL = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_NOTHING, "")
 		}
@@ -40299,7 +40309,7 @@ yydefault:
 	case 2799:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12239
+//line postgres.y:12249
 		{
 			yyLOCAL = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_FULL, "")
 		}
@@ -40307,7 +40317,7 @@ yydefault:
 	case 2800:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12240
+//line postgres.y:12250
 		{
 			yyLOCAL = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_DEFAULT, "")
 		}
@@ -40315,7 +40325,7 @@ yydefault:
 	case 2801:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12241
+//line postgres.y:12251
 		{
 			yyLOCAL = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_INDEX, yyDollar[3].str)
 		}
@@ -40323,7 +40333,7 @@ yydefault:
 	case 2802:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12245
+//line postgres.y:12255
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -40331,7 +40341,7 @@ yydefault:
 	case 2803:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12250
+//line postgres.y:12260
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[1].defeltUnion())
@@ -40340,7 +40350,7 @@ yydefault:
 	case 2804:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12255
+//line postgres.y:12265
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40349,7 +40359,7 @@ yydefault:
 	case 2805:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12262
+//line postgres.y:12272
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, nil)
 		}
@@ -40357,7 +40367,7 @@ yydefault:
 	case 2806:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12263
+//line postgres.y:12273
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, yyDollar[3].nodeUnion())
 		}
@@ -40365,7 +40375,7 @@ yydefault:
 	case 2807:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12274
+//line postgres.y:12284
 		{
 			yyLOCAL = ast.NewCreateEventTrigStmt(yyDollar[4].str, yyDollar[6].str, yyDollar[9].listUnion(), nil)
 		}
@@ -40373,7 +40383,7 @@ yydefault:
 	case 2808:
 		yyDollar = yyS[yypt-13 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12278
+//line postgres.y:12288
 		{
 			yyLOCAL = ast.NewCreateEventTrigStmt(yyDollar[4].str, yyDollar[6].str, yyDollar[11].listUnion(), yyDollar[8].listUnion())
 		}
@@ -40381,39 +40391,39 @@ yydefault:
 	case 2809:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12284
+//line postgres.y:12294
 		{
 			yyLOCAL = ast.NewAlterEventTrigStmt(yyDollar[4].str, ast.TriggerFires(yyDollar[5].ival))
 		}
 		yyVAL.union = yyLOCAL
 	case 2810:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12290
+//line postgres.y:12300
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ON_ORIGIN)
 		}
 	case 2811:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12291
+//line postgres.y:12301
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ON_REPLICA)
 		}
 	case 2812:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12292
+//line postgres.y:12302
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ALWAYS)
 		}
 	case 2813:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12293
+//line postgres.y:12303
 		{
 			yyVAL.ival = int(ast.TRIGGER_DISABLED)
 		}
 	case 2814:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12298
+//line postgres.y:12308
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[1].defeltUnion())
@@ -40422,7 +40432,7 @@ yydefault:
 	case 2815:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12303
+//line postgres.y:12313
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40431,7 +40441,7 @@ yydefault:
 	case 2816:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:12311
+//line postgres.y:12321
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, yyDollar[4].listUnion())
 		}
@@ -40439,7 +40449,7 @@ yydefault:
 	case 2817:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12318
+//line postgres.y:12328
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(ast.NewString(yyDollar[1].str))
@@ -40448,7 +40458,7 @@ yydefault:
 	case 2818:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12323
+//line postgres.y:12333
 		{
 			yyDollar[1].listUnion().Append(ast.NewString(yyDollar[3].str))
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40457,7 +40467,7 @@ yydefault:
 	case 2819:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12337
+//line postgres.y:12347
 		{
 			yyLOCAL = ast.NewCreateTableSpaceStmt(yyDollar[3].str, yyDollar[4].rolespecUnion(), yyDollar[6].str, yyDollar[7].listUnion())
 		}
@@ -40465,7 +40475,7 @@ yydefault:
 	case 2820:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:12343
+//line postgres.y:12353
 		{
 			yyLOCAL = yyDollar[2].rolespecUnion()
 		}
@@ -40473,7 +40483,7 @@ yydefault:
 	case 2821:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:12344
+//line postgres.y:12354
 		{
 			yyLOCAL = nil
 		}
@@ -40481,7 +40491,7 @@ yydefault:
 	case 2822:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12349
+//line postgres.y:12359
 		{
 			yyLOCAL = ast.NewAlterTableSpaceStmt(yyDollar[3].str, yyDollar[5].listUnion(), false)
 		}
@@ -40489,7 +40499,7 @@ yydefault:
 	case 2823:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12353
+//line postgres.y:12363
 		{
 			yyLOCAL = ast.NewAlterTableSpaceStmt(yyDollar[3].str, yyDollar[5].listUnion(), true)
 		}
@@ -40497,7 +40507,7 @@ yydefault:
 	case 2824:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12368
+//line postgres.y:12378
 		{
 			yyLOCAL = ast.NewCreatePolicyStmt(yyDollar[3].str, yyDollar[5].rangevarUnion(), yyDollar[6].bvalUnion(), yyDollar[7].str, yyDollar[8].listUnion(), yyDollar[9].nodeUnion(), yyDollar[10].nodeUnion())
 		}
@@ -40505,7 +40515,7 @@ yydefault:
 	case 2825:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12376
+//line postgres.y:12386
 		{
 			yyLOCAL = ast.NewAlterPolicyStmt(yyDollar[3].str, yyDollar[5].rangevarUnion(), yyDollar[6].listUnion(), yyDollar[7].nodeUnion(), yyDollar[8].nodeUnion())
 		}
@@ -40513,7 +40523,7 @@ yydefault:
 	case 2826:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12383
+//line postgres.y:12393
 		{
 			// Check for "permissive" or "restrictive" (case-insensitive)
 			if strings.EqualFold(yyDollar[2].str, "permissive") {
@@ -40530,57 +40540,57 @@ yydefault:
 	case 2827:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12395
+//line postgres.y:12405
 		{
 			yyLOCAL = true
 		}
 		yyVAL.union = yyLOCAL
 	case 2828:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12399
+//line postgres.y:12409
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2829:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12400
+//line postgres.y:12410
 		{
 			yyVAL.str = "all"
 		}
 	case 2830:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12404
+//line postgres.y:12414
 		{
 			yyVAL.str = "all"
 		}
 	case 2831:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12405
+//line postgres.y:12415
 		{
 			yyVAL.str = "select"
 		}
 	case 2832:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12406
+//line postgres.y:12416
 		{
 			yyVAL.str = "insert"
 		}
 	case 2833:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12407
+//line postgres.y:12417
 		{
 			yyVAL.str = "update"
 		}
 	case 2834:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12408
+//line postgres.y:12418
 		{
 			yyVAL.str = "delete"
 		}
 	case 2835:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12412
+//line postgres.y:12422
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -40588,7 +40598,7 @@ yydefault:
 	case 2836:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12413
+//line postgres.y:12423
 		{
 			// Default to PUBLIC when no TO clause is specified
 			publicRole := ast.NewRoleSpec(ast.ROLESPEC_PUBLIC, "")
@@ -40598,7 +40608,7 @@ yydefault:
 	case 2837:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12421
+//line postgres.y:12431
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -40606,7 +40616,7 @@ yydefault:
 	case 2838:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12422
+//line postgres.y:12432
 		{
 			yyLOCAL = nil
 		}
@@ -40614,7 +40624,7 @@ yydefault:
 	case 2839:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12426
+//line postgres.y:12436
 		{
 			yyLOCAL = yyDollar[3].nodeUnion()
 		}
@@ -40622,7 +40632,7 @@ yydefault:
 	case 2840:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12427
+//line postgres.y:12437
 		{
 			yyLOCAL = nil
 		}
@@ -40630,7 +40640,7 @@ yydefault:
 	case 2841:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12431
+//line postgres.y:12441
 		{
 			yyLOCAL = yyDollar[4].nodeUnion()
 		}
@@ -40638,7 +40648,7 @@ yydefault:
 	case 2842:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12432
+//line postgres.y:12442
 		{
 			yyLOCAL = nil
 		}
@@ -40646,27 +40656,27 @@ yydefault:
 	case 2843:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12443
+//line postgres.y:12453
 		{
 			yyLOCAL = ast.NewCreateAmStmt(yyDollar[4].str, ast.AmType(yyDollar[6].ival), yyDollar[8].listUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 2844:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12449
+//line postgres.y:12459
 		{
 			yyVAL.ival = int(ast.AMTYPE_INDEX)
 		}
 	case 2845:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12450
+//line postgres.y:12460
 		{
 			yyVAL.ival = int(ast.AMTYPE_TABLE)
 		}
 	case 2846:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12461
+//line postgres.y:12471
 		{
 			yyLOCAL = ast.NewCreateStatsStmt(yyDollar[3].listUnion(), yyDollar[4].listUnion(), yyDollar[6].listUnion(), yyDollar[8].listUnion(), "", false, false)
 		}
@@ -40674,7 +40684,7 @@ yydefault:
 	case 2847:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12465
+//line postgres.y:12475
 		{
 			yyLOCAL = ast.NewCreateStatsStmt(yyDollar[6].listUnion(), yyDollar[7].listUnion(), yyDollar[9].listUnion(), yyDollar[11].listUnion(), "", false, true)
 		}
@@ -40682,7 +40692,7 @@ yydefault:
 	case 2848:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12472
+//line postgres.y:12482
 		{
 			yyLOCAL = ast.NewAlterStatsStmt(yyDollar[3].listUnion(), yyDollar[6].nodeUnion(), false)
 		}
@@ -40690,7 +40700,7 @@ yydefault:
 	case 2849:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12476
+//line postgres.y:12486
 		{
 			yyLOCAL = ast.NewAlterStatsStmt(yyDollar[5].listUnion(), yyDollar[8].nodeUnion(), true)
 		}
@@ -40698,7 +40708,7 @@ yydefault:
 	case 2850:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12482
+//line postgres.y:12492
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[1].statelemUnion())
@@ -40707,7 +40717,7 @@ yydefault:
 	case 2851:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12483
+//line postgres.y:12493
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].statelemUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40716,7 +40726,7 @@ yydefault:
 	case 2852:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.StatsElem
-//line postgres.y:12487
+//line postgres.y:12497
 		{
 			yyLOCAL = ast.NewStatsElem(yyDollar[1].str)
 		}
@@ -40724,7 +40734,7 @@ yydefault:
 	case 2853:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.StatsElem
-//line postgres.y:12488
+//line postgres.y:12498
 		{
 			yyLOCAL = ast.NewStatsElemExpr(yyDollar[1].nodeUnion())
 		}
@@ -40732,7 +40742,7 @@ yydefault:
 	case 2854:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.StatsElem
-//line postgres.y:12489
+//line postgres.y:12499
 		{
 			yyLOCAL = ast.NewStatsElemExpr(ast.NewParenExpr(yyDollar[2].nodeUnion(), 0))
 		}
@@ -40740,7 +40750,7 @@ yydefault:
 	case 2855:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12500
+//line postgres.y:12510
 		{
 			yyLOCAL = ast.NewCreatePublicationStmt(yyDollar[3].str, nil, false, yyDollar[4].listUnion())
 		}
@@ -40748,7 +40758,7 @@ yydefault:
 	case 2856:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12504
+//line postgres.y:12514
 		{
 			yyLOCAL = ast.NewCreatePublicationStmt(yyDollar[3].str, nil, true, yyDollar[7].listUnion())
 		}
@@ -40756,7 +40766,7 @@ yydefault:
 	case 2857:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12508
+//line postgres.y:12518
 		{
 			yyLOCAL = ast.NewCreatePublicationStmt(yyDollar[3].str, yyDollar[5].listUnion(), false, yyDollar[6].listUnion())
 		}
@@ -40764,7 +40774,7 @@ yydefault:
 	case 2858:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12515
+//line postgres.y:12525
 		{
 			yyLOCAL = ast.NewAlterPublicationStmt(yyDollar[3].str, yyDollar[5].listUnion(), nil, ast.AP_SetOptions)
 		}
@@ -40772,7 +40782,7 @@ yydefault:
 	case 2859:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12519
+//line postgres.y:12529
 		{
 			yyLOCAL = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].listUnion(), ast.AP_AddObjects)
 		}
@@ -40780,7 +40790,7 @@ yydefault:
 	case 2860:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12523
+//line postgres.y:12533
 		{
 			yyLOCAL = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].listUnion(), ast.AP_SetObjects)
 		}
@@ -40788,7 +40798,7 @@ yydefault:
 	case 2861:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12527
+//line postgres.y:12537
 		{
 			yyLOCAL = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].listUnion(), ast.AP_DropObjects)
 		}
@@ -40796,7 +40806,7 @@ yydefault:
 	case 2862:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12533
+//line postgres.y:12543
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[1].nodeUnion())
@@ -40805,7 +40815,7 @@ yydefault:
 	case 2863:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12534
+//line postgres.y:12544
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -40814,7 +40824,7 @@ yydefault:
 	case 2864:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12539
+//line postgres.y:12549
 		{
 			pubTable := ast.NewPublicationTable(yyDollar[2].rangevarUnion(), yyDollar[4].nodeUnion(), yyDollar[3].listUnion())
 			yyLOCAL = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_TABLE, pubTable)
@@ -40823,7 +40833,7 @@ yydefault:
 	case 2865:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12544
+//line postgres.y:12554
 		{
 			yyLOCAL = ast.NewPublicationObjSpecName(ast.PUBLICATIONOBJ_TABLES_IN_SCHEMA, yyDollar[4].str)
 		}
@@ -40831,7 +40841,7 @@ yydefault:
 	case 2866:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12548
+//line postgres.y:12558
 		{
 			yyLOCAL = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA)
 		}
@@ -40839,7 +40849,7 @@ yydefault:
 	case 2867:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12552
+//line postgres.y:12562
 		{
 			// If either a row filter or column list is specified, create a PublicationTable object
 			if yyDollar[2].listUnion() != nil || yyDollar[3].nodeUnion() != nil {
@@ -40855,7 +40865,7 @@ yydefault:
 	case 2868:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12564
+//line postgres.y:12574
 		{
 			rangeVar := makeRangeVarFromQualifiedName(yyDollar[1].str, yyDollar[2].listUnion(), -1)
 			pubTable := ast.NewPublicationTable(rangeVar, yyDollar[4].nodeUnion(), yyDollar[3].listUnion())
@@ -40865,7 +40875,7 @@ yydefault:
 	case 2869:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12570
+//line postgres.y:12580
 		{
 			pubTable := ast.NewPublicationTable(yyDollar[1].rangevarUnion(), yyDollar[3].nodeUnion(), yyDollar[2].listUnion())
 			yyLOCAL = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
@@ -40874,7 +40884,7 @@ yydefault:
 	case 2870:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12575
+//line postgres.y:12585
 		{
 			yyLOCAL = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_CONTINUATION)
 		}
@@ -40882,7 +40892,7 @@ yydefault:
 	case 2871:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12581
+//line postgres.y:12591
 		{
 			yyLOCAL = yyDollar[3].nodeUnion()
 		}
@@ -40890,7 +40900,7 @@ yydefault:
 	case 2872:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12582
+//line postgres.y:12592
 		{
 			yyLOCAL = nil
 		}
@@ -40898,7 +40908,7 @@ yydefault:
 	case 2873:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12593
+//line postgres.y:12603
 		{
 			yyLOCAL = ast.NewCreateSubscriptionStmt(yyDollar[3].str, yyDollar[5].str, yyDollar[7].listUnion(), yyDollar[8].listUnion())
 		}
@@ -40906,7 +40916,7 @@ yydefault:
 	case 2874:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12600
+//line postgres.y:12610
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_OPTIONS, "", nil, yyDollar[5].listUnion())
 		}
@@ -40914,7 +40924,7 @@ yydefault:
 	case 2875:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12604
+//line postgres.y:12614
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_CONNECTION, yyDollar[5].str, nil, nil)
 		}
@@ -40922,7 +40932,7 @@ yydefault:
 	case 2876:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12608
+//line postgres.y:12618
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_REFRESH, "", nil, yyDollar[6].listUnion())
 		}
@@ -40930,7 +40940,7 @@ yydefault:
 	case 2877:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12612
+//line postgres.y:12622
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_ADD_PUBLICATION, "", yyDollar[6].listUnion(), yyDollar[7].listUnion())
 		}
@@ -40938,7 +40948,7 @@ yydefault:
 	case 2878:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12616
+//line postgres.y:12626
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_DROP_PUBLICATION, "", yyDollar[6].listUnion(), yyDollar[7].listUnion())
 		}
@@ -40946,7 +40956,7 @@ yydefault:
 	case 2879:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12620
+//line postgres.y:12630
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_SET_PUBLICATION, "", yyDollar[6].listUnion(), yyDollar[7].listUnion())
 		}
@@ -40954,7 +40964,7 @@ yydefault:
 	case 2880:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12624
+//line postgres.y:12634
 		{
 			enableOpt := ast.NewNodeList()
 			enableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(true)))
@@ -40964,7 +40974,7 @@ yydefault:
 	case 2881:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12630
+//line postgres.y:12640
 		{
 			disableOpt := ast.NewNodeList()
 			disableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(false)))
@@ -40974,7 +40984,7 @@ yydefault:
 	case 2882:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12636
+//line postgres.y:12646
 		{
 			yyLOCAL = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_SKIP, "", nil, yyDollar[5].listUnion())
 		}
@@ -40982,7 +40992,7 @@ yydefault:
 	case 2883:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12649
+//line postgres.y:12659
 		{
 			yyLOCAL = ast.NewCreateCastStmt(yyDollar[4].typnamUnion(), yyDollar[6].typnamUnion(), yyDollar[10].objwithargsUnion(), ast.CoercionContext(yyDollar[11].ival), false)
 		}
@@ -40990,7 +41000,7 @@ yydefault:
 	case 2884:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12653
+//line postgres.y:12663
 		{
 			yyLOCAL = ast.NewCreateCastStmt(yyDollar[4].typnamUnion(), yyDollar[6].typnamUnion(), nil, ast.CoercionContext(yyDollar[10].ival), false)
 		}
@@ -40998,33 +41008,33 @@ yydefault:
 	case 2885:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12657
+//line postgres.y:12667
 		{
 			yyLOCAL = ast.NewCreateCastStmt(yyDollar[4].typnamUnion(), yyDollar[6].typnamUnion(), nil, ast.CoercionContext(yyDollar[10].ival), true)
 		}
 		yyVAL.union = yyLOCAL
 	case 2886:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12663
+//line postgres.y:12673
 		{
 			yyVAL.ival = int(ast.COERCION_IMPLICIT)
 		}
 	case 2887:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12664
+//line postgres.y:12674
 		{
 			yyVAL.ival = int(ast.COERCION_ASSIGNMENT)
 		}
 	case 2888:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12665
+//line postgres.y:12675
 		{
 			yyVAL.ival = int(ast.COERCION_EXPLICIT)
 		}
 	case 2889:
 		yyDollar = yyS[yypt-13 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12677
+//line postgres.y:12687
 		{
 			yyLOCAL = ast.NewCreateOpClassStmt(yyDollar[4].listUnion(), yyDollar[11].listUnion(), yyDollar[10].str, yyDollar[8].typnamUnion(), yyDollar[13].listUnion(), yyDollar[5].bvalUnion())
 		}
@@ -41032,7 +41042,7 @@ yydefault:
 	case 2890:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12683
+//line postgres.y:12693
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -41040,7 +41050,7 @@ yydefault:
 	case 2891:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12684
+//line postgres.y:12694
 		{
 			yyLOCAL = nil
 		}
@@ -41048,7 +41058,7 @@ yydefault:
 	case 2892:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12688
+//line postgres.y:12698
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -41056,7 +41066,7 @@ yydefault:
 	case 2893:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12689
+//line postgres.y:12699
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -41065,7 +41075,7 @@ yydefault:
 	case 2894:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12694
+//line postgres.y:12704
 		{
 			// Create ObjectWithArgs for simple operator
 			owa := ast.NewObjectWithArgs(yyDollar[3].listUnion(), nil, false, -1)
@@ -41075,7 +41085,7 @@ yydefault:
 	case 2895:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12700
+//line postgres.y:12710
 		{
 			yyLOCAL = ast.NewOpClassItemOperator(yyDollar[2].ival, yyDollar[3].objwithargsUnion(), yyDollar[4].listUnion())
 		}
@@ -41083,7 +41093,7 @@ yydefault:
 	case 2896:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12704
+//line postgres.y:12714
 		{
 			yyLOCAL = ast.NewOpClassItemFunction(yyDollar[2].ival, yyDollar[3].objwithargsUnion(), nil)
 		}
@@ -41091,7 +41101,7 @@ yydefault:
 	case 2897:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12708
+//line postgres.y:12718
 		{
 			yyLOCAL = ast.NewOpClassItemFunction(yyDollar[2].ival, yyDollar[6].objwithargsUnion(), yyDollar[4].listUnion())
 		}
@@ -41099,7 +41109,7 @@ yydefault:
 	case 2898:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12712
+//line postgres.y:12722
 		{
 			yyLOCAL = ast.NewOpClassItemStorage(yyDollar[2].typnamUnion())
 		}
@@ -41107,7 +41117,7 @@ yydefault:
 	case 2899:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12718
+//line postgres.y:12728
 		{
 			yyLOCAL = true
 		}
@@ -41115,7 +41125,7 @@ yydefault:
 	case 2900:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12719
+//line postgres.y:12729
 		{
 			yyLOCAL = false
 		}
@@ -41123,7 +41133,7 @@ yydefault:
 	case 2901:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12723
+//line postgres.y:12733
 		{
 			yyLOCAL = nil
 		}
@@ -41131,7 +41141,7 @@ yydefault:
 	case 2902:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12724
+//line postgres.y:12734
 		{
 			yyLOCAL = yyDollar[4].listUnion()
 		}
@@ -41139,7 +41149,7 @@ yydefault:
 	case 2903:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12725
+//line postgres.y:12735
 		{
 			yyLOCAL = nil
 		}
@@ -41147,7 +41157,7 @@ yydefault:
 	case 2904:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12729
+//line postgres.y:12739
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].typnamUnion())
 		}
@@ -41155,7 +41165,7 @@ yydefault:
 	case 2905:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12730
+//line postgres.y:12740
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].typnamUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -41164,7 +41174,7 @@ yydefault:
 	case 2906:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12741
+//line postgres.y:12751
 		{
 			yyLOCAL = ast.NewCreateOpFamilyStmt(yyDollar[4].listUnion(), yyDollar[6].str)
 		}
@@ -41172,7 +41182,7 @@ yydefault:
 	case 2907:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12754
+//line postgres.y:12764
 		{
 			yyLOCAL = ast.NewAlterOpFamilyStmt(yyDollar[4].listUnion(), yyDollar[6].str, false, yyDollar[8].listUnion())
 		}
@@ -41180,7 +41190,7 @@ yydefault:
 	case 2908:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12758
+//line postgres.y:12768
 		{
 			yyLOCAL = ast.NewAlterOpFamilyStmt(yyDollar[4].listUnion(), yyDollar[6].str, true, yyDollar[8].listUnion())
 		}
@@ -41188,7 +41198,7 @@ yydefault:
 	case 2909:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12764
+//line postgres.y:12774
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -41196,7 +41206,7 @@ yydefault:
 	case 2910:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12765
+//line postgres.y:12775
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -41205,7 +41215,7 @@ yydefault:
 	case 2911:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12770
+//line postgres.y:12780
 		{
 			// Create ObjectWithArgs for operator with args
 			owa := ast.NewObjectWithArgs(nil, yyDollar[4].listUnion(), false, -1)
@@ -41215,7 +41225,7 @@ yydefault:
 	case 2912:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12776
+//line postgres.y:12786
 		{
 			// Create ObjectWithArgs for function with args
 			owa := ast.NewObjectWithArgs(nil, yyDollar[4].listUnion(), false, -1)
@@ -41225,7 +41235,7 @@ yydefault:
 	case 2913:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12791
+//line postgres.y:12801
 		{
 			yyLOCAL = ast.NewCreateConversionStmt(yyDollar[4].listUnion(), yyDollar[6].str, yyDollar[8].str, yyDollar[10].listUnion(), yyDollar[2].bvalUnion())
 		}
@@ -41233,7 +41243,7 @@ yydefault:
 	case 2914:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12804
+//line postgres.y:12814
 		{
 			yyLOCAL = ast.NewCreateTransformStmt(yyDollar[2].bvalUnion(), yyDollar[5].typnamUnion(), yyDollar[7].str, linitial(yyDollar[9].listUnion()), lsecond(yyDollar[9].listUnion()))
 		}
@@ -41241,7 +41251,7 @@ yydefault:
 	case 2915:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12811
+//line postgres.y:12821
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[5].objwithargsUnion())  // fromsql
@@ -41251,7 +41261,7 @@ yydefault:
 	case 2916:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12817
+//line postgres.y:12827
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[11].objwithargsUnion()) // fromsql
@@ -41261,7 +41271,7 @@ yydefault:
 	case 2917:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12823
+//line postgres.y:12833
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(yyDollar[5].objwithargsUnion()) // fromsql
@@ -41271,7 +41281,7 @@ yydefault:
 	case 2918:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12829
+//line postgres.y:12839
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Append(nil)                            // fromsql
@@ -41281,7 +41291,7 @@ yydefault:
 	case 2919:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12844
+//line postgres.y:12854
 		{
 			// Parameterless CREATE LANGUAGE is now treated as CREATE EXTENSION
 			yyLOCAL = ast.NewCreateExtensionStmt(yyDollar[6].str, yyDollar[2].bvalUnion(), nil)
@@ -41290,7 +41300,7 @@ yydefault:
 	case 2920:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:12850
+//line postgres.y:12860
 		{
 			yyLOCAL = ast.NewCreatePLangStmt(yyDollar[2].bvalUnion(), yyDollar[6].str, yyDollar[8].listUnion(), yyDollar[9].listUnion(), yyDollar[10].listUnion(), yyDollar[3].bvalUnion())
 		}
@@ -41298,7 +41308,7 @@ yydefault:
 	case 2921:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12856
+//line postgres.y:12866
 		{
 			yyLOCAL = true
 		}
@@ -41306,7 +41316,7 @@ yydefault:
 	case 2922:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:12857
+//line postgres.y:12867
 		{
 			yyLOCAL = false
 		}
@@ -41314,7 +41324,7 @@ yydefault:
 	case 2923:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12862
+//line postgres.y:12872
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -41322,7 +41332,7 @@ yydefault:
 	case 2924:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12863
+//line postgres.y:12873
 		{
 			yyLOCAL = nil
 		}
@@ -41330,7 +41340,7 @@ yydefault:
 	case 2925:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12867
+//line postgres.y:12877
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -41338,7 +41348,7 @@ yydefault:
 	case 2926:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12868
+//line postgres.y:12878
 		{
 			yyLOCAL = nil
 		}
@@ -41346,7 +41356,7 @@ yydefault:
 	case 2927:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12872
+//line postgres.y:12882
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -41354,7 +41364,7 @@ yydefault:
 	case 2928:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12873
+//line postgres.y:12883
 		{
 			yyLOCAL = nil
 		}
@@ -41362,7 +41372,7 @@ yydefault:
 	case 2929:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.SetQuantifier
-//line postgres.y:12876
+//line postgres.y:12886
 		{
 			yyLOCAL = ast.SET_QUANTIFIER_ALL
 		}
@@ -41370,7 +41380,7 @@ yydefault:
 	case 2930:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.SetQuantifier
-//line postgres.y:12877
+//line postgres.y:12887
 		{
 			yyLOCAL = ast.SET_QUANTIFIER_DISTINCT
 		}
@@ -41378,7 +41388,7 @@ yydefault:
 	case 2931:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.SetQuantifier
-//line postgres.y:12878
+//line postgres.y:12888
 		{
 			yyLOCAL = ast.SET_QUANTIFIER_DEFAULT
 		}
@@ -41386,7 +41396,7 @@ yydefault:
 	case 2932:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.GroupClause
-//line postgres.y:12883
+//line postgres.y:12893
 		{
 			yyLOCAL = &ast.GroupClause{
 				Distinct: yyDollar[3].setquantUnion() == ast.SET_QUANTIFIER_DISTINCT,
@@ -41397,7 +41407,7 @@ yydefault:
 	case 2933:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.GroupClause
-//line postgres.y:12890
+//line postgres.y:12900
 		{
 			yyLOCAL = nil
 		}
@@ -41405,7 +41415,7 @@ yydefault:
 	case 2934:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12896
+//line postgres.y:12906
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -41413,7 +41423,7 @@ yydefault:
 	case 2935:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12897
+//line postgres.y:12907
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -41422,7 +41432,7 @@ yydefault:
 	case 2936:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12901
+//line postgres.y:12911
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -41430,7 +41440,7 @@ yydefault:
 	case 2937:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12902
+//line postgres.y:12912
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -41438,7 +41448,7 @@ yydefault:
 	case 2938:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12903
+//line postgres.y:12913
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -41446,7 +41456,7 @@ yydefault:
 	case 2939:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12904
+//line postgres.y:12914
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -41454,7 +41464,7 @@ yydefault:
 	case 2940:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12905
+//line postgres.y:12915
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -41462,7 +41472,7 @@ yydefault:
 	case 2941:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12910
+//line postgres.y:12920
 		{
 			yyLOCAL = ast.NewGroupingSet(ast.GROUPING_SET_EMPTY, ast.NewNodeList(), 0)
 		}
@@ -41470,7 +41480,7 @@ yydefault:
 	case 2942:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12917
+//line postgres.y:12927
 		{
 			yyLOCAL = ast.NewGroupingSet(ast.GROUPING_SET_ROLLUP, yyDollar[3].listUnion(), 0)
 		}
@@ -41478,7 +41488,7 @@ yydefault:
 	case 2943:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12924
+//line postgres.y:12934
 		{
 			yyLOCAL = ast.NewGroupingSet(ast.GROUPING_SET_CUBE, yyDollar[3].listUnion(), 0)
 		}
@@ -41486,7 +41496,7 @@ yydefault:
 	case 2944:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12931
+//line postgres.y:12941
 		{
 			yyLOCAL = ast.NewGroupingSet(ast.GROUPING_SET_SETS, yyDollar[4].listUnion(), 0)
 		}
@@ -41494,7 +41504,7 @@ yydefault:
 	case 2945:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12940
+//line postgres.y:12950
 		{
 			yyLOCAL = yyDollar[2].nodeUnion()
 		}
@@ -41502,7 +41512,7 @@ yydefault:
 	case 2946:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12941
+//line postgres.y:12951
 		{
 			yyLOCAL = nil
 		}
@@ -41510,7 +41520,7 @@ yydefault:
 	case 2947:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12948
+//line postgres.y:12958
 		{
 			yyLOCAL = yyDollar[3].listUnion()
 		}
@@ -41518,7 +41528,7 @@ yydefault:
 	case 2948:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12952
+//line postgres.y:12962
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -41526,7 +41536,7 @@ yydefault:
 	case 2949:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12953
+//line postgres.y:12963
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -41535,7 +41545,7 @@ yydefault:
 	case 2950:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12958
+//line postgres.y:12968
 		{
 			sortBy := ast.NewSortBy(yyDollar[1].nodeUnion(), ast.SORTBY_USING, ast.SortByNulls(yyDollar[4].ival), 0)
 			// Use qual_all_Op (NodeList) directly for UseOp
@@ -41546,7 +41556,7 @@ yydefault:
 	case 2951:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:12965
+//line postgres.y:12975
 		{
 			yyLOCAL = ast.NewSortBy(yyDollar[1].nodeUnion(), ast.SortByDir(yyDollar[2].ival), ast.SortByNulls(yyDollar[3].ival), 0)
 		}
@@ -41554,7 +41564,7 @@ yydefault:
 	case 2952:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12976
+//line postgres.y:12986
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -41562,7 +41572,7 @@ yydefault:
 	case 2953:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12978
+//line postgres.y:12988
 		{
 			yyLOCAL = nil
 		}
@@ -41570,7 +41580,7 @@ yydefault:
 	case 2954:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12983
+//line postgres.y:12993
 		{
 			yyLOCAL = ast.NewNodeList()
 			yyLOCAL.Items = append(yyLOCAL.Items, yyDollar[1].windefUnion())
@@ -41579,7 +41589,7 @@ yydefault:
 	case 2955:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:12988
+//line postgres.y:12998
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 			yyLOCAL.Items = append(yyLOCAL.Items, yyDollar[3].windefUnion())
@@ -41588,7 +41598,7 @@ yydefault:
 	case 2956:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:12996
+//line postgres.y:13006
 		{
 			n := yyDollar[3].windefUnion()
 			n.Name = yyDollar[1].str
@@ -41598,7 +41608,7 @@ yydefault:
 	case 2957:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13005
+//line postgres.y:13015
 		{
 			yyLOCAL = yyDollar[2].windefUnion()
 		}
@@ -41606,7 +41616,7 @@ yydefault:
 	case 2958:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13007
+//line postgres.y:13017
 		{
 			n := ast.NewWindowDef("", -1)
 			n.Refname = yyDollar[2].str
@@ -41617,7 +41627,7 @@ yydefault:
 	case 2959:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13014
+//line postgres.y:13024
 		{
 			yyLOCAL = nil
 		}
@@ -41625,7 +41635,7 @@ yydefault:
 	case 2960:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13019
+//line postgres.y:13029
 		{
 			n := ast.NewWindowDef("", -1)
 			n.Refname = yyDollar[2].str
@@ -41640,20 +41650,20 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 2961:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13033
+//line postgres.y:13043
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2962:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13034
+//line postgres.y:13044
 		{
 			yyVAL.str = ""
 		}
 	case 2963:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13038
+//line postgres.y:13048
 		{
 			yyLOCAL = yyDollar[3].listUnion()
 		}
@@ -41661,7 +41671,7 @@ yydefault:
 	case 2964:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13039
+//line postgres.y:13049
 		{
 			yyLOCAL = nil
 		}
@@ -41669,7 +41679,7 @@ yydefault:
 	case 2965:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13044
+//line postgres.y:13054
 		{
 			n := yyDollar[2].windefUnion()
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_RANGE
@@ -41680,7 +41690,7 @@ yydefault:
 	case 2966:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13051
+//line postgres.y:13061
 		{
 			n := yyDollar[2].windefUnion()
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_ROWS
@@ -41691,7 +41701,7 @@ yydefault:
 	case 2967:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13058
+//line postgres.y:13068
 		{
 			n := yyDollar[2].windefUnion()
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_GROUPS
@@ -41702,7 +41712,7 @@ yydefault:
 	case 2968:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13065
+//line postgres.y:13075
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_DEFAULTS
@@ -41714,7 +41724,7 @@ yydefault:
 	case 2969:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13076
+//line postgres.y:13086
 		{
 			n := yyDollar[1].windefUnion()
 			// reject invalid cases - these would be runtime errors in PostgreSQL
@@ -41732,7 +41742,7 @@ yydefault:
 	case 2970:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13090
+//line postgres.y:13100
 		{
 			n1 := yyDollar[2].windefUnion()
 			n2 := yyDollar[4].windefUnion()
@@ -41768,7 +41778,7 @@ yydefault:
 	case 2971:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13125
+//line postgres.y:13135
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_PRECEDING
@@ -41780,7 +41790,7 @@ yydefault:
 	case 2972:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13133
+//line postgres.y:13143
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING
@@ -41792,7 +41802,7 @@ yydefault:
 	case 2973:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13141
+//line postgres.y:13151
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_CURRENT_ROW
@@ -41804,7 +41814,7 @@ yydefault:
 	case 2974:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13149
+//line postgres.y:13159
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_PRECEDING
@@ -41816,7 +41826,7 @@ yydefault:
 	case 2975:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.WindowDef
-//line postgres.y:13157
+//line postgres.y:13167
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_FOLLOWING
@@ -41827,38 +41837,38 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 2976:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13167
+//line postgres.y:13177
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_CURRENT_ROW
 		}
 	case 2977:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13168
+//line postgres.y:13178
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_GROUP
 		}
 	case 2978:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13169
+//line postgres.y:13179
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_TIES
 		}
 	case 2979:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13170
+//line postgres.y:13180
 		{
 			yyVAL.ival = 0
 		}
 	case 2980:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13171
+//line postgres.y:13181
 		{
 			yyVAL.ival = 0
 		}
 	case 2981:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13180
+//line postgres.y:13190
 		{
 			yyLOCAL = yyDollar[1].selectLimitUnion()
 			yyLOCAL.limitOffset = yyDollar[2].nodeUnion()
@@ -41867,7 +41877,7 @@ yydefault:
 	case 2982:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13185
+//line postgres.y:13195
 		{
 			yyLOCAL = yyDollar[2].selectLimitUnion()
 			yyLOCAL.limitOffset = yyDollar[1].nodeUnion()
@@ -41876,7 +41886,7 @@ yydefault:
 	case 2983:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13190
+//line postgres.y:13200
 		{
 			yyLOCAL = yyDollar[1].selectLimitUnion()
 		}
@@ -41884,7 +41894,7 @@ yydefault:
 	case 2984:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13194
+//line postgres.y:13204
 		{
 			n := &selectLimit{}
 			n.limitOffset = yyDollar[1].nodeUnion()
@@ -41896,7 +41906,7 @@ yydefault:
 	case 2985:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13204
+//line postgres.y:13214
 		{
 			yyLOCAL = yyDollar[1].selectLimitUnion()
 		}
@@ -41904,7 +41914,7 @@ yydefault:
 	case 2986:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13205
+//line postgres.y:13215
 		{
 			yyLOCAL = nil
 		}
@@ -41912,7 +41922,7 @@ yydefault:
 	case 2987:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13210
+//line postgres.y:13220
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -41923,7 +41933,7 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 2988:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13218
+//line postgres.y:13228
 		{
 			// Disabled because it was too confusing - PostgreSQL error
 			yylex.Error("LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses.")
@@ -41932,7 +41942,7 @@ yydefault:
 	case 2989:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13225
+//line postgres.y:13235
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -41944,7 +41954,7 @@ yydefault:
 	case 2990:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13233
+//line postgres.y:13243
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -41956,7 +41966,7 @@ yydefault:
 	case 2991:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13241
+//line postgres.y:13251
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -41968,7 +41978,7 @@ yydefault:
 	case 2992:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *selectLimit
-//line postgres.y:13249
+//line postgres.y:13259
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -41980,7 +41990,7 @@ yydefault:
 	case 2993:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13260
+//line postgres.y:13270
 		{
 			yyLOCAL = yyDollar[2].nodeUnion()
 		}
@@ -41988,7 +41998,7 @@ yydefault:
 	case 2994:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13263
+//line postgres.y:13273
 		{
 			yyLOCAL = yyDollar[2].nodeUnion()
 		}
@@ -41996,7 +42006,7 @@ yydefault:
 	case 2995:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13267
+//line postgres.y:13277
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -42004,7 +42014,7 @@ yydefault:
 	case 2996:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13269
+//line postgres.y:13279
 		{
 			/* LIMIT ALL is represented as a NULL constant */
 			yyLOCAL = ast.NewA_Const(ast.NewNull(), -1)
@@ -42013,7 +42023,7 @@ yydefault:
 	case 2997:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13276
+//line postgres.y:13286
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -42021,7 +42031,7 @@ yydefault:
 	case 2998:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13289
+//line postgres.y:13299
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -42029,7 +42039,7 @@ yydefault:
 	case 2999:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13291
+//line postgres.y:13301
 		{
 			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("+")), nil, yyDollar[2].nodeUnion(), -1)
 		}
@@ -42037,7 +42047,7 @@ yydefault:
 	case 3000:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13295
+//line postgres.y:13305
 		{
 			// Create a unary minus expression
 			yyLOCAL = ast.NewA_Expr(ast.AEXPR_OP, ast.NewNodeList(ast.NewString("-")), nil, yyDollar[2].nodeUnion(), -1)
@@ -42046,7 +42056,7 @@ yydefault:
 	case 3001:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13302
+//line postgres.y:13312
 		{
 			yyLOCAL = ast.NewA_Const(ast.NewInteger(yyDollar[1].ival), -1)
 		}
@@ -42054,39 +42064,39 @@ yydefault:
 	case 3002:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13303
+//line postgres.y:13313
 		{
 			yyLOCAL = ast.NewA_Const(ast.NewFloat(yyDollar[1].str), -1)
 		}
 		yyVAL.union = yyLOCAL
 	case 3003:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13308
+//line postgres.y:13318
 		{
 			yyVAL.ival = 0
 		}
 	case 3004:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13309
+//line postgres.y:13319
 		{
 			yyVAL.ival = 0
 		}
 	case 3005:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13313
+//line postgres.y:13323
 		{
 			yyVAL.ival = 0
 		}
 	case 3006:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13314
+//line postgres.y:13324
 		{
 			yyVAL.ival = 0
 		}
 	case 3007:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13327
+//line postgres.y:13337
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
 			stmt.Chain = yyDollar[3].bvalUnion()
@@ -42096,7 +42106,7 @@ yydefault:
 	case 3008:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13333
+//line postgres.y:13343
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_START)
 			stmt.Options = yyDollar[3].listUnion()
@@ -42106,7 +42116,7 @@ yydefault:
 	case 3009:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13339
+//line postgres.y:13349
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
 			stmt.Chain = yyDollar[3].bvalUnion()
@@ -42116,7 +42126,7 @@ yydefault:
 	case 3010:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13345
+//line postgres.y:13355
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
 			stmt.Chain = yyDollar[3].bvalUnion()
@@ -42126,7 +42136,7 @@ yydefault:
 	case 3011:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13351
+//line postgres.y:13361
 		{
 			stmt := ast.NewSavepointStmt(yyDollar[2].str)
 			yyLOCAL = stmt
@@ -42135,7 +42145,7 @@ yydefault:
 	case 3012:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13356
+//line postgres.y:13366
 		{
 			stmt := ast.NewReleaseStmt(yyDollar[3].str)
 			yyLOCAL = stmt
@@ -42144,7 +42154,7 @@ yydefault:
 	case 3013:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13361
+//line postgres.y:13371
 		{
 			stmt := ast.NewReleaseStmt(yyDollar[2].str)
 			yyLOCAL = stmt
@@ -42153,7 +42163,7 @@ yydefault:
 	case 3014:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13366
+//line postgres.y:13376
 		{
 			stmt := ast.NewRollbackToStmt(yyDollar[5].str)
 			yyLOCAL = stmt
@@ -42162,7 +42172,7 @@ yydefault:
 	case 3015:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13371
+//line postgres.y:13381
 		{
 			stmt := ast.NewRollbackToStmt(yyDollar[4].str)
 			yyLOCAL = stmt
@@ -42171,7 +42181,7 @@ yydefault:
 	case 3016:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13376
+//line postgres.y:13386
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_PREPARE)
 			stmt.Gid = yyDollar[3].str
@@ -42181,7 +42191,7 @@ yydefault:
 	case 3017:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13382
+//line postgres.y:13392
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT_PREPARED)
 			stmt.Gid = yyDollar[3].str
@@ -42191,7 +42201,7 @@ yydefault:
 	case 3018:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13388
+//line postgres.y:13398
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK_PREPARED)
 			stmt.Gid = yyDollar[3].str
@@ -42201,7 +42211,7 @@ yydefault:
 	case 3019:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13397
+//line postgres.y:13407
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
 			stmt.Chain = yyDollar[3].bvalUnion()
@@ -42211,7 +42221,7 @@ yydefault:
 	case 3020:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13403
+//line postgres.y:13413
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_BEGIN)
 			stmt.Options = yyDollar[3].listUnion()
@@ -42220,23 +42230,23 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3021:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13410
+//line postgres.y:13420
 		{
 		}
 	case 3022:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13411
+//line postgres.y:13421
 		{
 		}
 	case 3023:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13412
+//line postgres.y:13422
 		{
 		}
 	case 3024:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:13416
+//line postgres.y:13426
 		{
 			yyLOCAL = true
 		}
@@ -42244,7 +42254,7 @@ yydefault:
 	case 3025:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:13417
+//line postgres.y:13427
 		{
 			yyLOCAL = false
 		}
@@ -42252,7 +42262,7 @@ yydefault:
 	case 3026:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:13418
+//line postgres.y:13428
 		{
 			yyLOCAL = false
 		}
@@ -42260,7 +42270,7 @@ yydefault:
 	case 3027:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13431
+//line postgres.y:13441
 		{
 			yyLOCAL = ast.NewCreateRoleStmt(ast.ROLESTMT_ROLE, yyDollar[3].str, yyDollar[5].listUnion())
 		}
@@ -42268,7 +42278,7 @@ yydefault:
 	case 3028:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13438
+//line postgres.y:13448
 		{
 			yyLOCAL = ast.NewCreateRoleStmt(ast.ROLESTMT_USER, yyDollar[3].str, yyDollar[5].listUnion())
 		}
@@ -42276,7 +42286,7 @@ yydefault:
 	case 3029:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13445
+//line postgres.y:13455
 		{
 			yyLOCAL = ast.NewCreateRoleStmt(ast.ROLESTMT_GROUP, yyDollar[3].str, yyDollar[5].listUnion())
 		}
@@ -42284,7 +42294,7 @@ yydefault:
 	case 3030:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13452
+//line postgres.y:13462
 		{
 			as := ast.NewAlterRoleStmt(yyDollar[3].rolespecUnion(), yyDollar[5].listUnion())
 			as.Action = +1
@@ -42294,7 +42304,7 @@ yydefault:
 	case 3031:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13458
+//line postgres.y:13468
 		{
 			as := ast.NewAlterRoleStmt(yyDollar[3].rolespecUnion(), yyDollar[5].listUnion())
 			as.Action = +1
@@ -42304,7 +42314,7 @@ yydefault:
 	case 3032:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13467
+//line postgres.y:13477
 		{
 			yyLOCAL = ast.NewAlterRoleSetStmt(yyDollar[3].rolespecUnion(), yyDollar[4].str, yyDollar[5].vsetstmtUnion())
 		}
@@ -42312,7 +42322,7 @@ yydefault:
 	case 3033:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13471
+//line postgres.y:13481
 		{
 			yyLOCAL = ast.NewAlterRoleSetStmt(nil, yyDollar[4].str, yyDollar[5].vsetstmtUnion())
 		}
@@ -42320,7 +42330,7 @@ yydefault:
 	case 3034:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13475
+//line postgres.y:13485
 		{
 			yyLOCAL = ast.NewAlterRoleSetStmt(yyDollar[3].rolespecUnion(), yyDollar[4].str, yyDollar[5].vsetstmtUnion())
 		}
@@ -42328,27 +42338,27 @@ yydefault:
 	case 3035:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13479
+//line postgres.y:13489
 		{
 			yyLOCAL = ast.NewAlterRoleSetStmt(nil, yyDollar[4].str, yyDollar[5].vsetstmtUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 3036:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13485
+//line postgres.y:13495
 		{
 			yyVAL.str = ""
 		}
 	case 3037:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13486
+//line postgres.y:13496
 		{
 			yyVAL.str = yyDollar[3].str
 		}
 	case 3038:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13491
+//line postgres.y:13501
 		{
 			options := ast.NewNodeList(ast.NewDefElem("rolemembers", yyDollar[6].listUnion()))
 			stmt := ast.NewAlterRoleStmt(yyDollar[3].rolespecUnion(), options)
@@ -42359,7 +42369,7 @@ yydefault:
 	case 3039:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13501
+//line postgres.y:13511
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[3].listUnion(), false)
 		}
@@ -42367,7 +42377,7 @@ yydefault:
 	case 3040:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13505
+//line postgres.y:13515
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[5].listUnion(), true)
 		}
@@ -42375,7 +42385,7 @@ yydefault:
 	case 3041:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13509
+//line postgres.y:13519
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[3].listUnion(), false)
 		}
@@ -42383,7 +42393,7 @@ yydefault:
 	case 3042:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13513
+//line postgres.y:13523
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[5].listUnion(), true)
 		}
@@ -42391,7 +42401,7 @@ yydefault:
 	case 3043:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13517
+//line postgres.y:13527
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[3].listUnion(), false)
 		}
@@ -42399,7 +42409,7 @@ yydefault:
 	case 3044:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13521
+//line postgres.y:13531
 		{
 			yyLOCAL = ast.NewDropRoleStmt(yyDollar[5].listUnion(), true)
 		}
@@ -42407,7 +42417,7 @@ yydefault:
 	case 3045:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13529
+//line postgres.y:13539
 		{
 			if yyDollar[1].listUnion() == nil {
 				list := ast.NewNodeList()
@@ -42423,7 +42433,7 @@ yydefault:
 	case 3046:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13540
+//line postgres.y:13550
 		{
 			yyLOCAL = nil
 		}
@@ -42431,7 +42441,7 @@ yydefault:
 	case 3047:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13545
+//line postgres.y:13555
 		{
 			if yyDollar[1].listUnion() == nil {
 				list := ast.NewNodeList()
@@ -42447,7 +42457,7 @@ yydefault:
 	case 3048:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13556
+//line postgres.y:13566
 		{
 			yyLOCAL = nil
 		}
@@ -42455,7 +42465,7 @@ yydefault:
 	case 3049:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13560
+//line postgres.y:13570
 		{
 			yyLOCAL = yyDollar[1].defeltUnion()
 		}
@@ -42463,7 +42473,7 @@ yydefault:
 	case 3050:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13562
+//line postgres.y:13572
 		{
 			yyLOCAL = ast.NewDefElem("sysid", ast.NewInteger(yyDollar[2].ival))
 		}
@@ -42471,7 +42481,7 @@ yydefault:
 	case 3051:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13566
+//line postgres.y:13576
 		{
 			yyLOCAL = ast.NewDefElem("adminmembers", yyDollar[2].listUnion())
 		}
@@ -42479,7 +42489,7 @@ yydefault:
 	case 3052:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13570
+//line postgres.y:13580
 		{
 			yyLOCAL = ast.NewDefElem("rolemembers", yyDollar[2].listUnion())
 		}
@@ -42487,7 +42497,7 @@ yydefault:
 	case 3053:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13574
+//line postgres.y:13584
 		{
 			yyLOCAL = ast.NewDefElem("addroleto", yyDollar[3].listUnion())
 		}
@@ -42495,7 +42505,7 @@ yydefault:
 	case 3054:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13578
+//line postgres.y:13588
 		{
 			yyLOCAL = ast.NewDefElem("addroleto", yyDollar[3].listUnion())
 		}
@@ -42503,7 +42513,7 @@ yydefault:
 	case 3055:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13585
+//line postgres.y:13595
 		{
 			yyLOCAL = ast.NewDefElem("password", ast.NewString(yyDollar[2].str))
 		}
@@ -42511,7 +42521,7 @@ yydefault:
 	case 3056:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13589
+//line postgres.y:13599
 		{
 			yyLOCAL = ast.NewDefElem("password", nil)
 		}
@@ -42519,14 +42529,14 @@ yydefault:
 	case 3057:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13593
+//line postgres.y:13603
 		{
 			yyLOCAL = ast.NewDefElem("password", ast.NewString(yyDollar[3].str))
 		}
 		yyVAL.union = yyLOCAL
 	case 3058:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13597
+//line postgres.y:13607
 		{
 			yylex.Error("UNENCRYPTED PASSWORD is no longer supported")
 			return 1
@@ -42534,7 +42544,7 @@ yydefault:
 	case 3059:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13602
+//line postgres.y:13612
 		{
 			yyLOCAL = ast.NewDefElem("inherit", ast.NewBoolean(true))
 		}
@@ -42542,7 +42552,7 @@ yydefault:
 	case 3060:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13606
+//line postgres.y:13616
 		{
 			// Handle identifiers like PostgreSQL does with string comparisons
 			if yyDollar[1].str == "superuser" {
@@ -42581,7 +42591,7 @@ yydefault:
 	case 3061:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13641
+//line postgres.y:13651
 		{
 			yyLOCAL = ast.NewDefElem("connectionlimit", ast.NewInteger(yyDollar[3].ival))
 		}
@@ -42589,7 +42599,7 @@ yydefault:
 	case 3062:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13645
+//line postgres.y:13655
 		{
 			yyLOCAL = ast.NewDefElem("validUntil", ast.NewString(yyDollar[3].str))
 		}
@@ -42597,27 +42607,27 @@ yydefault:
 	case 3063:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13649
+//line postgres.y:13659
 		{
 			yyLOCAL = ast.NewDefElem("rolemembers", yyDollar[2].listUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 3064:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13655
+//line postgres.y:13665
 		{
 			yyVAL.ival = 1
 		}
 	case 3065:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13656
+//line postgres.y:13666
 		{
 			yyVAL.ival = -1
 		}
 	case 3066:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13668
+//line postgres.y:13678
 		{
 			n := ast.NewGrantStmt(yyDollar[4].privtargetUnion().objtype, yyDollar[4].privtargetUnion().objs, yyDollar[2].listUnion(), yyDollar[6].listUnion())
 			n.Targtype = yyDollar[4].privtargetUnion().targtype
@@ -42629,7 +42639,7 @@ yydefault:
 	case 3067:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13680
+//line postgres.y:13690
 		{
 			n := ast.NewRevokeStmt(yyDollar[4].privtargetUnion().objtype, yyDollar[4].privtargetUnion().objs, yyDollar[2].listUnion(), yyDollar[6].listUnion())
 			n.Targtype = yyDollar[4].privtargetUnion().targtype
@@ -42641,7 +42651,7 @@ yydefault:
 	case 3068:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13689
+//line postgres.y:13699
 		{
 			n := ast.NewRevokeStmt(yyDollar[7].privtargetUnion().objtype, yyDollar[7].privtargetUnion().objs, yyDollar[5].listUnion(), yyDollar[9].listUnion())
 			n.Targtype = yyDollar[7].privtargetUnion().targtype
@@ -42654,7 +42664,7 @@ yydefault:
 	case 3069:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13701
+//line postgres.y:13711
 		{
 			stmt := ast.NewGrantRoleStmt(yyDollar[2].listUnion(), yyDollar[4].listUnion())
 			stmt.Grantor = yyDollar[5].rolespecUnion()
@@ -42664,7 +42674,7 @@ yydefault:
 	case 3070:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13707
+//line postgres.y:13717
 		{
 			stmt := ast.NewGrantRoleStmtWithOptions(yyDollar[2].listUnion(), yyDollar[4].listUnion(), yyDollar[6].listUnion())
 			stmt.Grantor = yyDollar[7].rolespecUnion()
@@ -42674,7 +42684,7 @@ yydefault:
 	case 3071:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13716
+//line postgres.y:13726
 		{
 			stmt := ast.NewRevokeRoleStmt(yyDollar[2].listUnion(), yyDollar[4].listUnion())
 			stmt.Grantor = yyDollar[5].rolespecUnion()
@@ -42685,7 +42695,7 @@ yydefault:
 	case 3072:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13723
+//line postgres.y:13733
 		{
 			opt := ast.NewDefElem(yyDollar[2].str, ast.NewBoolean(false))
 			stmt := ast.NewRevokeRoleStmt(yyDollar[5].listUnion(), yyDollar[7].listUnion())
@@ -42698,7 +42708,7 @@ yydefault:
 	case 3073:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:13742
+//line postgres.y:13752
 		{
 			yyLOCAL = ast.NewAlterDefaultPrivilegesStmt(yyDollar[4].listUnion(), yyDollar[5].nodeUnion().(*ast.GrantStmt))
 		}
@@ -42706,7 +42716,7 @@ yydefault:
 	case 3074:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13748
+//line postgres.y:13758
 		{
 			yyDollar[1].listUnion().Append(yyDollar[2].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -42715,7 +42725,7 @@ yydefault:
 	case 3075:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13749
+//line postgres.y:13759
 		{
 			yyLOCAL = ast.NewNodeList()
 		}
@@ -42723,7 +42733,7 @@ yydefault:
 	case 3076:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13754
+//line postgres.y:13764
 		{
 			yyLOCAL = ast.NewDefElem("schemas", yyDollar[3].listUnion())
 		}
@@ -42731,7 +42741,7 @@ yydefault:
 	case 3077:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13758
+//line postgres.y:13768
 		{
 			yyLOCAL = ast.NewDefElem("roles", yyDollar[3].listUnion())
 		}
@@ -42739,7 +42749,7 @@ yydefault:
 	case 3078:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:13762
+//line postgres.y:13772
 		{
 			yyLOCAL = ast.NewDefElem("roles", yyDollar[3].listUnion())
 		}
@@ -42747,7 +42757,7 @@ yydefault:
 	case 3079:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13774
+//line postgres.y:13784
 		{
 			n := ast.NewGrantStmt(ast.ObjectType(yyDollar[4].ival), nil, yyDollar[2].listUnion(), yyDollar[6].listUnion())
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -42758,7 +42768,7 @@ yydefault:
 	case 3080:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13782
+//line postgres.y:13792
 		{
 			n := ast.NewRevokeStmt(ast.ObjectType(yyDollar[4].ival), nil, yyDollar[2].listUnion(), yyDollar[6].listUnion())
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -42769,7 +42779,7 @@ yydefault:
 	case 3081:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:13790
+//line postgres.y:13800
 		{
 			n := ast.NewRevokeStmt(ast.ObjectType(yyDollar[7].ival), nil, yyDollar[5].listUnion(), yyDollar[9].listUnion())
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -42780,44 +42790,44 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3082:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13800
+//line postgres.y:13810
 		{
 			yyVAL.ival = int(ast.OBJECT_TABLE)
 		}
 	case 3083:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13801
+//line postgres.y:13811
 		{
 			yyVAL.ival = int(ast.OBJECT_FUNCTION)
 		}
 	case 3084:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13802
+//line postgres.y:13812
 		{
 			yyVAL.ival = int(ast.OBJECT_FUNCTION)
 		}
 	case 3085:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13803
+//line postgres.y:13813
 		{
 			yyVAL.ival = int(ast.OBJECT_SEQUENCE)
 		}
 	case 3086:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13804
+//line postgres.y:13814
 		{
 			yyVAL.ival = int(ast.OBJECT_TYPE)
 		}
 	case 3087:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13805
+//line postgres.y:13815
 		{
 			yyVAL.ival = int(ast.OBJECT_SCHEMA)
 		}
 	case 3088:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13810
+//line postgres.y:13820
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -42825,7 +42835,7 @@ yydefault:
 	case 3089:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13812
+//line postgres.y:13822
 		{
 			yyLOCAL = nil
 		}
@@ -42833,7 +42843,7 @@ yydefault:
 	case 3090:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13814
+//line postgres.y:13824
 		{
 			yyLOCAL = nil
 		}
@@ -42841,7 +42851,7 @@ yydefault:
 	case 3091:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13816
+//line postgres.y:13826
 		{
 			ap := ast.NewAccessPriv("", yyDollar[3].listUnion())
 			yyLOCAL = ast.NewNodeList(ap)
@@ -42850,7 +42860,7 @@ yydefault:
 	case 3092:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13821
+//line postgres.y:13831
 		{
 			ap := ast.NewAccessPriv("", yyDollar[4].listUnion())
 			yyLOCAL = ast.NewNodeList(ap)
@@ -42859,7 +42869,7 @@ yydefault:
 	case 3093:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13827
+//line postgres.y:13837
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].accessprivUnion())
 		}
@@ -42867,7 +42877,7 @@ yydefault:
 	case 3094:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:13828
+//line postgres.y:13838
 		{
 			yyDollar[1].listUnion().Items = append(yyDollar[1].listUnion().Items, yyDollar[3].accessprivUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -42876,7 +42886,7 @@ yydefault:
 	case 3095:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.AccessPriv
-//line postgres.y:13832
+//line postgres.y:13842
 		{
 			yyLOCAL = ast.NewAccessPriv("SELECT", yyDollar[2].listUnion())
 		}
@@ -42884,7 +42894,7 @@ yydefault:
 	case 3096:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.AccessPriv
-//line postgres.y:13836
+//line postgres.y:13846
 		{
 			yyLOCAL = ast.NewAccessPriv("REFERENCES", yyDollar[2].listUnion())
 		}
@@ -42892,7 +42902,7 @@ yydefault:
 	case 3097:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.AccessPriv
-//line postgres.y:13840
+//line postgres.y:13850
 		{
 			yyLOCAL = ast.NewAccessPriv("CREATE", yyDollar[2].listUnion())
 		}
@@ -42900,7 +42910,7 @@ yydefault:
 	case 3098:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.AccessPriv
-//line postgres.y:13844
+//line postgres.y:13854
 		{
 			yyLOCAL = ast.NewAccessPriv("ALTER SYSTEM", nil)
 		}
@@ -42908,7 +42918,7 @@ yydefault:
 	case 3099:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.AccessPriv
-//line postgres.y:13848
+//line postgres.y:13858
 		{
 			yyLOCAL = ast.NewAccessPriv(yyDollar[1].str, yyDollar[2].listUnion())
 		}
@@ -42916,7 +42926,7 @@ yydefault:
 	case 3100:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13858
+//line postgres.y:13868
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42928,7 +42938,7 @@ yydefault:
 	case 3101:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13866
+//line postgres.y:13876
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42940,7 +42950,7 @@ yydefault:
 	case 3102:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13874
+//line postgres.y:13884
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42952,7 +42962,7 @@ yydefault:
 	case 3103:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13882
+//line postgres.y:13892
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42964,7 +42974,7 @@ yydefault:
 	case 3104:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13890
+//line postgres.y:13900
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42976,7 +42986,7 @@ yydefault:
 	case 3105:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13898
+//line postgres.y:13908
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -42988,7 +42998,7 @@ yydefault:
 	case 3106:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13906
+//line postgres.y:13916
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43000,7 +43010,7 @@ yydefault:
 	case 3107:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13914
+//line postgres.y:13924
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43012,7 +43022,7 @@ yydefault:
 	case 3108:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13922
+//line postgres.y:13932
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43024,7 +43034,7 @@ yydefault:
 	case 3109:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13930
+//line postgres.y:13940
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43036,7 +43046,7 @@ yydefault:
 	case 3110:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13938
+//line postgres.y:13948
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43048,7 +43058,7 @@ yydefault:
 	case 3111:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13946
+//line postgres.y:13956
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43060,7 +43070,7 @@ yydefault:
 	case 3112:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13954
+//line postgres.y:13964
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43072,7 +43082,7 @@ yydefault:
 	case 3113:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13962
+//line postgres.y:13972
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43084,7 +43094,7 @@ yydefault:
 	case 3114:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13970
+//line postgres.y:13980
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43096,7 +43106,7 @@ yydefault:
 	case 3115:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13978
+//line postgres.y:13988
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -43108,7 +43118,7 @@ yydefault:
 	case 3116:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13986
+//line postgres.y:13996
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -43120,7 +43130,7 @@ yydefault:
 	case 3117:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:13994
+//line postgres.y:14004
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -43132,7 +43142,7 @@ yydefault:
 	case 3118:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:14002
+//line postgres.y:14012
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -43144,7 +43154,7 @@ yydefault:
 	case 3119:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:14010
+//line postgres.y:14020
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -43156,7 +43166,7 @@ yydefault:
 	case 3120:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *PrivTarget
-//line postgres.y:14018
+//line postgres.y:14028
 		{
 			yyLOCAL = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -43168,7 +43178,7 @@ yydefault:
 	case 3121:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14029
+//line postgres.y:14039
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].rolespecUnion())
 		}
@@ -43176,7 +43186,7 @@ yydefault:
 	case 3122:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14030
+//line postgres.y:14040
 		{
 			yyDollar[1].listUnion().Items = append(yyDollar[1].listUnion().Items, yyDollar[3].rolespecUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43185,7 +43195,7 @@ yydefault:
 	case 3123:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:14034
+//line postgres.y:14044
 		{
 			yyLOCAL = yyDollar[1].rolespecUnion()
 		}
@@ -43193,7 +43203,7 @@ yydefault:
 	case 3124:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:14035
+//line postgres.y:14045
 		{
 			yyLOCAL = yyDollar[2].rolespecUnion()
 		}
@@ -43201,7 +43211,7 @@ yydefault:
 	case 3125:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:14040
+//line postgres.y:14050
 		{
 			yyLOCAL = true
 		}
@@ -43209,7 +43219,7 @@ yydefault:
 	case 3126:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:14041
+//line postgres.y:14051
 		{
 			yyLOCAL = false
 		}
@@ -43217,7 +43227,7 @@ yydefault:
 	case 3127:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14045
+//line postgres.y:14055
 		{
 			yyDollar[1].listUnion().Items = append(yyDollar[1].listUnion().Items, yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43226,7 +43236,7 @@ yydefault:
 	case 3128:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14046
+//line postgres.y:14056
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -43234,7 +43244,7 @@ yydefault:
 	case 3129:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14051
+//line postgres.y:14061
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, yyDollar[2].nodeUnion())
 		}
@@ -43242,7 +43252,7 @@ yydefault:
 	case 3130:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14057
+//line postgres.y:14067
 		{
 			yyLOCAL = ast.NewBoolean(true)
 		}
@@ -43250,7 +43260,7 @@ yydefault:
 	case 3131:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14058
+//line postgres.y:14068
 		{
 			yyLOCAL = ast.NewBoolean(true)
 		}
@@ -43258,7 +43268,7 @@ yydefault:
 	case 3132:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14059
+//line postgres.y:14069
 		{
 			yyLOCAL = ast.NewBoolean(false)
 		}
@@ -43266,7 +43276,7 @@ yydefault:
 	case 3133:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:14062
+//line postgres.y:14072
 		{
 			yyLOCAL = yyDollar[3].rolespecUnion()
 		}
@@ -43274,7 +43284,7 @@ yydefault:
 	case 3134:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.RoleSpec
-//line postgres.y:14063
+//line postgres.y:14073
 		{
 			yyLOCAL = nil
 		}
@@ -43282,7 +43292,7 @@ yydefault:
 	case 3135:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14068
+//line postgres.y:14078
 		{
 			yyLOCAL = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
@@ -43290,7 +43300,7 @@ yydefault:
 	case 3136:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14072
+//line postgres.y:14082
 		{
 			yyDollar[1].listUnion().Append(ast.NewString(yyDollar[3].str))
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43298,20 +43308,20 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3137:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14080
+//line postgres.y:14090
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3138:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14084
+//line postgres.y:14094
 		{
 			yyVAL.str = yyDollar[1].str + "." + yyDollar[3].str
 		}
 	case 3139:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14089
+//line postgres.y:14099
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -43319,7 +43329,7 @@ yydefault:
 	case 3140:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14090
+//line postgres.y:14100
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43328,7 +43338,7 @@ yydefault:
 	case 3141:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14094
+//line postgres.y:14104
 		{
 			n := ast.NewRangeTableSample(nil, yyDollar[2].listUnion(), yyDollar[4].listUnion(), yyDollar[6].nodeUnion(), 0)
 			yyLOCAL = n
@@ -43337,7 +43347,7 @@ yydefault:
 	case 3142:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14102
+//line postgres.y:14112
 		{
 			yyLOCAL = yyDollar[3].nodeUnion()
 		}
@@ -43345,7 +43355,7 @@ yydefault:
 	case 3143:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14106
+//line postgres.y:14116
 		{
 			yyLOCAL = nil
 		}
@@ -43353,7 +43363,7 @@ yydefault:
 	case 3144:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14120
+//line postgres.y:14130
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_FUNCTION, yyDollar[3].objwithargsUnion(), yyDollar[4].listUnion())
 			yyLOCAL = n
@@ -43362,7 +43372,7 @@ yydefault:
 	case 3145:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14125
+//line postgres.y:14135
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_PROCEDURE, yyDollar[3].objwithargsUnion(), yyDollar[4].listUnion())
 			yyLOCAL = n
@@ -43371,7 +43381,7 @@ yydefault:
 	case 3146:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14130
+//line postgres.y:14140
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_ROUTINE, yyDollar[3].objwithargsUnion(), yyDollar[4].listUnion())
 			yyLOCAL = n
@@ -43380,7 +43390,7 @@ yydefault:
 	case 3147:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14138
+//line postgres.y:14148
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -43388,7 +43398,7 @@ yydefault:
 	case 3148:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14139
+//line postgres.y:14149
 		{
 			yyDollar[1].listUnion().Append(yyDollar[2].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43397,7 +43407,7 @@ yydefault:
 	case 3149:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14145
+//line postgres.y:14155
 		{
 			yyLOCAL = ast.NewDefElem("strict", ast.NewBoolean(false))
 		}
@@ -43405,7 +43415,7 @@ yydefault:
 	case 3150:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14149
+//line postgres.y:14159
 		{
 			yyLOCAL = ast.NewDefElem("strict", ast.NewBoolean(true))
 		}
@@ -43413,7 +43423,7 @@ yydefault:
 	case 3151:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14153
+//line postgres.y:14163
 		{
 			yyLOCAL = ast.NewDefElem("strict", ast.NewBoolean(true))
 		}
@@ -43421,7 +43431,7 @@ yydefault:
 	case 3152:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14157
+//line postgres.y:14167
 		{
 			yyLOCAL = ast.NewDefElem("volatility", ast.NewString("immutable"))
 		}
@@ -43429,7 +43439,7 @@ yydefault:
 	case 3153:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14161
+//line postgres.y:14171
 		{
 			yyLOCAL = ast.NewDefElem("volatility", ast.NewString("stable"))
 		}
@@ -43437,7 +43447,7 @@ yydefault:
 	case 3154:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14165
+//line postgres.y:14175
 		{
 			yyLOCAL = ast.NewDefElem("volatility", ast.NewString("volatile"))
 		}
@@ -43445,7 +43455,7 @@ yydefault:
 	case 3155:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14169
+//line postgres.y:14179
 		{
 			yyLOCAL = ast.NewDefElem("security", ast.NewBoolean(true))
 		}
@@ -43453,7 +43463,7 @@ yydefault:
 	case 3156:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14173
+//line postgres.y:14183
 		{
 			yyLOCAL = ast.NewDefElem("security", ast.NewBoolean(false))
 		}
@@ -43461,7 +43471,7 @@ yydefault:
 	case 3157:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14177
+//line postgres.y:14187
 		{
 			yyLOCAL = ast.NewDefElem("security", ast.NewBoolean(true))
 		}
@@ -43469,7 +43479,7 @@ yydefault:
 	case 3158:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14181
+//line postgres.y:14191
 		{
 			yyLOCAL = ast.NewDefElem("security", ast.NewBoolean(false))
 		}
@@ -43477,7 +43487,7 @@ yydefault:
 	case 3159:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14185
+//line postgres.y:14195
 		{
 			yyLOCAL = ast.NewDefElem("leakproof", ast.NewBoolean(true))
 		}
@@ -43485,7 +43495,7 @@ yydefault:
 	case 3160:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14189
+//line postgres.y:14199
 		{
 			yyLOCAL = ast.NewDefElem("leakproof", ast.NewBoolean(false))
 		}
@@ -43493,7 +43503,7 @@ yydefault:
 	case 3161:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14193
+//line postgres.y:14203
 		{
 			yyLOCAL = ast.NewDefElem("cost", yyDollar[2].nodeUnion())
 		}
@@ -43501,7 +43511,7 @@ yydefault:
 	case 3162:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14197
+//line postgres.y:14207
 		{
 			yyLOCAL = ast.NewDefElem("rows", yyDollar[2].nodeUnion())
 		}
@@ -43509,7 +43519,7 @@ yydefault:
 	case 3163:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14201
+//line postgres.y:14211
 		{
 			yyLOCAL = ast.NewDefElem("support", yyDollar[2].listUnion())
 		}
@@ -43517,7 +43527,7 @@ yydefault:
 	case 3164:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14205
+//line postgres.y:14215
 		{
 			/* we abuse the normal content of a DefElem here */
 			yyLOCAL = ast.NewDefElem("set", yyDollar[1].vsetstmtUnion())
@@ -43526,7 +43536,7 @@ yydefault:
 	case 3165:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14210
+//line postgres.y:14220
 		{
 			yyLOCAL = ast.NewDefElem("parallel", ast.NewString(yyDollar[2].str))
 		}
@@ -43534,7 +43544,7 @@ yydefault:
 	case 3166:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14216
+//line postgres.y:14226
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -43542,7 +43552,7 @@ yydefault:
 	case 3167:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14217
+//line postgres.y:14227
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43551,7 +43561,7 @@ yydefault:
 	case 3168:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14222
+//line postgres.y:14232
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, nil)
 		}
@@ -43559,7 +43569,7 @@ yydefault:
 	case 3169:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14226
+//line postgres.y:14236
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, yyDollar[3].nodeUnion())
 		}
@@ -43567,7 +43577,7 @@ yydefault:
 	case 3170:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14230
+//line postgres.y:14240
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, nil)
 		}
@@ -43575,7 +43585,7 @@ yydefault:
 	case 3171:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14236
+//line postgres.y:14246
 		{
 			yyLOCAL = yyDollar[1].typnamUnion()
 		}
@@ -43583,7 +43593,7 @@ yydefault:
 	case 3172:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14237
+//line postgres.y:14247
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -43591,7 +43601,7 @@ yydefault:
 	case 3173:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14238
+//line postgres.y:14248
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -43599,7 +43609,7 @@ yydefault:
 	case 3174:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14239
+//line postgres.y:14249
 		{
 			yyLOCAL = yyDollar[1].nodeUnion()
 		}
@@ -43607,7 +43617,7 @@ yydefault:
 	case 3175:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14240
+//line postgres.y:14250
 		{
 			yyLOCAL = ast.NewString(yyDollar[1].str)
 		}
@@ -43615,7 +43625,7 @@ yydefault:
 	case 3178:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.ObjectWithArgs
-//line postgres.y:14251
+//line postgres.y:14261
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = yyDollar[1].listUnion()
@@ -43627,7 +43637,7 @@ yydefault:
 	case 3179:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.ObjectWithArgs
-//line postgres.y:14264
+//line postgres.y:14274
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -43638,7 +43648,7 @@ yydefault:
 	case 3180:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.ObjectWithArgs
-//line postgres.y:14271
+//line postgres.y:14281
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -43649,7 +43659,7 @@ yydefault:
 	case 3181:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.ObjectWithArgs
-//line postgres.y:14278
+//line postgres.y:14288
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			nameList := ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -43665,7 +43675,7 @@ yydefault:
 	case 3182:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14292
+//line postgres.y:14302
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].objwithargsUnion())
 		}
@@ -43673,7 +43683,7 @@ yydefault:
 	case 3183:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14294
+//line postgres.y:14304
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].objwithargsUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43682,7 +43692,7 @@ yydefault:
 	case 3184:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14298
+//line postgres.y:14308
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].objwithargsUnion())
 		}
@@ -43690,7 +43700,7 @@ yydefault:
 	case 3185:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14300
+//line postgres.y:14310
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].objwithargsUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43699,7 +43709,7 @@ yydefault:
 	case 3186:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14312
+//line postgres.y:14322
 		{
 			n := ast.NewAlterTypeStmt(yyDollar[3].listUnion(), yyDollar[6].listUnion())
 			yyLOCAL = n
@@ -43708,7 +43718,7 @@ yydefault:
 	case 3187:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14320
+//line postgres.y:14330
 		{
 			relation, err := makeRangeVarFromAnyName(yyDollar[3].listUnion(), 0)
 			if err != nil {
@@ -43723,7 +43733,7 @@ yydefault:
 	case 3188:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14333
+//line postgres.y:14343
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].nodeUnion())
 		}
@@ -43731,7 +43741,7 @@ yydefault:
 	case 3189:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14334
+//line postgres.y:14344
 		{
 			yyDollar[1].listUnion().Append(yyDollar[3].nodeUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -43740,7 +43750,7 @@ yydefault:
 	case 3190:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14340
+//line postgres.y:14350
 		{
 			n := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[3].nodeUnion())
 			n.Behavior = yyDollar[4].dropBehavUnion()
@@ -43750,7 +43760,7 @@ yydefault:
 	case 3191:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14347
+//line postgres.y:14357
 		{
 			n := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[5].str, nil)
 			n.Behavior = yyDollar[6].dropBehavUnion()
@@ -43761,7 +43771,7 @@ yydefault:
 	case 3192:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14355
+//line postgres.y:14365
 		{
 			n := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[3].str, nil)
 			n.Behavior = yyDollar[4].dropBehavUnion()
@@ -43772,7 +43782,7 @@ yydefault:
 	case 3193:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Node
-//line postgres.y:14363
+//line postgres.y:14373
 		{
 			def := ast.NewColumnDef(yyDollar[3].str, yyDollar[6].typnamUnion(), -1)
 			n := ast.NewAlterTableCmd(ast.AT_AlterColumnType, yyDollar[3].str, def)
@@ -43788,94 +43798,94 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3194:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14384
+//line postgres.y:14394
 		{
 			yyVAL.ival = int(ast.CMD_SELECT)
 		}
 	case 3195:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14385
+//line postgres.y:14395
 		{
 			yyVAL.ival = int(ast.CMD_UPDATE)
 		}
 	case 3196:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14386
+//line postgres.y:14396
 		{
 			yyVAL.ival = int(ast.CMD_DELETE)
 		}
 	case 3197:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14387
+//line postgres.y:14397
 		{
 			yyVAL.ival = int(ast.CMD_INSERT)
 		}
 	case 3198:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14397
+//line postgres.y:14407
 		{
 			yyLOCAL = ast.NewDeclareCursorStmt(yyDollar[2].str, yyDollar[3].ival|yyDollar[5].ival|ast.CURSOR_OPT_FAST_PLAN, yyDollar[7].stmtUnion())
 		}
 		yyVAL.union = yyLOCAL
 	case 3199:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14404
+//line postgres.y:14414
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_BINARY
 		}
 	case 3200:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14408
+//line postgres.y:14418
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_INSENSITIVE
 		}
 	case 3201:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14412
+//line postgres.y:14422
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_ASENSITIVE
 		}
 	case 3202:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14416
+//line postgres.y:14426
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_SCROLL
 		}
 	case 3203:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14420
+//line postgres.y:14430
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_NO_SCROLL
 		}
 	case 3204:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14423
+//line postgres.y:14433
 		{
 			yyVAL.ival = 0
 		}
 	case 3205:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14426
+//line postgres.y:14436
 		{
 			yyVAL.ival = ast.CURSOR_OPT_HOLD
 		}
 	case 3206:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14427
+//line postgres.y:14437
 		{
 			yyVAL.ival = 0
 		}
 	case 3207:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14428
+//line postgres.y:14438
 		{
 			yyVAL.ival = 0
 		}
 	case 3208:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14432
+//line postgres.y:14442
 		{
 			stmt := yyDollar[2].stmtUnion().(*ast.FetchStmt)
 			stmt.IsMove = false
@@ -43885,7 +43895,7 @@ yydefault:
 	case 3209:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14438
+//line postgres.y:14448
 		{
 			stmt := yyDollar[2].stmtUnion().(*ast.FetchStmt)
 			stmt.IsMove = true
@@ -43895,7 +43905,7 @@ yydefault:
 	case 3210:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14446
+//line postgres.y:14456
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[1].str, false)
 		}
@@ -43903,7 +43913,7 @@ yydefault:
 	case 3211:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14450
+//line postgres.y:14460
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[2].str, false)
 		}
@@ -43911,7 +43921,7 @@ yydefault:
 	case 3212:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14454
+//line postgres.y:14464
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[3].str, false)
 		}
@@ -43919,7 +43929,7 @@ yydefault:
 	case 3213:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14458
+//line postgres.y:14468
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, yyDollar[3].str, false)
 		}
@@ -43927,7 +43937,7 @@ yydefault:
 	case 3214:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14462
+//line postgres.y:14472
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, 1, yyDollar[3].str, false)
 		}
@@ -43935,7 +43945,7 @@ yydefault:
 	case 3215:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14466
+//line postgres.y:14476
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, -1, yyDollar[3].str, false)
 		}
@@ -43943,7 +43953,7 @@ yydefault:
 	case 3216:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14470
+//line postgres.y:14480
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
@@ -43951,7 +43961,7 @@ yydefault:
 	case 3217:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14474
+//line postgres.y:14484
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_RELATIVE, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
@@ -43959,7 +43969,7 @@ yydefault:
 	case 3218:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14478
+//line postgres.y:14488
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, int64(yyDollar[1].ival), yyDollar[3].str, false)
 		}
@@ -43967,7 +43977,7 @@ yydefault:
 	case 3219:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14482
+//line postgres.y:14492
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, yyDollar[3].str, false)
 		}
@@ -43975,7 +43985,7 @@ yydefault:
 	case 3220:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14486
+//line postgres.y:14496
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[3].str, false)
 		}
@@ -43983,7 +43993,7 @@ yydefault:
 	case 3221:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14490
+//line postgres.y:14500
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
@@ -43991,7 +44001,7 @@ yydefault:
 	case 3222:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14494
+//line postgres.y:14504
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, yyDollar[4].str, false)
 		}
@@ -43999,7 +44009,7 @@ yydefault:
 	case 3223:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14498
+//line postgres.y:14508
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, yyDollar[3].str, false)
 		}
@@ -44007,7 +44017,7 @@ yydefault:
 	case 3224:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14502
+//line postgres.y:14512
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_BACKWARD, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
@@ -44015,39 +44025,39 @@ yydefault:
 	case 3225:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14506
+//line postgres.y:14516
 		{
 			yyLOCAL = ast.NewFetchStmt(ast.FETCH_BACKWARD, ast.FETCH_ALL, yyDollar[4].str, false)
 		}
 		yyVAL.union = yyLOCAL
 	case 3226:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14511
+//line postgres.y:14521
 		{
 			yyVAL.ival = 0
 		}
 	case 3227:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14512
+//line postgres.y:14522
 		{
 			yyVAL.ival = 0
 		}
 	case 3228:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14516
+//line postgres.y:14526
 		{
 			yyVAL.ival = 0
 		}
 	case 3229:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14517
+//line postgres.y:14527
 		{
 			yyVAL.ival = 0
 		}
 	case 3230:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14522
+//line postgres.y:14532
 		{
 			name := yyDollar[2].str
 			yyLOCAL = ast.NewClosePortalStmt(name)
@@ -44056,7 +44066,7 @@ yydefault:
 	case 3231:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14527
+//line postgres.y:14537
 		{
 			yyLOCAL = ast.NewClosePortalStmt("")
 		}
@@ -44064,7 +44074,7 @@ yydefault:
 	case 3232:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14539
+//line postgres.y:14549
 		{
 			yyLOCAL = ast.NewPrepareStmt(yyDollar[2].str, yyDollar[3].listUnion(), yyDollar[5].stmtUnion())
 		}
@@ -44072,7 +44082,7 @@ yydefault:
 	case 3233:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14546
+//line postgres.y:14556
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -44080,7 +44090,7 @@ yydefault:
 	case 3234:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14549
+//line postgres.y:14559
 		{
 			yyLOCAL = nil
 		}
@@ -44088,7 +44098,7 @@ yydefault:
 	case 3235:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14553
+//line postgres.y:14563
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -44096,7 +44106,7 @@ yydefault:
 	case 3236:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14554
+//line postgres.y:14564
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -44104,7 +44114,7 @@ yydefault:
 	case 3237:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14555
+//line postgres.y:14565
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -44112,7 +44122,7 @@ yydefault:
 	case 3238:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14556
+//line postgres.y:14566
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -44120,7 +44130,7 @@ yydefault:
 	case 3239:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14557
+//line postgres.y:14567
 		{
 			yyLOCAL = yyDollar[1].stmtUnion()
 		}
@@ -44128,7 +44138,7 @@ yydefault:
 	case 3240:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14561
+//line postgres.y:14571
 		{
 			yyLOCAL = ast.NewExecuteStmt(yyDollar[2].str, yyDollar[3].listUnion())
 		}
@@ -44136,7 +44146,7 @@ yydefault:
 	case 3241:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14565
+//line postgres.y:14575
 		{
 			executeStmt := ast.NewExecuteStmt(yyDollar[7].str, yyDollar[8].listUnion())
 			ctas := ast.NewCreateTableAsStmt(executeStmt, yyDollar[4].intoUnion(), ast.OBJECT_TABLE, false, false)
@@ -44150,7 +44160,7 @@ yydefault:
 	case 3242:
 		yyDollar = yyS[yypt-12 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14575
+//line postgres.y:14585
 		{
 			executeStmt := ast.NewExecuteStmt(yyDollar[10].str, yyDollar[11].listUnion())
 			ctas := ast.NewCreateTableAsStmt(executeStmt, yyDollar[7].intoUnion(), ast.OBJECT_TABLE, false, true)
@@ -44164,7 +44174,7 @@ yydefault:
 	case 3243:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14588
+//line postgres.y:14598
 		{
 			yyLOCAL = yyDollar[2].listUnion()
 		}
@@ -44172,7 +44182,7 @@ yydefault:
 	case 3244:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14591
+//line postgres.y:14601
 		{
 			yyLOCAL = nil
 		}
@@ -44180,7 +44190,7 @@ yydefault:
 	case 3245:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL *ast.IntoClause
-//line postgres.y:14597
+//line postgres.y:14607
 		{
 			into := ast.NewIntoClause(yyDollar[1].rangevarUnion(), yyDollar[2].listUnion(), yyDollar[3].str, yyDollar[4].listUnion(), yyDollar[5].oncommitUnion(), yyDollar[6].str, nil, false, 0)
 			yyLOCAL = into
@@ -44189,7 +44199,7 @@ yydefault:
 	case 3246:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14605
+//line postgres.y:14615
 		{
 			yyLOCAL = ast.NewDeallocateStmt(yyDollar[2].str)
 		}
@@ -44197,7 +44207,7 @@ yydefault:
 	case 3247:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14609
+//line postgres.y:14619
 		{
 			yyLOCAL = ast.NewDeallocateStmt(yyDollar[3].str)
 		}
@@ -44205,7 +44215,7 @@ yydefault:
 	case 3248:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14613
+//line postgres.y:14623
 		{
 			yyLOCAL = ast.NewDeallocateAllStmt()
 		}
@@ -44213,7 +44223,7 @@ yydefault:
 	case 3249:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14617
+//line postgres.y:14627
 		{
 			yyLOCAL = ast.NewDeallocateAllStmt()
 		}
@@ -44221,7 +44231,7 @@ yydefault:
 	case 3250:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14628
+//line postgres.y:14638
 		{
 			yyLOCAL = ast.NewListenStmt(yyDollar[2].str)
 		}
@@ -44229,7 +44239,7 @@ yydefault:
 	case 3251:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14639
+//line postgres.y:14649
 		{
 			yyLOCAL = ast.NewUnlistenStmt(yyDollar[2].str)
 		}
@@ -44237,7 +44247,7 @@ yydefault:
 	case 3252:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14643
+//line postgres.y:14653
 		{
 			yyLOCAL = ast.NewUnlistenAllStmt()
 		}
@@ -44245,27 +44255,27 @@ yydefault:
 	case 3253:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14654
+//line postgres.y:14664
 		{
 			yyLOCAL = ast.NewNotifyStmt(yyDollar[2].str, yyDollar[3].str)
 		}
 		yyVAL.union = yyLOCAL
 	case 3254:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14664
+//line postgres.y:14674
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 3255:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14665
+//line postgres.y:14675
 		{
 			yyVAL.str = ""
 		}
 	case 3256:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14674
+//line postgres.y:14684
 		{
 			yyLOCAL = ast.NewLoadStmt(yyDollar[2].str)
 		}
@@ -44273,7 +44283,7 @@ yydefault:
 	case 3257:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14685
+//line postgres.y:14695
 		{
 			stmt := ast.NewLockStmt(yyDollar[3].listUnion(), ast.LockMode(yyDollar[4].ival))
 			stmt.Nowait = yyDollar[5].bvalUnion()
@@ -44282,68 +44292,68 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3258:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14697
+//line postgres.y:14707
 		{
 			yyVAL.ival = yyDollar[2].ival
 		}
 	case 3259:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14698
+//line postgres.y:14708
 		{
 			yyVAL.ival = int(ast.AccessExclusiveLock)
 		}
 	case 3260:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14702
+//line postgres.y:14712
 		{
 			yyVAL.ival = int(ast.AccessShareLock)
 		}
 	case 3261:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14703
+//line postgres.y:14713
 		{
 			yyVAL.ival = int(ast.RowShareLock)
 		}
 	case 3262:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14704
+//line postgres.y:14714
 		{
 			yyVAL.ival = int(ast.RowExclusiveLock)
 		}
 	case 3263:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14705
+//line postgres.y:14715
 		{
 			yyVAL.ival = int(ast.ShareUpdateExclusiveLock)
 		}
 	case 3264:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14706
+//line postgres.y:14716
 		{
 			yyVAL.ival = int(ast.ShareLock)
 		}
 	case 3265:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14707
+//line postgres.y:14717
 		{
 			yyVAL.ival = int(ast.ShareRowExclusiveLock)
 		}
 	case 3266:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14708
+//line postgres.y:14718
 		{
 			yyVAL.ival = int(ast.ExclusiveLock)
 		}
 	case 3267:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14709
+//line postgres.y:14719
 		{
 			yyVAL.ival = int(ast.AccessExclusiveLock)
 		}
 	case 3268:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14718
+//line postgres.y:14728
 		{
 			stmt := ast.NewTruncateStmt(yyDollar[3].listUnion())
 			stmt.RestartSeqs = yyDollar[4].bvalUnion()
@@ -44354,7 +44364,7 @@ yydefault:
 	case 3269:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14732
+//line postgres.y:14742
 		{
 			yyLOCAL = ast.NewCommentStmt(yyDollar[3].objTypeUnion(), yyDollar[4].listUnion(), yyDollar[6].str)
 		}
@@ -44362,7 +44372,7 @@ yydefault:
 	case 3270:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14736
+//line postgres.y:14746
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_COLUMN, yyDollar[4].listUnion(), yyDollar[6].str)
 		}
@@ -44370,7 +44380,7 @@ yydefault:
 	case 3271:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14740
+//line postgres.y:14750
 		{
 			yyLOCAL = ast.NewCommentStmt(yyDollar[3].objTypeUnion(), ast.NewString(yyDollar[4].str), yyDollar[6].str)
 		}
@@ -44378,7 +44388,7 @@ yydefault:
 	case 3272:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14744
+//line postgres.y:14754
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_TYPE, yyDollar[4].typnamUnion(), yyDollar[6].str)
 		}
@@ -44386,7 +44396,7 @@ yydefault:
 	case 3273:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14748
+//line postgres.y:14758
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_DOMAIN, yyDollar[4].typnamUnion(), yyDollar[6].str)
 		}
@@ -44394,7 +44404,7 @@ yydefault:
 	case 3274:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14752
+//line postgres.y:14762
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_AGGREGATE, yyDollar[4].objwithargsUnion(), yyDollar[6].str)
 		}
@@ -44402,7 +44412,7 @@ yydefault:
 	case 3275:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14756
+//line postgres.y:14766
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_FUNCTION, yyDollar[4].objwithargsUnion(), yyDollar[6].str)
 		}
@@ -44410,7 +44420,7 @@ yydefault:
 	case 3276:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14760
+//line postgres.y:14770
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_OPERATOR, yyDollar[4].objwithargsUnion(), yyDollar[6].str)
 		}
@@ -44418,7 +44428,7 @@ yydefault:
 	case 3277:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14764
+//line postgres.y:14774
 		{
 			// For table constraints, append constraint name to table name list
 			newObj := yyDollar[6].listUnion()
@@ -44429,7 +44439,7 @@ yydefault:
 	case 3278:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14771
+//line postgres.y:14781
 		{
 			// For domain constraints, we need a list of [TypeName, constraint_name]
 			// This matches PostgreSQL's approach where they comment:
@@ -44444,7 +44454,7 @@ yydefault:
 	case 3279:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14782
+//line postgres.y:14792
 		{
 			// For object types that need name ON any_name: append name to any_name list
 			newObj := yyDollar[6].listUnion()
@@ -44455,7 +44465,7 @@ yydefault:
 	case 3280:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14789
+//line postgres.y:14799
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_PROCEDURE, yyDollar[4].objwithargsUnion(), yyDollar[6].str)
 		}
@@ -44463,7 +44473,7 @@ yydefault:
 	case 3281:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14793
+//line postgres.y:14803
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_ROUTINE, yyDollar[4].objwithargsUnion(), yyDollar[6].str)
 		}
@@ -44471,7 +44481,7 @@ yydefault:
 	case 3282:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14797
+//line postgres.y:14807
 		{
 			// Transform: typename + language name
 			transformObj := ast.NewNodeList()
@@ -44483,7 +44493,7 @@ yydefault:
 	case 3283:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14805
+//line postgres.y:14815
 		{
 			// Operator class: access method + class name
 			opclassObj := ast.NewNodeList()
@@ -44497,7 +44507,7 @@ yydefault:
 	case 3284:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14815
+//line postgres.y:14825
 		{
 			// Operator family: access method + family name
 			opfamilyObj := ast.NewNodeList()
@@ -44511,7 +44521,7 @@ yydefault:
 	case 3285:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14825
+//line postgres.y:14835
 		{
 			yyLOCAL = ast.NewCommentStmt(ast.OBJECT_LARGEOBJECT, yyDollar[5].nodeUnion(), yyDollar[7].str)
 		}
@@ -44519,7 +44529,7 @@ yydefault:
 	case 3286:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14829
+//line postgres.y:14839
 		{
 			// Cast: source type + target type
 			castObj := ast.NewNodeList()
@@ -44530,20 +44540,20 @@ yydefault:
 		yyVAL.union = yyLOCAL
 	case 3287:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14843
+//line postgres.y:14853
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3288:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14844
+//line postgres.y:14854
 		{
 			yyVAL.str = ""
 		}
 	case 3289:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14853
+//line postgres.y:14863
 		{
 			yyLOCAL = ast.NewSecLabelStmt(yyDollar[5].objTypeUnion(), yyDollar[6].listUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44551,7 +44561,7 @@ yydefault:
 	case 3290:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14857
+//line postgres.y:14867
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_COLUMN, yyDollar[6].listUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44559,7 +44569,7 @@ yydefault:
 	case 3291:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14861
+//line postgres.y:14871
 		{
 			yyLOCAL = ast.NewSecLabelStmt(yyDollar[5].objTypeUnion(), ast.NewString(yyDollar[6].str), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44567,7 +44577,7 @@ yydefault:
 	case 3292:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14865
+//line postgres.y:14875
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_TYPE, yyDollar[6].typnamUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44575,7 +44585,7 @@ yydefault:
 	case 3293:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14869
+//line postgres.y:14879
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_DOMAIN, yyDollar[6].typnamUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44583,7 +44593,7 @@ yydefault:
 	case 3294:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14873
+//line postgres.y:14883
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_AGGREGATE, yyDollar[6].objwithargsUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44591,7 +44601,7 @@ yydefault:
 	case 3295:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14877
+//line postgres.y:14887
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_FUNCTION, yyDollar[6].objwithargsUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44599,7 +44609,7 @@ yydefault:
 	case 3296:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14881
+//line postgres.y:14891
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_LARGEOBJECT, yyDollar[7].nodeUnion(), yyDollar[3].str, yyDollar[9].str)
 		}
@@ -44607,7 +44617,7 @@ yydefault:
 	case 3297:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14885
+//line postgres.y:14895
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_PROCEDURE, yyDollar[6].objwithargsUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
@@ -44615,39 +44625,39 @@ yydefault:
 	case 3298:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14889
+//line postgres.y:14899
 		{
 			yyLOCAL = ast.NewSecLabelStmt(ast.OBJECT_ROUTINE, yyDollar[6].objwithargsUnion(), yyDollar[3].str, yyDollar[8].str)
 		}
 		yyVAL.union = yyLOCAL
 	case 3299:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14899
+//line postgres.y:14909
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 3300:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14900
+//line postgres.y:14910
 		{
 			yyVAL.str = ""
 		}
 	case 3301:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14904
+//line postgres.y:14914
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3302:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14905
+//line postgres.y:14915
 		{
 			yyVAL.str = ""
 		}
 	case 3303:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14914
+//line postgres.y:14924
 		{
 			yyLOCAL = ast.NewDoStmt(yyDollar[2].listUnion())
 		}
@@ -44655,7 +44665,7 @@ yydefault:
 	case 3304:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14924
+//line postgres.y:14934
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -44663,7 +44673,7 @@ yydefault:
 	case 3305:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:14925
+//line postgres.y:14935
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 			yyLOCAL.Append(yyDollar[2].defeltUnion())
@@ -44672,7 +44682,7 @@ yydefault:
 	case 3306:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14930
+//line postgres.y:14940
 		{
 			yyLOCAL = ast.NewDefElem("as", ast.NewString(yyDollar[1].str))
 		}
@@ -44680,7 +44690,7 @@ yydefault:
 	case 3307:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:14934
+//line postgres.y:14944
 		{
 			yyLOCAL = ast.NewDefElem("language", ast.NewString(yyDollar[2].str))
 		}
@@ -44688,7 +44698,7 @@ yydefault:
 	case 3308:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14945
+//line postgres.y:14955
 		{
 			yyLOCAL = ast.NewCallStmt(yyDollar[2].nodeUnion().(*ast.FuncCall))
 		}
@@ -44696,7 +44706,7 @@ yydefault:
 	case 3309:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14958
+//line postgres.y:14968
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_AGGREGATE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -44707,7 +44717,7 @@ yydefault:
 	case 3310:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14965
+//line postgres.y:14975
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_COLLATION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].listUnion()
@@ -44718,7 +44728,7 @@ yydefault:
 	case 3311:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14972
+//line postgres.y:14982
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_CONVERSION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].listUnion()
@@ -44729,7 +44739,7 @@ yydefault:
 	case 3312:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14979
+//line postgres.y:14989
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_DOMAIN, yyDollar[6].str)
 			stmt.Object = yyDollar[3].listUnion()
@@ -44740,7 +44750,7 @@ yydefault:
 	case 3313:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14986
+//line postgres.y:14996
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_EXTENSION, yyDollar[6].str)
 			stmt.Object = ast.NewString(yyDollar[3].str)
@@ -44751,7 +44761,7 @@ yydefault:
 	case 3314:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:14993
+//line postgres.y:15003
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FUNCTION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -44762,7 +44772,7 @@ yydefault:
 	case 3315:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15000
+//line postgres.y:15010
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPERATOR, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -44773,7 +44783,7 @@ yydefault:
 	case 3316:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15007
+//line postgres.y:15017
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPCLASS, yyDollar[9].str)
 			// Create list with access method name first, then class name
@@ -44789,7 +44799,7 @@ yydefault:
 	case 3317:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15019
+//line postgres.y:15029
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPFAMILY, yyDollar[9].str)
 			// Create list with access method name first, then family name
@@ -44805,7 +44815,7 @@ yydefault:
 	case 3318:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15031
+//line postgres.y:15041
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_PROCEDURE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -44816,7 +44826,7 @@ yydefault:
 	case 3319:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15038
+//line postgres.y:15048
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_ROUTINE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -44827,7 +44837,7 @@ yydefault:
 	case 3320:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15045
+//line postgres.y:15055
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevarUnion()
@@ -44838,7 +44848,7 @@ yydefault:
 	case 3321:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15052
+//line postgres.y:15062
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevarUnion()
@@ -44849,7 +44859,7 @@ yydefault:
 	case 3322:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15059
+//line postgres.y:15069
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_STATISTIC_EXT, yyDollar[6].str)
 			stmt.Object = yyDollar[3].listUnion()
@@ -44860,7 +44870,7 @@ yydefault:
 	case 3323:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15066
+//line postgres.y:15076
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSPARSER, yyDollar[8].str)
 			stmt.Object = yyDollar[5].listUnion()
@@ -44871,7 +44881,7 @@ yydefault:
 	case 3324:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15073
+//line postgres.y:15083
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSDICTIONARY, yyDollar[8].str)
 			stmt.Object = yyDollar[5].listUnion()
@@ -44882,7 +44892,7 @@ yydefault:
 	case 3325:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15080
+//line postgres.y:15090
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSTEMPLATE, yyDollar[8].str)
 			stmt.Object = yyDollar[5].listUnion()
@@ -44893,7 +44903,7 @@ yydefault:
 	case 3326:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15087
+//line postgres.y:15097
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSCONFIGURATION, yyDollar[8].str)
 			stmt.Object = yyDollar[5].listUnion()
@@ -44904,7 +44914,7 @@ yydefault:
 	case 3327:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15094
+//line postgres.y:15104
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevarUnion()
@@ -44915,7 +44925,7 @@ yydefault:
 	case 3328:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15101
+//line postgres.y:15111
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevarUnion()
@@ -44926,7 +44936,7 @@ yydefault:
 	case 3329:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15108
+//line postgres.y:15118
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevarUnion()
@@ -44937,7 +44947,7 @@ yydefault:
 	case 3330:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15115
+//line postgres.y:15125
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevarUnion()
@@ -44948,7 +44958,7 @@ yydefault:
 	case 3331:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15122
+//line postgres.y:15132
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, yyDollar[7].str)
 			stmt.Relation = yyDollar[4].rangevarUnion()
@@ -44959,7 +44969,7 @@ yydefault:
 	case 3332:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15129
+//line postgres.y:15139
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, yyDollar[9].str)
 			stmt.Relation = yyDollar[6].rangevarUnion()
@@ -44970,7 +44980,7 @@ yydefault:
 	case 3333:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15136
+//line postgres.y:15146
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, yyDollar[7].str)
 			stmt.Relation = yyDollar[4].rangevarUnion()
@@ -44981,7 +44991,7 @@ yydefault:
 	case 3334:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15143
+//line postgres.y:15153
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, yyDollar[9].str)
 			stmt.Relation = yyDollar[6].rangevarUnion()
@@ -44992,7 +45002,7 @@ yydefault:
 	case 3335:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15150
+//line postgres.y:15160
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TYPE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].listUnion()
@@ -45003,7 +45013,7 @@ yydefault:
 	case 3336:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15166
+//line postgres.y:15176
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45016,7 +45026,7 @@ yydefault:
 	case 3337:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15175
+//line postgres.y:15185
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45029,7 +45039,7 @@ yydefault:
 	case 3338:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15184
+//line postgres.y:15194
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45042,7 +45052,7 @@ yydefault:
 	case 3339:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15193
+//line postgres.y:15203
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45055,7 +45065,7 @@ yydefault:
 	case 3340:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15202
+//line postgres.y:15212
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45068,7 +45078,7 @@ yydefault:
 	case 3341:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15211
+//line postgres.y:15221
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45081,7 +45091,7 @@ yydefault:
 	case 3342:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15220
+//line postgres.y:15230
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45094,7 +45104,7 @@ yydefault:
 	case 3343:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15229
+//line postgres.y:15239
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45107,7 +45117,7 @@ yydefault:
 	case 3344:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15238
+//line postgres.y:15248
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45120,7 +45130,7 @@ yydefault:
 	case 3345:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15247
+//line postgres.y:15257
 		{
 			list := ast.NewNodeList(ast.NewString(yyDollar[6].str))
 			for _, item := range yyDollar[4].listUnion().Items {
@@ -45137,7 +45147,7 @@ yydefault:
 	case 3346:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15260
+//line postgres.y:15270
 		{
 			list := ast.NewNodeList(ast.NewString(yyDollar[6].str))
 			for _, item := range yyDollar[4].listUnion().Items {
@@ -45154,7 +45164,7 @@ yydefault:
 	case 3347:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15273
+//line postgres.y:15283
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45167,7 +45177,7 @@ yydefault:
 	case 3348:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15282
+//line postgres.y:15292
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45180,7 +45190,7 @@ yydefault:
 	case 3349:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15291
+//line postgres.y:15301
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45193,7 +45203,7 @@ yydefault:
 	case 3350:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15300
+//line postgres.y:15310
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45206,7 +45216,7 @@ yydefault:
 	case 3351:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15309
+//line postgres.y:15319
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45219,7 +45229,7 @@ yydefault:
 	case 3352:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15318
+//line postgres.y:15328
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45232,7 +45242,7 @@ yydefault:
 	case 3353:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15327
+//line postgres.y:15337
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45245,7 +45255,7 @@ yydefault:
 	case 3354:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15336
+//line postgres.y:15346
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45258,7 +45268,7 @@ yydefault:
 	case 3355:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15345
+//line postgres.y:15355
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45271,7 +45281,7 @@ yydefault:
 	case 3356:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15354
+//line postgres.y:15364
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45284,7 +45294,7 @@ yydefault:
 	case 3357:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15363
+//line postgres.y:15373
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45297,7 +45307,7 @@ yydefault:
 	case 3358:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15372
+//line postgres.y:15382
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45310,7 +45320,7 @@ yydefault:
 	case 3359:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15381
+//line postgres.y:15391
 		{
 			yyLOCAL = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -45323,7 +45333,7 @@ yydefault:
 	case 3360:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15399
+//line postgres.y:15409
 		{
 			yyLOCAL = ast.NewAlterOperatorStmt(yyDollar[3].objwithargsUnion(), yyDollar[6].listUnion())
 		}
@@ -45331,7 +45341,7 @@ yydefault:
 	case 3361:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15412
+//line postgres.y:15422
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_FUNCTION, ast.NewString(yyDollar[8].str), yyDollar[4].bvalUnion())
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -45341,7 +45351,7 @@ yydefault:
 	case 3362:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15418
+//line postgres.y:15428
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_PROCEDURE, ast.NewString(yyDollar[8].str), yyDollar[4].bvalUnion())
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -45351,7 +45361,7 @@ yydefault:
 	case 3363:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15424
+//line postgres.y:15434
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_ROUTINE, ast.NewString(yyDollar[8].str), yyDollar[4].bvalUnion())
 			stmt.Object = yyDollar[3].objwithargsUnion()
@@ -45361,7 +45371,7 @@ yydefault:
 	case 3364:
 		yyDollar = yyS[yypt-10 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15430
+//line postgres.y:15440
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_TRIGGER, ast.NewString(yyDollar[10].str), yyDollar[6].bvalUnion())
 			stmt.Relation = yyDollar[5].rangevarUnion()
@@ -45372,7 +45382,7 @@ yydefault:
 	case 3365:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15437
+//line postgres.y:15447
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_MATVIEW, ast.NewString(yyDollar[9].str), yyDollar[5].bvalUnion())
 			stmt.Relation = yyDollar[4].rangevarUnion()
@@ -45382,7 +45392,7 @@ yydefault:
 	case 3366:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15443
+//line postgres.y:15453
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_INDEX, ast.NewString(yyDollar[8].str), yyDollar[4].bvalUnion())
 			stmt.Relation = yyDollar[3].rangevarUnion()
@@ -45392,7 +45402,7 @@ yydefault:
 	case 3367:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:15450
+//line postgres.y:15460
 		{
 			yyLOCAL = true
 		}
@@ -45400,7 +45410,7 @@ yydefault:
 	case 3368:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:15451
+//line postgres.y:15461
 		{
 			yyLOCAL = false
 		}
@@ -45408,7 +45418,7 @@ yydefault:
 	case 3369:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15462
+//line postgres.y:15472
 		{
 			yyLOCAL = ast.NewAlterCollationStmt(yyDollar[3].listUnion())
 		}
@@ -45416,7 +45426,7 @@ yydefault:
 	case 3370:
 		yyDollar = yyS[yypt-5 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15475
+//line postgres.y:15485
 		{
 			yyLOCAL = ast.NewAlterDatabaseStmt(yyDollar[3].str, yyDollar[5].listUnion())
 		}
@@ -45424,7 +45434,7 @@ yydefault:
 	case 3371:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15479
+//line postgres.y:15489
 		{
 			yyLOCAL = ast.NewAlterDatabaseStmt(yyDollar[3].str, yyDollar[4].listUnion())
 		}
@@ -45432,7 +45442,7 @@ yydefault:
 	case 3372:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15483
+//line postgres.y:15493
 		{
 			optList := ast.NewNodeList()
 			optList.Append(ast.NewDefElem("tablespace", ast.NewString(yyDollar[6].str)))
@@ -45442,7 +45452,7 @@ yydefault:
 	case 3373:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15489
+//line postgres.y:15499
 		{
 			yyLOCAL = ast.NewAlterDatabaseRefreshCollStmt(yyDollar[3].str)
 		}
@@ -45450,7 +45460,7 @@ yydefault:
 	case 3374:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:15495
+//line postgres.y:15505
 		{
 			yyLOCAL = yyDollar[1].listUnion()
 		}
@@ -45458,7 +45468,7 @@ yydefault:
 	case 3375:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:15496
+//line postgres.y:15506
 		{
 			yyLOCAL = nil
 		}
@@ -45466,7 +45476,7 @@ yydefault:
 	case 3376:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:15500
+//line postgres.y:15510
 		{
 			yyLOCAL = ast.NewNodeList(yyDollar[1].defeltUnion())
 		}
@@ -45474,7 +45484,7 @@ yydefault:
 	case 3377:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL *ast.NodeList
-//line postgres.y:15501
+//line postgres.y:15511
 		{
 			yyDollar[1].listUnion().Append(yyDollar[2].defeltUnion())
 			yyLOCAL = yyDollar[1].listUnion()
@@ -45483,7 +45493,7 @@ yydefault:
 	case 3378:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:15506
+//line postgres.y:15516
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, ast.NewInteger(yyDollar[3].ival))
 		}
@@ -45491,7 +45501,7 @@ yydefault:
 	case 3379:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:15510
+//line postgres.y:15520
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, ast.NewString(yyDollar[3].str))
 		}
@@ -45499,67 +45509,67 @@ yydefault:
 	case 3380:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		var yyLOCAL *ast.DefElem
-//line postgres.y:15514
+//line postgres.y:15524
 		{
 			yyLOCAL = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 		yyVAL.union = yyLOCAL
 	case 3381:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15520
+//line postgres.y:15530
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3382:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:15521
+//line postgres.y:15531
 		{
 			yyVAL.str = "connection_limit"
 		}
 	case 3383:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15522
+//line postgres.y:15532
 		{
 			yyVAL.str = "encoding"
 		}
 	case 3384:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15523
+//line postgres.y:15533
 		{
 			yyVAL.str = "location"
 		}
 	case 3385:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15524
+//line postgres.y:15534
 		{
 			yyVAL.str = "owner"
 		}
 	case 3386:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15525
+//line postgres.y:15535
 		{
 			yyVAL.str = "tablespace"
 		}
 	case 3387:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15526
+//line postgres.y:15536
 		{
 			yyVAL.str = "template"
 		}
 	case 3388:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15529
+//line postgres.y:15539
 		{
 		}
 	case 3389:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:15530
+//line postgres.y:15540
 		{
 		}
 	case 3390:
 		yyDollar = yyS[yypt-4 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15535
+//line postgres.y:15545
 		{
 			yyLOCAL = ast.NewAlterDatabaseSetStmt(yyDollar[3].str, yyDollar[4].vsetstmtUnion())
 		}
@@ -45567,7 +45577,7 @@ yydefault:
 	case 3391:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15548
+//line postgres.y:15558
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ADD_MAPPING, yyDollar[5].listUnion())
 			stmt.Tokentype = yyDollar[9].listUnion()
@@ -45580,7 +45590,7 @@ yydefault:
 	case 3392:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15557
+//line postgres.y:15567
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN, yyDollar[5].listUnion())
 			stmt.Tokentype = yyDollar[9].listUnion()
@@ -45593,7 +45603,7 @@ yydefault:
 	case 3393:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15566
+//line postgres.y:15576
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT, yyDollar[5].listUnion())
 			stmt.Tokentype = nil
@@ -45609,7 +45619,7 @@ yydefault:
 	case 3394:
 		yyDollar = yyS[yypt-13 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15578
+//line postgres.y:15588
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN, yyDollar[5].listUnion())
 			stmt.Tokentype = yyDollar[9].listUnion()
@@ -45625,7 +45635,7 @@ yydefault:
 	case 3395:
 		yyDollar = yyS[yypt-9 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15590
+//line postgres.y:15600
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, yyDollar[5].listUnion())
 			stmt.Tokentype = yyDollar[9].listUnion()
@@ -45636,7 +45646,7 @@ yydefault:
 	case 3396:
 		yyDollar = yyS[yypt-11 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15597
+//line postgres.y:15607
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, yyDollar[5].listUnion())
 			stmt.Tokentype = yyDollar[11].listUnion()
@@ -45647,7 +45657,7 @@ yydefault:
 	case 3399:
 		yyDollar = yyS[yypt-6 : yypt+1]
 		var yyLOCAL ast.Stmt
-//line postgres.y:15618
+//line postgres.y:15628
 		{
 			yyLOCAL = ast.NewAlterTSDictionaryStmt(yyDollar[5].listUnion(), yyDollar[6].listUnion())
 		}
@@ -45655,7 +45665,7 @@ yydefault:
 	case 3400:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:15628
+//line postgres.y:15638
 		{
 			yyLOCAL = false
 		}
@@ -45663,7 +45673,7 @@ yydefault:
 	case 3401:
 		yyDollar = yyS[yypt-2 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:15629
+//line postgres.y:15639
 		{
 			yyLOCAL = true
 		}
@@ -45671,7 +45681,7 @@ yydefault:
 	case 3402:
 		yyDollar = yyS[yypt-0 : yypt+1]
 		var yyLOCAL bool
-//line postgres.y:15630
+//line postgres.y:15640
 		{
 			yyLOCAL = false
 		}
