@@ -1048,8 +1048,8 @@ type MultiPooler struct {
 	// lifecycle states even on cold start, not only over the health stream.
 	LifecycleStatus *PoolerLifecycle `protobuf:"bytes,12,opt,name=lifecycle_status,json=lifecycleStatus,proto3" json:"lifecycle_status,omitempty"`
 	// current_leadership is set ONLY when this pooler currently considers
-	// itself the leader of its shard. Replicas leave this empty so etcd
-	// doesn't carry the leader's view of itself in every pooler's record.
+	// itself the leader of its shard. Replicas leave this empty to avoid
+	// excessive high-volume etcd writes by all replicas during failovers.
 	//
 	// Consumers (multigateway) will read this on discovery to bootstrap
 	// leader routing without relying on `type` as a hint. Best-effort:
