@@ -180,6 +180,7 @@ How it works, and how it differs from the contrib suite:
   kegs live outside the default search path; pass them with
   `PG_CONFIGURE_EXTRA_ARGS="--with-includes=/opt/homebrew/include --with-libraries=/opt/homebrew/lib"`
   (CI on Linux needs nothing).
+
 - **Test execution**: unlike contrib we cannot use `make installcheck`. Under
   PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
   PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
