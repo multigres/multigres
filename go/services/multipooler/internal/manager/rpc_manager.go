@@ -664,7 +664,7 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return err
 	}
 
-	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
+	pm.logger.InfoContext(ctx, "changeTypeLocked called", "requested_type", poolerType.String(), "service_id", pm.serviceID.String())
 
 	// Use the serving state manager to transition components and update the pooler record.
 	// The serving status stays SERVING during type changes (the node remains available). Mutate
@@ -673,7 +673,13 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to set serving state")
 	}
 
-	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
+	// The published type comes from latestRule()-derived SetState semantics,
+	// not from the caller-supplied poolerType. Log both so incident
+	// triage can spot caller/rule disagreement.
+	pm.logger.InfoContext(ctx, "Pooler type updated successfully",
+		"new_type", pm.record.Type().String(),
+		"requested_type", poolerType.String(),
+		"service_id", pm.serviceID.String())
 	return nil
 }
 

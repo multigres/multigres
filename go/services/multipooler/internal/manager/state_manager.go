@@ -124,29 +124,37 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 // caller-controlled. To transition under a new rule, write it through
 // consensusState / rule_store first; SetState picks it up.
 //
-// When latestRule returns nil the pooler has not yet substantiated any
-// role — Type derives to UNKNOWN, which callers MUST pair with
-// NOT_SERVING. Requesting SERVING with no rule observed returns an error
-// rather than silently downgrading: a pooler with no rule substantiated
-// cannot honestly claim to serve, and the caller is in a better position
-// than SetState to log the reason.
+// When latestRule returns nil but the record already carries a non-UNKNOWN
+// Type from a prior run, the record's existing (Type, CurrentLeadership)
+// is preserved — the pre-existing values satisfied the invariant, so
+// continuing to publish them is safe. The monitor and coordinator paths
+// overwrite this once a rule is observed. Requesting SERVING when both
+// the rule and the record are UNKNOWN still errors — a pooler with no
+// substantiated role cannot honestly serve.
 //
 // Returns an error if any component fails to transition. No-op if the
-// derived Type, CurrentLeadership, and the requested ServingStatus all
+// effective Type, CurrentLeadership, and the requested ServingStatus all
 // match the current record.
 func (ssm *StateManager) SetState(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
-	rule := ssm.latestRule()
-	newType, newObs := deriveTypeAndObs(rule, ssm.record.Id())
-	if newType == clustermetadatapb.PoolerType_UNKNOWN && servingStatus != clustermetadatapb.PoolerServingStatus_NOT_SERVING {
-		return fmt.Errorf("SetState: cannot request servingStatus=%s with no rule observed (Type=UNKNOWN must be paired with NOT_SERVING)", servingStatus)
-	}
-
 	currentType := ssm.record.Type()
 	currentStatus := ssm.record.ServingStatus()
 	currentObs := ssm.record.CurrentLeadership()
+
+	rule := ssm.latestRule()
+	newType, newObs := deriveTypeAndObs(rule, ssm.record.Id())
+	// Cold-boot fallback: when no rule is observed yet but the record was
+	// loaded from topology with a previously-published type, keep what's
+	// there. Avoids a spurious UNKNOWN+SERVING rejection on Open() while
+	// the rule sources are still warming up.
+	if newType == clustermetadatapb.PoolerType_UNKNOWN && currentType != clustermetadatapb.PoolerType_UNKNOWN {
+		newType, newObs = currentType, currentObs
+	}
+	if newType == clustermetadatapb.PoolerType_UNKNOWN && servingStatus != clustermetadatapb.PoolerServingStatus_NOT_SERVING {
+		return fmt.Errorf("SetState: cannot request servingStatus=%s with no rule observed (Type=UNKNOWN must be paired with NOT_SERVING)", servingStatus)
+	}
 
 	if currentType == newType && currentStatus == servingStatus && proto.Equal(currentObs, newObs) {
 		ssm.logger.InfoContext(ctx, "Serving state unchanged, skipping",
