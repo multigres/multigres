@@ -68,7 +68,7 @@ func (p *Planner) planVariableSetStmt(
 	if stmt.IsLocal {
 		p.logger.Debug("SET LOCAL detected, passing through",
 			"variable", stmt.Name)
-		return p.planDefault(sql, stmt, conn)
+		return p.planDefault(sql, stmt, conn, PlannerOptions{})
 	}
 
 	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
@@ -117,7 +117,7 @@ func (p *Planner) planVariableSetStmt(
 		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
 		p.logger.Debug("passing through to PostgreSQL",
 			"kind", stmt.Kind, "variable", stmt.Name)
-		return p.planDefault(sql, stmt, conn)
+		return p.planDefault(sql, stmt, conn, PlannerOptions{})
 
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))

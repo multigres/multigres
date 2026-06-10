@@ -101,7 +101,7 @@ func TestSetConfigSynchronousCommit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := inspectExpressionFuncCalls(parseOne(t, tt.sql))
+			_, err := analyzeFunctionCalls(parseOne(t, tt.sql))
 			if !tt.wantErr {
 				assert.NoError(t, err)
 				return
@@ -121,7 +121,7 @@ func TestSetConfigSynchronousCommit(t *testing.T) {
 // the is_local=true path can still be inspected (see normalizer.go).
 func TestSetConfigSynchronousCommitAfterNormalization(t *testing.T) {
 	norm := ast.Normalize(parseOne(t, "SELECT set_config('synchronous_commit', 'off', true)"))
-	_, err := planUnsupportedConstructs(norm.NormalizedAST)
+	_, err := analyzeStatement(norm.NormalizedAST)
 	require.Error(t, err)
 	var diag *mterrors.PgDiagnostic
 	require.True(t, errors.As(err, &diag))
@@ -129,7 +129,7 @@ func TestSetConfigSynchronousCommitAfterNormalization(t *testing.T) {
 
 	// A normalized is_local=true call for an unrelated GUC must still pass.
 	normOK := ast.Normalize(parseOne(t, "SELECT set_config('work_mem', '64MB', true)"))
-	_, err = planUnsupportedConstructs(normOK.NormalizedAST)
+	_, err = analyzeStatement(normOK.NormalizedAST)
 	assert.NoError(t, err)
 }
 

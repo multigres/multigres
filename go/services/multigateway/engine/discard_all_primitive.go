@@ -42,9 +42,9 @@ import (
 // any single backend: prepared statements (the consolidator), session GUCs
 // (SessionSettings + gateway-managed variables), and LISTEN subscriptions are
 // all gateway-side. The only backend-resident session state is whatever a
-// *reserved* connection holds — an open transaction, temp tables, or
-// `DECLARE … WITH HOLD` cursors — and that is cleaned up by handing the
-// reserved connection back to the pool.
+// *reserved* connection holds — an open transaction, temp tables,
+// `DECLARE … WITH HOLD` cursors, or session-level advisory locks — and that is
+// cleaned up by handing the reserved connection back to the pool.
 //
 // Forwarding the literal DISCARD ALL to a shared pooled backend would run
 // DEALLOCATE ALL on it, wiping the prepared statements the multipooler still
@@ -56,13 +56,13 @@ import (
 // per-session view (the consolidator) is cleared, which is what frees the
 // client's statement names.
 //
-// Out of scope: the `SELECT pg_advisory_unlock_all()` half of PG's DISCARD ALL
-// is NOT handled here. Session-level advisory locks live on whatever backend
-// executed pg_advisory_lock, and the reserved-connection release rolls back
-// (which only drops transaction-level locks) rather than running
-// pg_advisory_unlock_all on the backend. Session-level advisory locks are a
-// pre-existing limitation under pooling and are not addressed by this
-// primitive.
+// The `SELECT pg_advisory_unlock_all()` half of PG's DISCARD ALL is handled via
+// the reserved-connection release: ReleaseAllReservedConnections (below) runs
+// pg_advisory_unlock_all() on the backend before recycling it, so a session
+// holding session-level advisory locks has them dropped exactly as PG's
+// pg_advisory_unlock_all() step would. The narrow unlock_all call is used rather
+// than forwarding the literal DISCARD ALL, which would also DEALLOCATE the
+// pooled backend's prepared statements (see above).
 type DiscardAllPrimitive struct {
 	// Query is the original SQL string ("DISCARD ALL").
 	Query string
@@ -87,17 +87,19 @@ func (d *DiscardAllPrimitive) StreamExecute(
 	// PG rejects DISCARD ALL inside a transaction block — the idea is to
 	// catch mistakes that would otherwise leave the transaction uncommitted.
 	// conn.IsInTransaction() covers a deferred BEGIN too (the status flips at
-	// BEGIN even before the backend call), so the reserved connection below
-	// is only ever held for temp tables / WITH HOLD cursors here.
+	// BEGIN even before the backend call), so the reserved connection below is
+	// only ever held for temp tables, WITH HOLD cursors, or session-level
+	// advisory locks here.
 	if conn.IsInTransaction() {
 		return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
 			"DISCARD ALL cannot run inside a transaction block", "")
 	}
 
-	// CLOSE ALL + DISCARD TEMP + rollback of a reserved backend — release any
-	// reserved connection regardless of reason. ReleaseAllReservedConnections
-	// rolls back, discards temp tables, releases portals, returns the backend
-	// to the pool clean, and clears local shard state.
+	// CLOSE ALL + DISCARD TEMP + pg_advisory_unlock_all + rollback of a reserved
+	// backend — release any reserved connection regardless of reason.
+	// ReleaseAllReservedConnections rolls back, discards temp tables, releases
+	// session-level advisory locks, releases portals, returns the backend to the
+	// pool clean, and clears local shard state.
 	//
 	// This is done FIRST because it is the only step that can fail (it makes an
 	// RPC to the multipooler). The gateway-side resets below are pure in-memory

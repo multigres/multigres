@@ -133,6 +133,10 @@ const (
 	// ReleasePortalComplete indicates the portal execution completed.
 	ReleasePortalComplete
 
+	// ReleaseAdvisoryUnlock indicates the session released its last session-level
+	// advisory lock, so the backend no longer needs to stay pinned.
+	ReleaseAdvisoryUnlock
+
 	// ReleaseTimeout indicates the reservation timed out.
 	ReleaseTimeout
 
@@ -152,6 +156,8 @@ func (r ReleaseReason) String() string {
 		return "rollback"
 	case ReleasePortalComplete:
 		return "portal_complete"
+	case ReleaseAdvisoryUnlock:
+		return "advisory_unlock"
 	case ReleaseTimeout:
 		return "timeout"
 	case ReleaseKill:
