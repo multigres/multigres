@@ -181,6 +181,14 @@ func (p *Planner) Plan(
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
 
+	case ast.T_CreateSeqStmt:
+		// Temp sequences are session-scoped like temp tables: nextval/currval
+		// on later statements must land on the same backend connection.
+		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, stmt, conn, opts)
+
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
 		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
@@ -379,6 +387,15 @@ func (p *Planner) PlanPortal(
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	case ast.T_CreateSeqStmt:
+		// Temp sequences are session-scoped like temp tables: nextval/currval
+		// on later statements must land on the same backend connection, so
+		// CREATE TEMP SEQUENCE over the extended protocol must reserve too.
+		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
