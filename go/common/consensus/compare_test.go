@@ -240,3 +240,35 @@ func TestComparePosition(t *testing.T) {
 		})
 	}
 }
+
+func obs(name string, term, subterm int64) *clustermetadatapb.LeaderObservation {
+	return &clustermetadatapb.LeaderObservation{
+		LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name},
+		LeaderRuleNumber: rn(term, subterm),
+	}
+}
+
+func TestMostAuthoritativeObservation(t *testing.T) {
+	a := obs("a", 5, 0)
+	b := obs("b", 6, 0)
+	c := obs("c", 6, 1)
+
+	t.Run("all nil returns nil", func(t *testing.T) {
+		assert.Nil(t, MostAuthoritativeObservation(nil, nil))
+		assert.Nil(t, MostAuthoritativeObservation())
+	})
+
+	t.Run("skips nil entries", func(t *testing.T) {
+		assert.Same(t, a, MostAuthoritativeObservation(nil, a, nil))
+	})
+
+	t.Run("highest rule number wins", func(t *testing.T) {
+		assert.Same(t, b, MostAuthoritativeObservation(a, b))
+		assert.Same(t, c, MostAuthoritativeObservation(a, b, c)) // subterm breaks the term tie
+	})
+
+	t.Run("first wins on an exact rule tie", func(t *testing.T) {
+		tie := obs("tie", 6, 1)
+		assert.Same(t, c, MostAuthoritativeObservation(c, tie))
+	})
+}

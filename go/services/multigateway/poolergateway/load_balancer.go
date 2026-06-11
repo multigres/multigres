@@ -43,11 +43,14 @@ type shardKey struct {
 // It creates connections based on discovery events and destroys them when poolers
 // are removed from discovery.
 //
-// Leader identity is tracked per-shard via the leaders map, populated only from
-// LeaderObservation messages on health streams. The pooler.Type field from etcd
-// topology is a hint about intended role — never the source of truth for which
-// pooler leads a shard. A leaders entry survives connection lifecycle events:
-// removing a pooler does not erase consensus's choice of leader.
+// Leader identity is tracked per-shard via the leaders map, populated from two
+// sources that both carry a rule number: a pooler's self_leadership in its
+// topology record (read on discovery) and LeaderObservation messages on health
+// streams. The most-authoritative observation (highest rule number) wins,
+// regardless of source. The pooler.Type field from etcd topology is never
+// consulted for leader identity — only self_leadership is. A leaders entry
+// survives connection lifecycle events: removing a pooler does not erase
+// consensus's choice of leader.
 type LoadBalancer struct {
 	// localCell is the cell where this gateway is running
 	localCell string
@@ -64,10 +67,12 @@ type LoadBalancer struct {
 	// connections maps pooler ID to PoolerConnection
 	connections map[string]*PoolerConnection
 
-	// leaders maps shard key to the highest-term LeaderObservation seen for that
-	// shard. Populated only from health-stream observations; never from topology.
-	// The leader_id field of the observation may name a pooler we are not
-	// currently connected to — GetConnection handles that case at read time.
+	// leaders maps shard key to the most-authoritative LeaderObservation seen
+	// for that shard (highest rule number wins). Populated from a pooler's
+	// self_leadership topology record and from LeaderObservation messages on
+	// health streams. The leader_id field of the observation may name a pooler
+	// we are not currently connected to — GetConnection handles that case at
+	// read time.
 	leaders map[shardKey]*clustermetadatapb.LeaderObservation
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
@@ -125,19 +130,14 @@ func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.D
 // AddPooler creates a new PoolerConnection for the given pooler.
 // If a connection already exists for this pooler, it updates the pooler info.
 //
-// AddPooler does not establish leader identity from real consensus state —
-// that comes exclusively from LeaderObservation on health streams. The one
-// concession is a cold-start fallback: if no LeaderObservation has been
-// received for the shard yet and topology says this pooler is PRIMARY, we
-// seed `leaders[shard]` with a synthetic LeaderObservation at term 0. Any
-// real observation (term >= 1) beats this seed unconditionally, so a stale
-// Type=PRIMARY assertion from a demoted-then-restarted pooler cannot
-// override consensus. The seed only matters during the gateway's startup
-// window before health streams have produced any observations.
-//
-// TODO: once multipooler publishes its current LeaderObservation into its
-// etcd record (the proto would need a `last_observed_leader` field), drop
-// the synthetic seed and use that real observation instead.
+// If the pooler's topology record carries a self_leadership observation (the
+// leader publishes one naming itself under the rule it leads), AddPooler folds
+// it into `leaders[shard]`. This is a real consensus observation, not a Type
+// heuristic: a demoted pooler clears its self_leadership, so only the current
+// leader advertises one. It competes with health-stream observations on rule
+// number, so the most-authoritative view wins regardless of source. This lets
+// the gateway route to the leader as soon as it is discovered in etcd, before
+// any health stream has reported.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	poolerID := poolerIDString(pooler.Id)
 
@@ -146,14 +146,14 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 	key := shardKey{tableGroup: pooler.GetShardKey().GetTableGroup(), shard: pooler.GetShardKey().GetShard()}
 
-	// Existing pooler — refresh topology metadata. The cold-start hint below
-	// can also fire here: at cluster bootstrap, poolers are first discovered
-	// as REPLICA, then their Type transitions to PRIMARY after multiorch
-	// promotes one. That transition is the first topology signal of who
-	// leads, before any health stream reports a LeaderObservation.
+	// Existing pooler — refresh topology metadata. The self_leadership merge
+	// below also fires here: a pooler first discovered as a non-leader is
+	// re-discovered with self_leadership set once multiorch promotes it. That
+	// republished record is often the first signal of who leads, before any
+	// health stream reports an observation.
 	if conn, exists := lb.connections[poolerID]; exists {
 		conn.UpdatePoolerInfo(pooler)
-		lb.maybeSeedColdStartLeaderLocked(key, pooler)
+		lb.mergeTopologyLeaderLocked(key, pooler)
 		lb.notifyIfLeaderServingLocked(key, conn)
 		return nil
 	}
@@ -164,7 +164,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	}
 
 	lb.connections[poolerID] = conn
-	lb.maybeSeedColdStartLeaderLocked(key, pooler)
+	lb.mergeTopologyLeaderLocked(key, pooler)
 
 	// If a prior LeaderObservation already named this pooler the leader, the
 	// first health update may be slow — trigger buffer drain now so traffic
@@ -179,31 +179,27 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	return nil
 }
 
-// maybeSeedColdStartLeaderLocked sets `leaders[key]` to a term-0 synthetic
-// LeaderObservation when topology says this pooler is PRIMARY and no real
-// observation has been received yet for the shard. Any real observation
-// (term >= 1) overrides this seed via the standard term-reconciliation in
-// onPoolerHealthUpdate, so a stale Type=PRIMARY assertion from a
-// demoted-then-restarted pooler cannot override consensus. Caller must hold
-// lb.mu.
-//
-// TODO: once multipooler publishes its current LeaderObservation into its
-// etcd record (the proto would need a `last_observed_leader` field), drop
-// this synthetic seed and use the real observation instead.
-func (lb *LoadBalancer) maybeSeedColdStartLeaderLocked(key shardKey, pooler *clustermetadatapb.MultiPooler) {
-	if pooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+// mergeTopologyLeaderLocked folds a pooler's self_leadership observation (from
+// its topology record) into `leaders[key]`, keeping whichever observation has
+// the higher rule number. A pooler that is not the leader carries no
+// self_leadership, so this is a no-op for it — it never clears an existing
+// entry, since a higher observation from any source is what supersedes a
+// leader. Caller must hold lb.mu.
+func (lb *LoadBalancer) mergeTopologyLeaderLocked(key shardKey, pooler *clustermetadatapb.MultiPooler) {
+	obs := pooler.GetSelfLeadership()
+	if obs == nil {
 		return
 	}
-	if lb.leaders[key] != nil {
+	merged := commonconsensus.MostAuthoritativeObservation(lb.leaders[key], obs)
+	if merged == lb.leaders[key] {
 		return
 	}
-	lb.leaders[key] = &clustermetadatapb.LeaderObservation{
-		LeaderId: pooler.Id,
-	}
-	lb.logger.Debug("cold-start leader hint from topology",
+	lb.leaders[key] = merged
+	lb.logger.Debug("leader observation from topology self_leadership",
 		"pooler_id", poolerIDString(pooler.Id),
 		"tablegroup", key.tableGroup,
-		"shard", key.shard)
+		"shard", key.shard,
+		"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
 }
 
 // RemovePooler closes and removes the PoolerConnection for the given pooler ID.
@@ -232,11 +228,11 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 // Returns an error immediately if no suitable connection is available.
 //
 // Selection logic:
-//   - For PRIMARY: consults `leaders` (highest-term LeaderObservation) to identify
-//     the leader, then looks up its connection. Two distinct error cases: no
-//     leader observed yet, vs. leader known but not connected.
+//   - For PRIMARY: consults `leaders` (most-authoritative LeaderObservation) to
+//     identify the leader, then looks up its connection. Two distinct error
+//     cases: no leader observed yet, vs. leader known but not connected.
 //   - For REPLICA: any connected pooler in the shard that is not the known
-//     leader. If no leader is known yet (cold start), falls back to topology
+//     leader. If no leader is known yet, falls back to topology
 //     pooler.Type == REPLICA to avoid serving reads from a pooler that may
 //     turn out to be the leader.
 func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
@@ -267,13 +263,9 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	}
 
 	// REPLICA: collect every connection eligible to serve reads in the shard.
-	// A consensus-confirmed leader (rule > zero) is excluded by ID; the
-	// cold-start topology seed (zero rule) is treated as if no leader is known
-	// yet, so a pooler that has since transitioned to Type=REPLICA can still
-	// be selected. CompareRuleNumbers treats a nil/zero rule as the smallest
-	// value, so this also covers the no-leader-observed case.
+	// The leader is excluded by ID.
 	confirmedLeaderID := ""
-	if commonconsensus.CompareRuleNumbers(leaderObs.GetLeaderRuleNumber(), nil) > 0 {
+	if leaderObs != nil {
 		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
 	}
 	var candidates []*PoolerConnection

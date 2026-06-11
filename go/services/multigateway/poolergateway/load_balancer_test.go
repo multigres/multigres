@@ -55,6 +55,18 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 	}
 }
 
+// withSelfLeadership sets the pooler's self_leadership observation naming itself
+// as leader at the given coordinator term. This mirrors a real leader's topology
+// record (Type=PRIMARY ⇒ self_leadership set), which is how the gateway learns a
+// shard's leader from etcd at discovery time.
+func withSelfLeadership(p *clustermetadatapb.MultiPooler, coordinatorTerm int64) *clustermetadatapb.MultiPooler {
+	p.SelfLeadership = &clustermetadatapb.LeaderObservation{
+		LeaderId:         p.Id,
+		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
+	}
+	return p
+}
+
 func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -350,17 +362,18 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		assert.Equal(t, poolerID(primary1), conn.ID(), "Should trust replica's observation with highest term")
 	})
 
-	t.Run("no observations uses discovery seed", func(t *testing.T) {
+	t.Run("no observations uses topology self_leadership", func(t *testing.T) {
 		logger := slog.Default()
 		lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary := withSelfLeadership(createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
 		replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 		require.NoError(t, lb.AddPooler(primary))
 		require.NoError(t, lb.AddPooler(replica))
 
-		// No health updates — but discovery seed (term 0) provides a primary
+		// No health updates — but the primary's self_leadership record names it
+		// the leader, so the gateway can route before any health stream connects.
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      "0",
@@ -369,7 +382,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary), conn.ID(),
-			"Should return discovery-seeded primary before health stream connects")
+			"Should return the self_leadership-named primary before health stream connects")
 	})
 
 	t.Run("leader identity preserved on pooler removal", func(t *testing.T) {
@@ -415,8 +428,8 @@ func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	// AddPooler with PRIMARY type seeds the cache — no health update needed
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	// AddPooler with a self_leadership record seeds the cache — no health update needed
+	primary := withSelfLeadership(createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
 	require.NoError(t, lb.AddPooler(primary))
 
 	target := &query.Target{
@@ -426,25 +439,26 @@ func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 	}
 	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
-	assert.Equal(t, poolerID(primary), conn.ID(), "Should find primary seeded from discovery")
+	assert.Equal(t, poolerID(primary), conn.ID(), "Should find primary seeded from self_leadership")
 }
 
-func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
+func TestLoadBalancer_KnownLeaderSurvivesTopologyDemotion(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	// Add as PRIMARY — seeds cache with term 0
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := withSelfLeadership(createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 5)
 	require.NoError(t, lb.AddPooler(pooler))
 
-	// Health stream confirms primary with real term
+	// Health stream confirms the same leader at the same rule.
 	lb.mu.Lock()
 	conn := lb.connections[poolerID(pooler)]
 	lb.mu.Unlock()
 	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: pooler.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}})
 
-	// Topo update: type changed to REPLICA — but health-confirmed entry (term > 0) is NOT invalidated
+	// The pooler is re-discovered demoted: Type=REPLICA and self_leadership
+	// cleared. mergeTopologyLeaderLocked must NOT erase the known leader — only
+	// a higher observation from a new leader supersedes it.
 	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(poolerAsReplica))
 
@@ -456,7 +470,7 @@ func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
 	conn2, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(pooler), conn2.ID(),
-		"Health-confirmed primary (term > 0) should survive topo type change")
+		"Known leader must persist until a higher observation supersedes it")
 }
 
 func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
@@ -676,6 +690,37 @@ func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(newLeader), conn.ID(),
 		"Stale topology must not redirect PRIMARY traffic away from the consensus-elected leader")
+}
+
+// TestLoadBalancer_TopologySelfLeadershipMergesByRule verifies that
+// self_leadership observations read from topology are reconciled by rule
+// number: a higher rule supersedes the known leader, while a stale lower rule
+// is ignored.
+func TestLoadBalancer_TopologySelfLeadershipMergesByRule(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	oldLeader := withSelfLeadership(createTestMultiPooler("old-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
+	newLeader := withSelfLeadership(createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	require.NoError(t, lb.AddPooler(oldLeader))
+	require.NoError(t, lb.AddPooler(newLeader))
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+
+	// new-leader's self_leadership (rule 2) supersedes old-leader's (rule 1).
+	conn, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(newLeader), conn.ID(), "higher-rule self_leadership should win")
+
+	// Re-discovering old-leader's stale rule-1 record must not move the leader back.
+	require.NoError(t, lb.AddPooler(withSelfLeadership(createTestMultiPooler("old-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)))
+	conn, err = lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(newLeader), conn.ID(), "stale lower-rule self_leadership must be ignored")
 }
 
 // TestLoadBalancer_ReplicaCandidatesExcludeLeader verifies that REPLICA
