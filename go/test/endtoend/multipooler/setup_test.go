@@ -228,9 +228,11 @@ func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiP
 
 // currentRuleNumberFromClient reads the pooler's current ShardRule number via
 // Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
-func currentRuleNumberFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+// Pass ctxutil.Detach(t.Context()) when calling from t.Cleanup (t.Context() is
+// already cancelled at that point).
+func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")

@@ -15,6 +15,7 @@
 package multipooler
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -85,7 +87,9 @@ func TestUpdateConsensusRule(t *testing.T) {
 	// resetStandbys atomically replaces the standby list using ADD + REMOVE.
 	// realStandbyID is always present in the cohort so subsequent sync writes
 	// can ack; it is implicitly added to ids if the caller did not include it.
-	resetStandbys := func(t *testing.T, ids ...*clustermetadatapb.ID) {
+	// ctx must be derived from context.Background() or ctxutil.Detach when called
+	// from t.Cleanup, since t.Context() is already cancelled at that point.
+	resetStandbys := func(t *testing.T, ctx context.Context, ids ...*clustermetadatapb.ID) {
 		t.Helper()
 
 		// Build the desired list with realStandbyID guaranteed to be present.
@@ -97,18 +101,23 @@ func TestUpdateConsensusRule(t *testing.T) {
 			desired = append(desired, id)
 		}
 
+		addCtx, addCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer addCancel()
+
 		// ADD all desired standbys first (keeps list non-empty throughout).
-		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+		_, err := primaryConsensusClient.UpdateConsensusRule(addCtx,
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:           desired,
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, ctx, primaryManagerClient),
 			})
 		require.NoError(t, err, "ADD setup should succeed")
 
 		// Read current cohort from rule store (not GUC) to find stale members to remove.
 		// GUC may differ from rule store if setupPoolerTest cleanup restored it to baseline.
-		statusResp, err := primaryManagerClient.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		statusCtx, statusCancel := context.WithTimeout(ctx, 5*time.Second)
+		statusResp, err := primaryManagerClient.Status(statusCtx, &multipoolermanagerdatapb.StatusRequest{})
+		statusCancel()
 		require.NoError(t, err, "Status should succeed to read current cohort")
 		var toRemove []*clustermetadatapb.ID
 		for _, existing := range statusResp.Status.GetCohortMembers() {
@@ -128,12 +137,14 @@ func TestUpdateConsensusRule(t *testing.T) {
 			}
 		}
 		if len(toRemove) > 0 {
-			_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
+			_, err = primaryConsensusClient.UpdateConsensusRule(removeCtx,
 				&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 					Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 					StandbyIds:           toRemove,
-					ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+					ExpectedOutgoingRule: currentRuleNumberFromClient(t, ctx, primaryManagerClient),
 				})
+			removeCancel()
 			require.NoError(t, err, "REMOVE cleanup should succeed")
 		}
 
@@ -145,17 +156,28 @@ func TestUpdateConsensusRule(t *testing.T) {
 			}, "resetStandbys should converge")
 	}
 
-	t.Run("ADD_Success", func(t *testing.T) {
+	// setupUpdateConsensusRuleTest combines standard test setup with cohort
+	// initialization. It registers a cleanup to restore the cohort to just
+	// realStandbyID before the shared SetupTest cleanup runs ValidateCleanState.
+	// Without this, fake standbys left in the committed rule would cause the
+	// manager to re-apply them to synchronous_standby_names after RestoreGUCs
+	// resets it, failing the baseline GUC check.
+	setupUpdateConsensusRuleTest := func(t *testing.T, standbys ...*clustermetadatapb.ID) {
+		t.Helper()
 		setupPoolerTest(t, setup)
-		t.Log("Testing UpdateConsensusRule ADD operation...")
+		t.Cleanup(func() { resetStandbys(t, ctxutil.Detach(t.Context())) })
+		resetStandbys(t, t.Context(), standbys...)
+	}
 
-		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"))
+	t.Run("ADD_Success", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"))
+		t.Log("Testing UpdateConsensusRule ADD operation...")
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "ADD should succeed")
 
@@ -184,10 +206,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 	})
 
 	t.Run("ADD_Idempotent", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 		t.Log("Testing UpdateConsensusRule ADD is idempotent...")
-
-		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 		initialStatus := getPrimaryStatusFromClient(t, primaryManagerClient)
 
 		// ADD a standby that already exists
@@ -195,7 +215,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
 				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "ADD should be idempotent")
 
@@ -207,20 +227,18 @@ func TestUpdateConsensusRule(t *testing.T) {
 	})
 
 	t.Run("REMOVE_Success", func(t *testing.T) {
-		setupPoolerTest(t, setup)
-		t.Log("Testing UpdateConsensusRule REMOVE operation...")
-
-		resetStandbys(t,
+		setupUpdateConsensusRuleTest(t,
 			makeMultipoolerID("test-cell", "standby1"),
 			makeMultipoolerID("test-cell", "standby2"),
 			makeMultipoolerID("test-cell", "standby3"),
 		)
+		t.Log("Testing UpdateConsensusRule REMOVE operation...")
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "REMOVE should succeed")
 
@@ -250,10 +268,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 	})
 
 	t.Run("REMOVE_NonExistent_Idempotent", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 		t.Log("Testing UpdateConsensusRule REMOVE with non-existent standby (idempotency)...")
-
-		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
@@ -261,7 +277,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 				StandbyIds: []*clustermetadatapb.ID{
 					makeMultipoolerID("test-cell", "does-not-exist"),
 				},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "REMOVE of non-existent standby should succeed")
 
@@ -276,10 +292,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 	})
 
 	t.Run("ADD_Then_REMOVE_Sequence", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 		t.Log("Testing UpdateConsensusRule ADD followed by REMOVE...")
-
-		resetStandbys(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
 
 		// ADD two more
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
@@ -289,7 +303,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 					makeMultipoolerID("test-cell", "standby3"),
 					makeMultipoolerID("test-cell", "standby4"),
 				},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "ADD should succeed")
 
@@ -306,7 +320,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 					makeMultipoolerID("test-cell", "standby2"),
 					makeMultipoolerID("test-cell", "standby4"),
 				},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.NoError(t, err, "REMOVE should succeed")
 
@@ -338,16 +352,14 @@ func TestUpdateConsensusRule(t *testing.T) {
 	})
 
 	t.Run("REMOVE_All_Fails", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupUpdateConsensusRuleTest(t) // no fake standbys; cohort = leader + realStandbyID
 		t.Log("Testing that removing all standbys fails with a clear error...")
-
-		resetStandbys(t) // Set cohort to just realStandbyID
 
 		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
 			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
 				StandbyIds:           []*clustermetadatapb.ID{realStandbyID},
-				ExpectedOutgoingRule: currentRuleNumberFromClient(t, primaryManagerClient),
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.Error(t, err, "Removing all standbys should fail")
 		assert.Contains(t, err.Error(), "durability not achievable", "Error should indicate cohort cannot satisfy durability policy")
