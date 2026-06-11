@@ -199,7 +199,7 @@
   {
     "comment": "plancache - Statement 46",
     "query": "create temp sequence seq",
-    "expected": "CREATE SEQUENCE seq"
+    "expected": "CREATE TEMPORARY SEQUENCE seq"
   },
   {
     "comment": "plancache - Statement 47",

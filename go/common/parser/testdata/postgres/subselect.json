@@ -963,7 +963,7 @@
   {
     "comment": "subselect - Statement 197",
     "query": "create temp sequence ts1",
-    "expected": "CREATE SEQUENCE ts1"
+    "expected": "CREATE TEMPORARY SEQUENCE ts1"
   },
   {
     "comment": "subselect - Statement 198",

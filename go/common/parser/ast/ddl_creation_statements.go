@@ -507,7 +507,13 @@ func (css *CreateSeqStmt) StatementType() string {
 func (css *CreateSeqStmt) String() string {
 	var parts []string
 
-	parts = append(parts, "CREATE SEQUENCE")
+	parts = append(parts, "CREATE")
+	if css.Sequence != nil && css.Sequence.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMPORARY")
+	} else if css.Sequence != nil && css.Sequence.RelPersistence == RELPERSISTENCE_UNLOGGED {
+		parts = append(parts, "UNLOGGED")
+	}
+	parts = append(parts, "SEQUENCE")
 
 	if css.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
@@ -524,7 +530,13 @@ func (css *CreateSeqStmt) String() string {
 func (css *CreateSeqStmt) SqlString() string {
 	var parts []string
 
-	parts = append(parts, "CREATE SEQUENCE")
+	parts = append(parts, "CREATE")
+	if css.Sequence != nil && css.Sequence.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMPORARY")
+	} else if css.Sequence != nil && css.Sequence.RelPersistence == RELPERSISTENCE_UNLOGGED {
+		parts = append(parts, "UNLOGGED")
+	}
+	parts = append(parts, "SEQUENCE")
 
 	if css.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
