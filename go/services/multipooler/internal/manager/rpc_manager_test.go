@@ -112,6 +112,10 @@ func TestPrimaryPosition(t *testing.T) {
 					Shard:      constants.DefaultShard,
 				},
 			}
+			// A PRIMARY record must name itself as leader (the record invariant).
+			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
+				multipooler.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: serviceID}
+			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 			multipooler.PoolerDir = poolerDir
@@ -185,6 +189,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		// A PRIMARY record must name itself as leader (the record invariant).
+		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
@@ -343,6 +349,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			// A PRIMARY record must name itself as leader (the record invariant).
+			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -513,6 +521,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			// A PRIMARY record must name itself as leader (the record invariant).
+			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -596,6 +606,8 @@ func TestReplicationStatus(t *testing.T) {
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			// A PRIMARY record must name itself as leader (the record invariant).
+			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -765,6 +777,8 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		// A PRIMARY record must name itself as leader (the record invariant).
+		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,

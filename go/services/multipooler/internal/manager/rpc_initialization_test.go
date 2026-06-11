@@ -538,10 +538,14 @@ func TestDetermineRemedialAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			seed := &clustermetadatapb.MultiPooler{Type: tt.poolerType}
+			// A PRIMARY record must name itself as leader (the record invariant).
+			// This seed has no Id, so the observation's nil LeaderId matches.
+			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
+				seed.SelfLeadership = &clustermetadatapb.LeaderObservation{}
+			}
 			pm := &MultiPoolerManager{
-				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-					Type: tt.poolerType,
-				}),
+				record: newRecordFromProto(seed),
 			}
 			pm.consensusState = consensus.NewConsensusState("", nil)
 			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
@@ -772,7 +776,8 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-	record := newPoolerRecord(slog.Default(), ts, multipooler)
+	record, err := newPoolerRecord(slog.Default(), ts, multipooler)
+	require.NoError(t, err)
 	return &MultiPoolerManager{
 		logger:            slog.Default(),
 		actionLock:        actionlock.NewActionLock(),
@@ -844,6 +849,10 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 				Type: tc.poolerType,
 			}
+			// A PRIMARY record must name itself as leader (the record invariant).
+			if tc.poolerType == clustermetadatapb.PoolerType_PRIMARY {
+				multipooler.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: multipooler.Id}
+			}
 			pm := newRemedialActionTestManager(t, multipooler)
 
 			// determineRemedialAction only selects AdjustTypeToPrimary when the
@@ -886,7 +895,12 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 		actionLock: actionlock.NewActionLock(),
 		rules:      frs,
 		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+			Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
+			// A PRIMARY record must name itself as leader (the record invariant).
+			SelfLeadership: &clustermetadatapb.LeaderObservation{
+				LeaderId: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+			},
 		}),
 	}
 	pm.consensusState = consensus.NewConsensusState("", nil)

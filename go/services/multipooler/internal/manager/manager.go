@@ -252,6 +252,11 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
+	record, err := newPoolerRecord(logger, config.TopoClient, multiPooler)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "invalid initial pooler record")
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	// Create pgctld gRPC client
@@ -283,7 +288,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		topoClient:             config.TopoClient,
 		serviceID:              multiPooler.Id,
 		servicePoolerID:        svcPoolerID,
-		record:                 newPoolerRecord(logger, config.TopoClient, multiPooler),
+		record:                 record,
 		actionLock:             actionlock.NewActionLock(),
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
@@ -1553,22 +1558,22 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 }
 
 // StopTopoRegistration transitions the pooler to its shutdown topology
-// state (Type=DRAINED, ServingStatus=NOT_SERVING, LifecycleStatus=SHUTDOWN),
+// state (Type=UNKNOWN, ServingStatus=NOT_SERVING, LifecycleStatus=SHUTDOWN),
 // stops the publisher with a final publish, and cancels the toporeg retry
 // goroutine. Safe to call even if StartTopoRegistration was never invoked.
 //
 // Caller controls the deadline via ctx. ctx should NOT inherit from
 // pm.shutdownCtx, which GracefulShutdown cancels — by the time OnClose
-// fires, that would block the DRAINED write. Pass a detached, bounded ctx.
+// fires, that would block the shutdown write. Pass a detached, bounded ctx.
 //
-// Type=DRAINED is set so administrative views (e.g. `multigres getpoolers`)
-// reflect that this pooler has gone away rather than continuing to display
-// its last live role. LifecycleStatus=LIFECYCLE_SHUTDOWN is the signal the
-// orchestrator's pooler watcher reacts to in order to close the per-pooler
-// health stream — without it, the orchestrator would dial the dead address
-// for ~4 h until forgetLongUnseenInstances tore down the cache entry. The
-// entry itself is left in place; the 4 h bookkeeping handles eventual
-// cleanup. On restart the pooler re-registers with PoolerType_REPLICA and
+// Type is set to UNKNOWN. LifecycleStatus=LIFECYCLE_SHUTDOWN
+// is the authoritative shutdown signal — administrative views and the
+// orchestrator key off it, not off Type. It is what the orchestrator's pooler
+// watcher reacts to in order to close the per-pooler health stream; without
+// it, the orchestrator would dial the dead address for ~4 h until
+// forgetLongUnseenInstances tore down the cache entry. The entry itself is
+// left in place; the 4 h bookkeeping handles eventual cleanup. On restart the
+// pooler re-registers with PoolerType_REPLICA and
 // LifecycleStatus=LIFECYCLE_STARTING, and the orchestrator promotes as
 // usual.
 //

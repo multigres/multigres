@@ -69,11 +69,17 @@ var testPoolerID = &clustermetadatapb.ID{
 }
 
 func newTestMultiPooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+	mp := &clustermetadatapb.MultiPooler{
 		Id:            testPoolerID,
 		Type:          poolerType,
 		ServingStatus: status,
 	}
+	// Keep the Type ⇔ SelfLeadership invariant so the record validates: a
+	// PRIMARY names itself; any other type carries no self-leadership.
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		mp.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: testPoolerID}
+	}
+	return mp
 }
 
 // primaryObs is the leadership observation a PRIMARY test record must carry to
@@ -86,7 +92,11 @@ func primaryObs() *clustermetadatapb.LeaderObservation {
 // state and a no-op topo store. Suitable for StateManager tests that only
 // exercise component fan-out, not publishing.
 func newTestRecord(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *poolerRecord {
-	return newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultiPooler(poolerType, status))
+	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultiPooler(poolerType, status))
+	if err != nil {
+		panic(err)
+	}
+	return r
 }
 
 func TestStateManager_SetState_PrimaryServing(t *testing.T) {

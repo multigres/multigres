@@ -349,7 +349,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent
-	// publisher, and the DRAINED unregister on close all live behind
+	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
 	mp.poolerManager = poolerManager
 	mp.senv.OnRun(func() {
@@ -362,7 +362,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	mp.senv.OnClose(func() {
 		// Detach from startCtx so a cancelled startup ctx doesn't block
-		// the DRAINED shutdown write, while preserving any trace/telemetry
+		// the shutdown write, while preserving any trace/telemetry
 		// values. Bounded by onCloseTimeout (senv flag, defaults short)
 		// implicitly — senv enforces it on the OnClose hook duration.
 		ctx, cancel := context.WithTimeout(ctxutil.Detach(startCtx), 10*time.Second)

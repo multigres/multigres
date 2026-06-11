@@ -104,14 +104,27 @@ type poolerRecord struct {
 // newPoolerRecord returns a poolerRecord seeded with initial as the desired
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
-func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) *poolerRecord {
+//
+// Returns an error if the seed violates the Type ↔ SelfLeadership invariant
+// (see validateState). Every mutation is validated, so the seed must be too —
+// otherwise the record could hold a state Mutate would reject, surfacing only
+// at the first transition.
+func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
 	}
 	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.MultiPooler))
-	return r
+	if err := r.validateState(&MutablePoolerRecordState{
+		Type:            initial.Type,
+		ServingStatus:   initial.ServingStatus,
+		LifecycleStatus: initial.LifecycleStatus,
+		SelfLeadership:  initial.SelfLeadership,
+	}); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // Id returns the pooler's identity. Effectively immutable — Mutate must not
@@ -258,7 +271,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		})
 
 		// Kick off initial registration retry loop. The unregister callback
-		// is a no-op — the DRAINED write is handled by Unregister itself
+		// is a no-op — the shutdown write is handled by Unregister itself
 		// (via Mutate + final publish) so toporeg only needs to manage the
 		// retry goroutine's lifetime.
 		registerFunc := func(ctx context.Context) error {
@@ -272,7 +285,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 // performs one synchronous publish if the result diverges from the last
 // published state, and cancels the toporeg retry goroutine.
 //
-// finalize lets the caller stamp a shutdown state (e.g. Type=DRAINED,
+// finalize lets the caller stamp a shutdown state (e.g. Type=UNKNOWN,
 // ServingStatus=NOT_SERVING). The callback receives a MutablePoolerRecordState
 // populated with current values; modifications become the new desired state.
 // Pass nil to just publish whatever the publisher hadn't yet written. The

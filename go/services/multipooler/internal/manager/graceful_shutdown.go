@@ -46,9 +46,9 @@ var pgctldStopModes = []struct {
 // health stream and then stops Postgres. Registered as a servenv OnTermSync
 // hook so it runs on SIGTERM bounded by --onterm-timeout.
 //
-// The topology Type=DRAINED transition happens after this returns via the
-// existing OnClose -> mp.Shutdown -> tr.Unregister chain registered in
-// services/multipooler/init.go.
+// The topology shutdown transition (Type=UNKNOWN, LifecycleStatus=SHUTDOWN)
+// happens after this returns via the existing OnClose -> mp.Shutdown ->
+// tr.Unregister chain registered in services/multipooler/init.go.
 //
 // The action lock is held for the whole sequence because pgctld.Stop is
 // gated behind the protectedPgctldClient action-lock check.

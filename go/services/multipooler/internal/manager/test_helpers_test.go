@@ -23,9 +23,25 @@ import (
 )
 
 // newRecordFromProto returns a poolerRecord backed by a no-op topo store,
-// suitable for tests that need a manager constructed via struct literal.
+// suitable for tests that need a manager constructed via struct literal. It
+// panics if the seed violates the record invariant — test protos are
+// programmer-supplied, so a violation is a test bug, not a runtime condition.
 func newRecordFromProto(mp *clustermetadatapb.MultiPooler) *poolerRecord {
-	return newPoolerRecord(newTestLogger(), &fakeTopoStore{}, mp)
+	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, mp)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// mustNewPoolerRecord builds a poolerRecord and fails the test if the seed
+// violates the record invariant. Use from tests that supply their own topo
+// store and need to inspect it.
+func mustNewPoolerRecord(t *testing.T, ts poolerTopoStore, mp *clustermetadatapb.MultiPooler) *poolerRecord {
+	t.Helper()
+	r, err := newPoolerRecord(newTestLogger(), ts, mp)
+	require.NoError(t, err)
+	return r
 }
 
 // setPoolerTypeForTest mutates the pooler type on the manager's record while
