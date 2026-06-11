@@ -151,7 +151,7 @@ func (s *ApplySessionState) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if s.BindRefs != nil {
-		return s.executeSetWithBinds(ctx, state, portalInfo, callback)
+		return s.executeSetWithBinds(ctx, conn, state, portalInfo, callback)
 	}
 	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
@@ -171,21 +171,21 @@ func (s *ApplySessionState) PortalStreamExecute(
 // through the Sequence, which aborts before the Route fires.
 func (s *ApplySessionState) executeSetWithBinds(
 	ctx context.Context,
+	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	isLocal := false
+	// is_local resolves from the bind when bound; otherwise it falls back to the
+	// literal baked into the synthetic VariableStmt (true only for a
+	// gateway-managed set_config(..., true) — see planner.syntheticSetStmt).
+	isLocal := s.VariableStmt.IsLocal
 	if s.BindRefs.IsLocalParam != nil {
 		b, err := preparedstatement.DecodeBindAsBool(portalInfo, s.BindRefs.IsLocalParam, "set_config is_local argument")
 		if err != nil {
 			return err
 		}
 		isLocal = b
-	}
-	if isLocal {
-		// PG handles the SET LOCAL via the trailing Route; gateway stays out.
-		return nil
 	}
 
 	name := s.VariableStmt.Name
@@ -196,6 +196,15 @@ func (s *ApplySessionState) executeSetWithBinds(
 		}
 		name = v
 	}
+
+	// A SET LOCAL of an ordinary (non-gateway-managed) variable is owned by
+	// PostgreSQL via the trailing Route — the gateway tracks nothing and can
+	// skip decoding the value. Gateway-managed variables fall through so the
+	// transaction-local override is applied to gateway state.
+	if isLocal && !handler.IsGatewayManagedVariable(name) {
+		return nil
+	}
+
 	value := extractVariableValue(s.VariableStmt.Args)
 	if s.BindRefs.ValueParam != nil {
 		v, err := preparedstatement.DecodeBindAsText(portalInfo, s.BindRefs.ValueParam, "set_config value argument")
@@ -205,25 +214,21 @@ func (s *ApplySessionState) executeSetWithBinds(
 		value = v
 	}
 
-	state.SetSessionVariable(name, value)
-	if s.SilentTracking {
-		return nil
-	}
-	return callback(ctx, &sqltypes.Result{CommandTag: "SET"})
+	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
 }
 
 // StreamExecute handles the SET/RESET command.
 func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
-	_ *server.Conn,
+	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
-		return s.executeSet(ctx, state, callback)
+		return s.executeSet(ctx, conn, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return s.executeReset(ctx, state, callback)
 	default:
@@ -241,11 +246,45 @@ func (s *ApplySessionState) StreamExecute(
 //   - default: update state and emit CommandComplete "SET" (real SET stmt).
 func (s *ApplySessionState) executeSet(
 	ctx context.Context,
+	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
-	state.SetSessionVariable(s.VariableStmt.Name, value)
+	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
+}
+
+// applyTracked records a tracked SET / set_config into the right place:
+// gateway-managed variables (e.g. statement_timeout) go to gateway-local
+// state, everything else to SessionSettings. Routing GMVs away from
+// SessionSettings keeps SHOW consistent and prevents the value from being
+// replayed to a backend on pool rotation.
+//
+// A real `SET <gmv> = ...` is planned as GatewaySessionState, not this
+// primitive, so the gateway-managed branch here is reached only via
+// `SELECT set_config('<gmv>', ...)`.
+//
+// SET LOCAL of a gateway-managed variable issued outside a transaction is a
+// no-op in PostgreSQL (the change is scoped to the implicit single-statement
+// transaction). We mirror that and skip the gateway override, otherwise it
+// would leak for the connection's lifetime — no COMMIT/ROLLBACK fires to clear
+// it. This matches GatewaySessionState's SET LOCAL guard.
+func (s *ApplySessionState) applyTracked(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	name, value string,
+	isLocal bool,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	skipLeakyLocal := isLocal && !conn.IsInTransaction() && handler.IsGatewayManagedVariable(name)
+	if !skipLeakyLocal {
+		if handled, err := state.ApplyGatewayManagedVariable(name, value, isLocal); err != nil {
+			return err
+		} else if !handled {
+			state.SetSessionVariable(name, value)
+		}
+	}
 
 	if s.SilentTracking {
 		return nil
@@ -277,7 +316,7 @@ func (s *ApplySessionState) executeReset(
 	case ast.VAR_RESET_ALL:
 		state.ResetAllSessionVariables()
 		// Also reset gateway-managed variables that live outside SessionSettings.
-		state.ResetStatementTimeout()
+		state.ResetGatewayManagedVariables()
 	default:
 		return mterrors.NewFeatureNotSupported(fmt.Sprintf("RESET kind %d is not supported", s.VariableStmt.Kind))
 	}

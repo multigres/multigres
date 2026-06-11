@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // funcBlocklist lists built-in functions that must be rejected wherever they
@@ -96,6 +97,13 @@ type setConfigCall struct {
 	NameBind    *ast.ParamRef
 	ValueBind   *ast.ParamRef
 	IsLocalBind *ast.ParamRef
+
+	// IsLocalLiteralTrue marks a call whose is_local argument is the literal
+	// `true`. Normally such a call is not tracked (it short-circuits below),
+	// but for a gateway-managed variable it is tracked as a transaction-local
+	// override so SHOW matches the `SET LOCAL <gmv>` statement form. Mutually
+	// exclusive with IsLocalBind (a bound is_local is resolved at execute time).
+	IsLocalLiteralTrue bool
 }
 
 func (sc setConfigCall) hasBoundParams() bool {
@@ -478,11 +486,22 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {
-			return nil, nil
+			// is_local literal true. For an ordinary variable we do not track
+			// it: PostgreSQL executes the call transaction-scoped via the
+			// trailing Route and the gateway holds no state (which also keeps
+			// the plan cache compact for hot PostgREST set_config(...,true)
+			// patterns). For a gateway-managed variable we DO track it as a
+			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
+			// statement form. The normalizer keeps the name literal even on the
+			// is_local=true path, so the GMV check below is reliable.
+			if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+				return nil, nil
+			}
+			sc.IsLocalLiteralTrue = true
 		}
 		// is_local literal false: fall through. No field to set — the
 		// returned setConfigCall represents false implicitly via the
-		// absence of IsLocalBind.
+		// absence of IsLocalBind and IsLocalLiteralTrue.
 	} else {
 		return nil, setConfigArgError(fc.Args.Items[2], "is_local")
 	}
