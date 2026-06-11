@@ -331,6 +331,43 @@ proto3.util.setEnumType(CohortEligibilitySignal, "clustermetadata.CohortEligibil
 ]);
 
 /**
+ * LeadershipAvailabilitySignal describes whether a pooler is ready to be
+ * promoted to consensus leader.
+ *
+ * @generated from enum clustermetadata.LeadershipAvailabilitySignal
+ */
+export enum LeadershipAvailabilitySignal {
+  /**
+   * @generated from enum value: LEADERSHIP_AVAILABILITY_SIGNAL_UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * Pooler's postgres is still initialising (starting, in crash recovery,
+   * socket not yet open). The node can still be elected if it has the most
+   * advanced WAL position and no READY node is tied with it.
+   *
+   * @generated from enum value: LEADERSHIP_AVAILABILITY_SIGNAL_STARTING = 1;
+   */
+  STARTING = 1,
+
+  /**
+   * Pooler's postgres is running and accepting connections. When multiple
+   * nodes are tied at the same WAL position the coordinator prefers a READY
+   * node over a STARTING one.
+   *
+   * @generated from enum value: LEADERSHIP_AVAILABILITY_SIGNAL_READY = 2;
+   */
+  READY = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(LeadershipAvailabilitySignal)
+proto3.util.setEnumType(LeadershipAvailabilitySignal, "clustermetadata.LeadershipAvailabilitySignal", [
+  { no: 0, name: "LEADERSHIP_AVAILABILITY_SIGNAL_UNKNOWN" },
+  { no: 1, name: "LEADERSHIP_AVAILABILITY_SIGNAL_STARTING" },
+  { no: 2, name: "LEADERSHIP_AVAILABILITY_SIGNAL_READY" },
+]);
+
+/**
  * TopoConfig defines the connection parameters for a topology service.
  * It specifies the type of topology backend, where it's hosted, and the
  * logical root path within that backend.
@@ -2337,6 +2374,16 @@ export class AvailabilityStatus extends Message<AvailabilityStatus> {
    */
   suspectedDivergence = false;
 
+  /**
+   * leadership_availability reports whether the pooler's postgres is ready to
+   * accept promotion to consensus leader. Published by every pooler. UNKNOWN
+   * (the default for older poolers) is treated the same as ELIGIBLE so that
+   * the coordinator can fall back gracefully when the field is absent.
+   *
+   * @generated from field: clustermetadata.LeadershipAvailability leadership_availability = 4;
+   */
+  leadershipAvailability?: LeadershipAvailability;
+
   constructor(data?: PartialMessage<AvailabilityStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2348,6 +2395,7 @@ export class AvailabilityStatus extends Message<AvailabilityStatus> {
     { no: 1, name: "leadership_status", kind: "message", T: LeadershipStatus },
     { no: 2, name: "cohort_eligibility_status", kind: "message", T: CohortEligibilityStatus },
     { no: 3, name: "suspected_divergence", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "leadership_availability", kind: "message", T: LeadershipAvailability },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AvailabilityStatus {
@@ -2406,6 +2454,57 @@ export class CohortEligibilityStatus extends Message<CohortEligibilityStatus> {
 
   static equals(a: CohortEligibilityStatus | PlainMessage<CohortEligibilityStatus> | undefined, b: CohortEligibilityStatus | PlainMessage<CohortEligibilityStatus> | undefined): boolean {
     return proto3.util.equals(CohortEligibilityStatus, a, b);
+  }
+}
+
+/**
+ * LeadershipAvailability carries the pooler's self-reported readiness to
+ * accept leader promotion. Unlike CohortEligibilityStatus this is not a
+ * permanent preference — it reflects the transient startup state of postgres.
+ * Staleness comes from the freshness of the surrounding health snapshot.
+ *
+ * @generated from message clustermetadata.LeadershipAvailability
+ */
+export class LeadershipAvailability extends Message<LeadershipAvailability> {
+  /**
+   * @generated from field: clustermetadata.LeadershipAvailabilitySignal signal = 1;
+   */
+  signal = LeadershipAvailabilitySignal.UNKNOWN;
+
+  /**
+   * reason is a human-readable explanation of why the signal was set.
+   * Intended for debugging and observability only; not used in decision logic.
+   *
+   * @generated from field: string reason = 2;
+   */
+  reason = "";
+
+  constructor(data?: PartialMessage<LeadershipAvailability>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.LeadershipAvailability";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "signal", kind: "enum", T: proto3.getEnumType(LeadershipAvailabilitySignal) },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LeadershipAvailability {
+    return new LeadershipAvailability().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LeadershipAvailability {
+    return new LeadershipAvailability().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LeadershipAvailability {
+    return new LeadershipAvailability().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: LeadershipAvailability | PlainMessage<LeadershipAvailability> | undefined, b: LeadershipAvailability | PlainMessage<LeadershipAvailability> | undefined): boolean {
+    return proto3.util.equals(LeadershipAvailability, a, b);
   }
 }
 

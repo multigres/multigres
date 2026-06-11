@@ -17,6 +17,7 @@ package consensus
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -106,8 +107,30 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
 
-	poolerByID, _ := buildCohortMaps(cohort)
+	poolerByID, healthByID := buildCohortMaps(cohort)
+	less := leadershipLess(healthByID)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		// Sort the eligible leaders so that READY nodes are preferred over
+		// STARTING nodes when multiple candidates share the highest LSN. A
+		// STARTING candidate's postgres is still initialising (starting, crash
+		// recovery, or socket not open), so electing it could cause a promote
+		// failure and force a new round of elections. Preferring an
+		// already-READY candidate avoids that delay.
+		//
+		// WAL position is always the primary criterion: a STARTING node still
+		// wins if it holds a strictly higher LSN than every READY node.
+		//
+		// We put this logic in the proposal builder rather than the proposal
+		// core because it only affects the ordering of tied leaders when
+		// actually sending promote to it.
+		//
+		// This works because buildFailoverProposal only looks at the first
+		// eligible leader, so as long as all READY nodes are sorted before
+		// STARTING nodes, we will prefer READY leaders without affecting the
+		// quorum logic.
+		sort.SliceStable(r.EligibleLeaders, func(i, j int) bool {
+			return less(r.EligibleLeaders[i], r.EligibleLeaders[j])
+		})
 		return buildFailoverProposal(r, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
@@ -245,6 +268,30 @@ func (c *Coordinator) GetBootstrapPolicy(ctx context.Context, database string) (
 
 	c.policyCache.Store(database, db.BootstrapDurabilityPolicy)
 	return db.BootstrapDurabilityPolicy, nil
+}
+
+// leadershipLess returns a less function for sort.SliceStable that orders
+// ConsensusStatus entries so READY nodes appear before STARTING nodes. It is
+// used as the tiebreaker when calling BuildSafeProposal when multiple nodes
+// share the highest LSN.
+//
+// UNKNOWN (the proto zero value, emitted by older poolers that do not publish
+// the field) is treated as READY for backward compatibility. (We might want to
+// change this in the future since we should prefer READY poolers before poolers
+// with UNKNOWN state, which could be ready or not.)
+//
+// Recruited nodes participate in the outgoing-cohort quorum check regardless of
+// their LeadershipAvailability — this tiebreaker only affects which tied node
+// is proposed as leader, not the quorum denominator.
+func leadershipLess(healthByID map[string]*multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+	isReady := func(id *clustermetadatapb.ID) bool {
+		h := healthByID[topoclient.ClusterIDString(id)]
+		sig := h.GetAvailabilityStatus().GetLeadershipAvailability().GetSignal()
+		return sig != clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING
+	}
+	return func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		return isReady(a.GetId()) && !isReady(b.GetId())
+	}
 }
 
 // poolerIDs extracts the clustermetadata IDs from a slice of PoolerHealthState.
