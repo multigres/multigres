@@ -122,18 +122,25 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	}
 
 	poolerByID, healthByID := buildCohortMaps(cohort)
-	less := poolerHealthStateLess(healthByID)
+	availLess := leadershipLess(healthByID)
+	signalLess := poolerHealthStateLess(healthByID)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		// Prefer non-resigning nodes when multiple candidates share the highest
-		// LSN. A node signalling REQUESTING_DEMOTION has explicitly asked to be
-		// replaced. Electing it again immediately defeats the purpose of the
-		// switchover.
-		//
-		// A resigning node still wins if it holds a strictly higher LSN than
-		// every other node, but consensus status serves as a tiebreaker when
-		// multiple nodes are at the same WAL position.
+		// Sort tied candidates with two orthogonal tiebreakers applied in order:
+		//   1. LeadershipAvailability: READY before STARTING (postgres not yet ready
+		//      for promotion — crash recovery still running, socket not open).
+		//   2. LeadershipSignal: non-resigning before REQUESTING_DEMOTION (node has
+		//      explicitly asked to be replaced via SwitchPrimary).
+		// WAL position is always the primary criterion; both tiebreakers only
+		// affect the ordering within the tied-LSN set.
 		sort.SliceStable(r.EligibleLeaders, func(i, j int) bool {
-			return less(r.EligibleLeaders[i], r.EligibleLeaders[j])
+			a, b := r.EligibleLeaders[i], r.EligibleLeaders[j]
+			if availLess(a, b) {
+				return true
+			}
+			if availLess(b, a) {
+				return false
+			}
+			return signalLess(a, b)
 		})
 		return buildFailoverProposal(r, poolerByID)
 	}
@@ -291,6 +298,30 @@ func (c *Coordinator) GetBootstrapPolicy(ctx context.Context, database string) (
 
 	c.policyCache.Store(database, db.BootstrapDurabilityPolicy)
 	return db.BootstrapDurabilityPolicy, nil
+}
+
+// leadershipLess returns a less function for sort.SliceStable that orders
+// ConsensusStatus entries so READY nodes appear before STARTING nodes. It is
+// used as the tiebreaker when calling BuildSafeProposal when multiple nodes
+// share the highest LSN.
+//
+// UNKNOWN (the proto zero value, emitted by older poolers that do not publish
+// the field) is treated as READY for backward compatibility. (We might want to
+// change this in the future since we should prefer READY poolers before poolers
+// with UNKNOWN state, which could be ready or not.)
+//
+// Recruited nodes participate in the outgoing-cohort quorum check regardless of
+// their LeadershipAvailability — this tiebreaker only affects which tied node
+// is proposed as leader, not the quorum denominator.
+func leadershipLess(healthByID map[string]*multiorchdatapb.PoolerHealthState) func(a, b *clustermetadatapb.ConsensusStatus) bool {
+	isReady := func(id *clustermetadatapb.ID) bool {
+		h := healthByID[topoclient.ClusterIDString(id)]
+		sig := h.GetAvailabilityStatus().GetLeadershipAvailability().GetSignal()
+		return sig != clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING
+	}
+	return func(a, b *clustermetadatapb.ConsensusStatus) bool {
+		return isReady(a.GetId()) && !isReady(b.GetId())
+	}
 }
 
 // poolerIDs extracts the clustermetadata IDs from a slice of PoolerHealthState.
