@@ -348,6 +348,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		PgpassPath: pm.pgpassPath,
 		PgDataDir:  postgresDataDir(),
 	})
+	// Wire the backup-health poller to the manager's pg connection: role
+	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and
+	// the backup-relevant settings (archive/restore config).
+	pm.backup.SetRoleProvider(pm.isPrimary)
+	pm.backup.SetArchiverStatsProvider(pm.archiverStats)
+	pm.backup.SetPGSettingsProvider(pm.backupSettings)
 
 	return pm, nil
 }
@@ -789,6 +795,12 @@ func (pm *MultiPoolerManager) leaderObs(rule *clustermetadatapb.ShardRule) *clus
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
 	return pm.record.ShardKey()
+}
+
+// BackupStatusSnapshot returns a consistent snapshot of the backup-health
+// tracker for the status page.
+func (pm *MultiPoolerManager) BackupStatusSnapshot() backupengine.Snapshot {
+	return pm.backup.Health().Snapshot()
 }
 
 // checkReady returns an error if the manager is not in Ready state
@@ -1609,6 +1621,25 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
 		return nil
 	})
+}
+
+// StartBackupHealth launches the background backup-health poller and, once the
+// manager reaches its ready state, captures an initial snapshot so the
+// gauges/status page reflect post-bootstrap state without waiting a poll
+// interval. Both goroutines are bound to pm.ctx and stop on shutdown.
+//
+// This is invoked by the multipooler service rather than from Start() so that
+// manager RPC/consensus unit tests, which drive Start() directly against a
+// strict mock DB, do not spin up background health queries (pg_is_in_recovery,
+// pg_settings, pg_stat_archiver) that would race with their query expectations.
+func (pm *MultiPoolerManager) StartBackupHealth() {
+	go pm.backup.RunHealthPoller(pm.ctx, 0)
+	go func() {
+		if err := pm.WaitUntilReady(pm.ctx); err != nil {
+			return // ctx cancelled before ready (shutdown); nothing to refresh
+		}
+		pm.backup.RefreshHealthNow(pm.ctx)
+	}()
 }
 
 // StartTopoRegistration starts the publisher goroutine and kicks off the

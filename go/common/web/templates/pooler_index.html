@@ -53,6 +53,73 @@
         </table>
       </section>
 
+      <section>
+        <h4>Backups</h4>
+        {{if .Backups.LastRefreshed}}
+        <p>
+          <small>
+            <em
+              >The information below is only for the current pooler, except
+              where noted. Last refreshed {{.Backups.LastRefreshed}}.</em
+            >
+          </small>
+        </p>
+        {{end}}
+        <table>
+          <tbody>
+            <tr>
+              <th>Ready</th>
+              <td>
+                {{if .Backups.Ready}}<span class="success">yes</span
+                >{{else}}<span class="error">no ({{.Backups.ReadyReason}})</span
+                >{{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Last successful backup (across shard)</th>
+              <td>
+                {{if .Backups.HasBackup}}{{.Backups.LastBackupAt}}
+                ({{.Backups.LastBackupAge}} ago){{else}}<span class="error"
+                  >never</span
+                >{{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Complete backups (across shard)</th>
+              <td>{{.Backups.CompleteCount}}</td>
+            </tr>
+            <tr>
+              <th>Failures since success</th>
+              <td>{{.Backups.FailuresSince}}</td>
+            </tr>
+            <tr>
+              <th>In progress</th>
+              <td>
+                {{if .Backups.InProgress}}yes
+                ({{.Backups.InProgressFor}}){{else}}no{{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>WAL archive lag</th>
+              <td>
+                {{if
+                .Backups.WALArchiveLag}}{{.Backups.WALArchiveLag}}{{else}}—{{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Backup lease held</th>
+              <td>{{if .Backups.LeaseHeld}}yes{{else}}no{{end}}</td>
+            </tr>
+            {{if .Backups.LastFailure}}
+            <tr>
+              <th>Last failure</th>
+              <td><span class="error">{{.Backups.LastFailure}}</span></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </section>
+
       <section div class="grid">
         {{range .Links}}
         <article>

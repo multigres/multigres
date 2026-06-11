@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -54,15 +56,36 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	// If another pooler holds the lease, revoke it and acquire a new one.
 	// This ensures the most recent backup request always wins.
 	var backupID string
+	health := pm.backup.Health()
 	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
+		// The lease is held for the duration of this function.
+		health.SetLeaseHeld(true)
+		defer health.SetLeaseHeld(false)
+
 		var backupErr error
 		backupID, backupErr = pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+		// A lease-loss abort intentionally counts as BOTH a backup failure
+		// (recorded inside backupLocked) and a lease loss recorded here.
+		pm.recordLeaseLossIfApplicable(ctx, backupErr)
 		return backupErr
 	})
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to acquire backup lease")
 	}
 	return backupID, nil
+}
+
+// recordLeaseLossIfApplicable records a lost-lease event + counter when a backup
+// failed because this pooler's lease was lost mid-operation (stolen by another
+// pooler or expired) — detected via the ErrLeaseLost context cause set by the
+// lease monitor. Returns true if it recorded a loss.
+func (pm *MultiPoolerManager) recordLeaseLossIfApplicable(ctx context.Context, backupErr error) bool {
+	if backupErr == nil || !errors.Is(context.Cause(ctx), topoclient.ErrLeaseLost) {
+		return false
+	}
+	pm.backup.Metrics().IncLeaseLost(ctx)
+	eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.BackupLeaseLost{Holder: pm.record.Id().Name})
+	return true
 }
 
 // backupLocked performs a backup. Caller must hold the action lock and backup lease.
@@ -73,12 +96,22 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	// The engine performs the pgBackRest work; the manager owns these
 	// operation-level metrics.
 	metrics := pm.backup.Metrics()
+	health := pm.backup.Health()
 	metrics.IncBackupAttempts(ctx)
+	health.BackupStarted()
 	defer func() {
 		if retErr == nil {
 			metrics.IncBackupSuccesses(ctx)
+			health.BackupSucceeded()
+			// Reflect the just-created backup in the age/count gauges and
+			// status page immediately, rather than waiting for the next poll
+			// tick. This covers both the regular backup RPC and the bootstrap
+			// first-backup path, which both funnel through backupLocked.
+			// Synchronous + repo-only (one `pgbackrest info`, no pg queries).
+			pm.backup.RefreshRepoNow(ctx)
 		} else {
 			metrics.IncBackupFailures(ctx)
+			health.BackupFailed(retErr)
 		}
 	}()
 
