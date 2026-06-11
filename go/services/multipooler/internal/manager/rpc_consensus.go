@@ -611,7 +611,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// IMPORTANT: updateTopologyAfterPromotion must only be called after UpdateRule
 	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
 	// UpdateRule is the durability gate: it waits for sync-standby acknowledgment.
-	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
+	if err := pm.updateTopologyAfterPromotion(ctx, state, proposedRule); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after promote", "error", err)
 	}
 
@@ -826,7 +826,8 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// reads PRIMARY. Without this, the stale PRIMARY label causes the
 	// stale-leader analyzer to keep firing forever. Promote has the same
 	// step on its replica branch for the same reason.
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+	// A REPLICA pooler record carries no self leadership observation.
+	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_REPLICA, nil, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}
 

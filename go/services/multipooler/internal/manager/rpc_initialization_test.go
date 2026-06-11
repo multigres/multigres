@@ -720,7 +720,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		record:            record,
 		serviceID:         multipooler.Id,
 		topoClient:        ts,
-		servingState:      NewStateManager(slog.Default(), record, func() *clustermetadatapb.ShardRule { return nil }),
+		servingState:      NewStateManager(slog.Default(), record),
 		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 	}
 }
@@ -786,6 +786,17 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				Type: tc.poolerType,
 			}
 			pm := newRemedialActionTestManager(t, multipooler)
+
+			// determineRemedialAction only selects AdjustTypeToPrimary when the
+			// cached position's rule names this pooler as leader; give the
+			// monitor that cached rule so takeRemedialAction can build the
+			// self-leadership observation it records when going PRIMARY.
+			pm.rules = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   multipooler.Id,
+				},
+			}}
 
 			cs := consensus.NewConsensusState(t.TempDir(), nil)
 			pm.consensusState = cs

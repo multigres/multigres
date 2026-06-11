@@ -1047,17 +1047,18 @@ type MultiPooler struct {
 	// readiness). Recorded in topology so the orchestrator can observe terminal
 	// lifecycle states even on cold start, not only over the health stream.
 	LifecycleStatus *PoolerLifecycle `protobuf:"bytes,12,opt,name=lifecycle_status,json=lifecycleStatus,proto3" json:"lifecycle_status,omitempty"`
-	// current_leadership is set ONLY when this pooler currently considers
-	// itself the leader of its shard. Replicas leave this empty to avoid
-	// excessive high-volume etcd writes by all replicas during failovers.
+	// self_leadership is set ONLY when this pooler currently considers itself
+	// the leader of its shard (it names this pooler). Replicas leave it empty —
+	// a replica has no self-leadership — which avoids high-volume etcd writes by
+	// every replica during failovers.
 	//
-	// Consumers (multigateway) will read this on discovery to bootstrap
-	// leader routing without relying on `type` as a hint. Best-effort:
-	// empty until the pooler has been told (via SetTermPrimary / Propose
-	// / Recruit) that it is the leader; cleared again on demotion.
-	CurrentLeadership *LeaderObservation `protobuf:"bytes,13,opt,name=current_leadership,json=currentLeadership,proto3" json:"current_leadership,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Consumers (multigateway) will read this on discovery to bootstrap leader
+	// routing without relying on `type` as a hint. Best-effort: empty until the
+	// pooler has been told (via SetTermPrimary / Propose / Recruit) that it is
+	// the leader; cleared again on demotion.
+	SelfLeadership *LeaderObservation `protobuf:"bytes,13,opt,name=self_leadership,json=selfLeadership,proto3" json:"self_leadership,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MultiPooler) Reset() {
@@ -1160,9 +1161,9 @@ func (x *MultiPooler) GetLifecycleStatus() *PoolerLifecycle {
 	return nil
 }
 
-func (x *MultiPooler) GetCurrentLeadership() *LeaderObservation {
+func (x *MultiPooler) GetSelfLeadership() *LeaderObservation {
 	if x != nil {
-		return x.CurrentLeadership
+		return x.SelfLeadership
 	}
 	return nil
 }
@@ -1864,7 +1865,7 @@ func (x *PoolerPosition) GetLsn() string {
 }
 
 // LeaderObservation represents a pooler's view of who the consensus leader is.
-// Stored on the leader's own MultiPooler topology record (current_leadership
+// Stored on the leader's own MultiPooler topology record (self_leadership
 // field) so multigateway can bootstrap leader routing from etcd at discovery
 // time without relying on MultiPooler.type as a hint.
 //
@@ -2485,7 +2486,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rPoolerAddress\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
-	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x9d\x05\n" +
+	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x97\x05\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
 	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
@@ -2498,8 +2499,8 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"pooler_dir\x18\n" +
 	" \x01(\tR\tpoolerDir\x12\x1e\n" +
 	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x12K\n" +
-	"\x10lifecycle_status\x18\f \x01(\v2 .clustermetadata.PoolerLifecycleR\x0flifecycleStatus\x12Q\n" +
-	"\x12current_leadership\x18\r \x01(\v2\".clustermetadata.LeaderObservationR\x11currentLeadership\x1a:\n" +
+	"\x10lifecycle_status\x18\f \x01(\v2 .clustermetadata.PoolerLifecycleR\x0flifecycleStatus\x12K\n" +
+	"\x0fself_leadership\x18\r \x01(\v2\".clustermetadata.LeaderObservationR\x0eselfLeadership\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
@@ -2693,7 +2694,7 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	2,  // 11: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
 	34, // 12: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
 	21, // 13: clustermetadata.MultiPooler.lifecycle_status:type_name -> clustermetadata.PoolerLifecycle
-	26, // 14: clustermetadata.MultiPooler.current_leadership:type_name -> clustermetadata.LeaderObservation
+	26, // 14: clustermetadata.MultiPooler.self_leadership:type_name -> clustermetadata.LeaderObservation
 	19, // 15: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
 	35, // 16: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
 	19, // 17: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID

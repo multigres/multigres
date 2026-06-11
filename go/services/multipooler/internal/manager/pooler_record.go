@@ -49,11 +49,11 @@ type MutablePoolerRecordState struct {
 	Type            clustermetadatapb.PoolerType
 	ServingStatus   clustermetadatapb.PoolerServingStatus
 	LifecycleStatus *clustermetadatapb.PoolerLifecycle
-	// CurrentLeadership is the pooler's most recent recorded consensus
+	// SelfLeadership is the pooler's most recent recorded consensus
 	// observation. Set ONLY when this pooler currently considers itself the
 	// leader of its shard; replicas leave it nil. Published into etcd so
 	// multigateway can bootstrap leader routing on discovery.
-	CurrentLeadership *clustermetadatapb.LeaderObservation
+	SelfLeadership *clustermetadatapb.LeaderObservation
 }
 
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
@@ -143,10 +143,10 @@ func (r *poolerRecord) ServingStatus() clustermetadatapb.PoolerServingStatus {
 	return r.desired.Load().ServingStatus
 }
 
-// CurrentLeadership returns the pooler's most recent recorded consensus
+// SelfLeadership returns the pooler's most recent recorded consensus
 // observation, or nil if this pooler is not currently the leader of its shard.
-func (r *poolerRecord) CurrentLeadership() *clustermetadatapb.LeaderObservation {
-	return r.desired.Load().CurrentLeadership
+func (r *poolerRecord) SelfLeadership() *clustermetadatapb.LeaderObservation {
+	return r.desired.Load().SelfLeadership
 }
 
 // Snapshot returns a deep clone of the current desired state. Use this when
@@ -172,10 +172,10 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 // fn must not block or call back into poolerRecord; it should perform
 // simple field assignments only.
 //
-// Returns an error (without applying fn) if the resulting state violates
-// the consistency invariant between Type and CurrentLeadership: a pooler
-// is the leader iff Type == PRIMARY iff CurrentLeadership is set and
-// names this pooler. Callers must keep the two fields in sync.
+// Returns an error (without applying fn) if the resulting state violates the
+// consistency invariant between Type and SelfLeadership: a pooler is the
+// leader iff Type == PRIMARY iff SelfLeadership is set and names this
+// pooler. Callers must keep the two fields in sync.
 func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordState)) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -194,17 +194,17 @@ func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordS
 }
 
 // applyMutation clones the current desired proto, hands a
-// MutablePoolerRecordState view to fn, validates the Type ↔
-// CurrentLeadership invariant, then atomically stores the result. Caller
-// is responsible for sequencing (action lock, publisher state). Returns
-// the validation error and leaves the stored state unchanged on violation.
+// MutablePoolerRecordState view to fn, validates the Type ↔ SelfLeadership
+// invariant, then atomically stores the result. Caller is responsible for
+// sequencing (action lock, publisher state). Returns the validation error and
+// leaves the stored state unchanged on violation.
 func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) error {
 	current := r.desired.Load()
 	state := MutablePoolerRecordState{
-		Type:              current.Type,
-		ServingStatus:     current.ServingStatus,
-		LifecycleStatus:   current.LifecycleStatus,
-		CurrentLeadership: current.CurrentLeadership,
+		Type:            current.Type,
+		ServingStatus:   current.ServingStatus,
+		LifecycleStatus: current.LifecycleStatus,
+		SelfLeadership:  current.SelfLeadership,
 	}
 	fn(&state)
 	if err := r.validateState(&state); err != nil {
@@ -213,27 +213,26 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) error {
 	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
 	next.Type = state.Type
 	next.ServingStatus = state.ServingStatus
-	next.CurrentLeadership = state.CurrentLeadership
 	next.LifecycleStatus = state.LifecycleStatus
+	next.SelfLeadership = state.SelfLeadership
 	r.desired.Store(next)
 	return nil
 }
 
-// validateState enforces the Type ↔ CurrentLeadership consistency
-// invariant: a pooler is the leader iff Type == PRIMARY iff
-// CurrentLeadership is set and names this pooler. Any deviation is a
-// caller bug.
+// validateState enforces the Type ↔ SelfLeadership consistency invariant: a
+// pooler is the leader iff Type == PRIMARY iff SelfLeadership is set and
+// names this pooler. Any deviation is a caller bug.
 func (r *poolerRecord) validateState(state *MutablePoolerRecordState) error {
 	isPrimary := state.Type == clustermetadatapb.PoolerType_PRIMARY
-	hasObs := state.CurrentLeadership != nil
+	hasObs := state.SelfLeadership != nil
 	switch {
 	case isPrimary && !hasObs:
-		return errors.New("invariant violated: Type=PRIMARY but CurrentLeadership is nil")
+		return errors.New("invariant violated: Type=PRIMARY but SelfLeadership is nil")
 	case !isPrimary && hasObs:
-		return fmt.Errorf("invariant violated: Type=%s but CurrentLeadership is set", state.Type)
-	case hasObs && !proto.Equal(state.CurrentLeadership.LeaderId, r.Id()):
-		return fmt.Errorf("invariant violated: CurrentLeadership.LeaderId=%s does not match this pooler's Id=%s",
-			topoclient.MultiPoolerIDString(state.CurrentLeadership.LeaderId),
+		return fmt.Errorf("invariant violated: Type=%s but SelfLeadership is set", state.Type)
+	case hasObs && !proto.Equal(state.SelfLeadership.LeaderId, r.Id()):
+		return fmt.Errorf("invariant violated: SelfLeadership.LeaderId=%s does not match this pooler's Id=%s",
+			topoclient.MultiPoolerIDString(state.SelfLeadership.LeaderId),
 			topoclient.MultiPoolerIDString(r.Id()))
 	}
 	return nil
@@ -304,10 +303,9 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 
 	if finalize != nil {
 		if err := r.applyMutation(finalize); err != nil {
-			// Finalize must not put the record in an inconsistent state.
-			// Log and continue: a final publish still helps surface
-			// whatever the record currently holds, even if finalize was
-			// a no-op.
+			// Finalize must not put the record in an inconsistent state. Log
+			// and continue: a final publish still helps surface whatever the
+			// record currently holds, even if finalize was effectively a no-op.
 			r.logger.WarnContext(ctx, "Final mutation during Unregister rejected by invariant; publishing prior desired state",
 				"error", err)
 		}

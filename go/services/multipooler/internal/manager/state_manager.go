@@ -16,12 +16,10 @@ package manager
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -38,32 +36,13 @@ type StateAware interface {
 
 // StateManager coordinates serving state transitions across components.
 //
-// The current state lives in the poolerRecord (Type, ServingStatus, and
-// CurrentLeadership), which is the source of truth for topology.
+// The current state lives in the poolerRecord (Type and ServingStatus),
+// which is the source of truth for topology.
 //
-// On SetState, the manager reads the latest known ShardRule (via the
-// injected latestRule callback), derives PoolerType and CurrentLeadership
-// from it, fans out OnStateChange to all registered components in parallel,
-// waits for completion, then updates the record via Mutate. The Mutate
-// also schedules an asynchronous publish so callers cannot forget to
+// On SetState, the manager fans out OnStateChange to all registered components
+// in parallel, waits for completion, then updates the record via Mutate. The
+// Mutate also schedules an asynchronous publish so callers cannot forget to
 // reflect the new state to etcd.
-//
-// Callers do NOT pass a rule to SetState. The contract is "consensusState
-// and rule_store are the source of truth; SetState reflects what they
-// currently say." Code paths that learn of a new rule (e.g. SetTermPrimary
-// receiving an RPC) must record it via the appropriate path
-// (consensusState.RecordTermPrimary, rule_store updates) before calling
-// SetState. Closing this loop in the StateManager prevents accidents
-// where a caller passes a stale or hand-rolled rule and publishes a
-// LeaderObservation that doesn't reflect actual cluster state.
-//
-// Type derivation (inside deriveTypeAndObs):
-//   - rule names this pooler as leader → PRIMARY (CurrentLeadership set)
-//   - rule exists but names someone else as leader → REPLICA. (Cohort
-//     membership is not consulted: a pooler replicating from the leader
-//     but not in the cohort is an observer; observers and cohort replicas
-//     both publish as REPLICA.)
-//   - rule == nil → UNKNOWN
 type StateManager struct {
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -72,28 +51,19 @@ type StateManager struct {
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
 	record *poolerRecord
 
-	// latestRule returns the most-current rule the pooler knows about.
-	// Called at the top of every SetState to derive Type + CurrentLeadership.
-	latestRule func() *clustermetadatapb.ShardRule
-
 	// Registered components that react to state changes.
 	components []StateAware
 }
 
-// NewStateManager creates a new StateManager. latestRule is the function
-// the manager calls to fetch "the current rule this pooler knows about"
-// whenever SetState fires; in production this points at the manager's
-// latestRule() helper (which merges consensusState and rule_store).
+// NewStateManager creates a new StateManager.
 func NewStateManager(
 	logger *slog.Logger,
 	record *poolerRecord,
-	latestRule func() *clustermetadatapb.ShardRule,
 	components ...StateAware,
 ) *StateManager {
 	return &StateManager{
 		logger:     logger,
 		record:     record,
-		latestRule: latestRule,
 		components: components,
 	}
 }
@@ -118,58 +88,36 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	return component.OnStateChange(ctx, ssm.record.Type(), ssm.record.ServingStatus())
 }
 
-// SetState transitions all components to the target state and updates the
-// record. PoolerType and CurrentLeadership are derived from the current
-// latestRule() value (see type docs); only the serving status is
-// caller-controlled. To transition under a new rule, write it through
-// consensusState / rule_store first; SetState picks it up.
+// SetState transitions all components to the given state in parallel.
+// The record is updated only after all components converge.
+// Returns an error if any component fails to transition.
+// No-op if the state hasn't changed.
 //
-// When latestRule returns nil but the record already carries a non-UNKNOWN
-// Type from a prior run, the record's existing (Type, CurrentLeadership)
-// is preserved — the pre-existing values satisfied the invariant, so
-// continuing to publish them is safe. The monitor and coordinator paths
-// overwrite this once a rule is observed. Requesting SERVING when both
-// the rule and the record are UNKNOWN still errors — a pooler with no
-// substantiated role cannot honestly serve.
-//
-// Returns an error if any component fails to transition. No-op if the
-// effective Type, CurrentLeadership, and the requested ServingStatus all
-// match the current record.
-func (ssm *StateManager) SetState(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
+// selfLeadership is the observation to record alongside the type: callers pass
+// the observation that names this pooler as leader when poolerType is PRIMARY,
+// and nil otherwise (a replica has no self-leadership). The poolerRecord
+// enforces the Type ⇔ SelfLeadership invariant, so a selfLeadership
+// inconsistent with poolerType is rejected.
+func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, selfLeadership *clustermetadatapb.LeaderObservation, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
 	currentType := ssm.record.Type()
 	currentStatus := ssm.record.ServingStatus()
-	currentObs := ssm.record.CurrentLeadership()
-
-	rule := ssm.latestRule()
-	newType, newObs := deriveTypeAndObs(rule, ssm.record.Id())
-	// Cold-boot fallback: when no rule is observed yet but the record was
-	// loaded from topology with a previously-published type, keep what's
-	// there. Avoids a spurious UNKNOWN+SERVING rejection on Open() while
-	// the rule sources are still warming up.
-	if newType == clustermetadatapb.PoolerType_UNKNOWN && currentType != clustermetadatapb.PoolerType_UNKNOWN {
-		newType, newObs = currentType, currentObs
-	}
-	if newType == clustermetadatapb.PoolerType_UNKNOWN && servingStatus != clustermetadatapb.PoolerServingStatus_NOT_SERVING {
-		return fmt.Errorf("SetState: cannot request servingStatus=%s with no rule observed (Type=UNKNOWN must be paired with NOT_SERVING)", servingStatus)
-	}
-
-	if currentType == newType && currentStatus == servingStatus && proto.Equal(currentObs, newObs) {
+	if currentType == poolerType && currentStatus == servingStatus {
 		ssm.logger.InfoContext(ctx, "Serving state unchanged, skipping",
-			"type", newType, "status", servingStatus)
+			"type", poolerType, "status", servingStatus)
 		return nil
 	}
 
 	ssm.logger.InfoContext(ctx, "Setting serving state",
-		"target_type", newType, "target_status", servingStatus,
+		"target_type", poolerType, "target_status", servingStatus,
 		"current_type", currentType, "current_status", currentStatus)
 
 	g, ctx := errgroup.WithContext(ctx)
 	for _, c := range ssm.components {
 		g.Go(func() error {
-			return c.OnStateChange(ctx, newType, servingStatus)
+			return c.OnStateChange(ctx, poolerType, servingStatus)
 		})
 	}
 	if err := g.Wait(); err != nil {
@@ -178,34 +126,18 @@ func (ssm *StateManager) SetState(ctx context.Context, servingStatus clustermeta
 
 	// All components converged — update the record and schedule a publish.
 	// Requires the caller to hold the action lock; Mutate will return an
-	// error otherwise. Mutate also validates the Type ↔ CurrentLeadership
-	// invariant.
+	// error otherwise. Mutate also enforces the Type ⇔ SelfLeadership
+	// invariant and rejects an inconsistent (type, obs) pair.
 	if err := ssm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
-		s.Type = newType
+		s.Type = poolerType
 		s.ServingStatus = servingStatus
-		s.CurrentLeadership = newObs
+		s.SelfLeadership = selfLeadership
 	}); err != nil {
 		return err
 	}
 
 	ssm.logger.InfoContext(ctx, "Serving state converged",
-		"type", newType, "status", servingStatus)
+		"type", poolerType, "status", servingStatus)
 
 	return nil
-}
-
-// deriveTypeAndObs returns the PoolerType and LeaderObservation implied
-// by rule for the pooler identified by selfID. See StateManager docs for
-// the derivation rules.
-func deriveTypeAndObs(rule *clustermetadatapb.ShardRule, selfID *clustermetadatapb.ID) (clustermetadatapb.PoolerType, *clustermetadatapb.LeaderObservation) {
-	if rule == nil {
-		return clustermetadatapb.PoolerType_UNKNOWN, nil
-	}
-	if proto.Equal(rule.GetLeaderId(), selfID) {
-		return clustermetadatapb.PoolerType_PRIMARY, &clustermetadatapb.LeaderObservation{
-			LeaderId:         selfID,
-			LeaderRuleNumber: rule.GetRuleNumber(),
-		}
-	}
-	return clustermetadatapb.PoolerType_REPLICA, nil
 }

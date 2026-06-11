@@ -186,15 +186,16 @@ message MultiPooler {
   // lifecycle states even on cold start, not only over the health stream.
   PoolerLifecycle lifecycle_status = 12;
 
-  // current_leadership is set ONLY when this pooler currently considers
-  // itself the leader of its shard. Replicas leave this empty to avoid
-  // excessive high-volume etcd writes by all replicas during failovers.
+  // self_leadership is set ONLY when this pooler currently considers itself
+  // the leader of its shard (it names this pooler). Replicas leave it empty —
+  // a replica has no self-leadership — which avoids high-volume etcd writes by
+  // every replica during failovers.
   //
-  // Consumers (multigateway) will read this on discovery to bootstrap
-  // leader routing without relying on `type` as a hint. Best-effort:
-  // empty until the pooler has been told (via SetTermPrimary / Propose
-  // / Recruit) that it is the leader; cleared again on demotion.
-  LeaderObservation current_leadership = 13;
+  // Consumers (multigateway) will read this on discovery to bootstrap leader
+  // routing without relying on `type` as a hint. Best-effort: empty until the
+  // pooler has been told (via SetTermPrimary / Propose / Recruit) that it is
+  // the leader; cleared again on demotion.
+  LeaderObservation self_leadership = 13;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -460,7 +461,7 @@ message PoolerPosition {
 }
 
 // LeaderObservation represents a pooler's view of who the consensus leader is.
-// Stored on the leader's own MultiPooler topology record (current_leadership
+// Stored on the leader's own MultiPooler topology record (self_leadership
 // field) so multigateway can bootstrap leader routing from etcd at discovery
 // time without relying on MultiPooler.type as a hint.
 //
