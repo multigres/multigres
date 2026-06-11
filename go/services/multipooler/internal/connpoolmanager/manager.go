@@ -137,9 +137,20 @@ type Manager struct {
 
 	// Drain tracking: counts connections currently lent out across all pools.
 	// Used for graceful drain during state transitions (NOT_SERVING).
-	drainMu   sync.Mutex
-	lentCount int64
-	zeroCh    chan struct{}
+	//
+	// regularCount tracks regular (single-query) borrows; reservedCount tracks
+	// reserved connections (transactions, temp tables, portals, COPY, etc.). They
+	// are kept separate so a borrow/recycle or reserve/release touches exactly one
+	// counter under a single lock acquisition. The combined total (regularCount +
+	// reservedCount) drives zeroCh; reservedCount alone drives reservedZeroCh. The
+	// two-stage drain waits on reservedZeroCh first (let transactions finish while
+	// still serving single queries), then on zeroCh (let the remaining in-flight
+	// single queries finish). All guarded by drainMu.
+	drainMu        sync.Mutex
+	regularCount   int64
+	reservedCount  int64
+	zeroCh         chan struct{} // closed when regularCount + reservedCount == 0
+	reservedZeroCh chan struct{} // closed when reservedCount == 0
 }
 
 // CredentialQueryRecorder returns a narrow recorder for the gRPC service's
@@ -172,6 +183,11 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	zeroCh := make(chan struct{})
 	close(zeroCh)
 	m.zeroCh = zeroCh
+
+	// Same for the reserved-only drain channel.
+	reservedZeroCh := make(chan struct{})
+	close(reservedZeroCh)
+	m.reservedZeroCh = reservedZeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 	m.setLifecycle(lifecycleRunning)
 
@@ -363,10 +379,13 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 
 	// Create drain tracking callbacks for this user pool.
 	// These are called on every borrow/recycle/reserve/release to track lent connections.
-	onBorrow := func() { m.lentAdd(1) }
-	onRecycle := func() { m.lentAdd(-1) }
-	onReserve := func() { m.lentAdd(1) }
-	onRelease := func() { m.lentAdd(-1) }
+	// Regular borrows and reserved connections bump separate counters, so each
+	// event takes the drain lock exactly once. The combined total drives the
+	// full drain; the reserved count alone drives the reserved-only drain.
+	onBorrow := func() { m.regularAdd(1) }
+	onRecycle := func() { m.regularAdd(-1) }
+	onReserve := func() { m.reservedAdd(1) }
+	onRelease := func() { m.reservedAdd(-1) }
 
 	// Create new user pool with per-user pool names for metric cardinality.
 	// Note: Including username in pool names enables per-user monitoring but increases
@@ -847,40 +866,92 @@ type ManagerStats struct {
 	UserPools map[string]UserPoolStats // Per-user pool stats
 }
 
-// lentAdd adjusts the lent connection count by n.
-// When the count transitions to zero, zeroCh is closed to unblock WaitForDrain.
-// When it transitions away from zero, a new zeroCh is created.
-func (m *Manager) lentAdd(n int64) {
-	m.drainMu.Lock()
-	defer m.drainMu.Unlock()
-
-	if m.lentCount+n < 0 {
-		m.logger.Error("lentCount going negative, likely a bug in borrow/recycle or reserve/release callbacks",
-			"current", m.lentCount, "delta", n)
-	}
-	m.lentCount += n
-	if m.lentCount == 0 {
-		// Signal drain complete by closing the channel.
+// signalZeroChanLocked reconciles a drain channel with its counter total: it
+// closes ch when total has reached zero (releasing WaitFor* callers), or re-arms
+// a fresh open channel when total is positive but ch is still closed from a prior
+// drain. Caller must hold drainMu.
+func signalZeroChanLocked(total int64, ch *chan struct{}) {
+	if total == 0 {
 		select {
-		case <-m.zeroCh:
+		case <-*ch:
 			// Already closed, nothing to do.
 		default:
-			close(m.zeroCh)
+			close(*ch)
 		}
-	} else if m.lentCount == n && n > 0 {
-		// Transitioned from 0 to positive: create a new open channel.
-		m.zeroCh = make(chan struct{})
+		return
+	}
+	// total > 0: ensure an open channel for future waiters.
+	select {
+	case <-*ch:
+		// Was closed (drained); re-arm.
+		*ch = make(chan struct{})
+	default:
+		// Already open.
 	}
 }
 
-// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+// regularAdd adjusts the regular (single-query) borrow count by n. It touches
+// only zeroCh (the combined drain) — regular borrows never affect the
+// reserved-only drain.
+func (m *Manager) regularAdd(n int64) {
+	m.drainMu.Lock()
+	defer m.drainMu.Unlock()
+
+	if m.regularCount+n < 0 {
+		m.logger.Error("regularCount going negative, likely a bug in borrow/recycle callbacks",
+			"current", m.regularCount, "delta", n)
+	}
+	m.regularCount += n
+	signalZeroChanLocked(m.regularCount+m.reservedCount, &m.zeroCh)
+}
+
+// reservedAdd adjusts the reserved connection count by n. A reserved connection
+// affects both drains, so it reconciles reservedZeroCh and the combined zeroCh —
+// under a single lock acquisition (unlike calling two separate *Add methods).
+func (m *Manager) reservedAdd(n int64) {
+	m.drainMu.Lock()
+	defer m.drainMu.Unlock()
+
+	if m.reservedCount+n < 0 {
+		m.logger.Error("reservedCount going negative, likely a bug in reserve/release callbacks",
+			"current", m.reservedCount, "delta", n)
+	}
+	m.reservedCount += n
+	signalZeroChanLocked(m.reservedCount, &m.reservedZeroCh)
+	signalZeroChanLocked(m.regularCount+m.reservedCount, &m.zeroCh)
+}
+
+// WaitForDrain blocks until all lent connections (regular + reserved) have been
+// returned or ctx is cancelled.
 func (m *Manager) WaitForDrain(ctx context.Context) error {
 	m.drainMu.Lock()
-	if m.lentCount == 0 {
+	if m.regularCount+m.reservedCount == 0 {
 		m.drainMu.Unlock()
 		return nil
 	}
 	ch := m.zeroCh
+	m.drainMu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// WaitForReservedDrain blocks until all RESERVED connections (transactions, temp
+// tables, portals, COPY, etc.) have been released or ctx is cancelled. Unlike
+// WaitForDrain it ignores transient single-query borrows, so the first stage of
+// a graceful drain can wait for in-flight transactions to finish while the
+// pooler keeps serving single autocommit queries.
+func (m *Manager) WaitForReservedDrain(ctx context.Context) error {
+	m.drainMu.Lock()
+	if m.reservedCount == 0 {
+		m.drainMu.Unlock()
+		return nil
+	}
+	ch := m.reservedZeroCh
 	m.drainMu.Unlock()
 
 	select {

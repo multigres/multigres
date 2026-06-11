@@ -144,7 +144,7 @@ func TestDrainMetricForceCloseOutcome(t *testing.T) {
 	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// Simulate an in-flight connection that never returns → WaitForDrain blocks until grace period.
-	mock.lentAdd(1)
+	mock.regularAdd(1)
 	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
 
 	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
