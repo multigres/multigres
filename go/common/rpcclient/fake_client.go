@@ -80,6 +80,17 @@ type FakeClient struct {
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
 
+	// RecruitDelays maps pooler IDs to artificial delays for Recruit calls.
+	// Use this to simulate slow or unresponsive nodes for testing timeout behavior.
+	// If the context is cancelled during the delay, the context error is returned.
+	RecruitDelays map[string]time.Duration
+
+	// RecruitGates maps pooler IDs to gate channels. Recruit blocks until the
+	// channel is closed. Use this to precisely control when a Recruit call
+	// completes relative to other goroutines, e.g. to sequence Phase 1 and
+	// Phase 2 in rule-change tests.
+	RecruitGates map[string]chan struct{}
+
 	// CallLog tracks which methods were called for verification in tests
 	CallLog []string
 
@@ -110,6 +121,8 @@ func NewFakeClient() *FakeClient {
 		RewindToSourceResponses:             make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
 		SetPostgresRestartsEnabledResponses: make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                              make(map[string]error),
+		RecruitDelays:                       make(map[string]time.Duration),
+		RecruitGates:                        make(map[string]chan struct{}),
 		CallLog:                             make([]string, 0),
 		PromoteRequests:                     make(map[string]*consensusdatapb.PromoteRequest),
 		SetPrimaryRequests:                  make(map[string]*consensusdatapb.SetPrimaryRequest),
@@ -194,6 +207,28 @@ func (f *FakeClient) Recruit(ctx context.Context, pooler *clustermetadatapb.Mult
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
+	}
+
+	f.mu.RLock()
+	delay := f.RecruitDelays[poolerID]
+	f.mu.RUnlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	f.mu.RLock()
+	gate := f.RecruitGates[poolerID]
+	f.mu.RUnlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	f.mu.RLock()
