@@ -73,16 +73,14 @@ jobs:
             --jsonfile=integration-test-results.jsonl \
             --junitfile=integration-test-results.xml \
             -- \
-            -v -skip TestPostgreSQLRegression -timeout=30m
+            -skip TestPostgreSQLRegression -timeout=30m
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
 
       - name: Write timing summary
         if: ${{ !cancelled() }}
-        run: |
-          sudo apt-get install -y python3-scipy
-          python3 .github/scripts/timing-summary.py
+        run: go run ./go/tools/testtiming/summary
 
       - name: Upload test results to Trunk
         if: ${{ !cancelled() }}

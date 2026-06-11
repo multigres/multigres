@@ -97,4 +97,11 @@ const (
 	// CrashRecoveryRetryDelay caps the delay between `postgres --single` retry
 	// attempts during the orphan-cleanup window.
 	CrashRecoveryRetryDelay = 500 * time.Millisecond
+
+	// PgLocksAdvisoryProbeSQL reports whether the current backend still holds any
+	// advisory lock. Run only outside a transaction, where every advisory lock
+	// visible here is session-level (transaction-level advisory locks are
+	// released at transaction end), so a false result means the session has
+	// released all of its advisory locks and the backend can be unpinned.
+	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
 )

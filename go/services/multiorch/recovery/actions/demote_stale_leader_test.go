@@ -118,14 +118,14 @@ func TestDemoteStaleLeaderAction_Priority(t *testing.T) {
 // use-new-consensus-flow disabled, Execute routes through the
 // DemoteStalePrimary RPC and forwards the correct-leader contact info + term.
 // TestDemoteStaleLeaderAction_Execute asserts that Execute routes through
-// SetTermPrimary and forwards the correct-leader contact info + position.
+// SetPrimary and forwards the correct-leader contact info + position.
 func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.SetTermPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetTermPrimaryResponse{}
+	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
 
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
@@ -144,10 +144,10 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	}
 	require.NoError(t, action.Execute(ctx, problem))
 
-	assert.Contains(t, fakeClient.CallLog, "SetTermPrimary(multipooler-cell1-stale-leader)")
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-stale-leader)")
 	assert.NotContains(t, fakeClient.CallLog, "DemoteStalePrimary(multipooler-cell1-stale-leader)")
 
-	req := fakeClient.SetTermPrimaryRequests["multipooler-cell1-stale-leader"]
+	req := fakeClient.SetPrimaryRequests["multipooler-cell1-stale-leader"]
 	require.NotNil(t, req)
 	require.NotNil(t, req.Leader)
 	assert.Equal(t, "correct-leader", req.Leader.Id.Name)

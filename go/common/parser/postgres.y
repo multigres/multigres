@@ -10789,6 +10789,7 @@ ViewStmt:
 					view := $4
 					view.RelPersistence = rune($2)
 					stmt := &ast.ViewStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_ViewStmt},
 						View: view,
 						Aliases: $5,
 						Query: $8,
@@ -10805,6 +10806,7 @@ ViewStmt:
 					view := $6
 					view.RelPersistence = rune($4)
 					stmt := &ast.ViewStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_ViewStmt},
 						View: view,
 						Aliases: $7,
 						Query: $10,
@@ -10821,6 +10823,7 @@ ViewStmt:
 					view := $5
 					view.RelPersistence = rune($2)
 					stmt := &ast.ViewStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_ViewStmt},
 						View: view,
 						Aliases: $7,
 						Query: $11,
@@ -10837,6 +10840,7 @@ ViewStmt:
 					view := $7
 					view.RelPersistence = rune($4)
 					stmt := &ast.ViewStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_ViewStmt},
 						View: view,
 						Aliases: $9,
 						Query: $13,
@@ -11166,12 +11170,18 @@ DefineStmt:
 CreateSeqStmt:
 		CREATE OptTemp SEQUENCE qualified_name OptSeqOptList
 			{
-				n := ast.NewCreateSeqStmt($4, $5, 0, false, false)
+				// Apply OptTemp persistence to the sequence RangeVar so the
+				// gateway can detect temp sequences and reserve a connection.
+				seq := $4
+				seq.RelPersistence = rune($2)
+				n := ast.NewCreateSeqStmt(seq, $5, 0, false, false)
 				$$ = n
 			}
 	|	CREATE OptTemp SEQUENCE IF_P NOT EXISTS qualified_name OptSeqOptList
 			{
-				n := ast.NewCreateSeqStmt($7, $8, 0, false, true)
+				seq := $7
+				seq.RelPersistence = rune($2)
+				n := ast.NewCreateSeqStmt(seq, $8, 0, false, true)
 				$$ = n
 			}
 		;

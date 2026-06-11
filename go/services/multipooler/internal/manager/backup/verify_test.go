@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package manager
+package backup
 
 import (
 	"context"
@@ -23,39 +23,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-func TestVerifyBackups(t *testing.T) {
-	// VerifyBackups requires a running pgbackrest with a valid stanza.
-	// The actual invocation, including the corrupt-backup negative path, is
-	// tested by integration tests (endtoend/multipooler). This test validates
-	// the precondition checks.
-
-	t.Run("fails when not ready", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
-		_, err := pm.VerifyBackups(context.Background())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "manager is in unknown state")
-	})
-
-	t.Run("fails when config not yet generated", func(t *testing.T) {
-		// Ready, but topology hasn't been loaded so no config path exists.
-		pm := createTestManager(t.TempDir(), "", "", clustermetadatapb.PoolerType_REPLICA)
-		pm.pgBackRestConfigPath = ""
-		_, err := pm.VerifyBackups(context.Background())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "pgbackrest config not found")
-	})
-}
-
-// TestVerifyBackups_ExecPaths drives VerifyBackups end-to-end against a stubbed
-// `pgbackrest` binary on PATH. It exercises the three outcomes the production
-// code must distinguish, which the unit-level integration tests cannot reach
-// in-process: a healthy stanza, pgBackRest reporting corruption while still
-// exiting 0 (the case this RPC exists to catch), and pgBackRest exiting non-zero.
-func TestVerifyBackups_ExecPaths(t *testing.T) {
+// TestVerify_ExecPaths drives Verify end-to-end against a stubbed `pgbackrest`
+// binary on PATH. It exercises the three outcomes the production code must
+// distinguish, which the unit-level integration tests cannot reach in-process:
+// a healthy stanza, pgBackRest reporting corruption while still exiting 0 (the
+// case this method exists to catch), and pgBackRest exiting non-zero.
+func TestVerify_ExecPaths(t *testing.T) {
 	tests := []struct {
 		name        string
 		stdout      string
@@ -94,10 +69,10 @@ func TestVerifyBackups_ExecPaths(t *testing.T) {
 			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 			poolerDir := t.TempDir()
-			pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-			pm.pgBackRestConfigPath = setupMockPgBackRestConfig(t, poolerDir)
+			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
+			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
-			resp, err := pm.VerifyBackups(context.Background())
+			resp, err := e.Verify(context.Background())
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errContains)
@@ -112,7 +87,7 @@ func TestVerifyBackups_ExecPaths(t *testing.T) {
 }
 
 // TestVerifyStanzaErrorDetection covers the parser that turns pgBackRest's
-// exit-0-but-reported-error output into a failed RPC. pgBackRest's verify
+// exit-0-but-reported-error output into a failed call. pgBackRest's verify
 // command exits 0 even when it finds a corrupt backup or invalid WAL, so the
 // stanza "status: error" line is the signal we key on.
 func TestVerifyStanzaErrorDetection(t *testing.T) {

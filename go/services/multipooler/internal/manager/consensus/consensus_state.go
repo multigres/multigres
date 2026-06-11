@@ -39,7 +39,7 @@ type ConsensusState struct {
 	revocation *clustermetadatapb.TermRevocation
 	// replicationPrimary is held in memory only — see HighestKnownRule's proto
 	// comment. Populated by RPCs that inform this pooler about the cluster
-	// state (SetTermPrimary today; Propose can be wired in via the same RecordTermPrimary
+	// state (SetPrimary today; Promote can be wired in via the same RecordTermPrimary
 	// entry point). Restarts reset it to nil; coordinators re-inform the
 	// pooler.
 	replicationPrimary *clustermetadatapb.ReplicationPrimary
@@ -66,7 +66,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 //     The same-rule-different-contact case covers a primary pooler being
 //     re-homed (host or port changes) without a new election.
 //
-// Safe to call on no-op SetTermPrimary paths so the recorded values reflect
+// Safe to call on no-op SetPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
 func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) {

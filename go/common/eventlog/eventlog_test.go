@@ -62,19 +62,19 @@ func TestEmit(t *testing.T) {
 		{
 			name:          "terminal promotion carries new_primary, proposed_term and phase timings",
 			outcome:       Success,
-			event:         PrimaryPromotion{NewPrimary: "pg-1", ProposedTerm: 7, Reason: "ShardInit", RecruitMs: ptr(int64(120)), ProposeMs: ptr(int64(680))},
+			event:         PrimaryPromotion{NewPrimary: "pg-1", ProposedTerm: 7, Reason: "ShardInit", RecruitMs: ptr(int64(120)), PromoteMs: ptr(int64(680))},
 			wantLevel:     slog.LevelInfo,
 			wantEventType: "primary.promotion",
-			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1", "proposed_term": int64(7), "reason": "ShardInit", "recruit_ms": int64(120), "propose_ms": int64(680)},
+			wantAttrs:     map[string]any{"outcome": "success", "new_primary": "pg-1", "proposed_term": int64(7), "reason": "ShardInit", "recruit_ms": int64(120), "promote_ms": int64(680)},
 		},
 		{
-			name:          "recruitment failure records recruit_ms but no propose_ms",
+			name:          "recruitment failure records recruit_ms but no promote_ms",
 			outcome:       Failed,
 			event:         PrimaryPromotion{ProposedTerm: 7, Reason: "LeaderIsDead", RecruitMs: ptr(int64(4200))},
 			wantLevel:     slog.LevelError,
 			wantEventType: "primary.promotion",
 			wantAttrs:     map[string]any{"outcome": "failed", "proposed_term": int64(7), "reason": "LeaderIsDead", "recruit_ms": int64(4200)},
-			wantAbsent:    []string{"new_primary", "propose_ms"},
+			wantAbsent:    []string{"new_primary", "promote_ms"},
 		},
 		{
 			name:          "started promotion omits new_primary and phase timings",
@@ -83,7 +83,7 @@ func TestEmit(t *testing.T) {
 			wantLevel:     slog.LevelInfo,
 			wantEventType: "primary.promotion",
 			wantAttrs:     map[string]any{"outcome": "started", "proposed_term": int64(7), "reason": "LeaderIsDead"},
-			wantAbsent:    []string{"new_primary", "recruit_ms", "propose_ms"},
+			wantAbsent:    []string{"new_primary", "recruit_ms", "promote_ms"},
 		},
 	}
 

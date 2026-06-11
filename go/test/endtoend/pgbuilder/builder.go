@@ -267,7 +267,12 @@ func (b *Builder) InstallContribModules(t *testing.T, ctx context.Context, names
 type ExtensionBuildSpec struct {
 	Name string
 	Repo string
-	Tag  string
+	// Tag is the git tag to clone. Exactly one of Tag and Commit must be set.
+	Tag string
+	// Commit pins a full commit SHA instead of a tag, for upstreams that never
+	// tag releases (pgjwt). It costs an init+fetch instead of a plain shallow
+	// clone but gives the same reproducibility guarantee a tag does.
+	Commit string
 	// BuildSubdir is the directory within the checkout holding the build entry
 	// point (the PGXS Makefile, or the pgrx crate root), relative to the clone
 	// root. Empty means the repo root (pgvector, pg_cron); set when it lives in a
@@ -279,6 +284,14 @@ type ExtensionBuildSpec struct {
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx"; it must
 	// match the crate's pinned pgrx dependency. Ignored for pgxs.
 	PgrxVersion string
+	// PkgConfigDeps names pkg-config packages (e.g. "libsodium") whose header and
+	// library directories the PGXS build needs but which live outside the
+	// compiler's default search path on some hosts (Homebrew on macOS). The
+	// resolved -I/-L flags are passed to make as COPT, which Makefile.global
+	// appends to both CFLAGS and LDFLAGS — the documented PostgreSQL hook for
+	// exactly this. The extension's own Makefile still adds the -l flag
+	// (pgsodium: SHLIB_LINK = -lsodium). Ignored for pgrx.
+	PkgConfigDeps []string
 }
 
 // PgMajorVersion returns the PostgreSQL major version as a string ("17"),
@@ -309,16 +322,8 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 	}
 	cloneDir := filepath.Join(b.ExternalDir, spec.Name)
 
-	t.Logf("Cloning external extension %s (%s) from %s...", spec.Name, spec.Tag, spec.Repo)
-	clone := executil.Command(ctx, "git", "clone",
-		"--depth=1",
-		"--branch", spec.Tag,
-		spec.Repo,
-		cloneDir)
-	var stderr bytes.Buffer
-	clone.Stderr = &stderr
-	if err := clone.Run(); err != nil {
-		return "", fmt.Errorf("failed to clone %s: %w (stderr: %s)", spec.Name, err, stderr.String())
+	if err := b.cloneExtension(t, ctx, spec, cloneDir); err != nil {
+		return "", err
 	}
 
 	pgConfig := filepath.Join(b.BinDir(), "pg_config")
@@ -327,7 +332,7 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 
 	switch spec.BuildSystem {
 	case "", "pgxs":
-		if err := b.installPGXSExtension(t, ctx, spec.Name, buildDir, pgConfig); err != nil {
+		if err := b.installPGXSExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
 			return "", err
 		}
 	case "pgrx":
@@ -342,11 +347,91 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 	return cloneDir, nil
 }
 
+// cloneExtension materializes the pinned source of one external extension at
+// cloneDir. Tag pins use a plain shallow clone; commit pins (for upstreams that
+// never tag, like pgjwt) use init + fetch-by-SHA + checkout, the documented way
+// to shallow-fetch a single commit. Exactly one of Tag and Commit must be set —
+// both are reproducible, ABI-consistent pins; requiring exactly one keeps the
+// spec unambiguous.
+func (b *Builder) cloneExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, cloneDir string) error {
+	if (spec.Tag == "") == (spec.Commit == "") {
+		return fmt.Errorf("external extension %s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
+			spec.Name, spec.Tag, spec.Commit)
+	}
+
+	if spec.Tag != "" {
+		t.Logf("Cloning external extension %s (%s) from %s...", spec.Name, spec.Tag, spec.Repo)
+		clone := executil.Command(ctx, "git", "clone",
+			"--depth=1",
+			"--branch", spec.Tag,
+			spec.Repo,
+			cloneDir)
+		var stderr bytes.Buffer
+		clone.Stderr = &stderr
+		if err := clone.Run(); err != nil {
+			return fmt.Errorf("failed to clone %s: %w (stderr: %s)", spec.Name, err, stderr.String())
+		}
+		return nil
+	}
+
+	t.Logf("Fetching external extension %s (commit %s) from %s...", spec.Name, spec.Commit, spec.Repo)
+	steps := [][]string{
+		{"init", "--quiet", cloneDir},
+		{"-C", cloneDir, "remote", "add", "origin", spec.Repo},
+		{"-C", cloneDir, "fetch", "--quiet", "--depth=1", "origin", spec.Commit},
+		{"-C", cloneDir, "checkout", "--quiet", "--detach", "FETCH_HEAD"},
+	}
+	for _, args := range steps {
+		cmd := executil.Command(ctx, "git", args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to fetch %s at %s (git %s): %w (stderr: %s)",
+				spec.Name, spec.Commit, strings.Join(args, " "), err, stderr.String())
+		}
+	}
+	return nil
+}
+
+// pkgConfigCOPT resolves the -I/-L flags for the given pkg-config packages into
+// a single COPT value. pkg-config gives the right answer on both Linux
+// (libsodium-dev installs into default paths, so the flags are usually empty)
+// and macOS (Homebrew kegs live outside the default search path). Only the
+// include and library *directories* are taken; the -l flag itself is the
+// extension Makefile's job (SHLIB_LINK), so COPT stays harmless in CFLAGS.
+func pkgConfigCOPT(ctx context.Context, pkgs []string) (string, error) {
+	if _, err := exec.LookPath("pkg-config"); err != nil {
+		return "", fmt.Errorf("pkg-config not found but required to locate %v: %w", pkgs, err)
+	}
+	var flags []string
+	for _, flag := range []string{"--cflags", "--libs-only-L"} {
+		args := append([]string{flag}, pkgs...)
+		out, err := executil.Command(ctx, "pkg-config", args...).Output()
+		if err != nil {
+			return "", fmt.Errorf("pkg-config %s %v failed (is the package installed?): %w", flag, pkgs, err)
+		}
+		flags = append(flags, strings.Fields(string(out))...)
+	}
+	return strings.Join(flags, " "), nil
+}
+
 // installPGXSExtension builds and installs a standard PGXS (make) extension into
 // the install tree pgConfig points at.
-func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, name, buildDir, pgConfig string) error {
-	t.Logf("Building external extension %s with PGXS (PG_CONFIG=%s)...", name, pgConfig)
-	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4", "PG_CONFIG="+pgConfig)
+func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
+	name := spec.Name
+	makeVars := []string{"PG_CONFIG=" + pgConfig}
+	if len(spec.PkgConfigDeps) > 0 {
+		copt, err := pkgConfigCOPT(ctx, spec.PkgConfigDeps)
+		if err != nil {
+			return fmt.Errorf("external extension %s: %w", name, err)
+		}
+		if copt != "" {
+			makeVars = append(makeVars, "COPT="+copt)
+		}
+	}
+
+	t.Logf("Building external extension %s with PGXS (%s)...", name, strings.Join(makeVars, " "))
+	makeCmd := executil.Command(ctx, "make", append([]string{"-C", buildDir, "-j", "4"}, makeVars...)...)
 	makeCmd.Stdout = os.Stdout
 	makeCmd.Stderr = os.Stderr
 	if err := makeCmd.Run(); err != nil {
@@ -354,7 +439,7 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, name, 
 	}
 
 	t.Logf("Installing external extension %s into %s...", name, b.InstallDir)
-	installCmd := executil.Command(ctx, "make", "-C", buildDir, "PG_CONFIG="+pgConfig, "install")
+	installCmd := executil.Command(ctx, "make", append([]string{"-C", buildDir}, append(makeVars, "install")...)...)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {

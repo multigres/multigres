@@ -35,6 +35,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -204,10 +205,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Run("verify all nodes initialized", func(t *testing.T) {
 		// All nodes should eventually be marked initialized after bootstrap.
 		// We deliberately don't assert ConsensusStatus.TermRevocation.RevokedBelowTerm
-		// here: under the Recruit/Propose/SetTermPrimary model that field is a per-pooler
+		// here: under the Recruit/Promote/SetPrimary model that field is a per-pooler
 		// revocation promise set by Recruit, and bootstrap only requires a Recruit
 		// quorum (e.g. 2 of 3) — non-recruited members legitimately stay at term 0
-		// while still being healthy cohort participants once SetTermPrimary brings them in.
+		// while still being healthy cohort participants once SetPrimary brings them in.
 		var allInstances []*shardsetup.MultipoolerInstance
 		for _, inst := range setup.Multipoolers {
 			allInstances = append(allInstances, inst)
@@ -348,15 +349,17 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready
-		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler, nil)
+		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
 
 		// Wait for auto-restore to complete. We don't assert
 		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a
-		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
+		// freshly-restored standby that joins via SetPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
-		shardsetup.TimedEventuallyPoolerCondition(t, setup.Timings, "standby auto-restore",
-			[]*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
+		const autoRestoreTimeout = 90 * time.Second
+		restoreStart := time.Now()
+		shardsetup.EventuallyPoolerCondition(t,
+			[]*shardsetup.MultipoolerInstance{standbyInst}, autoRestoreTimeout, 1*time.Second,
 			func(r shardsetup.PoolerStatusResult) (bool, string) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
@@ -368,6 +371,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			"auto-restore should complete within timeout",
 		)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), autoRestoreTimeout)
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)

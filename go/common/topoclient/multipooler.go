@@ -98,7 +98,7 @@ func MultiPoolerIDString(id *clustermetadatapb.ID) string {
 }
 
 // PoolerAddressFor projects a MultiPooler into the contact-info subset the
-// consensus RPCs (SetTermPrimary, Propose) take. Returns nil if mp is nil.
+// consensus RPCs (SetPrimary, Promote) take. Returns nil if mp is nil.
 func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
 	if mp == nil {
 		return nil

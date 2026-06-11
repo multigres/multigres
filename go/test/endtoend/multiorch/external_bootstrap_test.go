@@ -86,7 +86,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	// but stay uninitialized (no postgres data dir, no rule).
 	for name, inst := range setup.Multipoolers {
 		require.NoError(t, inst.Multipooler.Start(t.Context(), t), "should start multipooler %s", name)
-		shardsetup.WaitForManagerReady(t, inst.Multipooler, nil)
+		shardsetup.WaitForManagerReady(t, inst.Multipooler)
 	}
 
 	// Confirm uninitialized state on every pooler.

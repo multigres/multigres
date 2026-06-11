@@ -269,7 +269,7 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient, inst *
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Clear primary_conninfo directly. The pooler-side RPCs (SetTermPrimary,
+	// Clear primary_conninfo directly. The pooler-side RPCs (SetPrimary,
 	// SetPrimaryConnInfo) all set the value rather than clearing it, so the
 	// only way to break replication from a test is to reset the GUC.
 	_, err := client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)

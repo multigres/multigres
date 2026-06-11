@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -460,6 +461,15 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
 
+	// If the gateway flagged this statement as touching an advisory lock,
+	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
+	// acquire, in which case unpin immediately so the gateway doesn't keep an
+	// empty reservation. Gated on the recheck signal so the probe stays off the
+	// per-statement hot path.
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn) {
+		return nil, nil
+	}
+
 	reservedState := e.buildReservedState(reservedConn)
 
 	e.logger.DebugContext(ctx, "reserve stream execute completed",
@@ -559,7 +569,76 @@ func (e *Executor) streamExecuteOnReservedConn(
 		return nil, nil
 	}
 
+	// If the gateway flagged this statement as touching an advisory lock (e.g.
+	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
+	// the recheck signal so the probe runs only on advisory-touching statements,
+	// not after every query on a pinned connection.
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc) {
+		return nil, nil
+	}
+
 	return e.buildReservedStateFromAPI(rc), nil
+}
+
+// maybeUnpinSessionAdvisoryLock checks, after a statement on a connection
+// reserved for session-level advisory locks, whether the session still holds
+// any advisory lock. If none remain it clears ReasonSessionAdvisoryLock and,
+// when no other reason keeps the connection reserved, releases the backend to
+// the pool. Returns true if the connection was released.
+//
+// PostgreSQL is the source of truth for the (reference-counted) lock state, so
+// this is robust against pg_try_advisory_lock calls that failed, keys locked
+// and unlocked an equal number of times, pg_advisory_unlock_all(), and unlock
+// calls buried in functions or dynamic SQL — cases gateway-side counting could
+// never get right. The cost is one extra round trip per statement while the
+// session holds an advisory lock, which is a rare and already-pinned state.
+func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI) bool {
+	// Only meaningful for advisory-lock reservations, and only outside a
+	// transaction: inside one ReasonTransaction keeps the backend pinned anyway,
+	// and transaction-level advisory locks would pollute the probe.
+	if !protoutil.HasSessionAdvisoryLockReason(rc.RemainingReasons()) || rc.IsInTransaction() {
+		return false
+	}
+
+	results, err := rc.Query(ctx, constants.PgLocksAdvisoryProbeSQL)
+	if err != nil {
+		// Err on the side of staying pinned: handing back a connection that may
+		// still hold the client's locks would leak them to the next session.
+		// The connection is reclaimed when the session ends regardless.
+		e.logger.WarnContext(ctx, "advisory-lock probe failed; keeping connection pinned",
+			"reserved_conn_id", rc.ConnID(), "error", err)
+		return false
+	}
+
+	// SELECT EXISTS always returns exactly one row, so an empty result is
+	// unexpected — treat it like a probe failure and stay pinned rather than
+	// fall through with held=false and risk releasing a backend that may still
+	// hold the client's locks.
+	if len(results) == 0 {
+		e.logger.WarnContext(ctx, "advisory-lock probe returned no rows; keeping connection pinned",
+			"reserved_conn_id", rc.ConnID())
+		return false
+	}
+
+	var held bool
+	if scanErr := ScanSingleRow(results[0], &held); scanErr != nil {
+		e.logger.WarnContext(ctx, "advisory-lock probe returned unexpected result; keeping connection pinned",
+			"reserved_conn_id", rc.ConnID(), "error", scanErr)
+		return false
+	}
+	if held {
+		return false
+	}
+
+	// No advisory locks remain. Drop the reason; release the backend if nothing
+	// else keeps it reserved.
+	if rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock) {
+		rc.Release(reserved.ReleaseAdvisoryUnlock)
+		e.logger.DebugContext(ctx, "released advisory-lock reservation; no locks remain",
+			"reserved_conn_id", rc.ConnID())
+		return true
+	}
+	return false
 }
 
 // Close closes the executor and releases resources.
@@ -569,11 +648,19 @@ func (e *Executor) Close() error {
 }
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
-// If MaxRows > 0, a reserved connection is used since the portal may be suspended and need resumption.
-// Otherwise, a regular connection is used for better pool efficiency.
+// A reserved connection is used when any of these hold: ReservedConnectionId is
+// already set, MaxRows > 0 (the portal may be suspended and need resumption), or
+// reservationOptions carries reasons (the caller wants this portal to reserve a
+// backend — e.g. it opens a transaction or temp table). Otherwise a regular
+// connection is used for better pool efficiency.
 //
 // portalOptions carries portal-only knobs (e.g. include_describe). Nil leaves
 // every field at the proto default.
+//
+// reservationOptions mirrors StreamExecute: when it carries reasons and no
+// ReservedConnectionId is set, a fresh backend is reserved with those reasons
+// (running BeginQuery first if ReasonTransaction is set) before the portal runs;
+// when a reserved connection already exists, the reasons are OR'd onto it.
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -581,6 +668,7 @@ func (e *Executor) PortalStreamExecute(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 	portalOptions *multipoolerpb.PortalExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	if target == nil {
@@ -617,12 +705,15 @@ func (e *Executor) PortalStreamExecute(
 	resultFormats := int32ToInt16Slice(portal.ResultFormats)
 
 	includeDescribe := portalOptions.GetIncludeDescribe()
+	reasons := protoutil.GetReasons(reservationOptions)
 
 	// Use reserved connection if:
 	// 1. ReservedConnectionId is already set (e.g., from transaction or previous portal)
 	// 2. MaxRows > 0 (portal may be suspended and need resumption)
-	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 {
-		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
+	// 3. reservationOptions carries reasons (caller wants this portal to reserve
+	//    a backend, e.g. it opens a transaction or temp table)
+	if (options != nil && options.ReservedConnectionId > 0) || maxRows > 0 || reasons != 0 {
+		return e.portalExecuteWithReserved(ctx, preparedStatement, portal, options, reservationOptions, settings, user, maxRows, includeDescribe, paramFormats, resultFormats, callback)
 	}
 
 	// Use regular connection for non-suspended execution with no existing reservation
@@ -631,11 +722,19 @@ func (e *Executor) PortalStreamExecute(
 }
 
 // portalExecuteWithReserved executes a portal using a reserved connection.
+//
+// reservationOptions lets a portal reserve-and-run atomically (mirroring
+// reserveAndStreamExecute on the simple path): when the connection is freshly
+// reserved here, BEGIN runs first if ReasonTransaction is set and the remaining
+// reasons are applied; when an existing reservation is promoted, the new reasons
+// are OR'd onto it. nil/zero reservationOptions preserves the prior behavior of
+// just running the portal on the (existing or new) reserved connection.
 func (e *Executor) portalExecuteWithReserved(
 	ctx context.Context,
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	settings map[string]string,
 	user string,
 	maxRows int32,
@@ -645,6 +744,12 @@ func (e *Executor) portalExecuteWithReserved(
 ) (*query.ReservedState, error) {
 	var reservedConn *reserved.Conn
 	var err error
+
+	// Track whether this call created the reservation. A freshly reserved
+	// backend is owned by this call, so reservation-setup failures (e.g. BEGIN)
+	// release it; an existing reservation is owned by the session and must
+	// survive a single failed portal — the gateway decides its fate.
+	newlyReserved := false
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -660,6 +765,10 @@ func (e *Executor) portalExecuteWithReserved(
 		// closed by PostgreSQL. The post-acquire ensurePrepared call
 		// below is a no-op for the new-conn path because connState
 		// dedupes by canonical name.
+		//
+		// Parse is a session-level operation in PostgreSQL, so running it via
+		// the validate hook (before any BEGIN below) is safe; the prepared
+		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
@@ -668,6 +777,7 @@ func (e *Executor) portalExecuteWithReserved(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
 		}
+		newlyReserved = true
 	}
 
 	// Stamp multigres_vpid:<id> on the (possibly fresh, possibly resumed)
@@ -675,6 +785,31 @@ func (e *Executor) portalExecuteWithReserved(
 	// a backend without the tag (a freshly created reservation, or an
 	// existing one whose tag was wiped by a prior ApplySettings RESET ALL).
 	e.stampVpidOnReserved(ctx, reservedConn, options)
+
+	// Apply reservation reasons requested for this portal, mirroring
+	// reserveAndStreamExecute / streamExecuteOnReservedConn: run BEGIN when a
+	// transaction reason is added (and the connection isn't already in one),
+	// then OR the remaining reasons onto the connection. Done before
+	// Bind/Execute so the portal runs inside the transaction.
+	if reasons := protoutil.GetReasons(reservationOptions); reasons != 0 {
+		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
+			beginQuery := "BEGIN"
+			if reservationOptions.GetBeginQuery() != "" {
+				beginQuery = reservationOptions.GetBeginQuery()
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				if newlyReserved {
+					reservedConn.Release(reserved.ReleaseError)
+					return nil, err
+				}
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+			}
+		}
+		// OR the requested reasons onto the connection. AddReservationReason is
+		// idempotent, so re-adding ReasonTransaction (already set by
+		// BeginWithQuery above) is harmless.
+		reservedConn.AddReservationReason(reasons)
+	}
 
 	// Ensure the statement is prepared on this connection (with consolidation).
 	// For the new-conn branch this is a no-op because the validate hook above
@@ -701,17 +836,28 @@ func (e *Executor) portalExecuteWithReserved(
 		return nil, wrapQueryError(err)
 	}
 
-	// If portal is suspended (not completed), keep the reserved connection for continuation
+	// If portal is suspended (not completed), keep the reserved connection for
+	// continuation. Do NOT probe advisory locks here: the extended-protocol
+	// portal is mid-Execute, so issuing a simple probe query would corrupt the
+	// protocol state on this backend.
 	if !completed {
 		reservedConn.ReserveForPortal(portal.Name)
-	} else {
-		// Portal completed, release this portal's reservation.
-		// ReleasePortal returns true only when all reservation reasons are gone.
-		shouldRelease := reservedConn.ReleasePortal(portal.Name)
-		if shouldRelease {
-			reservedConn.Release(reserved.ReleasePortalComplete)
-			return nil, nil
-		}
+		return e.buildReservedState(reservedConn), nil
+	}
+
+	// Portal completed — release this portal's reservation. ReleasePortal returns
+	// true only when all reservation reasons are gone.
+	if reservedConn.ReleasePortal(portal.Name) {
+		reservedConn.Release(reserved.ReleasePortalComplete)
+		return nil, nil
+	}
+
+	// The connection stays reserved for other reasons. If the gateway flagged
+	// this portal as touching an advisory lock (acquire that may have failed, or
+	// a release over the extended protocol), re-probe pg_locks and unpin if none
+	// remain. Gated on the recheck signal to keep the probe off the hot path.
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn) {
+		return nil, nil
 	}
 
 	return e.buildReservedState(reservedConn), nil
@@ -1740,6 +1886,23 @@ func (e *Executor) ReleaseReservedConnection(
 			e.logger.ErrorContext(ctx, "DISCARD TEMP failed during release",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
+		}
+	}
+
+	// Step 3b: If the session holds session-level advisory locks, release them
+	// before the backend returns to the pool. Rolling back (Step 1) only drops
+	// transaction-level locks; session-level advisory locks would otherwise leak
+	// to whichever client next reuses this pooled backend. pg_advisory_unlock_all
+	// is the narrow, targeted fix — unlike DISCARD ALL it leaves prepared
+	// statements and other backend state intact, so the multipooler's
+	// per-connection prepared-statement tracking stays in sync.
+	if !cleanupFailed && protoutil.HasSessionAdvisoryLockReason(reservedConn.RemainingReasons()) {
+		if _, err := reservedConn.Conn().Query(ctx, "SELECT pg_advisory_unlock_all()"); err != nil {
+			e.logger.ErrorContext(ctx, "pg_advisory_unlock_all failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		} else {
+			reservedConn.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock)
 		}
 	}
 

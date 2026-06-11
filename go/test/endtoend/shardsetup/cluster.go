@@ -113,11 +113,6 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
-
-	// Timings records elapsed durations for timeout-bounded setup operations.
-	// Reported at test teardown so you can see which operations are approaching
-	// their limits on slow runners.
-	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.

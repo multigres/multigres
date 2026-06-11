@@ -31,21 +31,21 @@ type PrimaryPromotion struct {
 	// Started and terminal events (and the term.begin event and rule-history row).
 	ProposedTerm int64
 	Reason       string // why the promotion was initiated, e.g. "ShardInit" or a failover trigger
-	// RecruitMs and ProposeMs split the appointment latency (milliseconds,
+	// RecruitMs and PromoteMs split the appointment latency (milliseconds,
 	// monotonic clock) into its two phases: RecruitMs from Run start until a
-	// leader is selected (recruiting a quorum), ProposeMs from leader selection
+	// leader is selected (recruiting a quorum), PromoteMs from leader selection
 	// until the proposal commits. They are set only on terminal events and nil
-	// where not applicable — both on Started, and ProposeMs on a recruitment
-	// failure that never reached the propose phase. Draining late recruits
-	// overlaps the propose phase but is off the commit critical path, so the
+	// where not applicable — both on Started, and PromoteMs on a recruitment
+	// failure that never reached the promote phase. Draining late recruits
+	// overlaps the promote phase but is off the commit critical path, so the
 	// split reflects time-to-select-leader vs. time-to-commit.
 	RecruitMs *int64
-	ProposeMs *int64
+	PromoteMs *int64
 }
 
 const (
 	attrRecruitMs = "recruit_ms"
-	attrProposeMs = "propose_ms"
+	attrPromoteMs = "promote_ms"
 )
 
 func (PrimaryPromotion) EventType() string { return "primary.promotion" }
@@ -61,8 +61,8 @@ func (e PrimaryPromotion) LogAttrs() []slog.Attr {
 	if e.RecruitMs != nil {
 		attrs = append(attrs, slog.Int64(attrRecruitMs, *e.RecruitMs))
 	}
-	if e.ProposeMs != nil {
-		attrs = append(attrs, slog.Int64(attrProposeMs, *e.ProposeMs))
+	if e.PromoteMs != nil {
+		attrs = append(attrs, slog.Int64(attrPromoteMs, *e.PromoteMs))
 	}
 	return attrs
 }
@@ -121,17 +121,44 @@ func (e BackupLeaseLost) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("holder", e.Holder)}
 }
 
-type TermBegin struct {
-	NewTerm      int64
+type ConsensusRecruit struct {
+	Rule         string
 	PreviousTerm int64
 	RevokedRole  string // "primary" | "standby" | "" (empty = no revoke)
 }
 
-func (TermBegin) EventType() string { return "term.begin" }
-func (e TermBegin) LogAttrs() []slog.Attr {
+func (ConsensusRecruit) EventType() string { return "consensus.recruit" }
+func (e ConsensusRecruit) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.Int64("new_term", e.NewTerm),
+		slog.String("rule", e.Rule),
 		slog.Int64("previous_term", e.PreviousTerm),
 		slog.String("revoked_role", e.RevokedRole),
 	}
+}
+
+// ConsensusPromote is emitted by a multipooler node when it executes the leader
+// path of the Propose phase: it calls pg_promote and writes the new rule entry.
+// Together with consensus.recruit events from Recruit, these events let operators
+// reconstruct the full lifecycle of a term election and correlate Propose-phase
+// failures with postgres state changes.
+type ConsensusPromote struct {
+	Rule string
+}
+
+func (ConsensusPromote) EventType() string { return "consensus.promote" }
+func (e ConsensusPromote) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
+}
+
+// ConsensusSetPrimary is emitted by a multipooler node when it executes the
+// standby path of the Propose phase: it configures primary_conninfo to replicate
+// from the new leader. Together with consensus.recruit and consensus.promote
+// events, these events cover the full Propose round across all participating nodes.
+type ConsensusSetPrimary struct {
+	Rule string
+}
+
+func (ConsensusSetPrimary) EventType() string { return "consensus.set_primary" }
+func (e ConsensusSetPrimary) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
 }

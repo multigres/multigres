@@ -445,12 +445,12 @@ func TestGetBackupLocation(t *testing.T) {
 		utils.FilesystemBackupLocation("/var/backups/pgbackrest"),
 	)
 	require.NoError(t, err)
-	manager.backupConfig = backupConfig
+	manager.backup.SetBackupConfig(backupConfig)
 
 	// Test backup config
-	assert.Equal(t, "filesystem", manager.backupConfig.Type())
+	assert.Equal(t, "filesystem", backupConfig.Type())
 	expectedShardBackupLocation := filepath.Join("/var/backups/pgbackrest", database, constants.DefaultTableGroup, constants.DefaultShard)
-	shardPath, err := manager.backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
+	shardPath, err := backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
 	require.NoError(t, err)
 	assert.Equal(t, expectedShardBackupLocation, shardPath)
 }
@@ -497,19 +497,19 @@ func TestGetBackupLocation_S3(t *testing.T) {
 			utils.WithS3KeyPrefix("prod/backups/")),
 	)
 	require.NoError(t, err)
-	manager.backupConfig = backupConfig
+	manager.backup.SetBackupConfig(backupConfig)
 
 	// Test S3 backup config
-	assert.Equal(t, "s3", manager.backupConfig.Type())
+	assert.Equal(t, "s3", backupConfig.Type())
 
 	// Verify full path includes S3 bucket, prefix, and path components
 	expectedPath := "s3://my-backup-bucket/prod/backups/testdb/default/0-inf"
-	shardPath, err := manager.backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
+	shardPath, err := backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, shardPath)
 
 	// Verify PgBackRestConfig returns correct S3 settings
-	pgbrConfig, err := manager.backupConfig.PgBackRestConfig("multigres")
+	pgbrConfig, err := backupConfig.PgBackRestConfig("multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "s3", pgbrConfig["repo1-type"])
 	assert.Equal(t, "my-backup-bucket", pgbrConfig["repo1-s3-bucket"])
@@ -761,7 +761,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 // self-heal predicate. The function decides whether the monitor should issue
 // remedialActionFixPrimaryConnInfo on a given tick by comparing the live
 // primary_conninfo (read from postgres) against the (rule, primary) tuple
-// recorded by SetTermPrimary/Propose. The function is intentionally
+// recorded by SetPrimary/Promote. The function is intentionally
 // conservative: when in doubt, return false so the monitor takes no action.
 //
 // The cases below cover each early-exit path plus the live-vs-recorded
@@ -847,7 +847,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "RecordedRuleRevoked",
 			// revocation at term 9 outranks rule at term 5 -> reconcile would
-			// race the in-flight Recruit/Propose
+			// race the in-flight Recruit/Promote
 			seedRP: &clustermetadatapb.ReplicationPrimary{
 				Rule:    mkRule(5, recordedID),
 				Primary: mkAddress(recordedHost, recordedPort),

@@ -287,7 +287,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	t.Logf("All %d committed ids present on new primary — sync_commit durability contract honored", len(committedIDs))
 
 	// --- Force multiorch to fully resolve recovery: the old primary needs to be
-	// demoted via SetTermPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
+	// demoted via SetPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
 	// rejoined as a standby on the new primary's term. RequireRecovery blocks
 	// until all pending problems are resolved.
 	setup.RequireRecovery(t, "multiorch", 60*time.Second)
@@ -324,7 +324,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	shardsetup.WaitForEvent(t, newReplica.Multipooler.LogFile, "restore.attempt", "success", 90*time.Second)
 	t.Logf("%s auto-restored from backup — post-failover archive is usable", newReplicaName)
 
-	shardsetup.WaitForManagerReady(t, newReplica.Multipooler, nil)
+	shardsetup.WaitForManagerReady(t, newReplica.Multipooler)
 
 	// Drive multiorch's recovery loop synchronously so FixReplication wires
 	// pooler-4's replication to the current primary on the current term.
@@ -395,7 +395,7 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 // step to confirm the cohort is healthy before the next assertion.
 //
 // Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
-// Recruit/Propose/SetTermPrimary model, that field is a per-pooler revocation promise
+// Recruit/Promote/SetPrimary model, that field is a per-pooler revocation promise
 // (set by Recruit) — not a cluster-wide "current term" replicas inherit. A
 // freshly-provisioned replica that joined post-failover legitimately reports
 // term 0 even while streaming from the elected primary.

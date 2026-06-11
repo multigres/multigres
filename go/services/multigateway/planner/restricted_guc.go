@@ -71,7 +71,7 @@ func restrictedGUCError(name string) error {
 // Reverts are allowed because they can only restore the cluster-managed value:
 // RESET, RESET ALL, and SET ... TO DEFAULT.
 //
-// Runs pre-dispatch via planUnsupportedConstructs, so it covers both the simple
+// Runs pre-dispatch via analyzeStatement, so it covers both the simple
 // and extended query protocols and is short-circuited by the plan cache.
 func checkRestrictedGUCChange(stmt ast.Stmt) error {
 	var setstmt *ast.VariableSetStmt

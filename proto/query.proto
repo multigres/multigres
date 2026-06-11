@@ -383,4 +383,13 @@ message ReservationOptions {
   // the connection is released back to the pool and the returned
   // ReservedState has connection_id == 0.
   repeated string release_portal_names = 4;
+
+  // recheck_advisory_locks asks the multipooler to re-probe pg_locks after
+  // running this statement and drop ReasonSessionAdvisoryLock (releasing the
+  // connection if no other reason remains) when the session no longer holds any
+  // advisory lock. The gateway sets it only for statements that touch
+  // session-level advisory locks (an acquire — to catch a failed
+  // pg_try_advisory_lock — or a release), so the probe runs only when it can
+  // matter rather than after every query on a pinned connection.
+  bool recheck_advisory_locks = 5;
 }

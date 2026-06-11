@@ -47,7 +47,11 @@ func (m *mockPoolerController) IsServing() bool            { return true }
 func (m *mockPoolerController) OnStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
 	return nil
 }
-func (m *mockPoolerController) StartRequest(*query.Target, bool) error { return nil }
+
+func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestKind) error {
+	return nil
+}
+
 func (m *mockPoolerController) AwaitStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) {
 }
 func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }

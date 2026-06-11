@@ -686,8 +686,8 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	}
 
 	// Write the rule. This write blocks until a sync-standby WAL ack arrives.
-	// For promotions the ack only arrives after the full SetTermPrimary round-trip
-	// (Recruit clears all replication; standbys reconnect only after SetTermPrimary,
+	// For promotions the ack only arrives after the full SetPrimary round-trip
+	// (Recruit clears all replication; standbys reconnect only after SetPrimary,
 	// including optional pg_rewind). For primary-side cohort changes standbys are
 	// already streaming and the ack is nearly immediate. RuleWriteTimeout covers
 	// both cases.

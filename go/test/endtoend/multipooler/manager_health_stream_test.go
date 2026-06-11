@@ -27,11 +27,11 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestManagerHealthStream_SnapshotOnSetTermPrimary verifies that a snapshot
-// is pushed to an open ManagerHealthStream promptly after SetTermPrimary is
-// called. SetTermPrimary calls broadcastHealth() at the end of its work, so
+// TestManagerHealthStream_SnapshotOnSetPrimary verifies that a snapshot
+// is pushed to an open ManagerHealthStream promptly after SetPrimary is
+// called. SetPrimary calls broadcastHealth() at the end of its work, so
 // the stream client should not need to wait for the periodic poll ticker.
-func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
+func TestManagerHealthStream_SnapshotOnSetPrimary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -71,7 +71,7 @@ func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
 	require.Equal(t, multipoolermanagerdatapb.SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL,
 		initial.GetSnapshot().GetTrigger(), "second message should be an initial snapshot")
 
-	// Call SetTermPrimary on the standby. SetTermPrimary calls broadcastHealth()
+	// Call SetPrimary on the standby. SetPrimary calls broadcastHealth()
 	// at the end of its work, which should cause the stream to send a
 	// broadcast-triggered snapshot.
 	primaryID := &clustermetadatapb.ID{
@@ -86,7 +86,7 @@ func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
 		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
 		LeaderId:   primaryID,
 	}
-	_, err = standbyClient.Consensus.SetTermPrimary(t.Context(), &consensusdatapb.SetTermPrimaryRequest{
+	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
 		Leader: &clustermetadatapb.PoolerAddress{
 			Id:           primaryID,
 			Host:         "localhost",
@@ -94,7 +94,7 @@ func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
 		},
 		Rule: highRule,
 	})
-	require.NoError(t, err, "SetTermPrimary should succeed on standby")
+	require.NoError(t, err, "SetPrimary should succeed on standby")
 
 	// Receive snapshots until we see one with SNAPSHOT_TRIGGER_BROADCAST.
 	// We skip over any heartbeat snapshots that may arrive concurrently.
@@ -117,7 +117,7 @@ func TestManagerHealthStream_SnapshotOnSetTermPrimary(t *testing.T) {
 			}
 			// Not a broadcast snapshot (e.g. a concurrent heartbeat); keep waiting.
 		case <-t.Context().Done():
-			t.Fatal("no broadcast snapshot received before test timeout — SetTermPrimary may not be triggering a broadcast")
+			t.Fatal("no broadcast snapshot received before test timeout — SetPrimary may not be triggering a broadcast")
 		}
 	}
 }
