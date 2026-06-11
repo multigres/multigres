@@ -116,16 +116,26 @@ func (r *coordinatorLedRuleChange) Run(
 	// selected → commit). Monotonic, so unaffected by wall-clock adjustments.
 	start := time.Now()
 	var selectedAt time.Time
-	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
+	primaryPromotion := eventlog.PrimaryPromotion{
 		ProposedTerm: proposedTerm,
 		Reason:       r.reason,
-	})
+	}
+	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, primaryPromotion)
 
-	// Recruit all nodes concurrently.
+	// Phase 1: Recruit all nodes concurrently.
+	//
+	// Each recruit returns a ConsensusStatus that reflects the node's current WAL
+	// position and durability commitments. The coordinator accumulates these and
+	// tries to build a proposal after each arrival, until one succeeds. This
+	// lets the coordinator select the most advanced node that can still satisfy
+	// the durability policy, without waiting for the slowest nodes in the
+	// cohort to respond.
+
 	type recruitResult struct {
 		pooler *multiorchdatapb.PoolerHealthState
 		cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
 	}
+
 	recruited := make(chan recruitResult, len(cohort))
 	for _, p := range cohort {
 		go func() {
@@ -135,29 +145,12 @@ func (r *coordinatorLedRuleChange) Run(
 
 	var (
 		statuses  []*clustermetadatapb.ConsensusStatus
-		recruits  []*multiorchdatapb.PoolerHealthState
 		propReq   *consensusdatapb.PromoteRequest
 		leaderKey string
 	)
 
-	type promoteResult struct {
-		poolerName string
-		isLeader   bool
-		err        error
-	}
-	promoteResults := make(chan promoteResult, len(cohort))
-
-	// dispatchProposal sends Promote to the designated leader and SetPrimary
-	// to every other cohort member. r.promote handles the dispatch internally.
-	dispatchProposal := func(p *multiorchdatapb.PoolerHealthState) {
-		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
-		go func() {
-			err := r.promote(ctx, p, propReq, isLeader)
-			promoteResults <- promoteResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
-		}()
-	}
-
-	// Phase 1: collect recruits until tryBuildProposal succeeds (or we run out).
+	// Phase 2: collect recruits until tryBuildProposal succeeds, or all nodes
+	// have responded without reaching quorum.
 	//
 	// We commit to the leader at the FIRST successful tryBuildProposal and stream
 	// Proposes from there — recruits arriving after that point don't change
@@ -181,7 +174,6 @@ func (r *coordinatorLedRuleChange) Run(
 			continue
 		}
 		statuses = append(statuses, rr.cs)
-		recruits = append(recruits, rr.pooler)
 		p, err := r.tryBuildProposal(revocation, statuses)
 		if err != nil {
 			continue
@@ -214,23 +206,39 @@ func (r *coordinatorLedRuleChange) Run(
 		}, "error", err)
 		return mterrors.Wrap(err, "recruitment failed")
 	}
-	for _, p := range recruits {
-		dispatchProposal(p)
+
+	// Phase 3: Propose to all nodes concurrently.
+	//
+	// Note that we send proposals to all nodes, including those that didn't
+	// respond to recruit or whose recruits arrived after the proposal was
+	// selected. This is important for safety: if a node didn't respond to
+	// recruit, it may have been partitioned or slow, and thus may not have
+	// received the proposal's term revocation. Sending it SetPrimary
+	// ensures it learns about the new term. The same applies to late recruits
+	// that arrived after the proposal was selected — they may have been too
+	// slow to factor into leader selection, but they still need to learn about
+	// the new term.
+
+	type promoteResult struct {
+		poolerName string
+		isLeader   bool
+		err        error
 	}
 
-	// Phase 2: drain remaining recruits, proposing to each as it arrives.
-	for range remaining {
-		if rr := <-recruited; rr.cs != nil {
-			dispatchProposal(rr.pooler)
-			recruits = append(recruits, rr.pooler)
-		}
+	promoteResults := make(chan promoteResult, len(cohort))
+	for _, p := range cohort {
+		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
+		go func() {
+			err := r.promote(ctx, p, propReq, isLeader)
+			promoteResults <- promoteResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
+		}()
 	}
 
-	// Wait for every Promote to return, not just the leader's. The rule
+	// Phase 4: Wait for every Promote to return, not just the leader's. The rule
 	// change is committed when the leader's Promote succeeds — which can
 	// only happen because enough followers endorsed the proposal first to
 	// satisfy the cohort's durability quorum. Returning early here would
-	// let Run's context cancel the in-flight non-leader Proposes. The shard
+	// let Run's context cancel the in-flight non-leader Promotes. The shard
 	// is already safe at that point, but any pooler whose Promote was
 	// cancelled wouldn't learn the new primary on this round and would
 	// need to be re-wired before it could route correctly. Waiting avoids
@@ -240,7 +248,7 @@ func (r *coordinatorLedRuleChange) Run(
 	// non-leaders to learn about, so there is nothing to gain by waiting
 	// — return as soon as we see the leader's failure.
 	var leaderErr error
-	for range len(recruits) {
+	for range len(cohort) {
 		pr := <-promoteResults
 		if pr.err != nil {
 			if pr.isLeader {
