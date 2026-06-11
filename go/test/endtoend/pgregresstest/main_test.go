@@ -162,10 +162,6 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	opts := []shardsetup.SetupOption{
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
-		// Record the vpid → backend-pid mapping in multigres.backend_vpid so
-		// the isolation harness shim (public.multigres_test_session_is_blocked)
-		// can map virtual PIDs back to real backend PIDs through multigateway.
-		shardsetup.WithVpidStamping(),
 		// Force C locale on initdb so locale-sensitive expected outputs
 		// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
 		// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /

@@ -32,8 +32,4 @@ type Config struct {
 	PgBackRestCertFile string // TLS client certificate file path
 	PgBackRestKeyFile  string // TLS client key file path
 	PgBackRestCAFile   string // TLS CA certificate file path
-
-	// VpidStampEnabled toggles recording of the gateway vpid → backend pid
-	// mapping in multigres.backend_vpid (lock-detection support).
-	VpidStampEnabled bool
 }
