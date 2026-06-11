@@ -1049,6 +1049,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
+				},
 			},
 		},
 		{
@@ -1059,6 +1062,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
 				},
 			},
 		},
@@ -1082,6 +1088,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				},
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
 				},
 			},
 		},
@@ -1125,7 +1134,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
 
-			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
+			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus(true))
 		})
 	}
 }
