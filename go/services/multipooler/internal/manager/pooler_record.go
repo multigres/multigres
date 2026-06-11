@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -24,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
@@ -46,6 +49,11 @@ type MutablePoolerRecordState struct {
 	Type            clustermetadatapb.PoolerType
 	ServingStatus   clustermetadatapb.PoolerServingStatus
 	LifecycleStatus *clustermetadatapb.PoolerLifecycle
+	// SelfLeadership is the pooler's most recent recorded consensus
+	// observation. Set ONLY when this pooler currently considers itself the
+	// leader of its shard; replicas leave it nil. Published into etcd so
+	// multigateway can bootstrap leader routing on discovery.
+	SelfLeadership *clustermetadatapb.LeaderObservation
 }
 
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
@@ -96,14 +104,27 @@ type poolerRecord struct {
 // newPoolerRecord returns a poolerRecord seeded with initial as the desired
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
-func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) *poolerRecord {
+//
+// Returns an error if the seed violates the Type ↔ SelfLeadership invariant
+// (see validateState). Every mutation is validated, so the seed must be too —
+// otherwise the record could hold a state Mutate would reject, surfacing only
+// at the first transition.
+func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
 	}
 	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.MultiPooler))
-	return r
+	if err := r.validateState(&MutablePoolerRecordState{
+		Type:            initial.Type,
+		ServingStatus:   initial.ServingStatus,
+		LifecycleStatus: initial.LifecycleStatus,
+		SelfLeadership:  initial.SelfLeadership,
+	}); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // Id returns the pooler's identity. Effectively immutable — Mutate must not
@@ -135,6 +156,12 @@ func (r *poolerRecord) ServingStatus() clustermetadatapb.PoolerServingStatus {
 	return r.desired.Load().ServingStatus
 }
 
+// SelfLeadership returns the pooler's most recent recorded consensus
+// observation, or nil if this pooler is not currently the leader of its shard.
+func (r *poolerRecord) SelfLeadership() *clustermetadatapb.LeaderObservation {
+	return r.desired.Load().SelfLeadership
+}
+
 // Snapshot returns a deep clone of the current desired state. Use this when
 // passing the record to code that requires a *MultiPooler value and may
 // mutate it locally.
@@ -157,11 +184,18 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 //
 // fn must not block or call back into poolerRecord; it should perform
 // simple field assignments only.
+//
+// Returns an error (without applying fn) if the resulting state violates the
+// consistency invariant between Type and SelfLeadership: a pooler is the
+// leader iff Type == PRIMARY iff SelfLeadership is set and names this
+// pooler. Callers must keep the two fields in sync.
 func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordState)) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-	r.applyMutation(fn)
+	if err := r.applyMutation(fn); err != nil {
+		return err
+	}
 
 	// Non-blocking send: if the channel is already full, a publish is already
 	// pending and will pick up the latest desired state.
@@ -173,23 +207,48 @@ func (r *poolerRecord) Mutate(ctx context.Context, fn func(*MutablePoolerRecordS
 }
 
 // applyMutation clones the current desired proto, hands a
-// MutablePoolerRecordState view to fn, then writes back the (possibly
-// updated) Type, ServingStatus, and LifecycleStatus and atomically stores
-// the result. Caller is responsible for sequencing (action lock, publisher
-// state).
-func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
+// MutablePoolerRecordState view to fn, validates the Type ↔ SelfLeadership
+// invariant, then atomically stores the result. Caller is responsible for
+// sequencing (action lock, publisher state). Returns the validation error and
+// leaves the stored state unchanged on violation.
+func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) error {
 	current := r.desired.Load()
 	state := MutablePoolerRecordState{
 		Type:            current.Type,
 		ServingStatus:   current.ServingStatus,
 		LifecycleStatus: current.LifecycleStatus,
+		SelfLeadership:  current.SelfLeadership,
 	}
 	fn(&state)
+	if err := r.validateState(&state); err != nil {
+		return err
+	}
 	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
 	next.Type = state.Type
 	next.ServingStatus = state.ServingStatus
 	next.LifecycleStatus = state.LifecycleStatus
+	next.SelfLeadership = state.SelfLeadership
 	r.desired.Store(next)
+	return nil
+}
+
+// validateState enforces the Type ↔ SelfLeadership consistency invariant: a
+// pooler is the leader iff Type == PRIMARY iff SelfLeadership is set and
+// names this pooler. Any deviation is a caller bug.
+func (r *poolerRecord) validateState(state *MutablePoolerRecordState) error {
+	isPrimary := state.Type == clustermetadatapb.PoolerType_PRIMARY
+	hasObs := state.SelfLeadership != nil
+	switch {
+	case isPrimary && !hasObs:
+		return errors.New("invariant violated: Type=PRIMARY but SelfLeadership is nil")
+	case !isPrimary && hasObs:
+		return fmt.Errorf("invariant violated: Type=%s but SelfLeadership is set", state.Type)
+	case hasObs && !proto.Equal(state.SelfLeadership.LeaderId, r.Id()):
+		return fmt.Errorf("invariant violated: SelfLeadership.LeaderId=%s does not match this pooler's Id=%s",
+			topoclient.MultiPoolerIDString(state.SelfLeadership.LeaderId),
+			topoclient.MultiPoolerIDString(r.Id()))
+	}
+	return nil
 }
 
 // Register starts the publisher goroutine and kicks off initial registration
@@ -212,7 +271,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		})
 
 		// Kick off initial registration retry loop. The unregister callback
-		// is a no-op — the DRAINED write is handled by Unregister itself
+		// is a no-op — the shutdown write is handled by Unregister itself
 		// (via Mutate + final publish) so toporeg only needs to manage the
 		// retry goroutine's lifetime.
 		registerFunc := func(ctx context.Context) error {
@@ -226,7 +285,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 // performs one synchronous publish if the result diverges from the last
 // published state, and cancels the toporeg retry goroutine.
 //
-// finalize lets the caller stamp a shutdown state (e.g. Type=DRAINED,
+// finalize lets the caller stamp a shutdown state (e.g. Type=UNKNOWN,
 // ServingStatus=NOT_SERVING). The callback receives a MutablePoolerRecordState
 // populated with current values; modifications become the new desired state.
 // Pass nil to just publish whatever the publisher hadn't yet written. The
@@ -256,7 +315,13 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 	r.publisherWG.Wait()
 
 	if finalize != nil {
-		r.applyMutation(finalize)
+		if err := r.applyMutation(finalize); err != nil {
+			// Finalize must not put the record in an inconsistent state. Log
+			// and continue: a final publish still helps surface whatever the
+			// record currently holds, even if finalize was effectively a no-op.
+			r.logger.WarnContext(ctx, "Final mutation during Unregister rejected by invariant; publishing prior desired state",
+				"error", err)
+		}
 	}
 
 	desired := r.desired.Load()

@@ -46,9 +46,9 @@ var pgctldStopModes = []struct {
 // health stream and then stops Postgres. Registered as a servenv OnTermSync
 // hook so it runs on SIGTERM bounded by --onterm-timeout.
 //
-// The topology Type=DRAINED transition happens after this returns via the
-// existing OnClose -> mp.Shutdown -> tr.Unregister chain registered in
-// services/multipooler/init.go.
+// The topology shutdown transition (Type=UNKNOWN, LifecycleStatus=SHUTDOWN)
+// happens after this returns via the existing OnClose -> mp.Shutdown ->
+// tr.Unregister chain registered in services/multipooler/init.go.
 //
 // The action lock is held for the whole sequence because pgctld.Stop is
 // gated behind the protectedPgctldClient action-lock check.
@@ -98,7 +98,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// Best-effort: a failure here is logged but doesn't block the rest of
 	// shutdown.
 	if pm.servingState != nil {
-		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
 				"error", err)
 		}

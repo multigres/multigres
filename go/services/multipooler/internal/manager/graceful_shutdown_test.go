@@ -219,7 +219,9 @@ func TestGracefulShutdown_AnnouncesStoppingInTopology(t *testing.T) {
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
 	pm.topoClient = ts
-	pm.record = newPoolerRecord(pm.logger, ts, mp)
+	record, err := newPoolerRecord(pm.logger, ts, mp)
+	require.NoError(t, err)
+	pm.record = record
 
 	pm.GracefulShutdown(ctx)
 
@@ -268,7 +270,9 @@ func TestMarkPoolerActive_TransitionsLifecycle(t *testing.T) {
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
 	pm.topoClient = ts
-	pm.record = newPoolerRecord(pm.logger, ts, mp)
+	record, err := newPoolerRecord(pm.logger, ts, mp)
+	require.NoError(t, err)
+	pm.record = record
 	require.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 		pm.record.Snapshot().GetLifecycleStatus().GetStatus(),
@@ -319,7 +323,9 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
 	pm.topoClient = ts
-	pm.record = newPoolerRecord(pm.logger, ts, mp)
+	record, err := newPoolerRecord(pm.logger, ts, mp)
+	require.NoError(t, err)
+	pm.record = record
 
 	pm.markPoolerActive(ctx)
 

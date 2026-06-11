@@ -74,6 +74,8 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		// A PRIMARY record must name itself as leader (the record invariant).
+		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,

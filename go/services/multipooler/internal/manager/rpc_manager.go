@@ -652,26 +652,6 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	return status, nil
 }
 
-// changeTypeLocked updates the pooler type without acquiring the action lock.
-// The caller MUST already hold the action lock.
-func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType clustermetadatapb.PoolerType) error {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-
-	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
-
-	// Use the serving state manager to transition components and update the pooler record.
-	// The serving status stays SERVING during type changes (the node remains available). Mutate
-	// inside StateManager schedules an async publish to topology.
-	if err := pm.servingState.SetState(ctx, poolerType, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
-		return mterrors.Wrap(err, "failed to set serving state")
-	}
-
-	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
-	return nil
-}
-
 // emergencyDemoteLocked performs the core demotion logic.
 // REQUIRES: action lock must already be held by the caller.
 // This is used for emergency demote operations.

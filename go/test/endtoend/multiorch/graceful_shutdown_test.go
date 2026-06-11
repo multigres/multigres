@@ -32,7 +32,8 @@ import (
 // pgctld) and waits for it to exit. This drives the OnTermSync GracefulShutdown
 // hook end-to-end: a COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE announcement on the
 // health stream and pgctld.Stop (fast → immediate escalation). The OnClose
-// chain that follows updates the topology entry to PoolerType_DRAINED.
+// chain that follows updates the topology entry to LifecycleStatus=SHUTDOWN
+// (Type=UNKNOWN).
 func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.MultipoolerInstance, timeout time.Duration) {
 	t.Helper()
 	require.NotNil(t, instance.Multipooler)
@@ -61,8 +62,8 @@ func terminateMultipoolerGracefully(t *testing.T, instance *shardsetup.Multipool
 // produces an explicit COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE signal on the
 // health stream, the LeaderResignedAnalyzer fires (via LeaderNeedsReplacement
 // treating INELIGIBLE as a resignation), multiorch promotes a surviving
-// standby, and the terminated pooler's topology entry ends up as
-// PoolerType_DRAINED. The failover must happen quickly because resignation
+// standby, and the terminated pooler's topology entry ends up reporting
+// LifecycleStatus=SHUTDOWN. The failover must happen quickly because resignation
 // is an unambiguous signal — no follower-disconnect grace period.
 func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	if testing.Short() {
@@ -149,10 +150,11 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		t.Fatalf("multipooler %s did not exit gracefully within 60s", oldPrimaryName)
 	}
 
-	// The terminated pooler must be marked DRAINED in topology. The pooler-side
-	// unregister hook (OnClose → tr.Unregister) writes this when the process
-	// exits cleanly. Locks in that DRAINED is reflected for `multigres getpoolers`
-	// after a graceful shutdown.
+	// The terminated pooler must report LIFECYCLE_SHUTDOWN in topology. The
+	// pooler-side unregister hook (OnClose → tr.Unregister) writes this when the
+	// process exits cleanly. LIFECYCLE_SHUTDOWN — not Type — is the shutdown
+	// signal: Type is set to UNKNOWN (DRAINED is reserved for poolers that
+	// failed recovery and need human inspection).
 	oldPrimaryID := setup.GetMultipoolerID(oldPrimaryName)
 	require.NotNil(t, oldPrimaryID, "expected to resolve old primary ID")
 	require.Eventually(t, func() bool {
@@ -160,10 +162,11 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return mp.Type == clustermetadatapb.PoolerType_DRAINED
+		return mp.Type == clustermetadatapb.PoolerType_UNKNOWN &&
+			mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN
 	}, 30*time.Second, 500*time.Millisecond,
-		"old primary %s should be marked DRAINED in topology after graceful shutdown", oldPrimaryName)
-	t.Logf("Old primary %s is DRAINED in topology", oldPrimaryName)
+		"old primary %s should report LIFECYCLE_SHUTDOWN in topology after graceful shutdown", oldPrimaryName)
+	t.Logf("Old primary %s reports LIFECYCLE_SHUTDOWN in topology", oldPrimaryName)
 }
 
 // TestStandbyGracefulShutdownDoesNotTriggerFailover verifies that SIGTERM on
@@ -359,7 +362,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 //
 //   - The standby's topology entry stays in place but its
 //     LifecycleStatus.Status transitions to LIFECYCLE_SHUTDOWN (with
-//     Type=DRAINED and ServingStatus=NOT_SERVING) once the OnClose
+//     Type=UNKNOWN and ServingStatus=NOT_SERVING) once the OnClose
 //     unregisterFunc has run. This is the signal the orchestrator's
 //     pooler watcher reacts to in order to tear down the per-pooler
 //     health stream; the durable entry itself is left for the 4 h
@@ -420,7 +423,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 	terminateMultipoolerGracefully(t, setup.Multipoolers[terminatedStandby], 90*time.Second)
 
 	// The unregisterFunc runs after GracefulShutdown returns. Within a few
-	// seconds the topology entry must read LIFECYCLE_SHUTDOWN + DRAINED;
+	// seconds the topology entry must read LIFECYCLE_SHUTDOWN + UNKNOWN;
 	// 30 s is a generous bound that catches regressions in the unregister
 	// path while still leaving headroom for slower-responsive GitHub Actions
 	// runners.
@@ -430,11 +433,11 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 			return false
 		}
 		return mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN &&
-			mp.Type == clustermetadatapb.PoolerType_DRAINED
+			mp.Type == clustermetadatapb.PoolerType_UNKNOWN
 	}, 30*time.Second, 500*time.Millisecond,
-		"standby %s should have lifecycle=SHUTDOWN and type=DRAINED in topology after graceful shutdown",
+		"standby %s should have lifecycle=SHUTDOWN and type=UNKNOWN in topology after graceful shutdown",
 		terminatedStandby)
-	t.Logf("Standby %s lifecycle is SHUTDOWN + DRAINED in topology", terminatedStandby)
+	t.Logf("Standby %s lifecycle is SHUTDOWN + UNKNOWN in topology", terminatedStandby)
 
 	// No spurious failover.
 	current := setup.RefreshPrimary(t)

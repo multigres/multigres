@@ -191,6 +191,8 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		// A PRIMARY record must name itself as leader (the record invariant).
+		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
@@ -351,6 +353,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				PortMap:       map[string]int32{"grpc": 8080},
 				Type:          clustermetadatapb.PoolerType_PRIMARY,
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				// A PRIMARY record must name itself as leader (the record invariant).
+				SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   database,
 					TableGroup: constants.DefaultTableGroup,
@@ -1025,6 +1029,7 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	pm.StartTopoRegistration(func(string) {})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-pause")
+	defer pm.actionLock.Release(lockCtx)
 	require.NoError(t, err)
 	pm.Open(lockCtx)
 
@@ -1032,11 +1037,14 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	// would have cancelled the publisher; with the new "publisher tied to
 	// Register" design it should keep running.
 	resume := pm.Pause(lockCtx)
+	defer resume(lockCtx)
 
 	// Mutate to PRIMARY while paused. The publisher should still pick this
 	// up and reflect it in topology.
 	require.NoError(t, pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_PRIMARY
+		// A PRIMARY must carry a self-leadership observation naming itself.
+		s.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: serviceID}
 	}))
 
 	require.Eventually(t, func() bool {
@@ -1045,5 +1053,4 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	}, 2*time.Second, 25*time.Millisecond, "publisher should reflect Mutate to PRIMARY in topology while paused")
 
 	resume(lockCtx)
-	pm.actionLock.Release(lockCtx)
 }

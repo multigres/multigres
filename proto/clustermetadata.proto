@@ -185,6 +185,17 @@ message MultiPooler {
   // readiness). Recorded in topology so the orchestrator can observe terminal
   // lifecycle states even on cold start, not only over the health stream.
   PoolerLifecycle lifecycle_status = 12;
+
+  // self_leadership is set ONLY when this pooler currently considers itself
+  // the leader of its shard (it names this pooler). Replicas leave it empty —
+  // a replica has no self-leadership — which avoids high-volume etcd writes by
+  // every replica during failovers.
+  //
+  // Consumers (multigateway) will read this on discovery to bootstrap leader
+  // routing without relying on `type` as a hint. Best-effort: empty until the
+  // pooler has been told (via SetTermPrimary / Propose / Recruit) that it is
+  // the leader; cleared again on demotion.
+  LeaderObservation self_leadership = 13;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -447,6 +458,26 @@ message PoolerPosition {
   // beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
   // For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
   string lsn = 2;
+}
+
+// LeaderObservation represents a pooler's view of who the consensus leader is.
+// Stored on the leader's own MultiPooler topology record (self_leadership
+// field) so multigateway can bootstrap leader routing from etcd at discovery
+// time without relying on MultiPooler.type as a hint.
+//
+// Distinct from multipoolerservice.LeaderObservation, which carries the same
+// information on the multipooler health stream with an older (int64 leader_term)
+// shape. The two will eventually converge on this type via the gateway-routing
+// migration.
+message LeaderObservation {
+  // leader_id is the ID of the pooler this node believes is the consensus leader.
+  // May be this pooler's own ID if it believes itself to be leader.
+  ID leader_id = 1;
+
+  // leader_rule_number identifies the rule under which this observation was
+  // made. Lexicographic comparison over (coordinator_term, leader_subterm)
+  // disambiguates concurrent observations during stand-in promotion windows.
+  RuleNumber leader_rule_number = 2;
 }
 
 // ReplicationPrimary advertises the primary this pooler believes it should be
