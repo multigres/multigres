@@ -901,6 +901,63 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 }
 
+// TestUpdateTopologyAfterPromotion_PublishesSelfLeadership verifies the
+// promotion path records a self-leadership observation naming this pooler under
+// the rule it was promoted under, alongside Type=PRIMARY + SERVING.
+func TestUpdateTopologyAfterPromotion_PublishesSelfLeadership(t *testing.T) {
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		Type: clustermetadatapb.PoolerType_REPLICA,
+	}
+	pm := newRemedialActionTestManager(t, multipooler)
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	// The pooler is promoted under this rule, which names it as leader.
+	rule := &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7, LeaderSubterm: 2},
+		LeaderId:   multipooler.Id,
+	}
+	require.NoError(t, pm.updateTopologyAfterPromotion(lockCtx, &promotionState{}, rule))
+
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())
+	obs := pm.record.SelfLeadership()
+	require.NotNil(t, obs, "promotion must publish a self-leadership observation")
+	assert.Equal(t, multipooler.Id, obs.GetLeaderId())
+	assert.Equal(t, rule.GetRuleNumber(), obs.GetLeaderRuleNumber())
+}
+
+// TestTakeRemedialAction_AdjustTypeToPrimary_PublishesSelfLeadership verifies
+// the monitor's observed-primary relabel records a self-leadership observation
+// built from the committed rule (which names this pooler).
+func TestTakeRemedialAction_AdjustTypeToPrimary_PublishesSelfLeadership(t *testing.T) {
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		Type: clustermetadatapb.PoolerType_REPLICA,
+	}
+	pm := newRemedialActionTestManager(t, multipooler)
+	committed := &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}
+	pm.rules = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{RuleNumber: committed, LeaderId: multipooler.Id},
+	}}
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionAdjustTypeToPrimary,
+		postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true})
+
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
+	obs := pm.record.SelfLeadership()
+	require.NotNil(t, obs, "AdjustTypeToPrimary must publish a self-leadership observation")
+	assert.Equal(t, multipooler.Id, obs.GetLeaderId())
+	assert.Equal(t, committed, obs.GetLeaderRuleNumber())
+}
+
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
