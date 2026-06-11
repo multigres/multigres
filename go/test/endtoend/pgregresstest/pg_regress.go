@@ -379,6 +379,21 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 		return nil, err
 	}
 
+	// Normalize the result files the same way the materialized expected copies
+	// were normalized (ResultNormalizers), so verification and patch
+	// generation compare like with like.
+	if len(ext.ResultNormalizers) > 0 {
+		for _, name := range tests {
+			resultPath := filepath.Join(outputDir, "results", name+".out")
+			if !suiteutil.FileExists(resultPath) {
+				continue
+			}
+			if err := normalizeResultFile(ext, resultPath); err != nil {
+				t.Logf("external/%s: warning: normalize %s: %v", ext.Name, resultPath, err)
+			}
+		}
+	}
+
 	// Re-evaluate each test via the patch pipeline. pg_regress wrote results to
 	// <outputDir>/results; expected lives in <expectedDir>/expected, and
 	// patches are per-extension under patches/external/<ext>.

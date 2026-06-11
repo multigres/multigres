@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -232,6 +233,35 @@ func TestMaterializeTransformedSuite(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "\\set ON_ERROR_ROLLBACK on\nBEGIN;\nSELECT 1;\n 1\n(1 row)\nCOMMIT;\n", string(out), name)
 	}
+}
+
+// TestNormalizeResultFile covers both normalizer behaviors with pgaudit's
+// real patterns: statement-ID rewriting and harness-artifact line dropping.
+func TestNormalizeResultFile(t *testing.T) {
+	ext := ExternalExtension{ResultNormalizers: []ResultNormalizer{
+		{Pattern: `AUDIT: (SESSION|OBJECT),\d+,`, Replacement: "AUDIT: $1,N,"},
+		{Pattern: `AUDIT: (SESSION|OBJECT),N,\d+,MISC,(SAVEPOINT|RELEASE|ROLLBACK),,,(SAVEPOINT|RELEASE|ROLLBACK TO) pg_psql_temporary_savepoint`, DropMatchingLines: true},
+		{Pattern: `^WARNING:\s+cursor "[^"]*" is not closed$`, DropMatchingLines: true},
+	}}
+
+	path := filepath.Join(t.TempDir(), "out")
+	in := strings.Join([]string{
+		"NOTICE:  AUDIT: SESSION,41,1,MISC,SAVEPOINT,,,SAVEPOINT pg_psql_temporary_savepoint,<not logged>",
+		"CREATE TABLE tmp (id int);",
+		"NOTICE:  AUDIT: SESSION,42,1,DDL,CREATE TABLE,TABLE,public.tmp,CREATE TABLE tmp (id int),<not logged>",
+		`WARNING:  cursor "_ret" is not closed`,
+		"NOTICE:  AUDIT: OBJECT,7,2,READ,SELECT,TABLE,public.t,SELECT * FROM t,<not logged>",
+	}, "\n") + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(in), 0o644))
+
+	require.NoError(t, normalizeResultFile(ext, path))
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, strings.Join([]string{
+		"CREATE TABLE tmp (id int);",
+		"NOTICE:  AUDIT: SESSION,N,1,DDL,CREATE TABLE,TABLE,public.tmp,CREATE TABLE tmp (id int),<not logged>",
+		"NOTICE:  AUDIT: OBJECT,N,2,READ,SELECT,TABLE,public.t,SELECT * FROM t,<not logged>",
+	}, "\n")+"\n", string(got))
 }
 
 // TestWritePgPassFile pins the .pgpass shape and the 0600 mode libpq requires.

@@ -364,14 +364,6 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			}
 		}
 
-		// Cluster-level teardown the schema/extension sweep can't reach (roles a
-		// suite's fixtures created; see ExternalExtension.CleanupSQL). Best-effort.
-		for _, stmt := range ext.CleanupSQL {
-			if err := execOnPrimary(directPgPort, password, stmt); err != nil {
-				t.Logf("external/%s: warning: cleanup %q failed: %v", ext.Name, stmt, err)
-			}
-		}
-
 		if res == nil {
 			t.Logf("external/%s: no test results (%v)", ext.Name, err)
 			continue

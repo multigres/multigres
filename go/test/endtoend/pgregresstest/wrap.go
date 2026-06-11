@@ -218,6 +218,40 @@ func transformSuiteFile(ext ExternalExtension, src, dst string, isExpected bool)
 	return os.WriteFile(dst, []byte(content), 0o644)
 }
 
+// normalizeResultFile applies the extension's ResultNormalizers to one output
+// file in place. It runs on the materialized expected copies (at transform
+// time) and on the pg_regress result files (right after the run), so both
+// sides of every comparison — including patch generation — see the same
+// normalized form. See ExternalExtension.ResultNormalizers for why.
+func normalizeResultFile(ext ExternalExtension, path string) error {
+	if len(ext.ResultNormalizers) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	content := string(data)
+	for _, n := range ext.ResultNormalizers {
+		re, err := regexp.Compile(n.Pattern)
+		if err != nil {
+			return fmt.Errorf("invalid ResultNormalizers pattern %q: %w", n.Pattern, err)
+		}
+		if n.DropMatchingLines {
+			var kept []string
+			for line := range strings.SplitSeq(strings.TrimSuffix(content, "\n"), "\n") {
+				if !re.MatchString(line) {
+					kept = append(kept, line)
+				}
+			}
+			content = strings.Join(kept, "\n") + "\n"
+			continue
+		}
+		content = re.ReplaceAllString(content, n.Replacement)
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 // writePgPassFile writes a temporary .pgpass file (0600, as libpq requires)
 // holding the admin password plus the extension's PgPassUsers entries, and
 // returns its path. Entries match any port/database so they survive the
@@ -261,6 +295,9 @@ func materializeTransformedSuite(ext ExternalExtension, testDir, expectedDir str
 			dst := filepath.Join(destDir, "expected", filepath.Base(variant))
 			if err := transformSuiteFile(ext, variant, dst, true); err != nil {
 				return "", fmt.Errorf("transform %s: %w", variant, err)
+			}
+			if err := normalizeResultFile(ext, dst); err != nil {
+				return "", fmt.Errorf("normalize %s: %w", dst, err)
 			}
 		}
 	}

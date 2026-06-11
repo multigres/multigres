@@ -313,17 +313,30 @@ on `ExternalExtension` (`extensions.go`):
   multigateway reserves ONE pooled backend for its duration, which makes
   suites that assert on backend-local state across autocommit statements
   runnable through the transaction pooler: hypopg (hypothetical indexes live
-  in backend memory), supabase_vault (pgTAP's session-temp plan state), http
-  (curl option state set via `http_set_curlopt`), pgaudit (audit lines embed a
-  per-backend statement counter). The wrap breaks around `\connect`, the
-  file's own `BEGIN`/`COMMIT` blocks, and `VACUUM` (which can't run inside a
-  transaction block); statements the gateway rejects before they reach a
-  backend stay inside. See `wrap.go`.
+  in backend memory), http (curl option state set via `http_set_curlopt`),
+  pgaudit (audit lines embed a per-backend statement counter). The wrap breaks
+  around `\connect`, the file's own `BEGIN`/`COMMIT` blocks, and `VACUUM`
+  (which can't run inside a transaction block); statements the gateway rejects
+  before they reach a backend stay inside. See `wrap.go`.
 - **`WrapSetupSQL`** — statements the wrap injects after each transaction
   REOPEN (post-`VACUUM` break or `\connect`), with their exact expected output
   spliced into the materialized expected files. hypopg injects
   `SELECT hypopg_reset();` so a backend acquired after a break starts clean
   regardless of pool history.
+- **`WrapStopPatterns`** — line regexes where the wrap closes permanently;
+  from the first match to end of file the suite runs autocommit, like
+  upstream. http's statement_timeout cancellation tail needs this: upstream
+  runs it autocommit, where the session (pinned by the temp-table
+  reservation) survives the cancelled statement; inside a wrap transaction
+  the cancellation would abort the transaction instead.
+- **`ResultNormalizers`** — regex rewrites applied to BOTH expected and actual
+  output before comparison and patching, for output that is inherently
+  pool-history-dependent: pgaudit's per-backend STATEMENT_ID counters can't
+  be pinned through a pooler (normalized to `N`; every other audit field
+  stays verified), psql's ON_ERROR_ROLLBACK savepoints are audited under
+  MISC-covering log classes (dropped — harness artifact), and plpgsql_check's
+  preloaded cursor-leak warnings fire inside pgaudit's REFCURSOR functions
+  only in full runs where the preload union includes plpgsql_check (dropped).
 - **`TextRewrites`** — literal substitutions applied to the materialized .sql
   and expected copies (diff-neutral: echoed statement text changes identically
   on both sides). http redirects its hard-coded `https://postgis.net` TLS
@@ -348,9 +361,6 @@ on `ExternalExtension` (`extensions.go`):
   harness carries a faithful SQL translation of that corpus (same inputs,
   same expected values, one block per upstream test name) and runs it through
   multigateway.
-- **`CleanupSQL`** — statements run directly on the primary after the suite
-  for cluster-level state the between-extension reset can't reach (roles:
-  supabase_vault's fixtures `CREATE ROLE bob`).
 
 Enrolling another external extension is a small catalog edit: add its
 `externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its

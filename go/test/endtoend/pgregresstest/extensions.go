@@ -395,30 +395,43 @@ type ExternalExtension struct {
 	// any other suite.
 	LocalTestDir string
 
-	// CleanupSQL statements run directly on the primary (bypassing the gateway,
-	// best-effort) after the suite, for cluster-level state resetContribState
-	// does not cover — ROLES outlive the schema/extension sweep. supabase_vault's
-	// fixtures CREATE ROLE bob and its suite never drops it; a leftover role
-	// would leak into later suites' catalog-introspection output.
-	CleanupSQL []string
-
-	// GetkeyScriptGUC, when non-empty, names the PGC_POSTMASTER GUC this
-	// extension reads at preload time to locate its server-secret-key script
-	// (supabase_vault: "vault.getkey_script"; pgsodium uses the same mechanism
-	// under "pgsodium.getkey_script"). The harness materializes a tiny
-	// executable that prints a fixed test key and appends `<GUC> = '<path>'` to
-	// the generated external server config — without it the preloaded library
-	// refuses to start postgres (vault) or runs keyless (pgsodium). Upstream's
-	// own test runner provisions exactly this (vault's nix/withTmpDb.sh.in).
-	// Requires the extension's library in PreloadLibraries: the key is loaded
-	// from _PG_init during shared_preload_libraries processing.
-	GetkeyScriptGUC string
+	// ResultNormalizers are regex rewrites applied to BOTH the expected and the
+	// actual output of every test before they are compared (and before patches
+	// are generated/applied), for output that is inherently
+	// pool-history-dependent and would otherwise be unverifiable:
+	//
+	//   - pgaudit's audit lines embed STATEMENT_ID, a per-BACKEND statement
+	//     counter. Upstream's expected file assumes session == backend (IDs
+	//     start at 1 and step by 1); through a pooler the backend has served
+	//     pool warmup and prior-suite statements, so the absolute values can't
+	//     be pinned. Normalizing the ID leaves every other audit field —
+	//     class, command, object, statement text, substatement id — verified.
+	//   - psql's ON_ERROR_ROLLBACK machinery (the wrap needs it; see
+	//     WrapTransactions) guards each statement with
+	//     SAVEPOINT/RELEASE pg_psql_temporary_savepoint, which pgaudit
+	//     faithfully audits under log classes covering MISC. Those lines are a
+	//     harness artifact, not extension behavior, so they are dropped.
+	//
+	// DropMatchingLines drops every full line containing a match instead of
+	// rewriting it.
+	ResultNormalizers []ResultNormalizer
 }
 
 // PgPassUser is one role/password entry for ExternalExtension.PgPassUsers.
 type PgPassUser struct {
 	Name     string
 	Password string
+}
+
+// ResultNormalizer is one regex rewrite for ExternalExtension.ResultNormalizers.
+type ResultNormalizer struct {
+	// Pattern is the regexp applied to each output line.
+	Pattern string
+	// Replacement substitutes each match (supports $1 group references).
+	// Ignored when DropMatchingLines is set.
+	Replacement string
+	// DropMatchingLines removes every line containing a match entirely.
+	DropMatchingLines bool
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
@@ -630,6 +643,32 @@ var externalSpecs = map[string]ExternalExtension{
 		PgPassUsers: []PgPassUser{
 			{Name: "regress_user1", Password: "password"},
 			{Name: "regress_user2", Password: "password"},
+		},
+		// The suite sets regress_user1's password to a literal md5 verifier
+		// ('md5' || md5('password2regress_user1')). Upstream never authenticates
+		// it (pg_regress runs under trust auth); the gateway authenticates for
+		// real and is SCRAM-only, so an md5-format verifier can never log in.
+		// Substitute the cleartext the hash encodes is irrelevant — the test's
+		// subject is password REDACTION in audit lines, and pgaudit prints
+		// `PASSWORD <REDACTED>` identically for any literal — so use 'password'
+		// to match the .pgpass entry; the server stores it per
+		// password_encryption (scram-sha-256) and \connect works.
+		TextRewrites: []TextRewrite{
+			{Old: "'md565cb1da342495ea6bb0418a6e5718c38'", New: "'password'"},
+		},
+		// See ResultNormalizers: statement IDs are per-backend counters that
+		// can't be pinned through a pooler, and psql's ON_ERROR_ROLLBACK
+		// savepoints are audited under MISC-covering log classes.
+		ResultNormalizers: []ResultNormalizer{
+			{Pattern: `AUDIT: (SESSION|OBJECT),\d+,`, Replacement: "AUDIT: $1,N,"},
+			{Pattern: `AUDIT: (SESSION|OBJECT),N,\d+,MISC,(SAVEPOINT|RELEASE|ROLLBACK),,,(SAVEPOINT|RELEASE|ROLLBACK TO) pg_psql_temporary_savepoint`, DropMatchingLines: true},
+			// In a full external run the generated shared_preload_libraries is
+			// the UNION across selected extensions, so plpgsql_check's
+			// cursor-leak detection (always on when preloaded; see the
+			// plpgsql_check spec) fires inside this suite's REFCURSOR test
+			// functions, emitting warnings a solo pgaudit run doesn't produce.
+			// Dropping them keeps the patch valid in both run shapes.
+			{Pattern: `^WARNING:\s+cursor "[^"]*" is not closed$`, DropMatchingLines: true},
 		},
 	},
 	// pg_jsonschema is Rust/pgrx like pg_graphql (same pinned pgrx line). It
