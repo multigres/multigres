@@ -554,6 +554,65 @@ func TestDetermineRemedialAction(t *testing.T) {
 	}
 }
 
+// TestDetermineRemedialAction_AdjustTypeToPrimaryGuard verifies that the monitor
+// only relabels an observed-primary node to PRIMARY when the rule it committed
+// (its cached position) actually names this pooler as leader. This is what lets
+// takeRemedialAction build an honest self-leadership observation from that rule
+// rather than guessing. A rule naming someone else, or no rule at all, must not
+// trigger the relabel.
+func TestDetermineRemedialAction_AdjustTypeToPrimaryGuard(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other"}
+	ruleNaming := func(leader *clustermetadatapb.ID) *clustermetadatapb.PoolerPosition {
+		return &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+				LeaderId:   leader,
+			},
+		}
+	}
+	// Observed as a primary by postgres, but topology still says REPLICA.
+	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true}
+
+	tests := []struct {
+		name           string
+		cachedPos      *clustermetadatapb.PoolerPosition
+		expectedAction remedialAction
+	}{
+		{
+			name:           "cached rule names self: relabel to PRIMARY",
+			cachedPos:      ruleNaming(selfID),
+			expectedAction: remedialActionAdjustTypeToPrimary,
+		},
+		{
+			name:           "cached rule names another pooler: no relabel",
+			cachedPos:      ruleNaming(otherID),
+			expectedAction: remedialActionNone,
+		},
+		{
+			name:           "no cached rule: no relabel",
+			cachedPos:      nil,
+			expectedAction: remedialActionNone,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm := &MultiPoolerManager{
+				serviceID: selfID,
+				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+					Id:   selfID,
+					Type: clustermetadatapb.PoolerType_REPLICA,
+				}),
+			}
+			pm.consensusState = consensus.NewConsensusState("", selfID)
+			pm.rules = &fakeRuleStore{pos: tt.cachedPos}
+
+			got := pm.determineRemedialAction(t.Context(), runningPrimary)
+			require.Equal(t, tt.expectedAction, got)
+		})
+	}
+}
+
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 

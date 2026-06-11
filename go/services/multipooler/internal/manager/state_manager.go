@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
 // StateAware is implemented by components that need to react to serving state changes.
@@ -99,6 +100,13 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 // enforces the Type ⇔ SelfLeadership invariant, so a selfLeadership
 // inconsistent with poolerType is rejected.
 func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, selfLeadership *clustermetadatapb.LeaderObservation, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	// Assert the action lock up front, before fanning out to components: a
+	// lock-less call would otherwise transition components (heartbeat, query
+	// service) and only fail later at record.Mutate, leaving a partial state.
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 

@@ -330,3 +330,18 @@ func TestStateManager_ParallelExecution(t *testing.T) {
 	assert.True(t, comp1.called.Load())
 	assert.True(t, comp2.called.Load())
 }
+
+func TestStateManager_SetState_RequiresActionLock(t *testing.T) {
+	comp := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	ssm := NewStateManager(newTestLogger(), r, comp)
+
+	// No action lock on the context: SetState must reject before doing anything.
+	err := ssm.SetState(t.Context(), clustermetadatapb.PoolerType_PRIMARY, primaryObs(), clustermetadatapb.PoolerServingStatus_SERVING)
+	require.Error(t, err)
+
+	// Fail fast: no component was transitioned and the record is unchanged.
+	assert.Equal(t, 0, comp.callCount, "components must not transition without the action lock")
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, r.ServingStatus())
+}
