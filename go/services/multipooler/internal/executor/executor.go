@@ -48,13 +48,6 @@ type Executor struct {
 	poolerConsolidator *preparedstatement.PoolerConsolidator
 	poolerID           *clustermetadatapb.ID
 
-	// vpidStampEnabled toggles recording of the vpid → backend-pid mapping
-	// in multigres.backend_vpid whenever a PostgreSQL backend is handed to a
-	// gateway session (regular-conn checkout or new reservation). The
-	// isolation test harness reads that table to map multigateway virtual
-	// PIDs back to real backend PIDs for lock-wait probes.
-	vpidStampEnabled bool
-
 	// vpidTableEnsure guards the one-time creation of the multigres schema
 	// and the multigres.backend_vpid table (see ensureVpidTable).
 	vpidTableEnsure sync.Once
@@ -79,15 +72,12 @@ func (e *Executor) releaseReservedConn(conn *reserved.Conn, reason reserved.Rele
 }
 
 // NewExecutor creates a new Executor instance.
-// vpidStampEnabled controls whether the vpid → backend-pid mapping is
-// recorded in multigres.backend_vpid on every backend hand-off.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, vpidStampEnabled bool) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
 	return &Executor{
 		logger:             logger,
 		poolManager:        poolManager,
 		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
 		poolerID:           poolerID,
-		vpidStampEnabled:   vpidStampEnabled,
 	}
 }
 

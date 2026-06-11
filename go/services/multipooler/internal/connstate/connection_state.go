@@ -40,6 +40,13 @@ type ConnectionState struct {
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
+
+	// trackedVpid is the gateway virtual pid most recently recorded for this
+	// backend in multigres.backend_vpid. It lets the executor skip the upsert
+	// when the same gateway session draws this connection again (the common
+	// steady-state case). A reconnect installs a fresh ConnectionState, so
+	// the cache resets to 0 and the new backend pid gets re-recorded.
+	trackedVpid uint32
 }
 
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
@@ -145,6 +152,28 @@ func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Settings = snap.settings
+}
+
+// TrackedVpid returns the vpid most recently recorded for this backend in
+// multigres.backend_vpid, or 0 if none has been recorded on this session.
+func (s *ConnectionState) TrackedVpid() uint32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.trackedVpid
+}
+
+// SetTrackedVpid records the vpid whose mapping row was last written for
+// this backend.
+func (s *ConnectionState) SetTrackedVpid(vpid uint32) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trackedVpid = vpid
 }
 
 // Close cleans up the connection state.

@@ -47,11 +47,16 @@ import (
 // runs, and a leftover row pointing at an idle pooled backend contributes no
 // blockers to the aggregated probe. Dead backends are filtered out by the
 // shim's join against pg_stat_activity.
+//
+// Cost on the query path: the upsert is skipped when the connection's
+// ConnectionState already records this vpid (the common steady-state case of
+// one session reusing the same pooled backend), so the extra round trip is
+// only paid when a backend changes hands between gateway sessions.
 
 // ensureVpidTable creates the multigres schema and backend_vpid table once
 // per executor, using the supplied connection. Best-effort: on a standby the
 // DDL fails (read-only) and the error is only logged — standbys receive no
-// vpid-stamped traffic, and a primary that was reinitialized underneath a
+// vpid-tracked traffic, and a primary that was reinitialized underneath a
 // running pooler is healed by the retry inside trackVpidOnRegular.
 func (e *Executor) ensureVpidTable(ctx context.Context, conn *regular.Conn) {
 	e.vpidTableEnsure.Do(func() {
@@ -65,10 +70,15 @@ func (e *Executor) ensureVpidTable(ctx context.Context, conn *regular.Conn) {
 // given connection's backend. Must only be called while the connection is in
 // autocommit (fresh checkout / pre-BEGIN) — see the package comment above.
 // Best-effort: a failure does not block the actual query; only lock
-// detection through the proxy depends on the mapping. No-op when vpid
-// tracking is disabled or the caller has no client connection id.
+// detection through the proxy depends on the mapping. No-op when the caller
+// has no client connection id, or when this connection's last recorded vpid
+// is already this one.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
-	if !e.vpidStampEnabled || options == nil || options.ClientConnectionId == 0 {
+	if options == nil || options.ClientConnectionId == 0 {
+		return
+	}
+	state := conn.State()
+	if state.TrackedVpid() == options.ClientConnectionId {
 		return
 	}
 	e.ensureVpidTable(ctx, conn)
@@ -77,6 +87,7 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 			"ON CONFLICT (backend_pid) DO UPDATE SET vpid = EXCLUDED.vpid, updated_at = now()",
 		options.ClientConnectionId)
 	if _, err := conn.Query(ctx, upsert); err == nil {
+		state.SetTrackedVpid(options.ClientConnectionId)
 		return
 	}
 	// The table can vanish underneath a long-lived pooler (e.g. the test
@@ -89,14 +100,16 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 	}
 	if _, err := conn.Query(ctx, upsert); err != nil {
 		e.logger.DebugContext(ctx, "vpid mapping upsert failed", "error", err)
+		return
 	}
+	state.SetTrackedVpid(options.ClientConnectionId)
 }
 
 // trackVpidOnReserved records the mapping for a freshly reserved backend.
 // Must be called before the reservation's BEGIN so the row commits in
 // autocommit and is visible to other sessions for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
-	if !e.vpidStampEnabled || options == nil || options.ClientConnectionId == 0 {
+	if options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	e.trackVpidOnRegular(ctx, conn.Conn(), options)

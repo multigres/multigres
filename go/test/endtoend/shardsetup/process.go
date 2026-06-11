@@ -120,15 +120,6 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
-
-	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
-	// it records which gateway virtual PID each PostgreSQL backend is
-	// serving in the multigres.backend_vpid table. Required by the
-	// isolation-test harness shim (public.multigres_test_session_is_blocked)
-	// to resolve a multigateway virtual PID back to its real backend PID.
-	// Default false matches the multipooler's production default; only the
-	// pgregress isolation suite flips it on via shardsetup.WithVpidStamping.
-	VpidStampEnabled bool
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -189,9 +180,6 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	}
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
-	}
-	if p.VpidStampEnabled {
-		args = append(args, "--vpid-stamp-enabled=true")
 	}
 	// Append any extra args (e.g., connpool capacity/timeout flags from
 	// WithMultipoolerExtraArgs). Placed last so they can override defaults.

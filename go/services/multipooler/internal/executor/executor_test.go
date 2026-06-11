@@ -730,24 +730,22 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 // --- trackVpid* early-return tests ---
 //
 // The happy-path upsert is covered below with a fakepgserver. Here we lock in
-// the guard semantics: the helpers must be safe no-ops when vpid tracking is
-// disabled, options is nil, or ClientConnectionId is zero. A nil conn is
-// intentionally passed to prove the helpers return before touching it.
+// the guard semantics: the helpers must be safe no-ops when options is nil or
+// ClientConnectionId is zero. A nil conn is intentionally passed to prove the
+// helpers return before touching it.
 
 func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
-		enabled bool
 		options *query.ExecuteOptions
 	}{
-		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
-		{"enabled with nil options", true, nil},
-		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"nil options", nil},
+		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{vpidStampEnabled: tc.enabled}
+			e := &Executor{}
 			// nil conn would panic on Query — guard must short-circuit first.
 			e.trackVpidOnReserved(ctx, nil, tc.options)
 		})
@@ -758,16 +756,14 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
-		enabled bool
 		options *query.ExecuteOptions
 	}{
-		{"disabled with options", false, &query.ExecuteOptions{ClientConnectionId: 5}},
-		{"enabled with nil options", true, nil},
-		{"enabled with zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"nil options", nil},
+		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{vpidStampEnabled: tc.enabled}
+			e := &Executor{}
 			e.trackVpidOnRegular(ctx, nil, tc.options)
 		})
 	}
@@ -776,9 +772,9 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 // --- trackVpid* happy-path tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
-// verify that the helper creates multigres.backend_vpid once per executor and
-// upserts the (backend_pid → vpid) row when tracking is enabled and
-// ClientConnectionId is non-zero.
+// verify that the helper creates multigres.backend_vpid once per executor,
+// upserts the (backend_pid → vpid) row, and skips the upsert when the
+// connection already tracks the same vpid.
 
 func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	server := fakepgserver.New(t)
@@ -791,7 +787,7 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
+	e := &Executor{logger: slog.Default()}
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
@@ -800,7 +796,13 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 		"first track call must create the mapping table")
 	assert.Contains(t, log, "values (pg_backend_pid(), 99)")
 
-	// The DDL is guarded by sync.Once — a second call only upserts.
+	// Same vpid again: the per-conn cache skips the redundant upsert.
+	server.ResetQueryLog()
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+	assert.Empty(t, server.QueryLog(), "re-tracking the same vpid must be a no-op")
+
+	// A different vpid re-upserts; the DDL is guarded by sync.Once so only
+	// the upsert runs.
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 100})
 	log = server.QueryLog()
@@ -830,7 +832,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
 
-	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
+	e := &Executor{logger: slog.Default()}
 	server.ResetQueryLog()
 	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
@@ -853,7 +855,7 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
+	e := &Executor{logger: slog.Default()}
 	server.ResetQueryLog()
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
@@ -941,19 +943,10 @@ func TestNewExecutor(t *testing.T) {
 	logger := slog.Default()
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 
-	t.Run("stamp enabled", func(t *testing.T) {
-		e := NewExecutor(logger, nil, poolerID, true)
-		require.NotNil(t, e)
-		assert.True(t, e.vpidStampEnabled)
-		assert.Equal(t, poolerID, e.poolerID)
-		assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
-	})
-
-	t.Run("stamp disabled", func(t *testing.T) {
-		e := NewExecutor(logger, nil, poolerID, false)
-		require.NotNil(t, e)
-		assert.False(t, e.vpidStampEnabled)
-	})
+	e := NewExecutor(logger, nil, poolerID)
+	require.NotNil(t, e)
+	assert.Equal(t, poolerID, e.poolerID)
+	assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
 }
 
 func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
