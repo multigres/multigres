@@ -895,10 +895,16 @@ func TestPromote(t *testing.T) {
 	}
 }
 
+// newAvailabilityTestManager returns a bare MultiPoolerManager for testing
+// AvailabilityStatus logic.
+func newAvailabilityTestManager(signal clustermetadatapb.CohortEligibilitySignal) *MultiPoolerManager {
+	return &MultiPoolerManager{cohortEligibility: signal}
+}
+
 func TestAvailabilityStatus(t *testing.T) {
 	t.Run("buildAvailabilityStatus publishes cohort eligibility with no leadership status when no resignation is set", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		av := pm.buildAvailabilityStatus()
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
@@ -906,9 +912,9 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("resignedLeaderAtTerm set adds a LeadershipStatus alongside cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
 		pm.resignedLeaderAtTerm = 7
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
 		assert.Equal(t, int64(7), av.LeadershipStatus.LeaderTerm)
@@ -918,22 +924,47 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
 		pm.resignedLeaderAtTerm = 3
 		pm.resignedLeaderAtTerm = 0
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
 	})
 
 	t.Run("setCohortEligibility flips the signal", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
 		pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
+	})
+
+	t.Run("postgres ready sets LeadershipAvailability READY", func(t *testing.T) {
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		av := pm.buildAvailabilityStatus(true)
+		require.NotNil(t, av.GetLeadershipAvailability())
+		assert.Equal(t,
+			clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
+			av.GetLeadershipAvailability().GetSignal())
+	})
+
+	t.Run("postgres not ready sets LeadershipAvailability STARTING with reason", func(t *testing.T) {
+		pm := newAvailabilityTestManager(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		av := pm.buildAvailabilityStatus(false)
+		require.NotNil(t, av.GetLeadershipAvailability())
+		assert.Equal(t,
+			clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING,
+			av.GetLeadershipAvailability().GetSignal())
+		assert.NotEmpty(t, av.GetLeadershipAvailability().GetReason(),
+			"reason should be set for debugging")
+		// CohortEligibilityStatus is unaffected by postgres readiness
+		assert.Equal(t,
+			clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+			av.GetCohortEligibilityStatus().GetSignal(),
+			"postgres readiness must not affect cohort eligibility signal")
 	})
 }
 

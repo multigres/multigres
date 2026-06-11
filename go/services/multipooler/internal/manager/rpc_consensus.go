@@ -146,20 +146,45 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
 // Leaders that have resigned publish a LeadershipStatus. Every pooler publishes
-// its cohort eligibility, so the result is non-nil.
-func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
+// its cohort eligibility and leadership availability, so the result is non-nil.
+// postgresReady must be the value already obtained by the caller via isPostgresReady
+// so the check is not repeated.
+func (pm *MultiPoolerManager) buildAvailabilityStatus(postgresReady bool) *clustermetadatapb.AvailabilityStatus {
 	return &clustermetadatapb.AvailabilityStatus{
 		LeadershipStatus:        pm.buildLeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
+		LeadershipAvailability:  buildLeadershipAvailability(postgresReady),
+	}
+}
+
+// buildLeadershipAvailability reports whether postgres is ready to accept
+// promotion to consensus leader. STARTING when postgres is not yet ready
+// (starting, in crash recovery, socket not open); READY otherwise.
+//
+// The coordinator uses this as a tie-breaker when multiple nodes share the
+// same (most-advanced) WAL position: it prefers a READY node over a STARTING
+// one. A STARTING node can still be elected if it has a strictly higher WAL
+// position than all READY nodes.
+func buildLeadershipAvailability(postgresReady bool) *clustermetadatapb.LeadershipAvailability {
+	if !postgresReady {
+		return &clustermetadatapb.LeadershipAvailability{
+			Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING,
+			Reason: "postgres not ready for promotion",
+		}
+	}
+	return &clustermetadatapb.LeadershipAvailability{
+		Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
 	}
 }
 
 // buildCohortEligibilityStatus returns the pooler's self-reported willingness
-// to be a cohort member. Defaults to ELIGIBLE; downgraded to INELIGIBLE when
-// the WAL receiver was manually stopped (StopReplication cleared
-// primary_conninfo), so the coordinator does not try to re-include this node
-// while the admin signal is in effect. setCohortEligibility (currently
-// test-only) sets the base value the dynamic downgrade applies on top of.
+// to be a cohort member. Returns INELIGIBLE when the WAL receiver was manually
+// stopped (StopReplication cleared primary_conninfo) or when setCohortEligibility
+// was called explicitly (e.g. graceful shutdown).
+//
+// Note: postgres readiness is NOT a factor here — it is reported separately via
+// LeadershipAvailability. CohortEligibilityStatus expresses permanent/administrative
+// preferences about cohort membership, not transient startup state.
 func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
 	if pm.walReceiverManuallyStopped.Load() {
 		return &clustermetadatapb.CohortEligibilityStatus{
@@ -812,6 +837,15 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		pm.logger.InfoContext(ctx, "SetPrimary: updating standby primary_conninfo",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber())
+		// A coordinator-initiated SetPrimary overrides a prior manual
+		// StopReplication. walReceiverManuallyStopped prevents this node from
+		// being elected leader (INELIGIBLE), but once the coordinator has elected
+		// a different leader, this node must follow it. Clear the flag so that
+		// setPrimaryConnInfoLocked can configure replication toward the new leader.
+		if pm.walReceiverManuallyStopped.CompareAndSwap(true, false) {
+			pm.logger.InfoContext(ctx, "SetPrimary: cleared walReceiverManuallyStopped to allow replication toward new leader",
+				"new_leader", leader.GetId().GetName())
+		}
 		// Already a standby with an active stream; pause replay, swap
 		// conninfo, resume on the new primary.
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,

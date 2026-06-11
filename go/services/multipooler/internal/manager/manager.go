@@ -450,9 +450,11 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
 				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
-					"postgres_running", newState.postgresRunning)
+					"postgres_running", newState.postgresRunning,
+					"postgres_ready", newState.postgresReady)
 				pm.broadcastHealth()
 			}
+
 			// Transition lifecycle STARTING → ACTIVE once postgres is up
 			// and responding. markPoolerActive is idempotent (short-circuits
 			// when already ACTIVE) so calling it every tick is cheap, and
@@ -1625,11 +1627,16 @@ func (pm *MultiPoolerManager) WaitUntilReady(ctx context.Context) error {
 	}
 }
 
-// postgresState represents the state of PostgreSQL for monitoring
+// postgresState represents the state of PostgreSQL for monitoring.
+//
+// postgresReady is true when postgres is RUNNING and pg_isready passes —
+// i.e. it is accepting connections. A node whose postgres is not ready has
+// no replication running and cannot participate in write quorum.
 type postgresState struct {
 	pgctldAvailable          bool
 	dirInitialized           bool
 	postgresRunning          bool
+	postgresReady            bool
 	backupsAvailable         bool
 	isPrimary                bool
 	bootstrapSentinelPresent bool
@@ -1643,6 +1650,7 @@ func postgresStateEqual(a, b postgresState) bool {
 	return a.pgctldAvailable == b.pgctldAvailable &&
 		a.dirInitialized == b.dirInitialized &&
 		a.postgresRunning == b.postgresRunning &&
+		a.postgresReady == b.postgresReady &&
 		a.backupsAvailable == b.backupsAvailable &&
 		a.isPrimary == b.isPrimary &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
@@ -1779,8 +1787,9 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	// Check if directory is initialized
 	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)
 
-	// Check if Postgres is running
+	// Check if Postgres is running and ready to accept connections.
 	state.postgresRunning = (statusResp.Status == pgctldpb.ServerStatus_RUNNING)
+	state.postgresReady = state.postgresRunning && statusResp.Ready
 	if state.postgresRunning {
 		var err error
 		state.isPrimary, err = pm.isPrimary(ctx)

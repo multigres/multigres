@@ -328,7 +328,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
 		resp.ConsensusStatus = cs
 	}
-	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
+	resp.AvailabilityStatus = pm.buildAvailabilityStatus(poolerStatus.PostgresReady)
 
 	// Try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
