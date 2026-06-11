@@ -57,9 +57,9 @@ type MultiPooler struct {
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
 	pgBackRestPort     viperutil.Value[int]
-	// vpidStampEnabled controls stamping of multigres_vpid:<id> on PostgreSQL
-	// backends so lock-detection can map a multigateway virtual PID to the
-	// real backend PID via pg_stat_activity.application_name.
+	// vpidStampEnabled controls recording of the multigateway virtual PID →
+	// real backend PID mapping in multigres.backend_vpid so lock-detection
+	// probes can translate vpids to backend pids.
 	vpidStampEnabled viperutil.Value[bool]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -197,7 +197,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
-	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Stamp multigres_vpid:<id> on PostgreSQL backend application_name for vpid-to-PID mapping used by lock detection. Reserves application_name from client-set values when enabled.")
+	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Record the gateway vpid to PostgreSQL backend PID mapping in the multigres.backend_vpid table for lock detection (used by the isolation test harness).")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,

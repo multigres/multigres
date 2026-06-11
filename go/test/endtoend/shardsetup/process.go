@@ -128,12 +128,12 @@ type ProcessInstance struct {
 	BackupLocation *clustermetadatapb.BackupLocation
 
 	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
-	// PostgreSQL backends get tagged with `multigres_vpid:<id>` in
-	// application_name. Required by the isolation-test harness shim
-	// (public.multigres_test_session_is_blocked) to resolve a multigateway
-	// virtual PID back to its real backend PID via pg_stat_activity. Default
-	// false matches the multipooler's production default; only the pgregress
-	// isolation suite flips it on via shardsetup.WithVpidStamping.
+	// it records which gateway virtual PID each PostgreSQL backend is
+	// serving in the multigres.backend_vpid table. Required by the
+	// isolation-test harness shim (public.multigres_test_session_is_blocked)
+	// to resolve a multigateway virtual PID back to its real backend PID.
+	// Default false matches the multipooler's production default; only the
+	// pgregress isolation suite flips it on via shardsetup.WithVpidStamping.
 	VpidStampEnabled bool
 }
 

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/multigresschema"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -183,13 +184,14 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // returns true when any safe-snapshot blocker exists; those blockers are
 // never autovacuum/background workers, so no blocked_by intersection is
 // needed. Both inputs are multigateway virtual pids; we map them to real
-// PostgreSQL backend pids via pg_stat_activity.application_name (the
-// multipooler stamps each
-// backend with `multigres_vpid:<id>` per query). A given vpid can map to
-// multiple PG backends in flight (a leftover stamp on a pool conn after
-// a regular query, plus the live reserved conn) so the wait-check
-// aggregates over every matching backend rather than picking one
-// non-deterministically.
+// PostgreSQL backend pids via the multigres.backend_vpid table, which the
+// multipooler upserts whenever it hands a backend to a gateway session (the
+// row commits in autocommit before any BEGIN, so it is visible to this probe
+// for the whole transaction). The table is also created here, idempotently and
+// ahead of the suite, so the shim never races the pooler's own lazy creation.
+// The wait-check aggregates over every matching backend rather than picking one
+// non-deterministically; rows of dead backends are ignored via the join against
+// pg_stat_activity.
 func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
 	t.Helper()
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
@@ -203,6 +205,10 @@ func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, p
 	db.SetMaxIdleConns(1)
 
 	stmts := []string{
+		// The vpid mapping table the multipooler upserts into. Created here
+		// too (idempotent DDL shared via multigresschema) so the shim below
+		// can reference it even before the pooler's own lazy creation ran.
+		multigresschema.BackendVpidDDL,
 		// Debug table: every shim invocation logs its inputs/outputs and a
 		// snapshot of every backend in this DB so failures can be diagnosed
 		// post-hoc by querying isolation_debug_log (see
@@ -253,53 +259,55 @@ BEGIN
         (check_pid, blocked_by, NULL)
     RETURNING id INTO v_log_id;
 
-    SELECT array_agg(sa.application_name || '=' || sa.pid)
+    -- Diagnostic snapshot of the mapping table, restricted to live
+    -- backends (rows of dead backends linger until their pid is reused).
+    SELECT array_agg(bv.vpid || '=' || bv.backend_pid)
     INTO v_vpid_entries
-    FROM pg_stat_activity sa
-    WHERE sa.application_name LIKE 'multigres_vpid:%';
+    FROM multigres.backend_vpid bv
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid;
 
     SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
     INTO v_all_backends
     FROM pg_stat_activity sa
     WHERE sa.datname = current_database();
 
-    -- A client vpid can map to multiple PG backends (a leftover stamp on
-    -- a pool conn after the client ran a regular query, plus the live
+    -- A client vpid can map to multiple live PG backends (a leftover row
+    -- for a pool conn the client used for an earlier query, plus the live
     -- reserved conn). Picking one non-deterministically risks probing the
     -- idle one and missing the wait. real_check_pid is kept for
     -- diagnostic display only; the actual block check below aggregates
     -- over every matching backend.
-    SELECT sa.pid INTO v_real_check_pid
-    FROM pg_stat_activity sa
-    WHERE sa.application_name = 'multigres_vpid:' || check_pid
+    SELECT bv.backend_pid INTO v_real_check_pid
+    FROM multigres.backend_vpid bv
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+    WHERE bv.vpid = check_pid
     LIMIT 1;
 
-    SELECT array_agg(sa.pid) INTO v_real_blocked_by
-    FROM pg_stat_activity sa
-    WHERE sa.application_name = ANY(
-        SELECT 'multigres_vpid:' || unnest(blocked_by)
-    );
+    SELECT array_agg(bv.backend_pid) INTO v_real_blocked_by
+    FROM multigres.backend_vpid bv
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+    WHERE bv.vpid = ANY(blocked_by);
 
     -- Direct connections (no multigateway) hand us real pids; preserve them.
     v_stamp_found := v_real_check_pid IS NOT NULL;
     v_real_check_pid := COALESCE(v_real_check_pid, check_pid);
     v_real_blocked_by := COALESCE(v_real_blocked_by, blocked_by);
 
-    -- Aggregate heavyweight lock blockers across every PG backend currently
-    -- stamped for this vpid. Aggregation handles the duplicate-stamp case
-    -- where one backend is the live reserved conn (potentially blocked) and
-    -- another is a leaked pool conn (idle).
+    -- Aggregate heavyweight lock blockers across every live PG backend
+    -- currently mapped to this vpid. Aggregation handles duplicate mappings
+    -- conservatively instead of picking one backend non-deterministically.
     --
-    -- The direct-pid fallback only fires when no stamp was found for
+    -- The direct-pid fallback only fires when no mapping was found for
     -- check_pid. vpids occupy the full 31-bit signed int32 space, so a
     -- vpid value can coincidentally equal an unrelated real PG backend
     -- PID; probing check_pid as a real pid unconditionally would surface
     -- that unrelated backend's blockers and risk a false positive.
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_heavyweight_blocking_pids
     FROM (
-        SELECT unnest(pg_blocking_pids(sa.pid)) AS b
-        FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
+        SELECT unnest(pg_blocking_pids(bv.backend_pid)) AS b
+        FROM multigres.backend_vpid bv
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+        WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
     ) sub
@@ -310,13 +318,13 @@ BEGIN
     -- intentionally does not intersect these pids with the interesting session
     -- list because safe-snapshot waits are not caused by autovacuum/background
     -- workers. This matters for SERIALIZABLE READ ONLY DEFERRABLE specs such as
-    -- read-only-anomaly-3: if a writer's vpid stamp is momentarily ambiguous,
-    -- requiring an overlap can make isolationtester miss the wait and cancel.
+    -- read-only-anomaly-3.
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_safe_snapshot_blocking_pids
     FROM (
-        SELECT unnest(pg_safe_snapshot_blocking_pids(sa.pid)) AS b
-        FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
+        SELECT unnest(pg_safe_snapshot_blocking_pids(bv.backend_pid)) AS b
+        FROM multigres.backend_vpid bv
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+        WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
     ) sub

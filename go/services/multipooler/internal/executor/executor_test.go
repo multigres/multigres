@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -813,61 +814,6 @@ func TestScramKeysFromOptions(t *testing.T) {
 	}
 }
 
-// --- sessionSettingsForPool tests ---
-
-func TestSessionSettingsForPool_DisabledPassthrough(t *testing.T) {
-	e := &Executor{vpidStampEnabled: false}
-
-	t.Run("nil settings", func(t *testing.T) {
-		require.Nil(t, e.sessionSettingsForPool(nil))
-	})
-
-	t.Run("application_name preserved", func(t *testing.T) {
-		in := map[string]string{"application_name": "client-app", "search_path": "public"}
-		got := e.sessionSettingsForPool(in)
-		require.Equal(t, in, got)
-	})
-}
-
-func TestSessionSettingsForPool_EnabledFiltersAppName(t *testing.T) {
-	e := &Executor{vpidStampEnabled: true}
-
-	t.Run("nil settings stays nil", func(t *testing.T) {
-		require.Nil(t, e.sessionSettingsForPool(nil))
-	})
-
-	t.Run("only application_name collapses to nil", func(t *testing.T) {
-		require.Nil(t, e.sessionSettingsForPool(map[string]string{"application_name": "x"}))
-	})
-
-	t.Run("mixed settings drops application_name only", func(t *testing.T) {
-		got := e.sessionSettingsForPool(map[string]string{
-			"application_name":  "client-app",
-			"search_path":       "public",
-			"statement_timeout": "1000",
-		})
-		require.Equal(t, map[string]string{
-			"search_path":       "public",
-			"statement_timeout": "1000",
-		}, got)
-	})
-
-	t.Run("case-insensitive match on application_name", func(t *testing.T) {
-		got := e.sessionSettingsForPool(map[string]string{
-			"Application_Name": "client-app",
-			"APPLICATION_NAME": "other",
-			"search_path":      "public",
-		})
-		require.Equal(t, map[string]string{"search_path": "public"}, got)
-	})
-
-	t.Run("no application_name returns equivalent map", func(t *testing.T) {
-		in := map[string]string{"search_path": "public"}
-		got := e.sessionSettingsForPool(in)
-		require.Equal(t, in, got)
-	})
-}
-
 // --- sessionSettingsFromOptions tests ---
 
 func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
@@ -875,15 +821,14 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 	require.Nil(t, e.sessionSettingsFromOptions(nil))
 }
 
-// --- stampVpid* early-return tests ---
+// --- trackVpid* early-return tests ---
 //
-// The happy-path SET application_name issue is covered by integration tests
-// (it requires a real pool connection). Here we lock in the guard semantics:
-// the helpers must be safe no-ops when stamping is disabled, options is nil,
-// or ClientConnectionId is zero. A nil conn is intentionally passed to prove
-// the helpers return before touching it.
+// The happy-path upsert is covered below with a fakepgserver. Here we lock in
+// the guard semantics: the helpers must be safe no-ops when vpid tracking is
+// disabled, options is nil, or ClientConnectionId is zero. A nil conn is
+// intentionally passed to prove the helpers return before touching it.
 
-func TestStampVpidOnReserved_NoOpGuards(t *testing.T) {
+func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
@@ -897,13 +842,13 @@ func TestStampVpidOnReserved_NoOpGuards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &Executor{vpidStampEnabled: tc.enabled}
-			// nil conn would panic on SetApplicationName — guard must short-circuit first.
-			e.stampVpidOnReserved(ctx, nil, tc.options)
+			// nil conn would panic on Query — guard must short-circuit first.
+			e.trackVpidOnReserved(ctx, nil, tc.options)
 		})
 	}
 }
 
-func TestStampVpidOnRegular_NoOpGuards(t *testing.T) {
+func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
@@ -917,19 +862,19 @@ func TestStampVpidOnRegular_NoOpGuards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &Executor{vpidStampEnabled: tc.enabled}
-			e.stampVpidOnRegular(ctx, nil, tc.options)
+			e.trackVpidOnRegular(ctx, nil, tc.options)
 		})
 	}
 }
 
-// --- stampVpid* happy-path tests ---
+// --- trackVpid* happy-path tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
-// verify that the helper issues the expected SET application_name when
-// stamping is enabled and ClientConnectionId is non-zero. This is the only
-// behaviour the early-return tests above don't cover.
+// verify that the helper creates multigres.backend_vpid once per executor and
+// upserts the (backend_pid → vpid) row when tracking is enabled and
+// ClientConnectionId is non-zero.
 
-func TestStampVpidOnRegular_HappyPath(t *testing.T) {
+func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -940,14 +885,24 @@ func TestStampVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{vpidStampEnabled: true}
+	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
 	server.ResetQueryLog()
-	e.stampVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
-	assert.Equal(t, "set application_name = 'multigres_vpid:99'", server.QueryLog())
+	log := server.QueryLog()
+	assert.Contains(t, log, "create unlogged table if not exists multigres.backend_vpid",
+		"first track call must create the mapping table")
+	assert.Contains(t, log, "values (pg_backend_pid(), 99)")
+
+	// The DDL is guarded by sync.Once — a second call only upserts.
+	server.ResetQueryLog()
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 100})
+	log = server.QueryLog()
+	assert.NotContains(t, log, "create unlogged table")
+	assert.Contains(t, log, "values (pg_backend_pid(), 100)")
 }
 
-func TestStampVpidOnReserved_HappyPath(t *testing.T) {
+func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -969,11 +924,40 @@ func TestStampVpidOnReserved_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
 
-	e := &Executor{vpidStampEnabled: true}
+	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
 	server.ResetQueryLog()
-	e.stampVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
+	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
-	assert.Equal(t, "set application_name = 'multigres_vpid:123'", server.QueryLog())
+	log := server.QueryLog()
+	assert.Contains(t, log, "create unlogged table if not exists multigres.backend_vpid")
+	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
+}
+
+// TestTrackVpidOnRegular_BestEffortOnError verifies the failure path: when
+// the upsert errors, the helper re-runs the DDL and retries once, and never
+// surfaces an error to the query path.
+func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	// neverFail not set: unmatched queries return errors.
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := &Executor{vpidStampEnabled: true, logger: slog.Default()}
+	server.ResetQueryLog()
+	// Must not panic or block the caller even though every statement fails.
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
+
+	// ensure (once) + upsert + re-create + retried upsert = 4 statements.
+	log := server.QueryLog()
+	assert.Equal(t, 2, strings.Count(log, "create unlogged table if not exists"),
+		"expected initial ensure plus one re-create attempt")
+	assert.Equal(t, 2, strings.Count(log, "values (pg_backend_pid(), 7)"),
+		"expected the upsert to be retried exactly once")
 }
 
 // TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway is a

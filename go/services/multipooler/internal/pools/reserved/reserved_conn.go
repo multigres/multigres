@@ -449,14 +449,6 @@ func (c *Conn) SecretKey() uint32 {
 
 // --- Query execution ---
 
-// SetApplicationName sets the application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID for
-// lock-detection mapping via pg_stat_activity. Delegates to the underlying
-// regular.Conn so quoting/escaping lives in one place.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	return c.pooled.Conn.SetApplicationName(ctx, name)
-}
-
 // Query executes a simple query and returns all results.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	return c.pooled.Conn.Query(ctx, sql)
