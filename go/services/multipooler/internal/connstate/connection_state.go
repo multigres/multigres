@@ -312,6 +312,28 @@ func (s *Settings) ResetQuery() string {
 	return "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL"
 }
 
+// NeedsReapplyOnReuse reports whether these settings must be re-applied to a
+// pooled connection even when it already carries this exact (interned)
+// Settings pointer. "role" and "session_authorization" resolve their role
+// name to an OID when the SET executes; if that role was dropped and
+// recreated since this backend last applied the settings, the backend is
+// left referencing a dangling OID (VACUUM reports "permission denied",
+// current_user raises "invalid role OID: N") even though the settings
+// strings still match. Re-running ApplyQuery re-resolves the name against
+// the current catalog.
+func (s *Settings) NeedsReapplyOnReuse() bool {
+	if s == nil {
+		return false
+	}
+	for k := range s.Vars {
+		switch strings.ToLower(k) {
+		case "role", "session_authorization":
+			return true
+		}
+	}
+	return false
+}
+
 // IsEmpty returns true if there are no variables set.
 func (s *Settings) IsEmpty() bool {
 	if s == nil {

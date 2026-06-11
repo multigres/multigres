@@ -28,8 +28,9 @@ import (
 
 // mockConnection is a mock implementation of Connection for testing.
 type mockConnection struct {
-	settings *connstate.Settings
-	closed   atomic.Bool
+	settings   *connstate.Settings
+	closed     atomic.Bool
+	applyCalls atomic.Int64
 }
 
 func newMockConnection() *mockConnection {
@@ -50,6 +51,7 @@ func (m *mockConnection) Close() error {
 }
 
 func (m *mockConnection) ApplySettings(ctx context.Context, settings *connstate.Settings) error {
+	m.applyCalls.Add(1)
 	m.settings = settings
 	return nil
 }
@@ -136,6 +138,50 @@ func TestPoolGetWithSettings(t *testing.T) {
 	conn3, err := pool.GetWithSettings(ctx, settings2)
 	require.NoError(t, err)
 	conn3.Recycle()
+}
+
+// TestPoolGetWithSettings_RoleReappliedOnReuse locks in the
+// NeedsReapplyOnReuse behaviour: when a pooled connection is reused with the
+// exact same interned Settings pointer, settings containing role /
+// session_authorization must be re-applied (they bind to a role OID at SET
+// time, which dangles if the role was dropped and recreated), while plain
+// settings keep the pointer-equality fast path and skip the round trip.
+func TestPoolGetWithSettings_RoleReappliedOnReuse(t *testing.T) {
+	pool := newTestPool(1)
+	defer pool.Close()
+	ctx := context.Background()
+
+	roleSettings := connstate.NewSettings(map[string]string{"role": "r1"}, 1)
+	plainSettings := connstate.NewSettings(map[string]string{"timezone": "UTC"}, 2)
+
+	// Fresh conn: settings differ (nil vs role) → one apply.
+	conn1, err := pool.GetWithSettings(ctx, roleSettings)
+	require.NoError(t, err)
+	mock := conn1.Conn
+	require.Equal(t, int64(1), mock.applyCalls.Load())
+	conn1.Recycle()
+
+	// Pointer-equal reuse with role settings → must re-apply.
+	conn2, err := pool.GetWithSettings(ctx, roleSettings)
+	require.NoError(t, err)
+	require.Same(t, mock, conn2.Conn, "capacity-1 pool must hand back the same conn")
+	assert.Equal(t, int64(2), mock.applyCalls.Load(), "role settings must be re-applied on pointer-equal reuse")
+	conn2.Recycle()
+
+	// Switching to plain settings resets and applies once more.
+	conn3, err := pool.GetWithSettings(ctx, plainSettings)
+	require.NoError(t, err)
+	require.Same(t, mock, conn3.Conn)
+	require.Equal(t, int64(3), mock.applyCalls.Load())
+	conn3.Recycle()
+
+	// Pointer-equal reuse without role/session_authorization keeps the
+	// fast path: no extra apply.
+	conn4, err := pool.GetWithSettings(ctx, plainSettings)
+	require.NoError(t, err)
+	require.Same(t, mock, conn4.Conn)
+	assert.Equal(t, int64(3), mock.applyCalls.Load(), "plain settings must keep the pointer-equality fast path")
+	conn4.Recycle()
 }
 
 func TestPoolCapacityWithWait(t *testing.T) {
