@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -828,5 +829,92 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 	// Shard state must be cleared
 	require.Nil(t, state.GetMatchingShardState(target))
 	// Transaction status must be set to Failed (was in a transaction)
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestIsCancellationError exercises every branch of isCancellationError: nil,
+// the two context sentinels (direct and wrapped), a query-canceled PgDiagnostic
+// (57014, the statement_timeout / explicit-cancel code), a non-cancellation
+// PgDiagnostic (40001), and a plain error.
+func TestIsCancellationError(t *testing.T) {
+	require.False(t, isCancellationError(nil))
+	require.True(t, isCancellationError(context.Canceled))
+	require.True(t, isCancellationError(context.DeadlineExceeded))
+	require.True(t, isCancellationError(fmt.Errorf("stream aborted: %w", context.DeadlineExceeded)))
+	require.True(t, isCancellationError(mterrors.NewQueryCanceled()), "query_canceled (57014)")
+	require.True(t, isCancellationError(mterrors.NewStatementTimeout()), "statement_timeout (57014)")
+	require.False(t, isCancellationError(mterrors.NewReservedConnectionTerminated(42)),
+		"serialization_failure (40001) is not a cancellation")
+	require.False(t, isCancellationError(errors.New("connection refused")))
+}
+
+// TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation is the
+// regression test for the statement_timeout fix: a cancellation on a reserved
+// (temp-table) connection that is NOT in a transaction block must NOT drop the
+// reservation. The cancelled stream returns a nil reserved state, which
+// applyReservedState would otherwise treat as "connection destroyed" and clear
+// — losing the session's temp tables. The backend only rolled back the
+// cancelled statement and is still alive, so the reservation must survive.
+func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: mterrors.NewStatementTimeout(),
+		// nil streamExecuteReturnState → would be treated as destroyed without the fix
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusIdle) // temp-table reservation, not in a txn
+
+	target := &querypb.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTempTable,
+	})
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "the cancelled query still surfaces an error")
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "reservation must survive a statement_timeout cancellation")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.NotEqual(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears
+// guards transaction safety: the keep-reservation path is gated on the
+// connection NOT being in a transaction block. A cancellation while IN a
+// transaction must still clear the reservation and mark the transaction failed
+// (PostgreSQL aborts the transaction on a statement_timeout inside BEGIN), so
+// transaction semantics are unchanged by the fix.
+func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: mterrors.NewStatementTimeout(),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := &querypb.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	require.Nil(t, state.GetMatchingShardState(target),
+		"an in-transaction cancellation still clears the reservation")
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }

@@ -109,6 +109,25 @@ func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.Mult
 	}
 }
 
+// isCancellationError reports whether err is a query cancellation: an explicit
+// cancel or statement_timeout (PostgreSQL SQLSTATE 57014, query_canceled) or a
+// context cancellation/deadline. After such a cancellation the backend has
+// rolled back the cancelled statement and returned to an idle, reusable state,
+// so a reserved connection that hit it is still valid and must not be dropped.
+func isCancellationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var pgDiag *mterrors.PgDiagnostic
+	if errors.As(err, &pgDiag) {
+		return pgDiag.Code == mterrors.PgSSQueryCanceled
+	}
+	return false
+}
+
 // applyReservedState replaces independent bookkeeping with the authoritative reservation
 // state from the multipooler. If the reserved connection ID is zero, the connection was
 // destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
@@ -280,7 +299,31 @@ func (sc *ScatterConn) StreamExecute(
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
-		sc.applyReservedState(conn, state, target, reservedState)
+
+		// A query error on an existing reserved connection does not, by itself, mean
+		// the reserved backend is gone. The pooler returns a non-zero reserved state
+		// whenever it can still vouch for the connection (the common error case). But
+		// the gateway enforces statement_timeout with a context deadline, and when
+		// that fires mid-stream the RPC can return before the reserved-state trailer
+		// arrives, yielding a zero reserved state even though the backend — and the
+		// session's temp tables — are still alive. Clearing the reservation here would
+		// route the next statement to a different pooled backend and lose those temp
+		// tables (the PostGIS interrupt tests' CREATE TEMP TABLE ... AS + statement
+		// timeout reproduce this).
+		//
+		// Keep the existing reservation only when all of these hold: the query failed,
+		// no fresh reserved state came back, we are NOT inside an explicit transaction,
+		// and the failure was a cancellation (statement_timeout / context cancel, after
+		// which the backend has returned to an idle, reusable state). Every other case
+		// — all in-transaction behaviour, genuine connection loss, and ordinary query
+		// errors — is handled exactly as before via applyReservedState.
+		keepReservation := err != nil &&
+			reservedState.GetReservedConnectionId() == 0 &&
+			conn.TxnStatus() != protocol.TxnStatusInBlock &&
+			isCancellationError(err)
+		if !keepReservation {
+			sc.applyReservedState(conn, state, target, reservedState)
+		}
 
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
