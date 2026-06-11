@@ -115,7 +115,6 @@ func (r *coordinatorLedRuleChange) Run(
 	// terminal event: recruit (start → leader selected) and promote (leader
 	// selected → commit). Monotonic, so unaffected by wall-clock adjustments.
 	start := time.Now()
-	var selectedAt time.Time
 	primaryPromotion := eventlog.PrimaryPromotion{
 		ProposedTerm: proposedTerm,
 		Reason:       r.reason,
@@ -131,23 +130,7 @@ func (r *coordinatorLedRuleChange) Run(
 	// the durability policy, without waiting for the slowest nodes in the
 	// cohort to respond.
 
-	type recruitResult struct {
-		pooler *multiorchdatapb.PoolerHealthState
-		cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
-	}
-
-	recruited := make(chan recruitResult, len(cohort))
-	for _, p := range cohort {
-		go func() {
-			recruited <- recruitResult{pooler: p, cs: r.recruit(ctx, p, revocation)}
-		}()
-	}
-
-	var (
-		statuses  []*clustermetadatapb.ConsensusStatus
-		propReq   *consensusdatapb.PromoteRequest
-		leaderKey string
-	)
+	recruited := r.dispatchRecruit(ctx, cohort, revocation)
 
 	// Phase 2: collect recruits until tryBuildProposal succeeds, or all nodes
 	// have responded without reaching quorum.
@@ -167,44 +150,18 @@ func (r *coordinatorLedRuleChange) Run(
 	// streaming behavior; with grace>0 we wait up to that long for further
 	// recruits and re-run tryBuildProposal on the augmented set. The right default
 	// should come from observed failover latency in production.
-	remaining := len(cohort)
-	for ; remaining > 0 && propReq == nil; remaining-- {
-		rr := <-recruited
-		if rr.cs == nil {
-			continue
-		}
-		statuses = append(statuses, rr.cs)
-		p, err := r.tryBuildProposal(revocation, statuses)
-		if err != nil {
-			continue
-		}
-		ids := make([]*clustermetadatapb.ID, 0, len(statuses))
-		for _, s := range statuses {
-			ids = append(ids, s.GetId())
-		}
-		leaderKey = topoclient.ClusterIDString(p.GetProposalLeader().GetId())
-		propReq = &consensusdatapb.PromoteRequest{
-			Proposal:        p,
-			Reason:          r.reason,
-			AcceptedNodeIds: ids,
-		}
-		selectedAt = time.Now()
-	}
 
-	if propReq == nil {
-		_, err := r.tryBuildProposal(revocation, statuses)
-		// Recruitment never assembled a viable proposal: no leader was chosen,
-		// so the appointment failed before commit. Emit the terminal event that
-		// closes out the Started above (new_primary unknown). All elapsed time
-		// was spent recruiting; the promote phase never began, so PromoteMs is
-		// left nil.
-		recruitMs := time.Since(start).Milliseconds()
-		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+	propReq, leaderKey, err := r.collectRecruitsAndBuildProposal(cohort, revocation, recruited)
+	selectedAt := time.Now()
+	recruitMs := selectedAt.Sub(start).Milliseconds()
+	if err != nil {
+		promoteEvent := eventlog.PrimaryPromotion{
 			ProposedTerm: proposedTerm,
 			Reason:       r.reason,
 			RecruitMs:    &recruitMs,
-		}, "error", err)
-		return mterrors.Wrap(err, "recruitment failed")
+		}
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, promoteEvent, "error", err)
+		return err
 	}
 
 	// Phase 3: Propose to all nodes concurrently.
@@ -219,20 +176,7 @@ func (r *coordinatorLedRuleChange) Run(
 	// slow to factor into leader selection, but they still need to learn about
 	// the new term.
 
-	type promoteResult struct {
-		poolerName string
-		isLeader   bool
-		err        error
-	}
-
-	promoteResults := make(chan promoteResult, len(cohort))
-	for _, p := range cohort {
-		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
-		go func() {
-			err := r.promote(ctx, p, propReq, isLeader)
-			promoteResults <- promoteResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
-		}()
-	}
+	promoteResults := r.dispatchPromote(ctx, cohort, propReq, leaderKey)
 
 	// Phase 4: Wait for every Promote to return, not just the leader's. The rule
 	// change is committed when the leader's Promote succeeds — which can
@@ -247,13 +191,119 @@ func (r *coordinatorLedRuleChange) Run(
 	// Exception: if the leader's Promote fails, no new primary exists for
 	// non-leaders to learn about, so there is nothing to gain by waiting
 	// — return as soon as we see the leader's failure.
-	var leaderErr error
+	leaderErr := r.waitForPromotes(ctx, cohort, promoteResults)
+	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
+	promoteMs := time.Since(selectedAt).Milliseconds()
+	promoteEvent := eventlog.PrimaryPromotion{
+		NewPrimary:   newPrimary,
+		ProposedTerm: proposedTerm,
+		Reason:       r.reason,
+		RecruitMs:    &recruitMs,
+		PromoteMs:    &promoteMs,
+	}
+	if leaderErr != nil {
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, promoteEvent, "error", leaderErr)
+		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
+	}
+
+	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, promoteEvent)
+	return nil
+}
+
+type recruitResult struct {
+	pooler *multiorchdatapb.PoolerHealthState
+	cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
+}
+
+// dispatchRecruit issues Recruit RPCs to all cohort members concurrently and
+// returns a channel that receives their results as they arrive. Each result
+// includes the pooler's health state and the ConsensusStatus returned by its
+// Recruit, or nil if the RPC failed or returned an empty status.
+func (r *coordinatorLedRuleChange) dispatchRecruit(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, revocation *clustermetadatapb.TermRevocation) chan recruitResult {
+	recruited := make(chan recruitResult, len(cohort))
+	for _, p := range cohort {
+		go func() {
+			recruited <- recruitResult{pooler: p, cs: r.recruit(ctx, p, revocation)}
+		}()
+	}
+	return recruited
+}
+
+// collectRecruitsAndBuildProposal reads recruit results from the channel and
+// accumulates ConsensusStatuses until tryBuildProposal returns a non-error
+// proposal, or all recruits have been processed. It returns the first
+// successful proposal and the corresponding leader's key. If no proposal can
+// be built after processing all recruits, it returns an error.
+func (r *coordinatorLedRuleChange) collectRecruitsAndBuildProposal(cohort []*multiorchdatapb.PoolerHealthState, revocation *clustermetadatapb.TermRevocation, recruited chan recruitResult) (*consensusdatapb.PromoteRequest, string, error) {
+	var err error
+	var p *consensusdatapb.CoordinatorProposal
+	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(cohort))
+	for range len(cohort) {
+		rr := <-recruited
+		if rr.cs == nil {
+			continue
+		}
+		statuses = append(statuses, rr.cs)
+		p, err = r.tryBuildProposal(revocation, statuses)
+		if err == nil {
+			ids := make([]*clustermetadatapb.ID, 0, len(statuses))
+			for _, s := range statuses {
+				ids = append(ids, s.GetId())
+			}
+			leaderKey := topoclient.ClusterIDString(p.GetProposalLeader().GetId())
+			propReq := &consensusdatapb.PromoteRequest{
+				Proposal:        p,
+				Reason:          r.reason,
+				AcceptedNodeIds: ids,
+			}
+			return propReq, leaderKey, nil
+		}
+	}
+	if err == nil {
+		err = errors.New("no nodes responded to recruit")
+	}
+	return nil, "", mterrors.Wrap(err, "recruitment failed")
+}
+
+type promoteResult struct {
+	poolerName string
+	isLeader   bool
+	err        error
+}
+
+// dispatchPromote issues Promote or SetPrimary RPCs to all cohort members
+// concurrently, depending on whether each is the selected leader, and returns a
+// channel that receives their results as they arrive. Each result includes the
+// pooler's name, whether it was the leader, and any error returned by the RPC
+// (nil if it succeeded).
+func (r *coordinatorLedRuleChange) dispatchPromote(
+	ctx context.Context,
+	cohort []*multiorchdatapb.PoolerHealthState,
+	propReq *consensusdatapb.PromoteRequest,
+	leaderKey string,
+) chan promoteResult {
+	promoteResults := make(chan promoteResult, len(cohort))
+	for _, p := range cohort {
+		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
+		go func() {
+			err := r.promote(ctx, p, propReq, isLeader)
+			promoteResults <- promoteResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
+		}()
+	}
+
+	return promoteResults
+}
+
+// waitForPromotes collects results from all cohort Promote/SetPrimary goroutines.
+// It returns the leader's error as soon as one is seen (there is nothing to gain
+// by waiting further if the leader failed), or nil if the leader succeeded.
+// Non-leader failures are logged as warnings and do not affect the return value.
+func (r *coordinatorLedRuleChange) waitForPromotes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, promoteResults chan promoteResult) error {
 	for range len(cohort) {
 		pr := <-promoteResults
 		if pr.err != nil {
 			if pr.isLeader {
-				leaderErr = pr.err
-				break
+				return pr.err
 			}
 			r.coordinator.logger.WarnContext(ctx, "Promote failed for non-leader",
 				"pooler", pr.poolerName, "error", pr.err)
@@ -262,27 +312,6 @@ func (r *coordinatorLedRuleChange) Run(
 				"pooler", pr.poolerName, "is_leader", pr.isLeader)
 		}
 	}
-
-	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
-	recruitMs := selectedAt.Sub(start).Milliseconds()
-	promoteMs := time.Since(selectedAt).Milliseconds()
-	if leaderErr != nil {
-		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-			NewPrimary:   newPrimary,
-			ProposedTerm: proposedTerm,
-			Reason:       r.reason,
-			RecruitMs:    &recruitMs,
-			PromoteMs:    &promoteMs,
-		}, "error", leaderErr)
-		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
-	}
-	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, eventlog.PrimaryPromotion{
-		NewPrimary:   newPrimary,
-		ProposedTerm: proposedTerm,
-		Reason:       r.reason,
-		RecruitMs:    &recruitMs,
-		PromoteMs:    &promoteMs,
-	})
 	return nil
 }
 
