@@ -293,12 +293,12 @@ func WithMetricsExport() SetupOption {
 }
 
 // WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
-// the setup. Tags each PostgreSQL backend's application_name with
-// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
-// virtual PID back to its real backend PID via pg_stat_activity. Required by
-// the pgregress isolation harness shim and harmless elsewhere, but kept
-// opt-in so tests that probe application_name as a generic GUC aren't
-// accidentally shadowed.
+// the setup. Each pooler then records which multigateway virtual PID a
+// PostgreSQL backend is serving in the multigres.backend_vpid table, so
+// lock-detection probes can map a vpid back to its real backend PID.
+// Required by the pgregress isolation harness shim
+// (public.multigres_test_session_is_blocked); kept opt-in to spare every
+// other suite the extra per-checkout metadata write.
 func WithVpidStamping() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableVpidStamping = true

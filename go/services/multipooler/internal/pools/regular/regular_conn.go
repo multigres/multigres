@@ -208,17 +208,6 @@ func (c *Conn) State() *connstate.ConnectionState {
 
 // --- Query execution ---
 
-// SetApplicationName sets application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID so
-// lock-detection functions (e.g. an override of
-// pg_isolation_test_session_is_blocked) can map vpid → real pid via
-// pg_stat_activity. Must be re-applied on every client hand-off for pooled
-// connections since the backend is shared across clients.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	_, err := c.conn.Query(ctx, "SET application_name = "+ast.QuoteStringLiteral(name))
-	return err
-}
-
 // Query executes a simple query and returns all results.
 // If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
