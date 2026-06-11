@@ -110,6 +110,12 @@ type testSuiteConfig struct {
 	suiteName string // for log messages, e.g. "Regression" or "Isolation"
 	outputDir string // where to copy regression.out and regression.diffs
 	srcOutDir string // build directory containing regression.out and regression.diffs
+	// pgPassFile, when non-empty, makes the suite authenticate via this .pgpass
+	// file (PGPASSFILE) INSTEAD of PGPASSWORD. libpq applies PGPASSWORD to every
+	// connection regardless of user, which breaks suites that \connect as
+	// multiple users with different passwords (pgaudit); a .pgpass file resolves
+	// the password per user name. See ExternalExtension.PgPassUsers.
+	pgPassFile string
 }
 
 // runTestSuite executes a pre-built test command and handles result parsing,
@@ -138,11 +144,15 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		" -c effective_cache_size=4GB" +
 		" -c max_parallel_workers_per_gather=2"
 
+	if cfg.pgPassFile != "" {
+		cmd.AddEnv("PGPASSFILE=" + cfg.pgPassFile)
+	} else {
+		cmd.AddEnv("PGPASSWORD=" + password)
+	}
 	cmd.AddEnv(
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
 		"PGUSER=postgres",
-		"PGPASSWORD="+password,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 		"PGOPTIONS="+pgOptions,
@@ -351,6 +361,14 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		for _, db := range ext.ScratchDatabases {
 			if err := execOnPrimary(directPgPort, password, fmt.Sprintf("DROP DATABASE IF EXISTS %q WITH (FORCE)", db)); err != nil {
 				t.Logf("external/%s: warning: drop scratch db %q failed: %v", ext.Name, db, err)
+			}
+		}
+
+		// Cluster-level teardown the schema/extension sweep can't reach (roles a
+		// suite's fixtures created; see ExternalExtension.CleanupSQL). Best-effort.
+		for _, stmt := range ext.CleanupSQL {
+			if err := execOnPrimary(directPgPort, password, stmt); err != nil {
+				t.Logf("external/%s: warning: cleanup %q failed: %v", ext.Name, stmt, err)
 			}
 		}
 

@@ -82,19 +82,19 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"earthdistance", KindContrib, StatusCovered, "depends on cube"},
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
-	{"http", KindExternal, StatusExternal, ""},
-	{"hypopg", KindExternal, StatusExternal, "built as index_advisor's dependency (externalSpecs) but not run as its own suite — see the hypopg spec for why"},
+	{"http", KindExternal, StatusCovered, "pgsql-http (needs libcurl to build); suite runs against the harness's local httpbin-compatible server on :9080 (NeedsHTTPBin) with its live-internet TLS probes redirected to the local HTTPS server (TextRewrites); transaction-wrapped so curl option state stays on one pinned backend"},
+	{"hypopg", KindExternal, StatusCovered, "hypothetical indexes; also index_advisor's dependency. Its suite is autocommit and asserts on backend-local state, so the harness runs it transaction-wrapped (WrapTransactions) — one pinned backend per file, with hypopg_reset() injected after each VACUUM break"},
 	{"index_advisor", KindExternal, StatusCovered, "Supabase index advisor; pure-SQL PGXS module; depends on hypopg (built via DependsOn). Its tests are BEGIN/ROLLBACK-wrapped, so hypopg's backend-local hypothetical indexes stay on the pinned backend"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
 	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
 	{"pg_graphql", KindExternal, StatusCovered, "Supabase pg_graphql; Rust/pgrx crate built with cargo-pgrx; loads test/fixtures.sql before its pg_regress suite"},
-	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
+	{"pg_jsonschema", KindExternal, StatusCovered, "Rust/pgrx JSON Schema validator; ships no SQL suite (upstream tests are pgrx #[pg_test] functions in a private embedded server), so the harness carries a faithful SQL translation of that corpus in-repo (LocalTestDir) and runs it through multigateway"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
 	{"pg_partman", KindExternal, StatusCovered, "pgTAP suite run via psql (not pg_regress); needs pgtap + max_locks_per_transaction>=128 (see testdata/pg17/external/pg_partman.conf). Runs the transaction-wrapped tests only (top-level + test_pg17plus/ + test_no_search_path/); autocommit/procedure subfolders can't run through a transaction pooler — see runExternalPgTAP. Also pgmq's build dependency (pgmq.create_partitioned → create_parent)."},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
-	{"pgaudit", KindExternal, StatusExternal, ""},
+	{"pgaudit", KindExternal, StatusCovered, "session/object audit logging; needs shared_preload_libraries (PreloadLibraries). Its \\connects as freshly created password-auth users authenticate through a harness-written .pgpass file (PgPassUsers — the gateway authenticates any role whose SCRAM credentials resolve); transaction-wrapped so per-backend audit statement IDs stay deterministic"},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusCovered, "pure-SQL JWT extension; pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql. Depends on pgcrypto (contrib) and pgtap; upstream never tags releases, so it is pinned to a commit"},
 	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
@@ -325,6 +325,100 @@ type ExternalExtension struct {
 	// comment) before the suite, so the fixtures must run first here too. Empty
 	// for extensions whose .sql files are self-contained (pgmq, pgvector).
 	FixturesFile string
+
+	// WrapTransactions, when true, materializes a transformed copy of the suite
+	// with every test file wrapped in BEGIN … COMMIT (and `\set
+	// ON_ERROR_ROLLBACK on`), with the same insertions applied to the expected
+	// files. Inside an explicit transaction multigateway reserves ONE pooled
+	// backend for the whole duration, which makes suites that assert on
+	// backend-local state across statements (hypopg's hypothetical indexes,
+	// pgTAP's session-temp plan tables, pgsql-http's curl option state) runnable
+	// through a transaction pooler — the same shape index_advisor's and
+	// pg_partman's self-wrapped tests already rely on. See wrap.go for the
+	// boundary rules (\connect, the file's own transactions, VACUUM).
+	WrapTransactions bool
+
+	// WrapSetupSQL is injected by the wrap transform right after each
+	// transaction REOPEN (after a VACUUM break or \connect — not at the top of
+	// the file). hypopg injects `SELECT hypopg_reset();` so a backend acquired
+	// after a break starts without leftover hypothetical indexes regardless of
+	// pool history. See WrapStatement.
+	WrapSetupSQL []WrapStatement
+
+	// WrapStopPatterns are line regexes where the transaction wrap CLOSES and
+	// stays closed: from the first matching line to end of file the suite runs
+	// autocommit, exactly like upstream. http uses it for its statement_timeout
+	// cancellation test: upstream runs it autocommit, where PostgreSQL keeps
+	// the session (and its temp table) across the cancelled statement — the
+	// pooled equivalent is the temp-table reservation (ReasonTempTable), which
+	// pins the backend without a transaction. Inside a wrap transaction the
+	// cancellation would instead abort the transaction, discarding psql's
+	// ON_ERROR_ROLLBACK savepoint and diverging from upstream's expected
+	// output.
+	WrapStopPatterns []string
+
+	// TextRewrites are literal substitutions applied to the materialized .sql
+	// and expected copies before wrapping (diff-neutral: the echoed statement
+	// text changes identically on both sides). pgsql-http redirects its
+	// hard-coded https://postgis.net TLS probes to the harness-local HTTPS
+	// server so the suite is hermetic. See TextRewrite.
+	TextRewrites []TextRewrite
+
+	// NeedsHTTPBin, when true, has the harness serve a local httpbin-compatible
+	// HTTP server on 127.0.0.1:9080 and a self-signed HTTPS server on
+	// 127.0.0.1:9443 for the duration of this extension's suite. pgsql-http's
+	// suite is designed to run against a local httpbin on exactly that port
+	// (its first statement is SET http.server_host = 'http://localhost:9080',
+	// falling back to live httpbin.org only when nothing answers locally — a
+	// fallback the harness must never exercise in CI). See httpbin.go.
+	NeedsHTTPBin bool
+
+	// PgPassUsers lists role name/password pairs the suite \connects as.
+	// pg_regress normally authenticates through PGPASSWORD, which libpq applies
+	// to EVERY connection regardless of user — so a suite that reconnects as
+	// freshly created test users (pgaudit: `\connect - regress_user1`, password
+	// 'password') can never authenticate both the admin and the test users that
+	// way. When non-empty, the harness writes a .pgpass file holding the admin
+	// password plus these entries, runs the suite with PGPASSFILE pointing at it
+	// and WITHOUT PGPASSWORD, and libpq resolves each \connect's password by
+	// user name. The gateway itself imposes no user allowlist — it authenticates
+	// any role whose SCRAM credentials resolve (see pgprotocol/server SCRAM).
+	PgPassUsers []PgPassUser
+
+	// LocalTestDir, when non-empty, names a directory under
+	// testdata/pg<major>/external/ holding an in-repo sql/ + expected/ suite
+	// used INSTEAD of fixtures from the checkout. For extensions that ship no
+	// SQL test suite at all: pg_jsonschema's upstream tests are pgrx #[pg_test]
+	// functions that run inside a private embedded server, so the harness
+	// carries a faithful SQL translation of that corpus (each upstream test
+	// case, same inputs and expectations) and runs it through multigateway like
+	// any other suite.
+	LocalTestDir string
+
+	// CleanupSQL statements run directly on the primary (bypassing the gateway,
+	// best-effort) after the suite, for cluster-level state resetContribState
+	// does not cover — ROLES outlive the schema/extension sweep. supabase_vault's
+	// fixtures CREATE ROLE bob and its suite never drops it; a leftover role
+	// would leak into later suites' catalog-introspection output.
+	CleanupSQL []string
+
+	// GetkeyScriptGUC, when non-empty, names the PGC_POSTMASTER GUC this
+	// extension reads at preload time to locate its server-secret-key script
+	// (supabase_vault: "vault.getkey_script"; pgsodium uses the same mechanism
+	// under "pgsodium.getkey_script"). The harness materializes a tiny
+	// executable that prints a fixed test key and appends `<GUC> = '<path>'` to
+	// the generated external server config — without it the preloaded library
+	// refuses to start postgres (vault) or runs keyless (pgsodium). Upstream's
+	// own test runner provisions exactly this (vault's nix/withTmpDb.sh.in).
+	// Requires the extension's library in PreloadLibraries: the key is loaded
+	// from _PG_init during shared_preload_libraries processing.
+	GetkeyScriptGUC string
+}
+
+// PgPassUser is one role/password entry for ExternalExtension.PgPassUsers.
+type PgPassUser struct {
+	Name     string
+	Password string
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
@@ -440,16 +534,117 @@ var externalSpecs = map[string]ExternalExtension{
 		// which DependsOn pg_partman, runs fine with this raised too.
 		ServerConfigFile: "pg_partman.conf",
 	},
-	// hypopg is a build dependency only: index_advisor's tests `create extension
-	// index_advisor cascade`, which pulls in hypopg (its control file requires
-	// it). hypopg's OWN suite cannot run through the gateway: hypothetical
-	// indexes live in backend-local memory and its tests are autocommit, so
-	// hypopg_create_index and the EXPLAINs that should see the index land on
-	// different pooled backends. index_advisor's tests dodge that by wrapping
-	// everything in BEGIN…ROLLBACK (one pinned backend), which is why it is
-	// covered and hypopg is not.
+	// hypopg is both index_advisor's build dependency (its control file requires
+	// hypopg, so index_advisor's `create extension index_advisor cascade` pulls
+	// it in) and covered in its own right. Hypothetical indexes live in
+	// backend-local memory and upstream's tests are autocommit, so plain pooled
+	// execution would scatter hypopg_create_index and the EXPLAINs that must see
+	// the index across different backends. The harness therefore runs the suite
+	// transaction-wrapped (WrapTransactions): inside an explicit transaction the
+	// gateway reserves ONE backend for its duration — the same shape
+	// index_advisor's self-wrapped BEGIN…ROLLBACK tests already rely on.
 	"hypopg": {
 		Name: "hypopg", Repo: "https://github.com/HypoPG/hypopg", Tag: "1.4.2",
+		// sql/ lives under test/, but expected/ sits at the repo root: upstream
+		// runs pg_regress with --inputdir=test from the module root, and
+		// pg_regress resolves expected/ against the CWD, not --inputdir.
+		TestSubdir: "test", ExpectedSubdir: ".",
+		// Mirror of the Makefile's REGRESS list for MAJORVERSION=17, in REGRESS
+		// order (hypopg first — it creates the do_explain() helper and the hypo
+		// table the later files use; the wrap COMMITs so they persist).
+		// hypo_index_part_10 is the PG10-only variant and must not run.
+		RegressTests: []string{
+			"hypopg",
+			"hypo_brin",
+			"hypo_index_part",
+			"hypo_include",
+			"hypo_hash",
+			"hypo_hide_index",
+		},
+		WrapTransactions: true,
+		// hypo_include's `VACUUM ANALYZE hypo` forces a wrap break (VACUUM can't
+		// run inside a transaction block), and the transaction reopened after it
+		// may land on a different pooled backend with leftover hypothetical
+		// indexes from an earlier file. Resetting right after each reopen makes
+		// the backend state deterministic regardless of pool history.
+		WrapSetupSQL: []WrapStatement{{
+			SQL:    "SELECT hypopg_reset();",
+			Output: " hypopg_reset \n--------------\n \n(1 row)\n\n",
+		}},
+	},
+	// pgsql-http. Build needs libcurl (the Makefile locates it via curl-config;
+	// CI installs libcurl4-openssl-dev). Three pooled-path accommodations, each
+	// solving a documented upstream assumption:
+	//   - NeedsHTTPBin: upstream's suite is written against a LOCAL httpbin on
+	//     :9080 (its first statement is SET http.server_host =
+	//     'http://localhost:9080', probing and falling back to live httpbin.org
+	//     only when nothing answers). The harness serves the endpoints the suite
+	//     uses in-process — hermetic, no live internet (see httpbin.go).
+	//   - WrapTransactions: http_set_curlopt state is backend-local (C globals,
+	//     not GUCs), so the suite must stay on one pinned backend.
+	//   - TextRewrites: the two TLS probes hard-code https://postgis.net; they
+	//     are redirected to the harness's local HTTPS server, which exercises
+	//     the same libcurl TLS verification paths (bogus CAINFO fails,
+	//     VERIFYPEER=0 succeeds) without live internet.
+	// The suite's statement_timeout cancellation test additionally requires the
+	// gateway to keep the reserved connection across a timeout-cancelled
+	// statement inside an open transaction.
+	"http": {
+		Name: "http", Repo: "https://github.com/pramsey/pgsql-http", Tag: "v1.7.0",
+		// sql/ and expected/ live at the repo root (like pg_cron).
+		TestSubdir:       ".",
+		WrapTransactions: true,
+		NeedsHTTPBin:     true,
+		// The statement_timeout cancellation test at the file's tail must run
+		// autocommit, the way upstream runs it: its CREATE TEMP TABLE pins the
+		// backend via the temp-table reservation, and PostgreSQL's (and, with
+		// the reservation kept, multigres's) session survives the cancelled
+		// statement. Inside the wrap transaction the cancellation would abort
+		// the whole transaction instead. See WrapStopPatterns.
+		WrapStopPatterns: []string{`^SET statement_timeout`},
+		TextRewrites: []TextRewrite{
+			{Old: "https://postgis.net", New: "https://127.0.0.1:9443"},
+		},
+	},
+	// pgaudit ships one big pg_regress file. Three pooled-path accommodations:
+	//   - PreloadLibraries: pgaudit only works from shared_preload_libraries
+	//     (its event triggers error out otherwise), and the hooks must be active
+	//     on every pooled backend.
+	//   - PgPassUsers: the suite repeatedly \connects as freshly created
+	//     password-auth users (regress_user1/2, password 'password'); PGPASSWORD
+	//     is single-valued, so the harness authenticates the run through a
+	//     .pgpass file instead. The gateway authenticates any role whose SCRAM
+	//     credentials resolve, so the mid-test CREATE USER works.
+	//   - WrapTransactions: pgaudit's audit lines embed a per-backend statement
+	//     counter; only a session pinned to one backend (per \connect segment)
+	//     produces deterministic IDs. The wrap respects the file's own
+	//     BEGIN/COMMIT blocks and breaks around its VACUUMs.
+	"pgaudit": {
+		Name: "pgaudit", Repo: "https://github.com/pgaudit/pgaudit",
+		// pgaudit versions track PostgreSQL majors: 17.x is the PG17 line.
+		Tag: "17.1",
+		// sql/ and expected/ live at the repo root.
+		TestSubdir:       ".",
+		PreloadLibraries: []string{"pgaudit"},
+		WrapTransactions: true,
+		PgPassUsers: []PgPassUser{
+			{Name: "regress_user1", Password: "password"},
+			{Name: "regress_user2", Password: "password"},
+		},
+	},
+	// pg_jsonschema is Rust/pgrx like pg_graphql (same pinned pgrx line). It
+	// ships NO SQL test suite: upstream's tests are pgrx #[pg_test] functions
+	// that run inside a private embedded server, never through a client
+	// connection. The harness instead carries a faithful SQL translation of
+	// that corpus in-repo (every upstream test case, same inputs and expected
+	// values — see testdata/pg17/external/pg_jsonschema/) and runs it through
+	// multigateway like any other suite. No wrap needed: every function is
+	// IMMUTABLE and backend-state-free.
+	"pg_jsonschema": {
+		Name: "pg_jsonschema", Repo: "https://github.com/supabase/pg_jsonschema", Tag: "v0.3.4",
+		// Cargo.toml pins pgrx = "0.16.1"; the cargo-pgrx CLI must match.
+		BuildSystem: "pgrx", PgrxVersion: "0.16.1",
+		LocalTestDir: "pg_jsonschema",
 	},
 	"index_advisor": {
 		Name: "index_advisor", Repo: "https://github.com/supabase/index_advisor", Tag: "v0.2.0",

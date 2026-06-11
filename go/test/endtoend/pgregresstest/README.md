@@ -306,6 +306,51 @@ on `ExternalExtension` (`extensions.go`):
   `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
   left in pg_cron's patch). Don't use this to fake reachability of a feature
   multigres genuinely blocks — only for name/metadata references like the above.
+- **`WrapTransactions`** — materializes a transformed copy of the suite with
+  every test file wrapped in `BEGIN … COMMIT` (plus
+  `\set ON_ERROR_ROLLBACK on`), applying the same insertions to the expected
+  files so input and oracle stay in lockstep. Inside an explicit transaction
+  multigateway reserves ONE pooled backend for its duration, which makes
+  suites that assert on backend-local state across autocommit statements
+  runnable through the transaction pooler: hypopg (hypothetical indexes live
+  in backend memory), supabase_vault (pgTAP's session-temp plan state), http
+  (curl option state set via `http_set_curlopt`), pgaudit (audit lines embed a
+  per-backend statement counter). The wrap breaks around `\connect`, the
+  file's own `BEGIN`/`COMMIT` blocks, and `VACUUM` (which can't run inside a
+  transaction block); statements the gateway rejects before they reach a
+  backend stay inside. See `wrap.go`.
+- **`WrapSetupSQL`** — statements the wrap injects after each transaction
+  REOPEN (post-`VACUUM` break or `\connect`), with their exact expected output
+  spliced into the materialized expected files. hypopg injects
+  `SELECT hypopg_reset();` so a backend acquired after a break starts clean
+  regardless of pool history.
+- **`TextRewrites`** — literal substitutions applied to the materialized .sql
+  and expected copies (diff-neutral: echoed statement text changes identically
+  on both sides). http redirects its hard-coded `https://postgis.net` TLS
+  probes to the harness-local HTTPS server, keeping the suite hermetic while
+  exercising the same libcurl TLS verification paths.
+- **`NeedsHTTPBin`** — serves a local httpbin-compatible HTTP server on
+  `127.0.0.1:9080` (the port pgsql-http's suite hard-codes) and a self-signed
+  HTTPS server on `127.0.0.1:9443` for the suite's duration. Upstream's suite
+  probes for a local httpbin and silently falls back to live httpbin.org —
+  the in-process server makes the run deterministic with no live internet.
+  See `httpbin.go`.
+- **`PgPassUsers`** — role/password pairs the suite `\connect`s as. libpq
+  applies `PGPASSWORD` to every connection regardless of user, so a suite that
+  reconnects as freshly created test users (pgaudit's `regress_user1/2`) is
+  run with a harness-written `.pgpass` file (`PGPASSFILE`) instead, which
+  resolves the password per user name. The gateway authenticates any role
+  whose SCRAM credentials resolve, so mid-test `CREATE USER` works.
+- **`LocalTestDir`** — an in-repo `sql/` + `expected/` suite under
+  `testdata/pg17/external/<dir>` used instead of fixtures from the checkout,
+  for extensions that ship no SQL suite at all. pg_jsonschema's upstream tests
+  are pgrx `#[pg_test]` functions inside a private embedded server; the
+  harness carries a faithful SQL translation of that corpus (same inputs,
+  same expected values, one block per upstream test name) and runs it through
+  multigateway.
+- **`CleanupSQL`** — statements run directly on the primary after the suite
+  for cluster-level state the between-extension reset can't reach (roles:
+  supabase_vault's fixtures `CREATE ROLE bob`).
 
 Enrolling another external extension is a small catalog edit: add its
 `externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its

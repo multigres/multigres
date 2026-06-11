@@ -9,25 +9,29 @@ complete `pg_available_extensions` inventory.
 
 ## Tested extensions
 
-| Extension       | Source   | Notes                                                                               |
-| --------------- | -------- | ----------------------------------------------------------------------------------- |
-| `btree_gin`     | contrib  | -                                                                                   |
-| `btree_gist`    | contrib  | -                                                                                   |
-| `citext`        | contrib  | -                                                                                   |
-| `cube`          | contrib  | -                                                                                   |
-| `earthdistance` | contrib  | Depends on `cube`.                                                                  |
-| `fuzzystrmatch` | contrib  | -                                                                                   |
-| `hstore`        | contrib  | -                                                                                   |
-| `ltree`         | contrib  | -                                                                                   |
-| `pg_trgm`       | contrib  | -                                                                                   |
-| `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                       |
-| `unaccent`      | contrib  | -                                                                                   |
-| `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                   |
-| `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                              |
-| `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                           |
-| `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip). |
-| `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.      |
-| `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.       |
+| Extension       | Source   | Notes                                                                                         |
+| --------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `btree_gin`     | contrib  | -                                                                                             |
+| `btree_gist`    | contrib  | -                                                                                             |
+| `citext`        | contrib  | -                                                                                             |
+| `cube`          | contrib  | -                                                                                             |
+| `earthdistance` | contrib  | Depends on `cube`.                                                                            |
+| `fuzzystrmatch` | contrib  | -                                                                                             |
+| `hstore`        | contrib  | -                                                                                             |
+| `ltree`         | contrib  | -                                                                                             |
+| `pg_trgm`       | contrib  | -                                                                                             |
+| `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                 |
+| `unaccent`      | contrib  | -                                                                                             |
+| `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                             |
+| `http`          | external | pgsql-http; requires `libcurl`. Runs against a harness-local httpbin-compatible server.        |
+| `hypopg`        | external | Transaction-wrapped because hypothetical indexes are backend-local.                            |
+| `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                                        |
+| `pg_jsonschema` | external | Rust extension built with cargo-pgrx; runs an in-repo SQL translation of its pgrx test corpus. |
+| `pgaudit`       | external | Preloaded via `shared_preload_libraries`; multi-user `\connect`s use a harness `.pgpass`.     |
+| `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                                     |
+| `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip).           |
+| `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.                 |
+| `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.                  |
 
 ## Unsupported extensions
 
@@ -46,18 +50,14 @@ These extensions are not expected to be covered by the current harness.
 These extensions live outside the PostgreSQL source tree and need separate
 build and test infrastructure before they can be run by this harness.
 
-| Extension          | Notes                                       |
-| ------------------ | ------------------------------------------- |
-| `http`             | -                                           |
-| `hypopg`           | Built as `index_advisor`'s test dependency. |
-| `pg_cron`          | -                                           |
-| `pg_graphql`       | Rust extension.                             |
-| `pg_jsonschema`    | Rust extension.                             |
-| `pg_net`           | Uses a background worker.                   |
-| `pgaudit`          | -                                           |
-| `pgmq`             | -                                           |
-| `postgis`          | -                                           |
-| `postgis_topology` | Part of PostGIS.                            |
-| `supabase_vault`   | -                                           |
-| `vector`           | pgvector.                                   |
-| `wrappers`         | Rust extension.                             |
+| Extension          | Notes                     |
+| ------------------ | ------------------------- |
+| `pg_cron`          | -                         |
+| `pg_graphql`       | Rust extension.           |
+| `pg_net`           | Uses a background worker. |
+| `pgmq`             | -                         |
+| `postgis`          | -                         |
+| `postgis_topology` | Part of PostGIS.          |
+| `supabase_vault`   | -                         |
+| `vector`           | pgvector.                 |
+| `wrappers`         | Rust extension.           |
