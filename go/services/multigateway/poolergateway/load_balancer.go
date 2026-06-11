@@ -25,11 +25,11 @@ import (
 
 	"google.golang.org/grpc"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -68,7 +68,7 @@ type LoadBalancer struct {
 	// shard. Populated only from health-stream observations; never from topology.
 	// The leader_id field of the observation may name a pooler we are not
 	// currently connected to — GetConnection handles that case at read time.
-	leaders map[shardKey]*multipoolerservice.LeaderObservation
+	leaders map[shardKey]*clustermetadatapb.LeaderObservation
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
@@ -97,7 +97,7 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger,
 		logger:      logger,
 		ctx:         ctx,
 		connections: make(map[string]*PoolerConnection),
-		leaders:     make(map[shardKey]*multipoolerservice.LeaderObservation),
+		leaders:     make(map[shardKey]*clustermetadatapb.LeaderObservation),
 		grpcDialOpt: grpcDialOpt,
 	}
 }
@@ -197,9 +197,8 @@ func (lb *LoadBalancer) maybeSeedColdStartLeaderLocked(key shardKey, pooler *clu
 	if lb.leaders[key] != nil {
 		return
 	}
-	lb.leaders[key] = &multipoolerservice.LeaderObservation{
-		LeaderId:   pooler.Id,
-		LeaderTerm: 0,
+	lb.leaders[key] = &clustermetadatapb.LeaderObservation{
+		LeaderId: pooler.Id,
 	}
 	lb.logger.Debug("cold-start leader hint from topology",
 		"pooler_id", poolerIDString(pooler.Id),
@@ -268,12 +267,13 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	}
 
 	// REPLICA: collect every connection eligible to serve reads in the shard.
-	// A consensus-confirmed leader (term >= 1) is excluded by ID; the
-	// cold-start topology seed (term 0) is treated as if no leader is known
+	// A consensus-confirmed leader (rule > zero) is excluded by ID; the
+	// cold-start topology seed (zero rule) is treated as if no leader is known
 	// yet, so a pooler that has since transitioned to Type=REPLICA can still
-	// be selected.
+	// be selected. CompareRuleNumbers treats a nil/zero rule as the smallest
+	// value, so this also covers the no-leader-observed case.
 	confirmedLeaderID := ""
-	if leaderObs != nil && leaderObs.LeaderTerm > 0 {
+	if commonconsensus.CompareRuleNumbers(leaderObs.GetLeaderRuleNumber(), nil) > 0 {
 		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
 	}
 	var candidates []*PoolerConnection
@@ -448,18 +448,21 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
+	// CompareRuleNumbers treats a nil rule as the smallest value, so a first
+	// observation (existing == nil) compares strictly greater and is recorded.
 	existing := lb.leaders[key]
+	cmp := commonconsensus.CompareRuleNumbers(obs.GetLeaderRuleNumber(), existing.GetLeaderRuleNumber())
 
 	switch {
-	case existing == nil || obs.LeaderTerm > existing.LeaderTerm:
-		// New leader or higher term — record identity unconditionally. The
+	case cmp > 0:
+		// New leader or higher rule — record identity unconditionally. The
 		// named pooler may not be in `connections` yet; that's fine.
 		lb.leaders[key] = obs
 		lb.logger.Debug("leader observation recorded",
 			"tablegroup", key.tableGroup,
 			"shard", key.shard,
 			"leader_id", poolerIDString(obs.LeaderId),
-			"term", obs.LeaderTerm)
+			"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
 
 		// If the named leader is connected and serving, drain the buffer.
 		// (Only stop failover buffering when the leader is SERVING — the
@@ -472,8 +475,8 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 			lb.notifyIfLeaderServingLocked(key, leaderConn)
 		}
 
-	case obs.LeaderTerm == existing.LeaderTerm:
-		// Same term — the leader is already known but may not have been
+	case cmp == 0:
+		// Same rule — the leader is already known but may not have been
 		// SERVING when we first saw the observation. Re-check now so that
 		// StopBuffering fires once the leader transitions to SERVING.
 		if leaderConn, ok := lb.connections[poolerIDString(existing.LeaderId)]; ok {
@@ -568,7 +571,7 @@ func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()
 	connections := lb.connections
 	lb.connections = make(map[string]*PoolerConnection)
-	lb.leaders = make(map[shardKey]*multipoolerservice.LeaderObservation)
+	lb.leaders = make(map[shardKey]*clustermetadatapb.LeaderObservation)
 	lb.mu.Unlock()
 
 	lb.logger.Info("closing all pooler connections", "count", len(connections))

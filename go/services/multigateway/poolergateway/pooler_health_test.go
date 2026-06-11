@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/prototest"
 )
 
 func TestPoolerHealth_IsServing(t *testing.T) {
@@ -87,10 +87,7 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "pooler1",
 		}
-		primaryObs := &multipoolerservice.LeaderObservation{
-			LeaderId:   poolerID,
-			LeaderTerm: 42,
-		}
+		primaryObs := &clustermetadatapb.LeaderObservation{LeaderId: poolerID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
@@ -107,10 +104,10 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 
 		// Verify all fields are copied
 		require.NotNil(t, copy)
-		assert.Equal(t, original.Target, copy.Target)
-		assert.Equal(t, original.PoolerID, copy.PoolerID)
+		prototest.AssertEqual(t, original.Target, copy.Target)
+		prototest.AssertEqual(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
-		assert.Equal(t, original.LeaderObservation, copy.LeaderObservation)
+		prototest.AssertEqual(t, original.LeaderObservation, copy.LeaderObservation)
 		assert.Equal(t, original.LastError, copy.LastError)
 		assert.Equal(t, original.LastResponse, copy.LastResponse)
 

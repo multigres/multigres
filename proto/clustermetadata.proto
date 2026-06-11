@@ -461,14 +461,12 @@ message PoolerPosition {
 }
 
 // LeaderObservation represents a pooler's view of who the consensus leader is.
-// Stored on the leader's own MultiPooler topology record (self_leadership
-// field) so multigateway can bootstrap leader routing from etcd at discovery
-// time without relying on MultiPooler.type as a hint.
-//
-// Distinct from multipoolerservice.LeaderObservation, which carries the same
-// information on the multipooler health stream with an older (int64 leader_term)
-// shape. The two will eventually converge on this type via the gateway-routing
-// migration.
+// It is carried in two places:
+//   - the leader's own MultiPooler topology record (self_leadership field), so
+//     multigateway can bootstrap leader routing from etcd at discovery time
+//     without relying on MultiPooler.type as a hint; and
+//   - the multipooler health stream
+//     (StreamPoolerHealthResponse.leader_observation).
 message LeaderObservation {
   // leader_id is the ID of the pooler this node believes is the consensus leader.
   // May be this pooler's own ID if it believes itself to be leader.
