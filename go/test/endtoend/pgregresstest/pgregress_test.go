@@ -223,6 +223,15 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Collect suite results for the unified report
 	var suites []SuiteResult
 
+	// INVARIANT: the external suite must remain the LAST suite in this
+	// sequence. Its server config (shared_preload_libraries and friends, see
+	// externalServerConfPaths) is applied to the cluster only at the
+	// reinitialization that precedes it, precisely so the suites before it run
+	// on a stock cluster — the preloaded libraries are not inert (plpgsql_check
+	// emits cursor-leak WARNINGs the core plpgsql test does not expect). A
+	// suite added or reordered AFTER the external phase would silently run with
+	// those preloads active.
+
 	// Phase 5: Run regression tests
 	if runRegress {
 		t.Run("regression", func(t *testing.T) {

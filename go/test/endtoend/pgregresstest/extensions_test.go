@@ -58,6 +58,21 @@ func TestExternalBuildList_OrdersHypopgBeforeIndexAdvisor(t *testing.T) {
 		"hypopg must be installed before index_advisor")
 }
 
+// TestExternalContribDeps_ResolvesThroughBuildDependencies verifies the
+// contrib-module resolution walks the full build list (selected extensions plus
+// their DependsOn chain), so a narrowed run still installs a dependency's
+// ContribDeps: PGEXTERNAL_TESTS=pgsodium pulls in pgtap (DependsOn), whose
+// extension.sql needs citext/isn/ltree.
+func TestExternalContribDeps_ResolvesThroughBuildDependencies(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "pgsodium")
+	assert.Equal(t, []string{"citext", "isn", "ltree"}, ExternalContribDeps(),
+		"pgtap is built as pgsodium's dependency, so its contrib deps must be installed")
+
+	t.Setenv("PGEXTERNAL_TESTS", "vector")
+	assert.Empty(t, ExternalContribDeps(),
+		"pgvector is self-contained: no contrib deps directly or via DependsOn")
+}
+
 // TestExternalPreloadLibraries_MergesSelection verifies the preload union
 // honors PGEXTERNAL_TESTS and merges across extensions, since the generated
 // shared_preload_libraries snippet is built from it.

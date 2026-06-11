@@ -609,13 +609,20 @@ func ExternalBuildList() []ExternalExtension {
 
 // ExternalContribDeps returns the deduplicated contrib modules the selected
 // external extensions need installed before their suites run (ExternalExtension.
-// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalModules. The build phase
-// installs these so external-only runs work; a full run has already installed
-// all of contrib, which makes the targeted install a harmless no-op.
+// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalBuildList — the selected
+// extensions PLUS their DependsOn build dependencies. Walking the build list
+// rather than just the tested set matters for robustness: today every
+// dependency's ContribDeps are only needed by its own tests (pgtap's
+// extension.sql CREATEs citext/isn/ltree, and pgtap-as-a-dependency never runs
+// them), but if a future DependsOn target needed a contrib module merely to be
+// installable, a tested-set-only walk would break it silently in narrowed
+// PGEXTERNAL_TESTS runs. The over-approximation costs at most a few idempotent
+// `make -C contrib/<mod> install` calls; a full run has already installed all
+// of contrib, which makes the targeted install a harmless no-op either way.
 func ExternalContribDeps() []string {
 	var deps []string
 	seen := map[string]bool{}
-	for _, e := range ExternalModules() {
+	for _, e := range ExternalBuildList() {
 		for _, d := range e.ContribDeps {
 			if !seen[d] {
 				seen[d] = true

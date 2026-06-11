@@ -64,6 +64,3 @@ build and test infrastructure before they can be run by this harness.
 | `postgis`          | -                                                     |
 | `postgis_topology` | Part of PostGIS.                                      |
 | `wrappers`         | Rust; needs toolchains the harness doesn't provision. |
-| `supabase_vault`   | -                                                     |
-| `vector`           | pgvector.                                             |
-| `wrappers`         | Rust extension.                                       |
