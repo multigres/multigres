@@ -53,6 +53,43 @@ func TestWithPgInitdbExtraConfFiles(t *testing.T) {
 	})
 }
 
+// TestAddPgInitdbExtraConfFiles verifies the post-setup mutator appends conf
+// snippet paths to EVERY pgctld instance's existing list (it must not replace
+// the base snippets applied at setup), and that the appended paths land in the
+// argv pgctld is restarted with — which is how they take effect on the next
+// ReinitializeCluster. pgregresstest relies on this to scope the external
+// extension suite's server config (shared_preload_libraries) to the external
+// phase's cluster only.
+func TestAddPgInitdbExtraConfFiles(t *testing.T) {
+	s := &ShardSetup{
+		Multipoolers: map[string]*MultipoolerInstance{
+			"pooler-1": {Name: "pooler-1", Pgctld: &ProcessInstance{PgInitdbExtraConfFiles: []string{"/tmp/base.conf"}}},
+			"pooler-2": {Name: "pooler-2", Pgctld: &ProcessInstance{PgInitdbExtraConfFiles: []string{"/tmp/base.conf"}}},
+		},
+	}
+
+	s.AddPgInitdbExtraConfFiles("/tmp/preload.conf", "/tmp/pg_cron.conf")
+
+	for name, inst := range s.Multipoolers {
+		assert.Equal(t,
+			[]string{"/tmp/base.conf", "/tmp/preload.conf", "/tmp/pg_cron.conf"},
+			inst.Pgctld.PgInitdbExtraConfFiles,
+			"%s: appended snippets must follow the base ones (later snippets win per GUC)", name)
+
+		// The snippets only matter if the restarted pgctld is launched with
+		// them: assert the rebuilt argv carries one --pg-initdb-extra-conf per
+		// path, in order.
+		args := buildPgctldServerArgs(inst.Pgctld)
+		var confArgs []string
+		for i, a := range args {
+			if a == "--pg-initdb-extra-conf" {
+				confArgs = append(confArgs, args[i+1])
+			}
+		}
+		assert.Equal(t, []string{"/tmp/base.conf", "/tmp/preload.conf", "/tmp/pg_cron.conf"}, confArgs, name)
+	}
+}
+
 // TestProcessInstancePgInitdbArgs pins the pgctld arg-construction path
 // that forwards PgInitdbArgs as --pg-initdb-args. Bypasses the actual
 // process spawn (which needs a real pgctld binary on PATH) by reading the

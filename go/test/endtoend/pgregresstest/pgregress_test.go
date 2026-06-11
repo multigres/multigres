@@ -18,6 +18,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +122,23 @@ func TestPostgreSQLRegression(t *testing.T) {
 			"--with-ssl=openssl",
 		)
 	}
+	// An external-only run still needs OpenSSL when a selected extension's suite
+	// depends on contrib pgcrypto (pgjwt): without --with-ssl=openssl the contrib
+	// Makefile never builds pgcrypto, so the targeted InstallContribModules below
+	// would fail. Skipped when runContrib already added the flag.
+	if runExternal && !runContrib && slices.Contains(ExternalContribDeps(), "pgcrypto") {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, "--with-ssl=openssl")
+	}
+	// PG_CONFIGURE_EXTRA_ARGS appends host-specific ./configure flags. Needed for
+	// local macOS runs of suites that require OpenSSL (contrib, or external with
+	// a pgcrypto dependency): Homebrew's keg lives outside the default search
+	// path, so e.g.
+	//   PG_CONFIGURE_EXTRA_ARGS="--with-includes=/opt/homebrew/include --with-libraries=/opt/homebrew/lib"
+	// CI (Linux) installs the dev packages into default paths and leaves this
+	// unset.
+	if extra := os.Getenv("PG_CONFIGURE_EXTRA_ARGS"); extra != "" {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, strings.Fields(extra)...)
+	}
 
 	// Phase 1: Setup PostgreSQL source
 	t.Logf("Phase 1: Setting up PostgreSQL source...")
@@ -169,12 +188,14 @@ func TestPostgreSQLRegression(t *testing.T) {
 		}
 		for _, ext := range ExternalBuildList() {
 			spec := pgbuilder.ExtensionBuildSpec{
-				Name:        ext.Name,
-				Repo:        ext.Repo,
-				Tag:         ext.Tag,
-				BuildSubdir: ext.BuildSubdir,
-				BuildSystem: ext.BuildSystem,
-				PgrxVersion: ext.PgrxVersion,
+				Name:          ext.Name,
+				Repo:          ext.Repo,
+				Tag:           ext.Tag,
+				Commit:        ext.Commit,
+				BuildSubdir:   ext.BuildSubdir,
+				BuildSystem:   ext.BuildSystem,
+				PgrxVersion:   ext.PgrxVersion,
+				PkgConfigDeps: ext.PkgConfigDeps,
 			}
 			if _, err := builder.InstallExternalExtension(t, buildCtx, spec); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)
@@ -201,6 +222,15 @@ func TestPostgreSQLRegression(t *testing.T) {
 
 	// Collect suite results for the unified report
 	var suites []SuiteResult
+
+	// INVARIANT: the external suite must remain the LAST suite in this
+	// sequence. Its server config (shared_preload_libraries and friends, see
+	// externalServerConfPaths) is applied to the cluster only at the
+	// reinitialization that precedes it, precisely so the suites before it run
+	// on a stock cluster — the preloaded libraries are not inert (plpgsql_check
+	// emits cursor-leak WARNINGs the core plpgsql test does not expect). A
+	// suite added or reordered AFTER the external phase would silently run with
+	// those preloads active.
 
 	// Phase 5: Run regression tests
 	if runRegress {
@@ -339,9 +369,18 @@ func TestPostgreSQLRegression(t *testing.T) {
 	}
 
 	// Reinitialize before the external suite if any prior suite ran — earlier
-	// suites can leave PostgreSQL in a degraded state.
+	// suites can leave PostgreSQL in a degraded state. This reinit also applies
+	// the external extensions' server config (shared_preload_libraries and
+	// friends) to the fresh cluster: the snippets are deliberately NOT applied
+	// at initial setup in combined runs, so the regression/isolation/contrib
+	// suites above ran on a stock cluster (the preloads are not always inert —
+	// see externalServerConfPaths). The external suite is last, so the config
+	// stays in effect only for it.
 	if runExternal && (runRegress || runIsolation || runContrib) {
-		t.Logf("Reinitializing cluster before external suite...")
+		t.Logf("Reinitializing cluster before external suite (applying external server config)...")
+		if confs := externalServerConfPaths(); len(confs) > 0 {
+			setup.AddPgInitdbExtraConfFiles(confs...)
+		}
 		setup.ReinitializeCluster(t)
 	}
 

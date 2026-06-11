@@ -1,28 +1,33 @@
 # PostgreSQL Extension Coverage
 
 Multigres runs PostgreSQL extension compatibility coverage through the
-`pgregresstest` end-to-end harness. Covered contrib extensions run their
-PostgreSQL `pg_regress` suites through multigateway.
+`pgregresstest` end-to-end harness. Covered extensions run their shipped test
+suites (`pg_regress` or pgTAP) through multigateway.
 
 This page lists the extensions currently tracked by the harness. It is not a
 complete `pg_available_extensions` inventory.
 
 ## Tested extensions
 
-| Extension       | Source  | Notes                                         |
-| --------------- | ------- | --------------------------------------------- |
-| `btree_gin`     | contrib | -                                             |
-| `btree_gist`    | contrib | -                                             |
-| `citext`        | contrib | -                                             |
-| `cube`          | contrib | -                                             |
-| `earthdistance` | contrib | Depends on `cube`.                            |
-| `fuzzystrmatch` | contrib | -                                             |
-| `hstore`        | contrib | -                                             |
-| `ltree`         | contrib | -                                             |
-| `pg_trgm`       | contrib | -                                             |
-| `pgcrypto`      | contrib | Requires PostgreSQL to be built with OpenSSL. |
-| `unaccent`      | contrib | -                                             |
-| `uuid-ossp`     | contrib | Requires PostgreSQL UUID support.             |
+| Extension       | Source   | Notes                                                                               |
+| --------------- | -------- | ----------------------------------------------------------------------------------- |
+| `btree_gin`     | contrib  | -                                                                                   |
+| `btree_gist`    | contrib  | -                                                                                   |
+| `citext`        | contrib  | -                                                                                   |
+| `cube`          | contrib  | -                                                                                   |
+| `earthdistance` | contrib  | Depends on `cube`.                                                                  |
+| `fuzzystrmatch` | contrib  | -                                                                                   |
+| `hstore`        | contrib  | -                                                                                   |
+| `ltree`         | contrib  | -                                                                                   |
+| `pg_trgm`       | contrib  | -                                                                                   |
+| `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                       |
+| `unaccent`      | contrib  | -                                                                                   |
+| `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                   |
+| `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                              |
+| `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                           |
+| `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip). |
+| `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.      |
+| `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.       |
 
 ## Unsupported extensions
 
@@ -41,23 +46,18 @@ These extensions are not expected to be covered by the current harness.
 These extensions live outside the PostgreSQL source tree and need separate
 build and test infrastructure before they can be run by this harness.
 
-| Extension          | Notes                     |
-| ------------------ | ------------------------- |
-| `http`             | -                         |
-| `hypopg`           | -                         |
-| `index_advisor`    | Depends on `hypopg`.      |
-| `pg_cron`          | -                         |
-| `pg_graphql`       | Rust extension.           |
-| `pg_jsonschema`    | Rust extension.           |
-| `pg_net`           | Uses a background worker. |
-| `pgaudit`          | -                         |
-| `pgjwt`            | Depends on `pgcrypto`.    |
-| `pgmq`             | -                         |
-| `pgsodium`         | Requires `libsodium`.     |
-| `pgtap`            | -                         |
-| `plpgsql_check`    | -                         |
-| `postgis`          | -                         |
-| `postgis_topology` | Part of PostGIS.          |
-| `supabase_vault`   | -                         |
-| `vector`           | pgvector.                 |
-| `wrappers`         | Rust extension.           |
+| Extension          | Notes                                       |
+| ------------------ | ------------------------------------------- |
+| `http`             | -                                           |
+| `hypopg`           | Built as `index_advisor`'s test dependency. |
+| `pg_cron`          | -                                           |
+| `pg_graphql`       | Rust extension.                             |
+| `pg_jsonschema`    | Rust extension.                             |
+| `pg_net`           | Uses a background worker.                   |
+| `pgaudit`          | -                                           |
+| `pgmq`             | -                                           |
+| `postgis`          | -                                           |
+| `postgis_topology` | Part of PostGIS.                            |
+| `supabase_vault`   | -                                           |
+| `vector`           | pgvector.                                   |
+| `wrappers`         | Rust extension.                             |

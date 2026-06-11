@@ -1573,6 +1573,24 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	}
 }
 
+// AddPgInitdbExtraConfFiles appends postgresql.conf snippet paths to every
+// pgctld instance's --pg-initdb-extra-conf list. The snippets take effect when
+// PostgreSQL is next initialized — i.e. on the next ReinitializeCluster (pgctld
+// rebuilds its args from the instance state on every Start) — not on the
+// running cluster.
+//
+// Use this for server config that only one test phase needs: pgregresstest's
+// external extension suite preloads libraries (pg_cron, plpgsql_check) that
+// must not be active while the core regression/isolation/contrib suites run
+// (preloads are not always inert — plpgsql_check's cursor-leak detection emits
+// WARNINGs stock PostgreSQL doesn't), so it appends them here right before the
+// reinit that precedes the external phase.
+func (s *ShardSetup) AddPgInitdbExtraConfFiles(paths ...string) {
+	for _, inst := range s.Multipoolers {
+		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths...)
+	}
+}
+
 // ReinitializeCluster tears down the running cluster and brings up a fresh one.
 // It stops all processes (multigateway, multipooler, pgctld), removes PostgreSQL
 // data directories, restarts everything, and re-bootstraps via multiorch.

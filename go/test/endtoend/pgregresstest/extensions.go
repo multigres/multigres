@@ -83,8 +83,8 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
 	{"http", KindExternal, StatusExternal, ""},
-	{"hypopg", KindExternal, StatusExternal, ""},
-	{"index_advisor", KindExternal, StatusExternal, "depends on hypopg"},
+	{"hypopg", KindExternal, StatusExternal, "built as index_advisor's dependency (externalSpecs) but not run as its own suite — see the hypopg spec for why"},
+	{"index_advisor", KindExternal, StatusCovered, "Supabase index advisor; pure-SQL PGXS module; depends on hypopg (built via DependsOn). Its tests are BEGIN/ROLLBACK-wrapped, so hypopg's backend-local hypothetical indexes stay on the pinned backend"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
 	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
@@ -96,12 +96,12 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pg_trgm", KindContrib, StatusCovered, ""},
 	{"pgaudit", KindExternal, StatusExternal, ""},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
-	{"pgjwt", KindExternal, StatusExternal, "depends on pgcrypto"},
+	{"pgjwt", KindExternal, StatusCovered, "pure-SQL JWT extension; pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql. Depends on pgcrypto (contrib) and pgtap; upstream never tags releases, so it is pinned to a commit"},
 	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
-	{"pgsodium", KindExternal, StatusExternal, "libsodium"},
-	{"pgtap", KindExternal, StatusExternal, "test dependency of pg_partman; built from externalSpecs but not run as its own suite"},
+	{"pgsodium", KindExternal, StatusCovered, "libsodium crypto wrapper (needs libsodium via pkg-config to build); pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql in keyless mode — server-key/TCE tests self-skip via \\if :serverkeys since pgsodium is not in shared_preload_libraries"},
+	{"pgtap", KindExternal, StatusCovered, "runs its own pg_regress suite (every test wrapped in BEGIN…ROLLBACK by test/setup.sql); extension.sql needs contrib citext/isn/ltree installed (ContribDeps). Also the test dependency of pg_partman, pgjwt, and pgsodium"},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
-	{"plpgsql_check", KindExternal, StatusExternal, ""},
+	{"plpgsql_check", KindExternal, StatusCovered, "plpgsql linter/profiler; needs shared_preload_libraries (PreloadLibraries) so the passive-mode hooks and shared-memory profiler work on every pooled backend; the gateway-blocked LOAD statements its tests open with are patched"},
 	{"postgis", KindExternal, StatusExternal, ""},
 	{"postgis_topology", KindExternal, StatusExternal, "PostGIS"},
 	{"postgres_fdw", KindContrib, StatusUnsupported, "pooler blocks CREATE SERVER / outbound connections"},
@@ -145,7 +145,14 @@ type ExtensionInstall struct {
 type ExternalExtension struct {
 	Name string
 	Repo string
-	Tag  string
+	// Tag is the git tag the harness clones. Exactly one of Tag and Commit must
+	// be set.
+	Tag string
+
+	// Commit pins a full commit SHA instead of a tag, for upstreams that never
+	// tag releases (pgjwt's last release predates its tags entirely — the repo
+	// has none). A SHA is as reproducible as a tag; see pgbuilder.cloneExtension.
+	Commit string
 
 	// BuildSubdir is the directory within the checkout that holds the PGXS
 	// Makefile, relative to the clone root. pgvector and pg_cron keep it at the
@@ -181,10 +188,15 @@ type ExternalExtension struct {
 	// multi-stage orchestration with out-of-band commits (test_procedure/).
 	TestGlobs []string
 
-	// ExcludeGlobs (pgTAP) removes files that TestGlobs would otherwise select,
-	// matched against the path relative to TestSubdir. Use it for
-	// a test that runs cleanly but isn't a reliable signal — e.g. a date-calibrated
-	// expectation that drifts with the calendar (see pg_partman below).
+	// ExcludeGlobs removes files the harness would otherwise select, matched
+	// against the path relative to TestSubdir. On the pgTAP path it filters the
+	// TestGlobs matches; on the pg_regress path it filters the derived
+	// sql/*.sql wildcard (so entries look like "sql/<name>.sql"; it does not
+	// apply when RegressTests pins an explicit list). Use it for a test that
+	// runs cleanly but isn't a reliable signal — a date-calibrated expectation
+	// that drifts with the calendar (pg_partman) — or one whose entire subject
+	// is a pattern the gateway redefines by design — pgtap's prepared-statement
+	// fixture files (see the pgtap spec below).
 	ExcludeGlobs []string
 
 	// PreCreateExtensions lists extensions to CREATE EXTENSION through multigateway,
@@ -211,6 +223,24 @@ type ExternalExtension struct {
 	// them under pgmq-extension/test, alongside its BuildSubdir.
 	TestSubdir string
 
+	// ExpectedSubdir is the directory within the checkout that holds the
+	// expected/ output files, when it differs from TestSubdir. Empty means
+	// TestSubdir (the common layout: sql/ and expected/ side by side). hypopg
+	// splits them — sql under test/sql but expected at the repo root — because
+	// pg_regress's --expecteddir defaults to the CWD (the module root under
+	// `make installcheck`), not to --inputdir. Mirrored here so the patch
+	// pipeline diffs against the right files.
+	ExpectedSubdir string
+
+	// RegressTests, when non-empty, is the explicit pg_regress test list — a
+	// mirror of the extension's REGRESS Makefile variable — used instead of
+	// deriving the list from <TestSubdir>/sql/*.sql. Needed when the wildcard
+	// convention doesn't hold: plpgsql_check ships per-major-version test files
+	// (plpgsql_check_active-14 … -19) and its Makefile selects only the pair
+	// matching $(MAJORVERSION), so globbing would run other majors' tests against
+	// a PG17 server. Keep in sync with the pinned tag's Makefile.
+	RegressTests []string
+
 	// ScratchDatabases names databases the harness creates directly on the
 	// primary (bypassing multigateway, like the public-schema reset) before the
 	// suite runs and drops afterward. This is a TEST-ONLY accommodation, NOT a
@@ -234,10 +264,30 @@ type ExternalExtension struct {
 	// testdata/pg<major>/external/ that the cluster must apply before postgres
 	// starts (appended at initdb time, last-write-wins over the template). Use
 	// it for extensions that need server-level configuration the pooled query
-	// path can't set, e.g. pg_cron's background worker requires
-	// shared_preload_libraries = 'pg_cron' or CREATE EXTENSION errors out. Empty
-	// for extensions that need nothing beyond the stock cluster (pgvector).
+	// path can't set, e.g. pg_partman's max_locks_per_transaction. Empty for
+	// extensions that need nothing beyond the stock cluster (pgvector).
+	//
+	// Do NOT put shared_preload_libraries in these snippets: each GUC is
+	// last-write-wins across appended snippets, so two extensions' files would
+	// silently clobber each other's library list. Use PreloadLibraries instead,
+	// which the harness merges into one generated snippet.
 	ServerConfigFile string
+
+	// PreloadLibraries names the shared libraries this extension needs in
+	// shared_preload_libraries before postgres starts. The harness takes the
+	// union across the selected extensions and writes a single generated
+	// shared_preload_libraries line (see externalServerConfPaths), because the
+	// GUC is one list and snippet files would clobber each other. pg_cron's
+	// background worker can't start without it; plpgsql_check needs it so its
+	// passive-mode hooks and shared-memory profiler are active on every pooled
+	// backend (a session-level LOAD would only affect one backend, and the
+	// gateway blocks LOAD anyway).
+	PreloadLibraries []string
+
+	// PkgConfigDeps names pkg-config packages whose headers/libs the PGXS build
+	// needs (pgsodium: libsodium). Resolved to -I/-L flags at build time; see
+	// pgbuilder.ExtensionBuildSpec.PkgConfigDeps.
+	PkgConfigDeps []string
 
 	// DependsOn names other externalSpecs the harness must clone, build, and
 	// install before this extension's suite runs, because the suite CREATEs those
@@ -313,19 +363,55 @@ var externalSpecs = map[string]ExternalExtension{
 		// pg_cron's fixtures manage the extension themselves (CREATE EXTENSION pg_cron
 		// VERSION '1.0' is the first statement, then they DROP and recreate it at a
 		// newer version), so PreCreateExtensions is left empty to avoid colliding.
-		TestSubdir: ".", ServerConfigFile: "pg_cron.conf",
+		// The background worker (job launcher) can only start when the library is
+		// preloaded — CREATE EXTENSION pg_cron errors out otherwise; the conf snippet
+		// carries the rest (cron.database_name).
+		TestSubdir: ".", ServerConfigFile: "pg_cron.conf", PreloadLibraries: []string{"pg_cron"},
 		// pg_cron-test.sql references pgcron_dbno/pgcron_dbyes by name (it REVOKEs
 		// CONNECT on one and schedules/alters jobs targeting both) but never
 		// connects to them; front-load them on the primary so those metadata and
 		// CONNECT-privilege checks run for real. See ScratchDatabases.
 		ScratchDatabases: []string{"pgcron_dbno", "pgcron_dbyes"},
 	},
-	// pgtap is a build dependency only: pg_partman's pgTAP tests need the pgtap
-	// extension installed. The harness clones/builds/installs it (via pg_partman's
-	// DependsOn) but never runs its own suite, so it carries no test fields and is
-	// not StatusCovered in the catalog.
+	// pgtap is both a test dependency (pg_partman, pgjwt, and pgsodium need the
+	// pgtap extension installed before their suites run) and covered in its own
+	// right: it ships a classic pg_regress suite under test/{sql,expected}.
+	// Every test file starts with `\i test/setup.sql`, which opens a BEGIN that
+	// the file ROLLBACKs at the end — so the whole file runs on one pinned
+	// backend and pgTAP's session-temp plan state is consistent and discarded
+	// (the same property that makes pg_partman's wrapped tests runnable; see
+	// runExternalPgTAP). That `\i` is CWD-relative and runExternalRegress runs
+	// pg_regress from the clone root, matching upstream's `make installcheck`.
 	"pgtap": {
 		Name: "pgtap", Repo: "https://github.com/theory/pgtap", Tag: "v1.3.4",
+		TestSubdir: "test",
+		// The tests never CREATE EXTENSION pgtap themselves (upstream's
+		// installcheck machinery does it out of band), so preload it.
+		PreCreateExtensions: []ExtensionInstall{{Name: "pgtap"}},
+		// extension.sql CREATEs citext, isn, and ltree inside its transaction;
+		// upstream's Makefile excludes the file when their control files are
+		// missing. Install them so the test runs instead of being excluded.
+		ContribDeps: []string{"citext", "isn", "ltree"},
+		// Excluded: the files whose entire subject is passing a SQL-level prepared
+		// statement NAME into pgTAP assertions (set_eq('mytest', …),
+		// performs_ok('mytest', …)), which pgTAP implements as `EXECUTE mytest`
+		// inside a plpgsql function. multigateway owns SQL-level PREPARE by design
+		// (the statement lives in the gateway's consolidator under a canonical
+		// name; the backend session never sees one named `mytest` — see
+		// planner/execute_unwrap.go), and an EXECUTE inside a function body is
+		// invisible to the gateway, so it fails with "prepared statement does not
+		// exist". That first error aborts each file's single wrapping transaction,
+		// so the rest of the file can't produce comparable output — a patch would
+		// have to absorb the whole file, hiding real regressions. throwtap is NOT
+		// excluded: its four prepared/execute assertions run inside throws_ok's
+		// exception trap, so the file completes and a narrow patch documents just
+		// those by-design failures.
+		ExcludeGlobs: []string{
+			"sql/performs_ok.sql",
+			"sql/performs_within.sql",
+			"sql/resultset.sql",
+			"sql/valueset.sql",
+		},
 	},
 	"pg_partman": {
 		Name: "pg_partman", Repo: "https://github.com/pgpartman/pg_partman", Tag: "v5.4.3",
@@ -353,6 +439,109 @@ var externalSpecs = map[string]ExternalExtension{
 		// the default max_locks_per_transaction (64) risks a cluster crash. pgmq,
 		// which DependsOn pg_partman, runs fine with this raised too.
 		ServerConfigFile: "pg_partman.conf",
+	},
+	// hypopg is a build dependency only: index_advisor's tests `create extension
+	// index_advisor cascade`, which pulls in hypopg (its control file requires
+	// it). hypopg's OWN suite cannot run through the gateway: hypothetical
+	// indexes live in backend-local memory and its tests are autocommit, so
+	// hypopg_create_index and the EXPLAINs that should see the index land on
+	// different pooled backends. index_advisor's tests dodge that by wrapping
+	// everything in BEGIN…ROLLBACK (one pinned backend), which is why it is
+	// covered and hypopg is not.
+	"hypopg": {
+		Name: "hypopg", Repo: "https://github.com/HypoPG/hypopg", Tag: "1.4.2",
+	},
+	"index_advisor": {
+		Name: "index_advisor", Repo: "https://github.com/supabase/index_advisor", Tag: "v0.2.0",
+		// Standard PGXS test layout (test/sql + test/expected, REGRESS_OPTS
+		// --use-existing --inputdir=test). Every test file CREATEs the extension
+		// itself (create extension index_advisor cascade) inside its transaction,
+		// so nothing is preloaded.
+		TestSubdir: "test",
+		DependsOn:  []string{"hypopg"},
+	},
+	"plpgsql_check": {
+		Name: "plpgsql_check", Repo: "https://github.com/okbob/plpgsql_check", Tag: "v2.9.1",
+		// sql/ and expected/ live at the repo root (like pg_cron).
+		TestSubdir: ".",
+		// Mirror of the Makefile's REGRESS list for MAJORVERSION=17:
+		// plpgsql_check_passive plpgsql_check_active plpgsql_check_active-17
+		// plpgsql_check_passive-17 plpgsql_check_profiler. The sql/ dir also ships
+		// -14…-19 files for other majors, so the wildcard derivation would run the
+		// wrong ones; see RegressTests.
+		RegressTests: []string{
+			"plpgsql_check_passive",
+			"plpgsql_check_active",
+			"plpgsql_check_active-17",
+			"plpgsql_check_passive-17",
+			"plpgsql_check_profiler",
+		},
+		// The passive tests configure checking via the plpgsql_check.mode GUC and
+		// the profiler test reads execution counters back — both need the library
+		// active on EVERY pooled backend, and the profiler's counters must be in
+		// shared memory (which plpgsql_check only uses when preloaded) so a read
+		// from one backend sees executions counted on another. The tests' own
+		// `load 'plpgsql_check'` would do neither through the pooler — it is
+		// blocked by the gateway (patched as an extra ERROR line) and would only
+		// affect a single backend anyway.
+		PreloadLibraries: []string{"plpgsql_check"},
+		// NOTE: this preload is exactly why the external server config is scoped
+		// to the external phase's cluster (see externalServerConfPaths). Most of
+		// plpgsql_check is inert when preloaded (mode defaults to by_function,
+		// profiler/tracer to off) but cursors_leaks defaults to ON and emits
+		// "cursor ... is not closed" WARNINGs that the core regression suite's
+		// plpgsql test does not expect — and it cannot simply be disabled: with
+		// the library preloaded and cursors_leaks turned off (conf or session),
+		// any exception-trapping plpgsql function HANGS. That hang is an upstream
+		// plpgsql_check bug, reproduced on stock PostgreSQL 17.6 (no multigres)
+		// with both v2.9.1 and master.
+	},
+	// pgjwt's upstream has never tagged a release, so it is pinned to the current
+	// HEAD commit (2023; the project is mature and dormant) — same
+	// reproducibility as a tag, see ExternalExtension.Commit.
+	"pgjwt": {
+		Name: "pgjwt", Repo: "https://github.com/michelp/pgjwt",
+		Commit:  "f3d82fd30151e754e19ce5d6a06c71c20689ce3d",
+		Harness: HarnessPgTAP,
+		// One pgTAP file at the repo root. It CREATEs pgcrypto, pgtap, and pgjwt
+		// itself (in autocommit, on a public schema the harness has just reset),
+		// then wraps all assertions in BEGIN … plan(23) … ROLLBACK — the
+		// transaction-wrapped shape the pooled pgTAP path requires.
+		TestSubdir: ".", TestGlobs: []string{"test.sql"},
+		DependsOn: []string{"pgtap"},
+		// pgcrypto ships in contrib and needs --with-ssl=openssl at configure time;
+		// the harness enables that automatically when an extension lists pgcrypto
+		// here (see TestPostgreSQLRegression).
+		ContribDeps: []string{"pgcrypto"},
+	},
+	"pgsodium": {
+		Name: "pgsodium", Repo: "https://github.com/michelp/pgsodium",
+		// Pinned to a commit, not the last tag: v3.1.9 (2023) predates PostgreSQL
+		// 17, whose automatic array types for composite types add entries to
+		// pg_depend that the tag's "Check extension object list" fixture doesn't
+		// expect, so the tag's suite fails against ANY PG17 server (gateway or
+		// not). This commit is upstream main with the PG17 fixture fix; the
+		// extension itself is still version 3.1.9 (the control file is unchanged).
+		Commit:  "38d22897822191079bb494bd30af2ba37e32b3a0",
+		Harness: HarnessPgTAP,
+		// test/test.sql is the single entry point; it \ir-includes the per-API
+		// files next to it (psql resolves \ir relative to the including file).
+		// All assertions run inside one BEGIN … no_plan() … ROLLBACK.
+		TestSubdir: "test", TestGlobs: []string{"test.sql"},
+		// Keyless mode — pgsodium is deliberately NOT in shared_preload_libraries
+		// and no server-key getkey script is provisioned. The suite detects that
+		// (`\if :serverkeys` on pg_settings) and self-skips the server-key/TCE
+		// sections; the pure-libsodium crypto APIs are what gets exercised.
+		// test.sql does CREATE EXTENSION IF NOT EXISTS itself, but the extension is
+		// also preloaded here so the pgTAP teardown drops it afterwards: its
+		// control file pins schema=pgsodium, which the public-schema reset between
+		// extensions would never clear, and a leftover pgsodium schema would change
+		// later suites' catalog-introspection output (pgtap's schemas_are).
+		PreCreateExtensions: []ExtensionInstall{{Name: "pgsodium", Schema: "pgsodium"}},
+		DependsOn:           []string{"pgtap"},
+		// libsodium headers/libs via pkg-config (libsodium-dev on CI; Homebrew
+		// keg paths on macOS).
+		PkgConfigDeps: []string{"libsodium"},
 	},
 	"pgmq": {
 		Name: "pgmq", Repo: "https://github.com/tembo-io/pgmq", Tag: "v1.11.1",
@@ -420,13 +609,20 @@ func ExternalBuildList() []ExternalExtension {
 
 // ExternalContribDeps returns the deduplicated contrib modules the selected
 // external extensions need installed before their suites run (ExternalExtension.
-// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalModules. The build phase
-// installs these so external-only runs work; a full run has already installed
-// all of contrib, which makes the targeted install a harmless no-op.
+// ContribDeps), honoring PGEXTERNAL_TESTS via ExternalBuildList — the selected
+// extensions PLUS their DependsOn build dependencies. Walking the build list
+// rather than just the tested set matters for robustness: today every
+// dependency's ContribDeps are only needed by its own tests (pgtap's
+// extension.sql CREATEs citext/isn/ltree, and pgtap-as-a-dependency never runs
+// them), but if a future DependsOn target needed a contrib module merely to be
+// installable, a tested-set-only walk would break it silently in narrowed
+// PGEXTERNAL_TESTS runs. The over-approximation costs at most a few idempotent
+// `make -C contrib/<mod> install` calls; a full run has already installed all
+// of contrib, which makes the targeted install a harmless no-op either way.
 func ExternalContribDeps() []string {
 	var deps []string
 	seen := map[string]bool{}
-	for _, e := range ExternalModules() {
+	for _, e := range ExternalBuildList() {
 		for _, d := range e.ContribDeps {
 			if !seen[d] {
 				seen[d] = true
@@ -435,6 +631,27 @@ func ExternalContribDeps() []string {
 		}
 	}
 	return deps
+}
+
+// ExternalPreloadLibraries returns the deduplicated union of the shared
+// libraries the selected external extensions need preloaded
+// (ExternalExtension.PreloadLibraries), honoring PGEXTERNAL_TESTS via
+// ExternalModules, in selection order. shared_preload_libraries is a single
+// list-valued GUC, so the harness composes ONE generated snippet from this
+// union (see externalServerConfPaths) rather than letting per-extension conf
+// files overwrite each other.
+func ExternalPreloadLibraries() []string {
+	var libs []string
+	seen := map[string]bool{}
+	for _, e := range ExternalModules() {
+		for _, l := range e.PreloadLibraries {
+			if !seen[l] {
+				seen[l] = true
+				libs = append(libs, l)
+			}
+		}
+	}
+	return libs
 }
 
 // CheckExternalSpecs verifies every covered external extension has a build spec.
