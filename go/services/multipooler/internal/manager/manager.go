@@ -1785,7 +1785,8 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
 			if !postgresStateEqual(newState, prevState) {
 				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health", //nolint:sloglint // message intentionally starts with an operation name or proper noun
-					"postgres_running", newState.postgresRunning)
+					"postgres_running", newState.postgresRunning,
+					"postgres_ready", newState.postgresReady)
 				pm.broadcastHealth()
 			}
 			// Transition lifecycle STARTING → ACTIVE once postgres is up
