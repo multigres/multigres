@@ -5,8 +5,13 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
-# Install build dependencies like git and make
-RUN apk add --no-cache git=2.52.0-r0 make=4.4.1-r3 bash=5.3.3-r1
+# Install build dependencies like git and make.
+# Intentionally unpinned: the builder base (golang:1.25-alpine) is a rolling
+# tag, so pinning exact apk versions breaks whenever Alpine bumps these
+# packages. These are build-stage tools from the base image's own apk
+# repository, not external supply-chain downloads.
+# hadolint ignore=DL3018
+RUN apk add --no-cache git make bash
 
 # Cache dependencies
 COPY go.mod go.sum ./
