@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -849,9 +850,13 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	}
 
 	if state.LeaderObservation != nil {
-		resp.LeaderObservation = &multipoolerpb.LeaderObservation{
-			LeaderId:   state.LeaderObservation.LeaderID,
-			LeaderTerm: state.LeaderObservation.LeaderTerm,
+		// The pooler still tracks the observation by integer term internally;
+		// map it onto the rule-number-based wire type with leader_subterm 0.
+		// TODO: drive this from the (rule, primary) consensus state directly so
+		// the rule number (including subterm) is carried end to end.
+		resp.LeaderObservation = &clustermetadatapb.LeaderObservation{
+			LeaderId:         state.LeaderObservation.LeaderID,
+			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: state.LeaderObservation.LeaderTerm},
 		}
 	}
 

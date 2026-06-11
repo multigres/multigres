@@ -53,9 +53,10 @@ type PoolerHealth struct {
 	// ServingStatus is the serving state reported by the pooler.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains the pooler's view of who the consensus leader is.
-	// Used for term-based leader reconciliation.
-	LeaderObservation *multipoolerservice.LeaderObservation
+	// LeaderObservation contains the pooler's view of who the consensus leader
+	// is, identified by leader id and the rule number under which the
+	// observation was made. Used for rule-number-based leader reconciliation.
+	LeaderObservation *clustermetadatapb.LeaderObservation
 
 	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
 	// Zero on the primary or when not yet measured.

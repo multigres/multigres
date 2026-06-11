@@ -501,7 +501,7 @@ message StreamPoolerHealthResponse {
 
   // leader_observation contains this pooler's view of who the consensus leader is.
   // Used by clients to identify the true leader when multiple poolers exist.
-  LeaderObservation leader_observation = 4;
+  clustermetadata.LeaderObservation leader_observation = 4;
 
   // recommended_staleness_timeout is the duration clients should use
   // to detect a stale/dead health stream. If no message is received within
@@ -511,18 +511,6 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
-}
-
-// LeaderObservation represents a pooler's view of who the consensus leader is.
-message LeaderObservation {
-  // leader_id is the ID of the pooler this node believes is the consensus leader.
-  // May be this pooler's own ID if it believes itself to be leader.
-  clustermetadata.ID leader_id = 1;
-
-  // leader_term is the consensus term at which this observation was made.
-  // The leader never changes within a leader_term. Higher values indicate
-  // more recent leader appointments.
-  int64 leader_term = 2;
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
