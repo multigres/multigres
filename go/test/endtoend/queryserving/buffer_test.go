@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,11 +27,14 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	adminserver "github.com/multigres/multigres/go/services/multiadmin"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -368,8 +372,13 @@ func openGatewayDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 	return db
 }
 
-// triggerFailover demotes the current primary via Recruit and waits for
-// a new primary to be elected.
+// triggerFailover performs a planned switchover to a different cohort member
+// using the same RPC that `multigres cluster apply-rule-change
+// --unsafe-derive-cert-from-reachable` invokes: multiadmin.ApplyCertifiedRuleChange
+// with an UnsafeDeriveCert cert source. Multiadmin probes the live cohort for
+// the most-advanced (rule, lsn), derives the cert from it, and forwards the
+// rule change to a multiorch, which recruits and promotes the proposed leader.
+// It then waits for recovery to converge the cohort.
 func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
 
@@ -377,44 +386,84 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.NotNil(t, currentPrimary)
 	currentPrimaryName := currentPrimary.Name
 
-	primaryClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
-	require.NoError(t, err)
+	newLeaderName := nextPoolerName(currentPrimaryName)
+	t.Logf("Triggering switchover via apply-rule-change: %s -> %s", currentPrimaryName, newLeaderName)
 
-	statusResp, err := primaryClient.Manager.Status(
-		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-	require.NoError(t, err)
-	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
-	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
-
-	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
-
-	recruitResp, err := primaryClient.Consensus.Recruit(
-		utils.WithTimeout(t, 10*time.Second),
-		&consensusdatapb.RecruitRequest{
-			TermRevocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm: oldTerm + 1,
-				AcceptedCoordinatorId: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIORCH,
-					Cell:      setup.CellName,
-					Name:      "test-coordinator",
-				},
-				CoordinatorInitiatedAt: timestamppb.Now(),
-				OutgoingRule:           outgoingRule,
-			},
+	// Stable cohort ordering, matching how the buffer cluster is provisioned.
+	cohortNames := []string{"pooler-1", "pooler-2", "pooler-3"}
+	cohort := make([]*clustermetadatapb.ID, 0, len(cohortNames))
+	for _, name := range cohortNames {
+		cohort = append(cohort, &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      setup.CellName,
+			Name:      name,
 		})
-	primaryClient.Close()
+	}
+	leaderID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      setup.CellName,
+		Name:      newLeaderName,
+	}
 
-	require.NoError(t, err, "Recruit should succeed")
-	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
-	t.Logf("Recruit accepted, emergency demotion triggered")
+	// AT_LEAST_2 is the default durability policy the buffer cluster bootstraps
+	// with (shardsetup SetupConfig default).
+	durability, err := commonconsensus.ParseUserSpecifiedDurabilityPolicy("AT_LEAST_2")
+	require.NoError(t, err)
 
-	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
+	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+		// Leave RuleNumber/CoordinatorId/CreationTime unset — multiadmin fills
+		// them in, exactly as it does for the CLI.
+		ProposedRule: &clustermetadatapb.ShardRule{
+			LeaderId:         leaderID,
+			CohortMembers:    cohort,
+			DurabilityPolicy: durability,
+		},
+		// --unsafe-derive-cert-from-reachable: derive outgoing_rule and
+		// frozen_lsn by probing the live cohort.
+		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert{
+			UnsafeDeriveCert: &multiadminpb.UnsafeDeriveCertOptions{},
+		},
+		Reason: "buffer test manual switchover to " + newLeaderName,
+	}
+
+	// Spin up multiadmin in-process; it dials a multiorch over gRPC, the same
+	// way the CLI talks to a multiadmin server.
+	adminServer := adminserver.NewMultiAdminServer(
+		setup.TopoServer, slog.Default(), grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	defer adminServer.Stop()
+
+	resp, err := adminServer.ApplyCertifiedRuleChange(utils.WithTimeout(t, 60*time.Second), req)
+	require.NoError(t, err, "apply-rule-change should install the new rule for leader %s", newLeaderName)
+	require.NotNil(t, resp.GetInstalledRule(), "apply-rule-change response should carry the installed rule")
+	t.Logf("apply-rule-change installed rule (new leader %s, term %d)",
+		resp.GetInstalledRule().GetLeaderId().GetName(),
+		resp.GetInstalledRule().GetRuleNumber().GetCoordinatorTerm())
+
+	// Let multiorch recovery converge the cohort: demote the old leader (it may
+	// need pg_rewind), re-point standbys at the new primary, and stabilize.
 	setup.RequireRecovery(t, "multiorch", 90*time.Second)
 
 	newPrimary := setup.RefreshPrimary(t)
-	require.NotNil(t, newPrimary, "a primary should exist after recovery")
-	t.Logf("Primary after recovery: %s (was: %s)", newPrimary.Name, currentPrimaryName)
+	require.NotNil(t, newPrimary, "a primary should exist after switchover")
+	t.Logf("Primary after rule-change switchover: %s (was: %s)", newPrimary.Name, currentPrimaryName)
+}
+
+// nextPoolerName returns the next pooler in a stable 3-node rotation, so each
+// switchover targets a cohort member different from the current primary.
+func nextPoolerName(current string) string {
+	order := []string{"pooler-1", "pooler-2", "pooler-3"}
+	for i, name := range order {
+		if name == current {
+			return order[(i+1)%len(order)]
+		}
+	}
+	return order[0]
 }
 
 // execTransaction runs a single INSERT inside a BEGIN/COMMIT transaction.
