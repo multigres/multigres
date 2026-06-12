@@ -105,3 +105,16 @@ func TestNormalizeTraceErrorParity(t *testing.T) {
 			normalizeTrace(pg))
 	}
 }
+
+func TestNormalizeTraceDropsPgprotoWriteWarning(t *testing.T) {
+	in := `write_it: warning write(2) failed: Connection reset by peer
+<= BE ErrorResponse(S ERROR V ERROR C MTD03 M unsupported message type )
+<= BE ReadyForQuery(I)`
+
+	want := `<= BE ErrorResponse(C MTD03)
+<= BE ReadyForQuery(I)`
+
+	if got := normalizeTrace(in); got != want {
+		t.Errorf("normalizeTrace() did not drop pgproto write warning:\n got %q\nwant %q", got, want)
+	}
+}

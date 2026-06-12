@@ -9,27 +9,27 @@ complete `pg_available_extensions` inventory.
 
 ## Tested extensions
 
-| Extension       | Source   | Notes                                                                                         |
-| --------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `btree_gin`     | contrib  | -                                                                                             |
-| `btree_gist`    | contrib  | -                                                                                             |
-| `citext`        | contrib  | -                                                                                             |
-| `cube`          | contrib  | -                                                                                             |
-| `earthdistance` | contrib  | Depends on `cube`.                                                                            |
-| `fuzzystrmatch` | contrib  | -                                                                                             |
-| `hstore`        | contrib  | -                                                                                             |
-| `ltree`         | contrib  | -                                                                                             |
-| `pg_trgm`       | contrib  | -                                                                                             |
-| `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                 |
-| `unaccent`      | contrib  | -                                                                                             |
-| `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                             |
+| Extension       | Source   | Notes                                                                                          |
+| --------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `btree_gin`     | contrib  | -                                                                                              |
+| `btree_gist`    | contrib  | -                                                                                              |
+| `citext`        | contrib  | -                                                                                              |
+| `cube`          | contrib  | -                                                                                              |
+| `earthdistance` | contrib  | Depends on `cube`.                                                                             |
+| `fuzzystrmatch` | contrib  | -                                                                                              |
+| `hstore`        | contrib  | -                                                                                              |
+| `ltree`         | contrib  | -                                                                                              |
+| `pg_trgm`       | contrib  | -                                                                                              |
+| `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                  |
+| `unaccent`      | contrib  | -                                                                                              |
+| `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                              |
 | `http`          | external | pgsql-http; requires `libcurl`. Runs against a harness-local httpbin-compatible server.        |
 | `hypopg`        | external | Transaction-wrapped because hypothetical indexes are backend-local.                            |
-| `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                                        |
+| `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                                         |
 | `pg_jsonschema` | external | Rust extension built with cargo-pgrx; runs an in-repo SQL translation of its pgrx test corpus. |
-| `pgaudit`       | external | Preloaded via `shared_preload_libraries`; multi-user `\connect`s use a harness `.pgpass`.     |
-| `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                                     |
-| `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip).           |
+| `pgaudit`       | external | Preloaded via `shared_preload_libraries`; multi-user `\connect`s use a harness `.pgpass`.      |
+| `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                                      |
+| `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip).            |
 | `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.                 |
 | `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.                  |
 
