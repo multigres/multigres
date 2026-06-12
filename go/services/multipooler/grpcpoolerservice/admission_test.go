@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 )
 
@@ -29,9 +31,10 @@ import (
 //   - id > 0          → ExistingReserved (ConcludeTransaction, DiscardTempTables,
 //     ReleaseReservedConnection, or any handler continuing a reserved conn)
 //   - id == 0, reserves → NewReservation (StreamExecute with reservation reasons,
-//     PortalStreamExecute with MaxRows > 0, CopyBidiExecute which always pins)
+//     PortalStreamExecute with MaxRows > 0 or reasons, CopyBidiExecute which
+//     always pins)
 //   - id == 0, !reserves → SingleQuery (StreamExecute without reasons,
-//     ExecuteQuery/Describe, PortalStreamExecute with MaxRows == 0)
+//     ExecuteQuery/Describe, fetch-all PortalStreamExecute with no reasons)
 func TestAdmissionKind(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -47,6 +50,35 @@ func TestAdmissionKind(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, admissionKind(tt.connID, tt.reserves))
+		})
+	}
+}
+
+// TestPortalReserves locks the portal reserve predicate against the executor's
+// decision: a portal reserves on MaxRows > 0 OR reservation reasons. The reasons
+// case is the regression guard — a fetch-all portal (MaxRows == 0) that folds a
+// deferred BEGIN into its first execute carries ReasonTransaction and must NOT
+// be admitted as a single query during a graceful drain.
+func TestPortalReserves(t *testing.T) {
+	tests := []struct {
+		name    string
+		maxRows uint64
+		reasons uint32
+		want    bool
+	}{
+		{"fetch-all, no reasons → single query", 0, 0, false},
+		{"suspendable cursor (MaxRows > 0)", 100, 0, true},
+		{"fetch-all with deferred BEGIN folded in (reasons set)", 0, protoutil.ReasonTransaction, true},
+		{"cursor and reasons", 100, protoutil.ReasonTransaction, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &query.ExecuteOptions{MaxRows: tt.maxRows}
+			var ro *query.ReservationOptions // nil when reasons == 0, exercising the nil-safe getter
+			if tt.reasons != 0 {
+				ro = &query.ReservationOptions{Reasons: tt.reasons}
+			}
+			assert.Equal(t, tt.want, portalReserves(opts, ro))
 		})
 	}
 }
