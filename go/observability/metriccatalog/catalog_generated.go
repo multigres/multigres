@@ -841,7 +841,7 @@ var Metrics = []Metric{
 		Constructor:    "Float64Histogram",
 		Unit:           "s",
 		Package:        "github.com/multigres/multigres/go/common/topoclient",
-		Binaries:       []string{"multiadmin", "multigateway", "multigres", "multiorch", "multipooler"},
+		Binaries:       []string{"multiadmin", "multigateway", "multigres", "multiorch", "multipooler", "pgctld"},
 		Source:         "go/common/topoclient/metrics.go:71",
 		PrometheusName: "topoclient_lock_duration_seconds",
 		Series:         []string{"topoclient_lock_duration_seconds_bucket", "topoclient_lock_duration_seconds_count", "topoclient_lock_duration_seconds_sum"},
@@ -870,7 +870,7 @@ var PrometheusKeepListByBinary = map[string]string{
 	"multigres":    `topoclient_lock_duration_seconds_(bucket|count|sum)`,
 	"multiorch":    `multiorch_recovery_action_duration_milliseconds_(bucket|count|sum)|multiorch_recovery_detected_problems|multiorch_recovery_errors_total|multiorch_recovery_pooler_store_size|multiorch_recovery_stream_connected|multiorch_recovery_stream_snapshots_received|rpcclient_connection_cache_size|rpcclient_connection_creates_total|rpcclient_connection_dial_duration_seconds_(bucket|count|sum)|rpcclient_connection_dial_timeouts_total|rpcclient_connection_reuses_total|topoclient_lock_duration_seconds_(bucket|count|sum)`,
 	"multipooler":  `db_client_connection_count|mg_pooler_auth_credential_query_duration_seconds_(bucket|count|sum)|mg_pooler_auth_credential_query_errors_total|mg_pooler_client_wait_time_seconds_total|mg_pooler_client_waiting_connections|mg_pooler_config_max_server_connections|mg_pooler_databases|mg_pooler_drain_duration_seconds_(bucket|count|sum)|mg_pooler_drain_force_closed_total|mg_pooler_drain_outcome_total|mg_pooler_pool_capacity|mg_pooler_pool_current_connections|mg_pooler_pools|mg_pooler_queries_pooled_total|mg_pooler_reserved_active_connections|mg_pooler_server_connections|mg_pooler_up|mg_pooler_users|mg_pubsub_channels|mg_pubsub_notifications_dropped_total|mg_pubsub_reconnect_gap_duration_seconds_(bucket|count|sum)|mg_pubsub_reconnects_total|mg_pubsub_subscribers|pgbackrest_backup_attempts_total|pgbackrest_backup_duration_seconds_(bucket|count|sum)|pgbackrest_backup_failures_total|pgbackrest_backup_lock_wait_seconds_(bucket|count|sum)|pgbackrest_backup_successes_total|pgbackrest_backup_verify_duration_seconds_(bucket|count|sum)|pgbackrest_restore_attempts_total|pgbackrest_restore_duration_seconds_(bucket|count|sum)|pgbackrest_restore_failures_total|pgbackrest_restore_successes_total|topoclient_lock_duration_seconds_(bucket|count|sum)`,
-	"pgctld":       `pgbackrest_server_restart_count|pgbackrest_server_up|pgbackrest_server_uptime`,
+	"pgctld":       `pgbackrest_server_restart_count|pgbackrest_server_up|pgbackrest_server_uptime|topoclient_lock_duration_seconds_(bucket|count|sum)`,
 }
 
 // AllPrometheusSeries returns the flat, sorted list of every Prometheus series

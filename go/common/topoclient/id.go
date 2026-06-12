@@ -48,8 +48,12 @@ func ComponentTypeToString(component clustermetadatapb.ID_ComponentType) string 
 // component — the component prefix is derived from id.Component — so it replaces
 // the former per-component MultiPoolerIDString / MultiOrchIDString /
 // MultiGatewayIDString helpers, which were identical apart from their names.
+//
+// It uses the nil-safe Get accessors, so a nil id yields "unknown--" rather than
+// panicking — a clearly-malformed value that stands out in logs if one ever
+// slips through, without forcing every caller to handle an error.
 func ComponentIDString(id *clustermetadatapb.ID) ComponentID {
-	return ComponentID(fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name))
+	return ComponentID(fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.GetComponent()), id.GetCell(), id.GetName()))
 }
 
 // ClusterIDString returns a string representation of the cluster ID in cell_name format.
