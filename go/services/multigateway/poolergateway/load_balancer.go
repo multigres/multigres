@@ -563,6 +563,53 @@ func (lb *LoadBalancer) ConnectionCount() int {
 	return len(lb.connections)
 }
 
+// Consensus leadership roles reported by LeadershipByID for the status page.
+const (
+	// LeadershipLeader marks the shard's current consensus leader.
+	LeadershipLeader = "leader"
+	// LeadershipStaleLeader marks a pooler that still believes itself the leader
+	// (per its own self_leadership and health observation) even though consensus
+	// has moved on to a higher-rule leader. Such a pooler is excluded from
+	// replica reads; see matchesReplicaTarget.
+	LeadershipStaleLeader = "stale-leader"
+	// LeadershipFollower marks any other connected pooler.
+	LeadershipFollower = "follower"
+)
+
+// LeadershipByID returns the consensus leadership role of each connected pooler,
+// keyed by serialized pooler ID, for the admin/status page. The role reflects
+// the gateway's merged view — the per-shard leader map (self_leadership combined
+// with health-stream observations) and the pooler's own belief — never the
+// topology Type label. Poolers the gateway is not connected to are absent from
+// the map; the caller fills those in from discovery (e.g. as a lifecycle state).
+func (lb *LoadBalancer) LeadershipByID() map[string]string {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	roles := make(map[string]string, len(lb.connections))
+	for _, conn := range lb.connections {
+		info := conn.PoolerInfo()
+		key := shardKey{
+			tableGroup: info.GetShardKey().GetTableGroup(),
+			shard:      info.GetShardKey().GetShard(),
+		}
+
+		// The shard's consensus leader (merged across every pooler's
+		// self_leadership and health-stream reports) takes precedence, so a
+		// leader whose own record lags is still reported as the leader.
+		// Otherwise a pooler that still believes itself leader is stale.
+		role := LeadershipFollower
+		switch obs := lb.leaders[key]; {
+		case obs != nil && poolerIDString(obs.LeaderId) == conn.ID():
+			role = LeadershipLeader
+		case conn.believesSelfLeader():
+			role = LeadershipStaleLeader
+		}
+		roles[conn.ID()] = role
+	}
+	return roles
+}
+
 // Close closes all connections.
 func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()

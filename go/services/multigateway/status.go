@@ -30,7 +30,14 @@ import (
 type PoolerStatus struct {
 	Name     string `json:"name"`
 	Database string `json:"database"`
-	Type     string `json:"type"`
+	// Leadership is the gateway's merged consensus view of the pooler's role
+	// (leader/stale-leader/follower), empty when the gateway is not connected to
+	// it. Distinct from Lifecycle: a pooler's consensus role and its process
+	// lifecycle state are orthogonal.
+	Leadership string `json:"leadership"`
+	// Lifecycle is the pooler's process lifecycle state (e.g. active, shutdown),
+	// from its topology record.
+	Lifecycle string `json:"lifecycle"`
 }
 
 // CellStatus represents the status of pooler discovery for a single cell.
@@ -67,6 +74,10 @@ type Status struct {
 func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ts := mg.ts.Status()
 	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
+	// Leadership is the load balancer's live consensus view; discovery supplies
+	// the full pooler list (including poolers we are not connected to). Join the
+	// two on serialized pooler ID.
+	leadership := mg.poolerGateway.LeadershipByID()
 
 	mg.serverStatus.mu.Lock()
 	defer mg.serverStatus.mu.Unlock()
@@ -83,9 +94,10 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, pooler := range cs.Poolers {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
-				Name:     pooler.Id.GetName(),
-				Database: pooler.GetShardKey().GetDatabase(),
-				Type:     pooler.GetType().String(),
+				Name:       pooler.Name,
+				Database:   pooler.Database,
+				Leadership: leadership[pooler.ID],
+				Lifecycle:  pooler.Lifecycle,
 			})
 		}
 		mg.serverStatus.Cells = append(mg.serverStatus.Cells, cellStatus)

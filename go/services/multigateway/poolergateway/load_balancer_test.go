@@ -866,3 +866,35 @@ func TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica(t *te
 	assert.Equal(t, poolerID(leader), conn.ID(),
 		"a centrally-known leader unaware of its own leadership is eligible for replica reads")
 }
+
+// TestLoadBalancer_LeadershipByID verifies the three roles reported for the
+// admin/status page: the shard's consensus leader, a stale leader that still
+// believes itself the leader at an older rule, and a plain follower.
+func TestLoadBalancer_LeadershipByID(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	leader := withSelfLeadership(createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	stale := createTestMultiPooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	follower := createTestMultiPooler("follower", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(leader))
+	require.NoError(t, lb.AddPooler(stale))
+	require.NoError(t, lb.AddPooler(follower))
+
+	lb.mu.Lock()
+	connStale := lb.connections[poolerID(stale)]
+	connFollower := lb.connections[poolerID(follower)]
+	lb.mu.Unlock()
+
+	// stale still believes it leads at the old rule 1; follower already tracks
+	// the new leader at rule 2.
+	simulateHealthUpdate(connStale, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: stale.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}})
+	simulateHealthUpdate(connFollower, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
+
+	roles := lb.LeadershipByID()
+	assert.Equal(t, LeadershipLeader, roles[poolerID(leader)])
+	assert.Equal(t, LeadershipStaleLeader, roles[poolerID(stale)])
+	assert.Equal(t, LeadershipFollower, roles[poolerID(follower)])
+}
