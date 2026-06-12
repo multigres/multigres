@@ -43,6 +43,16 @@ HINT:  On failover the table is dropped, or left empty if other objects depend
 on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
 ```
 
+`CREATE UNLOGGED SEQUENCE` gets a sequence-specific warning. Unlogged sequence
+state is likewise not replicated, but the sweep does not drop sequences — on
+failover the sequence simply restarts from its initial value:
+
+```text
+WARNING:  unlogged sequence is reset to its start value on failover
+HINT:  Unlogged sequence state is not replicated; a failover restarts it from
+its initial value. See docs/query_serving/unlogged_tables.md.
+```
+
 ## Behaviour on Failover
 
 When a standby is promoted to primary, the multipooler runs a best-effort sweep

@@ -68,9 +68,21 @@ func TestUnloggedTableCreateWarning(t *testing.T) {
 			warn := findWarning(collector.collect(), "01000")
 			require.NotNil(t, warn, "expected a WARNING/01000 notice for CREATE UNLOGGED TABLE")
 			assert.Equal(t, "WARNING", warn.Severity)
+			assert.Contains(t, warn.Message, "table")
 			assert.Contains(t, warn.Message, "failover")
 			assert.Contains(t, warn.Hint, "docs/query_serving/unlogged_tables.md")
 			t.Logf("Received WARNING: Code=%s Message=%q Hint=%q", warn.Code, warn.Message, warn.Hint)
+
+			// An unlogged sequence gets a sequence-specific warning.
+			seqName := fmt.Sprintf("ul_seq_%s_%d", mode, time.Now().UnixNano())
+			defer func() { _, _ = conn.Exec(context.Background(), "DROP SEQUENCE IF EXISTS "+seqName) }()
+			collector.reset()
+			_, err = conn.Exec(ctx, "CREATE UNLOGGED SEQUENCE "+seqName)
+			require.NoError(t, err, "CREATE UNLOGGED SEQUENCE must still succeed")
+			seqWarn := findWarning(collector.collect(), "01000")
+			require.NotNil(t, seqWarn, "expected a WARNING/01000 notice for CREATE UNLOGGED SEQUENCE")
+			assert.Contains(t, seqWarn.Message, "sequence")
+			assert.Contains(t, seqWarn.Message, "failover")
 
 			// A permanent table must not trigger the warning.
 			perm := fmt.Sprintf("perm_%s_%d", mode, time.Now().UnixNano())

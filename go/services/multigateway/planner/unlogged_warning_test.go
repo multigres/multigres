@@ -36,9 +36,11 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 		{"CREATE UNLOGGED TABLE ut (i int)", true},
 		{"CREATE UNLOGGED TABLE ut AS SELECT 1", true},
 		{"SELECT 1 INTO UNLOGGED ut", true},
+		{"CREATE UNLOGGED SEQUENCE us", true},
 		{"CREATE TABLE pt (i int)", false},
 		{"CREATE TABLE pt AS SELECT 1", false},
 		{"CREATE TEMP TABLE tt (i int)", false},
+		{"CREATE SEQUENCE ps", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.sql, func(t *testing.T) {
@@ -76,13 +78,13 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 	}
 }
 
-// leadingUnloggedWarning returns the UnloggedTableWarning if p is a Sequence whose
+// leadingUnloggedWarning returns the UnloggedWarning if p is a Sequence whose
 // first primitive is one, else nil.
-func leadingUnloggedWarning(p engine.Primitive) *engine.UnloggedTableWarning {
+func leadingUnloggedWarning(p engine.Primitive) *engine.UnloggedWarning {
 	seq, ok := p.(*engine.Sequence)
 	if !ok || len(seq.Primitives) == 0 {
 		return nil
 	}
-	w, _ := seq.Primitives[0].(*engine.UnloggedTableWarning)
+	w, _ := seq.Primitives[0].(*engine.UnloggedWarning)
 	return w
 }
