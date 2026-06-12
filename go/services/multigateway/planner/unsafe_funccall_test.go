@@ -250,19 +250,23 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			sql:     "SELECT set_config('work_mem','256MB',false), * INTO TEMP foo FROM t",
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
 		},
+		// A dynamic argument is only accepted when the whole target list is
+		// set_config(...) (the resolve-and-apply path — see
+		// TestInspectExpressionFuncCalls_DynamicSetConfigAccepted). Mixed with
+		// any other target it still can't be tracked, so it's rejected.
 		{
-			name:    "non-literal non-bound name arg (column ref)",
-			sql:     "SELECT set_config(name, '256MB', false) FROM gucs",
+			name:    "non-literal name arg (column ref) in mixed target list",
+			sql:     "SELECT set_config(name, '256MB', false), x FROM gucs",
 			wantMsg: "set_config name argument must be a literal constant or a bound parameter",
 		},
 		{
-			name:    "non-literal non-bound value arg (column ref)",
-			sql:     "SELECT set_config('work_mem', v, false) FROM gucs",
+			name:    "non-literal value arg (column ref) in mixed target list",
+			sql:     "SELECT set_config('work_mem', v, false), x FROM gucs",
 			wantMsg: "set_config value argument must be a literal constant or a bound parameter",
 		},
 		{
-			name:    "non-literal non-bound is_local (column ref)",
-			sql:     "SELECT set_config('work_mem', '256MB', islocal) FROM gucs",
+			name:    "non-literal is_local (column ref) in mixed target list",
+			sql:     "SELECT set_config('work_mem', '256MB', islocal), x FROM gucs",
 			wantMsg: "set_config is_local argument must be a literal constant or a bound parameter",
 		},
 	}
@@ -277,6 +281,94 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			require.True(t, errors.As(err, &diag))
 			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
 			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_DynamicSetConfigAccepted pins the
+// resolve-and-apply path: a SELECT whose target list is entirely
+// set_config(...) and that has at least one argument the literal/bound fast
+// path can't resolve (a column reference) is accepted with
+// DynamicSetConfig=true (and no SetConfigs) rather than rejected. This is the
+// shape pg_dump uses on PG17+.
+func TestInspectExpressionFuncCalls_DynamicSetConfigAccepted(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "pg_dump restrict_nonsystem_relation_kind probe",
+			sql:  "SELECT set_config(name, 'view, foreign-table', false) FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+		},
+		{
+			name: "dynamic name",
+			sql:  "SELECT set_config(name, '256MB', false) FROM gucs",
+		},
+		{
+			name: "dynamic value",
+			sql:  "SELECT set_config('work_mem', v, false) FROM gucs",
+		},
+		{
+			name: "dynamic is_local",
+			sql:  "SELECT set_config('work_mem', '256MB', islocal) FROM gucs",
+		},
+		{
+			name: "multiple set_config calls, one dynamic (multi-column)",
+			sql:  "SELECT set_config('a', 'b', false), set_config(name, 'c', false) FROM gucs",
+		},
+		{
+			name: "all dynamic multi-column",
+			sql:  "SELECT set_config(n1, v1, false), set_config(n2, v2, false) FROM gucs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.True(t, result.DynamicSetConfig, "expected DynamicSetConfig")
+			assert.Empty(t, result.SetConfigs, "dynamic path tracks via the primitive, not SetConfigs")
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered pins the cases
+// that must NOT take the resolve-and-apply path: all-literal/bound calls keep
+// the fast path, and a literal is_local=true call (even with a dynamic name)
+// runs transaction-scoped via Route, untracked, exactly as before.
+func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
+	tests := []struct {
+		name           string
+		sql            string
+		wantSetConfigs int
+	}{
+		{
+			name:           "all literal stays on fast path",
+			sql:            "SELECT set_config('work_mem', '256MB', false)",
+			wantSetConfigs: 1,
+		},
+		{
+			name:           "bound value stays on fast path",
+			sql:            "SELECT set_config('search_path', $1, false)",
+			wantSetConfigs: 1,
+		},
+		{
+			name:           "literal is_local=true with dynamic name is passthrough, untracked",
+			sql:            "SELECT set_config(name, 'v', true) FROM gucs",
+			wantSetConfigs: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.DynamicSetConfig, "should not take the dynamic path")
+			assert.Len(t, result.SetConfigs, tt.wantSetConfigs)
 		})
 	}
 }
@@ -474,6 +566,51 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	}
 }
 
+// TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump
+// shape (target list all set_config with a dynamic argument) plans as a single
+// ResolveTrackSetConfig primitive, whose unroll projection replaces each
+// set_config(a, b, c) with its three arguments while preserving FROM/WHERE.
+func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
+	tests := []struct {
+		name        string
+		sql         string
+		wantUnroll  string
+		wantAliases []string
+	}{
+		{
+			name:        "pg_dump probe",
+			sql:         "SELECT set_config(name, 'view, foreign-table', false) FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+			wantUnroll:  "SELECT name, 'view, foreign-table', FALSE FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+			wantAliases: []string{""},
+		},
+		{
+			name:        "multi-column with alias",
+			sql:         "SELECT set_config(name, '1', false) AS a, set_config('work_mem', v, false) FROM gucs",
+			wantUnroll:  "SELECT name, '1', FALSE, 'work_mem', v, FALSE FROM gucs",
+			wantAliases: []string{"a", ""},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			require.NoError(t, err)
+			require.NotNil(t, plan)
+
+			prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
+			require.True(t, ok, "expected ResolveTrackSetConfig, got %T", plan.Primitive)
+			assert.Equal(t, tt.wantAliases, prim.Aliases)
+			assert.Equal(t, tt.wantUnroll, prim.UnrollAST.SqlString())
+			assert.Equal(t, engine.PlanTypeResolveTrackSetConfig, plan.Type)
+		})
+	}
+}
+
 // TestPlan_RejectsUnsafeFuncCalls verifies Plan() itself rejects blocklisted
 // function calls (not just the walker in isolation).
 func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
@@ -496,8 +633,10 @@ func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
 			"set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
-			"non-literal set_config rejected",
-			"SELECT set_config('x', v, false) FROM gucs",
+			// Dynamic value mixed with another target can't take the
+			// resolve-and-apply path, so it's still rejected.
+			"non-literal set_config in mixed target list rejected",
+			"SELECT set_config('x', v, false), 1 FROM gucs",
 			"set_config value argument must be a literal constant",
 		},
 	}
