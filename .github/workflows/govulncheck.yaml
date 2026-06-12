@@ -7,6 +7,7 @@ name: Go vulnerability check
     paths:
       - "go.mod"
       - "go.sum"
+      - ".github/workflows/govulncheck.yaml"
   workflow_dispatch: {}
 
 permissions: {}
@@ -38,6 +39,20 @@ jobs:
         id: scan
         continue-on-error: true
         run: govulncheck -format sarif ./... > govulncheck.sarif
+
+      - name: Deduplicate SARIF rule tags
+        # govulncheck v1.3.0 (latest) emits duplicate values in
+        # rules[].properties.tags, e.g. ["CVE-XXXX-YYYY","CVE-XXXX-YYYY"]. The
+        # SARIF upload validator rejects them because `tags` is declared with
+        # uniqueItems, failing the job even though the scan itself succeeded.
+        # Dedupe the tags so the upload validates. Leave non-JSON output (e.g. a
+        # hard govulncheck error) untouched so the upload step surfaces it.
+        run: |
+          if jq -e . govulncheck.sarif >/dev/null 2>&1; then
+            jq '.runs |= map(.tool.driver.rules |= map(if .properties.tags then .properties.tags |= unique else . end))' \
+              govulncheck.sarif > govulncheck.sarif.tmp
+            mv govulncheck.sarif.tmp govulncheck.sarif
+          fi
 
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4.34.1
