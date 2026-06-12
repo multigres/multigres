@@ -47,8 +47,8 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 	}
 
 	// Generate a job ID that will be stored in pgbackrest and can be queried after restart.
-	// Format: YYYYMMDD-HHMMSS.microseconds_<pooler_name>
-	jobID := backup.GenerateJobID(pooler.Id.Name)
+	// Format: YYYYMMDD-HHMMSS.microseconds_<multipooler-cell-name>
+	jobID := backup.GenerateJobID(pooler.Id)
 
 	// Create a job to track this backup operation
 	s.backupJobTracker.CreateJobWithID(jobID, multiadminpb.JobType_JOB_TYPE_BACKUP, req.Database, req.TableGroup, req.Shard)

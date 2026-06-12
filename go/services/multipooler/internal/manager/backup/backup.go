@@ -54,13 +54,12 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 
 	tableGroup := e.id.ShardKey().GetTableGroup()
 	shard := e.id.ShardKey().GetShard()
-	multipoolerID := string(topoclient.ComponentIDString(e.id.Id()))
 	multipoolerName := e.id.Id().Name
 
 	// Use provided job_id or generate one (same format as multiadmin)
 	effectiveJobID := jobID
 	if effectiveJobID == "" {
-		effectiveJobID = commonbackup.GenerateJobID(multipoolerID)
+		effectiveJobID = commonbackup.GenerateJobID(e.id.Id())
 	}
 
 	// Emit Started now that we have a correlation ID and parameters are valid.
