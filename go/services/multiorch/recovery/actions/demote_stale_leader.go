@@ -131,7 +131,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// }
 
 	// Find the correct leader to use as rewind source
-	correctLeader, _, err := a.findCorrectLeader(problem.ShardKey, poolerIDStr)
+	correctLeader, _, err := a.findCorrectLeader(problem.ShardKey, problem.PoolerID)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find correct leader")
 	}
@@ -175,7 +175,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 
 // findCorrectLeader finds the current leader in the shard and returns it along with its term.
 // The correct leader is the one with the highest LeaderTerm.
-func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimaryIDStr topoclient.ComponentID) (*multiorchdatapb.PoolerHealthState, int64, error) {
+func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimary *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, int64, error) {
 	var correctLeader *multiorchdatapb.PoolerHealthState
 	var maxLeaderTerm int64
 
@@ -190,10 +190,8 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.
 			return true // continue
 		}
 
-		poolerIDStr := topoclient.ComponentIDString(pooler.MultiPooler.Id)
-
 		// Skip the stale leader
-		if poolerIDStr == stalePrimaryIDStr {
+		if proto.Equal(pooler.MultiPooler.Id, stalePrimary) {
 			return true // continue
 		}
 

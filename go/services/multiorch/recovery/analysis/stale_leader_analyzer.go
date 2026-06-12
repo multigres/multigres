@@ -20,8 +20,9 @@ import (
 	"slices"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -71,10 +72,9 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	// highest-term leader is stale. This includes poolers whose own rule has
 	// caught up (LeaderTerm == 0 because the rule now names a different
 	// leader) — exactly the post-emergency-demotion state we need to repair.
-	mostAdvancedIDStr := topoclient.ComponentIDString(sa.HighestTermReachableLeader.PoolerID)
 	var staleLeaders []*PoolerAnalysis
 	for _, p := range sa.Leaders {
-		if topoclient.ComponentIDString(p.PoolerID) == mostAdvancedIDStr {
+		if proto.Equal(p.PoolerID, sa.HighestTermReachableLeader.PoolerID) {
 			continue
 		}
 		staleLeaders = append(staleLeaders, p)
