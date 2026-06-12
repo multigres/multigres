@@ -153,8 +153,7 @@ func TestWrapLines_DollarQuoteSuppression(t *testing.T) {
 }
 
 // TestWrapLines_UnterminatedUserTransaction: a file whose own transaction is
-// still open at EOF (pgaudit relies on session teardown) must not get a
-// trailing COMMIT from the wrap.
+// still open at EOF must not get a trailing COMMIT from the wrap.
 func TestWrapLines_UnterminatedUserTransaction(t *testing.T) {
 	got := wrapLines([]string{
 		"BEGIN;",
@@ -235,8 +234,8 @@ func TestMaterializeTransformedSuite(t *testing.T) {
 	}
 }
 
-// TestNormalizeResultFile covers both normalizer behaviors with pgaudit's
-// real patterns: statement-ID rewriting and harness-artifact line dropping.
+// TestNormalizeResultFile covers both normalizer behaviors: statement-ID
+// rewriting and harness-artifact line dropping.
 func TestNormalizeResultFile(t *testing.T) {
 	ext := ExternalExtension{ResultNormalizers: []ResultNormalizer{
 		{Pattern: `AUDIT: (SESSION|OBJECT),\d+,`, Replacement: "AUDIT: $1,N,"},

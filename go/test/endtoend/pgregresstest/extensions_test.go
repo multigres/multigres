@@ -24,12 +24,12 @@ import (
 )
 
 // TestExternalSpecs_Coherent guards the catalog/spec invariants so a config
-// edit can't silently break the external suite: every covered external
+// edit can't silently break the external suite: every runnable external
 // extension has a build spec, every spec pins exactly one of Tag/Commit, and
 // every DependsOn entry resolves to a spec.
 func TestExternalSpecs_Coherent(t *testing.T) {
 	require.Empty(t, CheckExternalSpecs(),
-		"every covered external extension needs an externalSpecs entry")
+		"every runnable external extension needs an externalSpecs entry")
 
 	for name, spec := range externalSpecs {
 		assert.Equal(t, name, spec.Name, "spec key and Name must match")
@@ -58,6 +58,29 @@ func TestExternalBuildList_OrdersHypopgBeforeIndexAdvisor(t *testing.T) {
 		"hypopg must be installed before index_advisor")
 }
 
+// TestExternalBuildOnlySmokeSelection verifies build-only extensions are still
+// selected, built, preloaded, and smoke-loaded, while staying out of the covered
+// upstream-suite list.
+func TestExternalBuildOnlySmokeSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "pgaudit")
+
+	modules := ExternalModules()
+	require.Len(t, modules, 1)
+	assert.Equal(t, "pgaudit", modules[0].Name)
+	assert.Equal(t, HarnessSmoke, modules[0].Harness)
+	assert.Equal(t, []ExtensionInstall{{Name: "pgaudit"}}, modules[0].PreCreateExtensions)
+
+	build := ExternalBuildList()
+	require.Len(t, build, 1)
+	assert.Equal(t, "pgaudit", build[0].Name)
+
+	var coveredNames []string
+	for _, spec := range CoveredExternalExtensions() {
+		coveredNames = append(coveredNames, spec.Name)
+	}
+	assert.NotContains(t, coveredNames, "pgaudit")
+}
+
 // TestExternalContribDeps_ResolvesThroughBuildDependencies verifies the
 // contrib-module resolution walks the full build list (selected extensions plus
 // their DependsOn chain), so a narrowed run still installs a dependency's
@@ -80,9 +103,24 @@ func TestExternalPreloadLibraries_MergesSelection(t *testing.T) {
 	t.Setenv("PGEXTERNAL_TESTS", "pg_cron plpgsql_check")
 	assert.Equal(t, []string{"pg_cron", "plpgsql_check"}, ExternalPreloadLibraries())
 
+	t.Setenv("PGEXTERNAL_TESTS", "pgaudit")
+	assert.Equal(t, []string{"pgaudit"}, ExternalPreloadLibraries())
+
 	t.Setenv("PGEXTERNAL_TESTS", "vector")
 	assert.Empty(t, ExternalPreloadLibraries(),
 		"a selection with no preload needs must generate no snippet")
+}
+
+func TestExtensionCoverageMarkdown_BuildOnlySmokeResult(t *testing.T) {
+	report := ExtensionCoverageMarkdown(&TestResults{
+		Tests: []IndividualTestResult{{
+			Name:   "pgaudit/load",
+			Status: "pass",
+		}},
+	})
+
+	assert.Contains(t, report, "build-only external extensions are built")
+	assert.Contains(t, report, "| pgaudit | external | 🔧 build-only | load | ✅ pass |")
 }
 
 // TestListRegressTests covers the three selection modes of the pg_regress

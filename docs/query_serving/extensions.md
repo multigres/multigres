@@ -2,7 +2,9 @@
 
 Multigres runs PostgreSQL extension compatibility coverage through the
 `pgregresstest` end-to-end harness. Covered extensions run their shipped test
-suites (`pg_regress` or pgTAP) through multigateway.
+suites (`pg_regress` or pgTAP) through multigateway. Build-only extensions are
+built and smoke-loaded, but their upstream regression suites are not used as
+compatibility signals.
 
 This page lists the extensions currently tracked by the harness. It is not a
 complete `pg_available_extensions` inventory.
@@ -27,11 +29,20 @@ complete `pg_available_extensions` inventory.
 | `hypopg`        | external | Transaction-wrapped because hypothetical indexes are backend-local.                            |
 | `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                                         |
 | `pg_jsonschema` | external | Rust extension built with cargo-pgrx; runs an in-repo SQL translation of its pgrx test corpus. |
-| `pgaudit`       | external | Preloaded via `shared_preload_libraries`; multi-user `\connect`s use a harness `.pgpass`.      |
 | `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                                      |
 | `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip).            |
 | `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.                 |
 | `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.                  |
+
+## Build-only external extensions
+
+These extensions are built, installed, preloaded when needed, and smoke-loaded
+with `CREATE EXTENSION`, but their upstream regression suites are not run through
+multigateway.
+
+| Extension | Notes                                                                                                                                                                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgaudit` | Requires `shared_preload_libraries`; build/load smoke only. Upstream's pg_regress suite asserts exact audit-log output for session-state replay, prepared statements, and database DDL, so it is not a valid multigateway signal yet. |
 
 ## Unsupported extensions
 

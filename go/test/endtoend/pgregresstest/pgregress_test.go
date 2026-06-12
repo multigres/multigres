@@ -174,7 +174,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// suite will run). Each is a PGXS module living outside the PostgreSQL source
 	// tree (e.g. pgvector); it is built against the just-installed PostgreSQL so
 	// its .so matches the running server's ABI. ExternalBuildList includes the
-	// covered extensions plus their build-only dependencies (e.g. pgtap for
+	// runnable extensions plus their dependency-only modules (e.g. pgtap for
 	// pg_partman, and pg_partman for pgmq), ordered so dependencies install first.
 	if runExternal {
 		t.Logf("Phase 2d: Installing external extensions...")
