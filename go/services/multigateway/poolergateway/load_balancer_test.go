@@ -99,7 +99,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	}
 	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, conn.Type(), "pooler type should be updated")
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, conn.PoolerInfo().Type, "pooler type should be updated")
 
 	// Remove the pooler
 	lb.RemovePooler(poolerID(pooler))
@@ -193,8 +193,8 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	// Add a primary
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	// Add a primary (a real PRIMARY record carries self_leadership).
+	primary := withSelfLeadership(createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
 	require.NoError(t, lb.AddPooler(primary))
 
 	// Request a replica - should not find one
@@ -777,4 +777,46 @@ func TestLoadBalancerListener(t *testing.T) {
 	// OnPoolerRemoved should remove pooler
 	listener.OnPoolerRemoved(pooler)
 	assert.Equal(t, 0, lb.ConnectionCount())
+}
+
+// TestLoadBalancer_StaleLeaderExcludedFromReplicas verifies that a stale leader
+// — a pooler whose own health observation still names it the leader at a rule
+// older than the confirmed leader's — is not selected for replica reads, while
+// a replica that already tracks the new leader is.
+func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	newLeader := withSelfLeadership(createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	stale := createTestMultiPooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	replica := createTestMultiPooler("replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(newLeader))
+	require.NoError(t, lb.AddPooler(stale))
+	require.NoError(t, lb.AddPooler(replica))
+
+	lb.mu.Lock()
+	connStale := lb.connections[poolerID(stale)]
+	connReplica := lb.connections[poolerID(replica)]
+	lb.mu.Unlock()
+
+	// stale still believes it is the leader at the old rule 1; replica already
+	// tracks the new leader at rule 2.
+	simulateHealthUpdate(connStale, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: stale.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}})
+	simulateHealthUpdate(connReplica, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: newLeader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	// Only `replica` is eligible: new-leader is the leader (self_leadership) and
+	// stale believes itself the leader, so both are excluded.
+	for range 10 {
+		conn, err := lb.GetConnection(target)
+		require.NoError(t, err)
+		assert.Equal(t, poolerID(replica), conn.ID(),
+			"reads must avoid both the leader and the stale leader")
+	}
 }

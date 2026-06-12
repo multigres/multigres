@@ -173,7 +173,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 	lb.logger.Debug("added pooler connection",
 		"pooler_id", poolerID,
-		"type", pooler.Type.String(),
+		"is_leader", pooler.GetSelfLeadership() != nil,
 		"cell", pooler.Id.GetCell())
 
 	return nil
@@ -263,14 +263,11 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	}
 
 	// REPLICA: collect every connection eligible to serve reads in the shard.
-	// The leader is excluded by ID.
-	confirmedLeaderID := ""
-	if leaderObs != nil {
-		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
-	}
+	// A pooler that believes itself the leader — the current leader or a stale
+	// leader — is excluded; see matchesReplicaTarget.
 	var candidates []*PoolerConnection
-	for id, conn := range lb.connections {
-		if matchesReplicaTarget(id, conn, target, confirmedLeaderID) {
+	for _, conn := range lb.connections {
+		if matchesReplicaTarget(conn, target) {
 			candidates = append(candidates, conn)
 		}
 	}
@@ -531,18 +528,26 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 }
 
 // matchesReplicaTarget reports whether conn is eligible to serve REPLICA
-// traffic for target. With a consensus-confirmed leader, eligibility is
-// "in the shard and not the leader." With no confirmed leader yet (cold
-// start), fall back to topology Type==REPLICA so we don't accidentally
-// serve reads from a pooler that may turn out to be the leader.
-func matchesReplicaTarget(id string, conn *PoolerConnection, target *query.Target, confirmedLeaderID string) bool {
+// traffic for target: it is in the shard and does not believe itself the shard
+// leader. Leadership is judged per-connection from the better of the pooler's
+// etcd self_leadership and its health-stream observation (see
+// believesSelfLeader), never from the topology Type label.
+//
+// Excluding self-believed leaders covers both the current leader and a stale
+// leader — a pooler whose own view still names it the leader even though a
+// newer leader has been observed. Either would serve reads as a primary or from
+// a diverged timeline, so neither is a replica candidate.
+//
+// TODO(replica-quality): eligibility is otherwise binary. Longer term, treat a
+// replica as degraded when it is not actively replicating or has fallen behind,
+// and prefer non-degraded replicas when several are available. That belongs in
+// selectReplicaConnection (which already tiers by lag), with the per-pooler
+// signal carried on the health observation.
+func matchesReplicaTarget(conn *PoolerConnection, target *query.Target) bool {
 	if !matchesShardTarget(conn, target) {
 		return false
 	}
-	if confirmedLeaderID != "" {
-		return id != confirmedLeaderID
-	}
-	return conn.Type() == clustermetadatapb.PoolerType_REPLICA
+	return !conn.believesSelfLeader()
 }
 
 // poolerIDString returns the string ID for a pooler.

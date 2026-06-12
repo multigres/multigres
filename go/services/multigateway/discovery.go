@@ -171,7 +171,7 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 				"addr", pooler.Addr(),
 				"database", pooler.GetShardKey().GetDatabase(),
 				"shard", pooler.GetShardKey().GetShard(),
-				"type", pooler.Type.String())
+				"is_leader", pooler.GetSelfLeadership() != nil)
 		}
 	}
 
@@ -257,7 +257,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 			"tableGroup", pooler.GetShardKey().GetTableGroup(),
 			"database", pooler.GetShardKey().GetDatabase(),
 			"shard", pooler.GetShardKey().GetShard(),
-			"type", pooler.Type.String())
+			"is_leader", pooler.GetSelfLeadership() != nil)
 	} else {
 		pd.logger.Info("Pooler updated",
 			"id", poolerID,
@@ -266,7 +266,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 			"tableGroup", pooler.GetShardKey().GetTableGroup(),
 			"database", pooler.GetShardKey().GetDatabase(),
 			"shard", pooler.GetShardKey().GetShard(),
-			"type", pooler.Type.String())
+			"is_leader", pooler.GetSelfLeadership() != nil)
 	}
 
 	if pd.onPoolerChanged != nil {
