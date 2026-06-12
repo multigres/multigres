@@ -65,9 +65,9 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // reserves reports whether the request will create a NEW reserved connection —
 // if not, it is a single autocommit query. Each handler computes reserves from
 // the signal it actually carries, mirroring the executor's own reservation
-// decision (reservation reasons for StreamExecute, MaxRows for portals, always
-// for COPY). The graceful drain serves single queries longer than new
-// reservations, so the distinction matters during shutdown.
+// decision (reservation reasons for StreamExecute, MaxRows or reasons for
+// portals, always for COPY). The graceful drain serves single queries longer
+// than new reservations, so the distinction matters during shutdown.
 func admissionKind(reservedConnID uint64, reserves bool) poolerserver.RequestKind {
 	switch {
 	case reservedConnID > 0:
@@ -77,6 +77,17 @@ func admissionKind(reservedConnID uint64, reserves bool) poolerserver.RequestKin
 	default:
 		return poolerserver.RequestSingleQuery
 	}
+}
+
+// portalReserves reports whether a PortalStreamExecute will use or create a
+// reserved connection, mirroring the executor's reserve decision exactly: a
+// suspendable cursor (MaxRows > 0) OR a portal carrying reservation reasons.
+// The reasons case is reachable on the extended-query path — a deferred BEGIN
+// is folded into the first portal as ReasonTransaction while MaxRows == 0 — so
+// checking MaxRows alone would mis-admit such a portal as a single query during
+// a graceful drain, and the executor would then open a reserved connection.
+func portalReserves(options *query.ExecuteOptions, reservationOptions *query.ReservationOptions) bool {
+	return options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
 }
 
 // StreamExecute executes a SQL query and streams the results back to the client.
@@ -307,11 +318,12 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
-	// A portal reserves a connection only when it is a suspendable cursor
-	// (MaxRows > 0) or already on a reserved connection — this mirrors the
-	// executor's own reserve decision. A MaxRows == 0 portal (fetch-all) runs on
-	// a pooled connection, so it is a single query and may be served during stage 1.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), req.Options.GetMaxRows() > 0)); err != nil {
+	// A portal reserves when it is a suspendable cursor (MaxRows > 0) or carries
+	// reservation reasons (e.g. a deferred BEGIN folded into the first portal),
+	// or is already on a reserved connection — this mirrors the executor's own
+	// reserve decision. Only a fetch-all portal with no reasons runs on a pooled
+	// connection as a single query and may be served during stage 1.
+	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), portalReserves(req.Options, req.GetReservationOptions()))); err != nil {
 		return mterrors.ToGRPC(err)
 	}
 

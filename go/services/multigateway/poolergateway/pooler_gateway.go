@@ -267,10 +267,12 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	// A portal reserves a connection only as a suspendable cursor (MaxRows > 0);
-	// a fetch-all portal (MaxRows == 0) runs on a pooled connection and is a
-	// single query — mirrors the pooler's classification.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), options.GetMaxRows() > 0), func(conn *PoolerConnection) error {
+	// A portal reserves a connection as a suspendable cursor (MaxRows > 0) or when
+	// it carries reservation reasons (e.g. a deferred BEGIN folded into the first
+	// portal); only a fetch-all portal with no reasons is a single query — mirrors
+	// the pooler's classification and the executor's reserve decision.
+	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *PoolerConnection) error {
 		var err error
 		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
 		return err
