@@ -591,6 +591,21 @@ message RewindToSourceResponse {
 }
 
 // =============================================================================
+// Leadership Resignation APIs
+// =============================================================================
+
+// ResignLeadershipRequest asks the primary pooler to gracefully resign from leadership.
+message ResignLeadershipRequest {}
+
+// ResignLeadershipResponse returns the WAL flush LSN at the moment writes were quiesced.
+message ResignLeadershipResponse {
+  // flush_lsn is the WAL flush position at the moment postgres stopped accepting
+  // writes. Callers should wait for standbys to reach this LSN before triggering
+  // a new election, ensuring no data loss.
+  string flush_lsn = 1;
+}
+
+// =============================================================================
 // PostgreSQL Monitoring Control APIs
 // =============================================================================
 

@@ -207,6 +207,9 @@ type MultiPoolerClient interface {
 	// Manager Service Methods - PostgreSQL Restart Control
 	//
 
+	// ResignLeadership gracefully resigns the pooler from leadership for a planned failover.
+	ResignLeadership(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error)
+
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 

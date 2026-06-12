@@ -75,6 +75,7 @@ type FakeClient struct {
 	GetBackupsResponses                 map[string]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	RewindToSourceResponses             map[string]*multipoolermanagerdatapb.RewindToSourceResponse
+	ResignLeadershipResponses           map[string]*multipoolermanagerdatapb.ResignLeadershipResponse
 	SetPostgresRestartsEnabledResponses map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 
 	// Errors to return - keyed by pooler ID
@@ -119,6 +120,7 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                 make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		RewindToSourceResponses:             make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
+		ResignLeadershipResponses:           make(map[string]*multipoolermanagerdatapb.ResignLeadershipResponse),
 		SetPostgresRestartsEnabledResponses: make(map[string]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                              make(map[string]error),
 		RecruitDelays:                       make(map[string]time.Duration),
@@ -188,6 +190,13 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 		Response: resp,
 		Delay:    delay,
 	}
+}
+
+// SetResignLeadershipResponse sets a ResignLeadership response for a pooler.
+func (f *FakeClient) SetResignLeadershipResponse(poolerID string, resp *multipoolermanagerdatapb.ResignLeadershipResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ResignLeadershipResponses[poolerID] = resp
 }
 
 // SetPostgresRestartsEnabledResponse sets a SetPostgresRestartsEnabled response for a pooler.
@@ -501,6 +510,26 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
+}
+
+//
+// Manager Service Methods - SwitchPrimary
+//
+
+func (f *FakeClient) ResignLeadership(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ResignLeadership", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ResignLeadershipResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ResignLeadershipResponse{}, nil
 }
 
 //
