@@ -171,7 +171,7 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 				"addr", pooler.Addr(),
 				"database", pooler.GetShardKey().GetDatabase(),
 				"shard", pooler.GetShardKey().GetShard(),
-				"type", pooler.Type.String())
+				"is_leader", pooler.GetSelfLeadership() != nil)
 		}
 	}
 
@@ -257,7 +257,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 			"tableGroup", pooler.GetShardKey().GetTableGroup(),
 			"database", pooler.GetShardKey().GetDatabase(),
 			"shard", pooler.GetShardKey().GetShard(),
-			"type", pooler.Type.String())
+			"is_leader", pooler.GetSelfLeadership() != nil)
 	} else {
 		pd.logger.Info("Pooler updated",
 			"id", poolerID,
@@ -266,7 +266,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 			"tableGroup", pooler.GetShardKey().GetTableGroup(),
 			"database", pooler.GetShardKey().GetDatabase(),
 			"shard", pooler.GetShardKey().GetShard(),
-			"type", pooler.Type.String())
+			"is_leader", pooler.GetSelfLeadership() != nil)
 	}
 
 	if pd.onPoolerChanged != nil {
@@ -274,10 +274,12 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 	}
 }
 
-// GetPoolersForAdmin returns a list of all discovered poolers in this cell.
-// This is intended for admin/status pages, not the hot query path.
-// Poolers are sorted by name for consistent display order.
-func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []*clustermetadatapb.MultiPooler {
+// GetPoolersForAdmin returns a projected snapshot of all discovered poolers in
+// this cell, sorted by ID for consistent display order. Intended for
+// admin/status pages, not the hot query path. It includes every pooler known to
+// topology — even ones the load balancer is not connected to — so callers can
+// surface, e.g., a pooler in a shutdown lifecycle state.
+func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []CellPoolerInfo {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
@@ -288,12 +290,27 @@ func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []*clustermetadatapb.MultiPo
 	}
 	sort.Strings(poolerIDs)
 
-	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
+	infos := make([]CellPoolerInfo, 0, len(pd.poolers))
 	for _, id := range poolerIDs {
 		pooler := pd.poolers[id]
-		poolers = append(poolers, proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler))
+		infos = append(infos, CellPoolerInfo{
+			ID:        id,
+			Name:      pooler.Id.GetName(),
+			Database:  pooler.GetShardKey().GetDatabase(),
+			Lifecycle: lifecycleLabel(pooler.GetLifecycleStatus()),
+		})
 	}
-	return poolers
+	return infos
+}
+
+// lifecycleLabel renders a pooler's lifecycle status for display, e.g.
+// LIFECYCLE_SHUTDOWN -> "shutdown". A nil or unset status reads as "unknown".
+func lifecycleLabel(lc *clustermetadatapb.PoolerLifecycle) string {
+	status := lc.GetStatus()
+	if status == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_UNKNOWN {
+		return "unknown"
+	}
+	return strings.ToLower(strings.TrimPrefix(status.String(), "LIFECYCLE_"))
 }
 
 // LastRefresh returns the timestamp of the last successful refresh.
@@ -732,11 +749,22 @@ func (gd *GlobalPoolerDiscovery) PoolerCount() int {
 	return count
 }
 
+// CellPoolerInfo is a projected, read-only snapshot of a discovered pooler for
+// the admin/status page — the topology facts only, not the raw proto. The load
+// balancer's live consensus view (leadership) is joined in by the caller, keyed
+// on ID.
+type CellPoolerInfo struct {
+	ID        string
+	Name      string
+	Database  string
+	Lifecycle string
+}
+
 // CellStatusInfo contains status information for a single cell's discovery.
 type CellStatusInfo struct {
 	Cell        string
 	LastRefresh time.Time
-	Poolers     []*clustermetadatapb.MultiPooler
+	Poolers     []CellPoolerInfo
 }
 
 // GetCellStatusesForAdmin returns status information for each cell.

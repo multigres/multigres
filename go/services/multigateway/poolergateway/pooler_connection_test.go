@@ -137,9 +137,9 @@ func TestNewPoolerConnection(t *testing.T) {
 	defer conn.Close()
 
 	// Verify basic properties
-	assert.Equal(t, "multipooler-zone1-pooler1", conn.ID())
+	assert.Equal(t, "multipooler-zone1-pooler1", string(conn.ID()))
 	assert.Equal(t, "zone1", conn.Cell())
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type())
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.PoolerInfo().Type)
 }
 
 // TestPoolerConnection_ID verifies ID generation for different pooler configurations.
@@ -164,7 +164,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 			require.NoError(t, err)
 			defer conn.Close()
 
-			assert.Equal(t, tt.expected, conn.ID())
+			assert.Equal(t, tt.expected, string(conn.ID()))
 		})
 	}
 }

@@ -415,6 +415,13 @@ func (pg *PoolerGateway) Stats() map[string]any {
 	}
 }
 
+// LeadershipByID returns the consensus leadership role of each connected pooler,
+// keyed by serialized pooler ID, for the admin/status page.
+// See LoadBalancer.LeadershipByID.
+func (pg *PoolerGateway) LeadershipByID() map[MultiPoolerID]string {
+	return pg.loadBalancer.LeadershipByID()
+}
+
 // CopySendData implements queryservice.QueryService.
 // It sends a chunk of data for an active COPY operation.
 func (pg *PoolerGateway) CopySendData(

@@ -195,13 +195,7 @@ func TestPoolerDiscovery_MultiplePoolerUpdates(t *testing.T) {
 
 	// Verify the update is reflected
 	waitForCondition(t, func() bool {
-		poolers := pd.GetPoolersForAdmin()
-		for _, p := range poolers {
-			if p.Id.Name == "pooler1" && p.Hostname == "host1-updated" {
-				return true
-			}
-		}
-		return false
+		return rawDiscoveredPoolers(pd)["pooler1"].GetHostname() == "host1-updated"
 	}, "Expected pooler1 to be updated to host1-updated")
 
 	// Count should remain 2
@@ -235,6 +229,19 @@ func TestPoolerDiscovery_EmptyInitialState(t *testing.T) {
 	waitForPoolerCount(t, pd, 1)
 }
 
+// rawDiscoveredPoolers returns the internal pooler records keyed by name, for
+// assertions on fields the admin projection does not expose (hostname, type,
+// shard). The discovery test lives in-package, so it can read pd.poolers.
+func rawDiscoveredPoolers(pd *CellPoolerDiscovery) map[string]*clustermetadatapb.MultiPooler {
+	pd.mu.Lock()
+	defer pd.mu.Unlock()
+	m := make(map[string]*clustermetadatapb.MultiPooler, len(pd.poolers))
+	for _, p := range pd.poolers {
+		m[p.Id.GetName()] = p.MultiPooler
+	}
+	return m
+}
+
 func TestPoolerDiscovery_VerifyPoolerDetails(t *testing.T) {
 	ctx := t.Context()
 	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
@@ -256,11 +263,7 @@ func TestPoolerDiscovery_VerifyPoolerDetails(t *testing.T) {
 	waitForPoolerCount(t, pd, 2)
 
 	// Verify all pooler details are correctly populated
-	poolers := pd.GetPoolersForAdmin()
-	poolerMap := make(map[string]*clustermetadatapb.MultiPooler)
-	for _, p := range poolers {
-		poolerMap[p.Id.Name] = p
-	}
+	poolerMap := rawDiscoveredPoolers(pd)
 
 	// Verify pooler1
 	require.Contains(t, poolerMap, "pooler1")
@@ -293,15 +296,15 @@ func TestPoolerDiscovery_GetPoolers_ThreadSafe(t *testing.T) {
 
 	waitForPoolerCount(t, pd, 1)
 
-	// Verify GetPoolers returns a copy (not the internal map)
+	// Each call returns an independent slice of value snapshots, not a view
+	// into the internal map.
 	poolers1 := pd.GetPoolersForAdmin()
 	poolers2 := pd.GetPoolersForAdmin()
+	require.Len(t, poolers1, 1)
+	require.Len(t, poolers2, 1)
 
-	// Modifying one shouldn't affect the other
-	assert.NotSame(t, poolers1[0], poolers2[0])
-
-	// But they should have the same data
-	assert.Equal(t, poolers1[0].Hostname, poolers2[0].Hostname)
+	assert.Equal(t, poolers1, poolers2)
+	assert.NotSame(t, &poolers1[0], &poolers2[0])
 }
 
 func TestPoolerDiscovery_InvalidDataHandling(t *testing.T) {
@@ -344,11 +347,7 @@ func TestPoolerDiscovery_InvalidDataHandling(t *testing.T) {
 	// Should discover only the valid poolers
 	waitForPoolerCount(t, pd, 2)
 
-	poolers := pd.GetPoolersForAdmin()
-	poolerMap := make(map[string]*clustermetadatapb.MultiPooler)
-	for _, p := range poolers {
-		poolerMap[p.Id.Name] = p
-	}
+	poolerMap := rawDiscoveredPoolers(pd)
 
 	// Verify only valid poolers were discovered
 	assert.Contains(t, poolerMap, "pooler1")
@@ -455,7 +454,7 @@ func TestPoolerDiscovery_ReconnectsAfterWatchClosed(t *testing.T) {
 
 	poolers := pd.GetPoolersForAdmin()
 	require.Len(t, poolers, 1)
-	assert.Equal(t, "pooler1", poolers[0].Id.Name)
+	assert.Equal(t, "pooler1", poolers[0].Name)
 
 	// Simulate watch channel closure (like etcd compaction)
 	// This closes all watch channels for the "poolers" path
@@ -479,7 +478,7 @@ func TestPoolerDiscovery_ReconnectsAfterWatchClosed(t *testing.T) {
 	// Verify both poolers are present
 	poolers = pd.GetPoolersForAdmin()
 	require.Len(t, poolers, 2)
-	names := []string{poolers[0].Id.Name, poolers[1].Id.Name}
+	names := []string{poolers[0].Name, poolers[1].Name}
 	assert.Contains(t, names, "pooler1")
 	assert.Contains(t, names, "pooler2")
 }
@@ -600,8 +599,8 @@ func TestGlobalPoolerDiscovery_GetCellStatusesForAdmin(t *testing.T) {
 	require.NotNil(t, zone2Status, "Should have zone2 status")
 	assert.Len(t, zone1Status.Poolers, 1)
 	assert.Len(t, zone2Status.Poolers, 1)
-	assert.Equal(t, "pooler1", zone1Status.Poolers[0].Id.Name)
-	assert.Equal(t, "pooler2", zone2Status.Poolers[0].Id.Name)
+	assert.Equal(t, "pooler1", zone1Status.Poolers[0].Name)
+	assert.Equal(t, "pooler2", zone2Status.Poolers[0].Name)
 }
 
 // TestPoolerDiscovery_PoolerDeletion tests that poolers are removed from
@@ -635,7 +634,7 @@ func TestPoolerDiscovery_PoolerDeletion(t *testing.T) {
 	// Verify only pooler2 remains
 	poolers := pd.GetPoolersForAdmin()
 	require.Len(t, poolers, 1)
-	assert.Equal(t, "pooler2", poolers[0].Id.Name)
+	assert.Equal(t, "pooler2", poolers[0].Name)
 }
 
 // TestPoolerDiscovery_TwoPrimariesCoexistDuringFailover is the regression test
@@ -673,7 +672,7 @@ func TestPoolerDiscovery_TwoPrimariesCoexistDuringFailover(t *testing.T) {
 	require.Len(t, poolers, 2)
 	names := make(map[string]bool, len(poolers))
 	for _, p := range poolers {
-		names[p.Id.Name] = true
+		names[p.Name] = true
 	}
 	assert.True(t, names["new-primary"], "new-primary must be present")
 	assert.True(t, names["stale-primary"], "stale-primary must NOT be evicted by discovery")
@@ -711,7 +710,7 @@ func TestPoolerDiscovery_ReplicaDoesNotEvictPrimary(t *testing.T) {
 	require.Len(t, poolers, 2)
 	names := make(map[string]bool)
 	for _, p := range poolers {
-		names[p.Id.Name] = true
+		names[p.Name] = true
 	}
 	assert.True(t, names["primary"], "Primary should still be present")
 	assert.True(t, names["replica"], "Replica should be present")
