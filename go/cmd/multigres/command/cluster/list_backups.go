@@ -39,6 +39,7 @@ func AddListBackupsCommand(clusterCmd *cobra.Command) {
 
 	cmd.Flags().String("database", "postgres", "Database name to list backups for")
 	cmd.Flags().Uint32("limit", 0, "Maximum number of backups to return (0 = no limit)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
 
 	clusterCmd.AddCommand(cmd)
 }

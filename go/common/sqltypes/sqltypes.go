@@ -12,12 +12,84 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sqltypes provides internal types for query results that preserve
-// NULL vs empty string distinction. These types are used throughout the
-// codebase, while the proto types are only used for gRPC serialization.
+// Package sqltypes provides internal types for query results and PostgreSQL diagnostics.
+//
+// # Query Result Types
+//
+// The package provides types that preserve NULL vs empty string distinction:
+//   - [Value]: Represents a nullable column value (nil = NULL, []byte{} = empty string)
+//   - [Row]: Contains a slice of Values representing a database row
+//   - [Result]: Complete query result with fields, rows, command tag, and diagnostics
+//
+// These types are used throughout the codebase, while the proto types
+// (in go/pb/query) are only used for gRPC serialization.
+//
+// # PostgreSQL Diagnostic System
+//
+// [PgDiagnostic] is the unified type for PostgreSQL error and notice messages.
+// PostgreSQL uses identical wire format for ErrorResponse ('E') and NoticeResponse ('N'),
+// so a single type handles both. PgDiagnostic implements the error interface directly,
+// so it can be returned as an error without needing a wrapper type.
+// The diagnostic flow through Multigres is:
+//
+//	PostgreSQL ErrorResponse/NoticeResponse
+//	        ↓
+//	*PgDiagnostic (parse all 14 fields, implements error)
+//	        ↓
+//	mterrors.PgError (wraps PgDiagnostic for system-level handling)
+//	        ↓
+//	gRPC: RPCError.pg_diagnostic (proto serialization)
+//	        ↓
+//	mterrors.PgError (reconstructed from gRPC)
+//	        ↓
+//	server.writePgDiagnosticResponse (write all 14 fields)
+//	        ↓
+//	Client sees native PostgreSQL error format
+//
+// # MessageType vs Severity
+//
+// MessageType and Severity serve different purposes:
+//
+//   - MessageType (byte): Protocol-level message type from PostgreSQL wire protocol.
+//     'E' (0x45) = ErrorResponse, 'N' (0x4E) = NoticeResponse.
+//     Use [PgDiagnostic.IsError] and [PgDiagnostic.IsNotice] to check.
+//
+//   - Severity (string): Application-level severity from the Severity field.
+//     Errors: "ERROR", "FATAL", "PANIC"
+//     Notices: "WARNING", "NOTICE", "DEBUG", "INFO", "LOG"
+//     Use [PgDiagnostic.IsFatal] to check for fatal severities.
+//
+// The MessageType determines how to handle the message (error vs notice),
+// while Severity provides additional context about the message's importance.
+//
+// # PostgreSQL Protocol Fields
+//
+// PgDiagnostic captures all 14 PostgreSQL diagnostic fields:
+//
+//	Field             Code  Description
+//	─────────────────────────────────────────────────────────
+//	Severity          S     ERROR, FATAL, PANIC, WARNING, etc.
+//	Code              C     SQLSTATE error code (e.g., "42P01")
+//	Message           M     Primary human-readable message
+//	Detail            D     Optional detailed explanation
+//	Hint              H     Optional suggestion for fixing
+//	Position          P     Cursor position in original query
+//	InternalPosition  p     Position in internal query
+//	InternalQuery     q     Text of internal query
+//	Where             W     Call stack for PL/pgSQL errors
+//	Schema            s     Schema name (constraint errors)
+//	Table             t     Table name (constraint errors)
+//	Column            c     Column name (constraint errors)
+//	DataType          d     Data type name
+//	Constraint        n     Constraint name
+//
+// See: https://www.postgresql.org/docs/current/protocol-error-fields.html
 package sqltypes
 
-import "github.com/multigres/multigres/go/pb/query"
+import (
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/pb/query"
+)
 
 // Value represents a nullable column value.
 // nil means NULL, []byte{} means empty string.
@@ -34,6 +106,16 @@ type Row struct {
 	Values []Value
 }
 
+// Notification represents a PostgreSQL asynchronous notification (NotificationResponse).
+type Notification struct {
+	// PID is the process ID of the notifying backend.
+	PID int32
+	// Channel is the notification channel name.
+	Channel string
+	// Payload is the notification payload string.
+	Payload string
+}
+
 // Result represents a query result with nullable values.
 type Result struct {
 	// Fields describes the columns in the result set.
@@ -48,6 +130,14 @@ type Result struct {
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
+
+	// Notices contains any PostgreSQL diagnostic messages received during query execution.
+	// These are typically non-fatal messages like warnings or informational notices.
+	Notices []*mterrors.PgDiagnostic
+
+	// Notifications contains asynchronous notifications received during query execution.
+	// These are delivered via NotificationResponse ('A') messages from PostgreSQL.
+	Notifications []*Notification
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -61,6 +151,7 @@ func (r *Result) ToProto() *query.QueryResult {
 	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
+		HasFields:    r.Fields != nil,
 		RowsAffected: r.RowsAffected,
 		Rows:         protoRows,
 		CommandTag:   r.CommandTag,
@@ -76,8 +167,15 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	for i, row := range pr.Rows {
 		rows[i] = RowFromProto(row)
 	}
+	// Restore nil vs empty Fields distinction lost in protobuf serialization.
+	// Protobuf encodes both nil and empty repeated fields identically (as absent),
+	// so we use HasFields to distinguish "no result set" from "zero-column result".
+	fields := pr.Fields
+	if pr.HasFields && fields == nil {
+		fields = []*query.Field{}
+	}
 	return &Result{
-		Fields:       pr.Fields,
+		Fields:       fields,
 		RowsAffected: pr.RowsAffected,
 		Rows:         rows,
 		CommandTag:   pr.CommandTag,

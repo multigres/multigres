@@ -15,7 +15,7 @@
 package pgctld
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -26,6 +26,7 @@ import (
 type PostgresCtlConfig struct {
 	Port                  int
 	User                  string
+	Password              string
 	Database              string
 	PostgresDataDir       string
 	PostgresConfigFile    string
@@ -38,18 +39,18 @@ type PostgresCtlConfig struct {
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
 func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string, listenAddresses string, unixSocketDirectories string) (*PostgresCtlConfig, error) {
 	if postgresDataDir == "" {
-		return nil, fmt.Errorf("postgres-data-dir needs to be set")
+		return nil, errors.New("postgres-data-dir needs to be set")
 	}
 
 	if poolerDir == "" {
-		return nil, fmt.Errorf("pooler-dir needs to be set")
+		return nil, errors.New("pooler-dir needs to be set")
 	}
 
 	if port == 0 {
-		return nil, fmt.Errorf("port needs to be set")
+		return nil, errors.New("port needs to be set")
 	}
 	if postgresConfigFile == "" {
-		return nil, fmt.Errorf("postgres-config-file needs to be set")
+		return nil, errors.New("postgres-config-file needs to be set")
 	}
 
 	return &PostgresCtlConfig{
@@ -65,11 +66,10 @@ func NewPostgresCtlConfig(port int, user string, database string, timeout int, p
 	}, nil
 }
 
-// IsDataDirInitialized checks if a PostgreSQL data directory has been initialized
-func IsDataDirInitialized(poolerDir string) bool {
+// IsDataDirInitialized checks if the PostgreSQL data directory (PGDATA) has been initialized
+func IsDataDirInitialized() bool {
 	// Check if PG_VERSION file exists (indicates initialized data directory)
-	dataDir := PostgresDataDir(poolerDir)
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+	pgVersionFile := filepath.Join(PostgresDataDir(), "PG_VERSION")
 	_, err := os.Stat(pgVersionFile)
 	return err == nil
 }

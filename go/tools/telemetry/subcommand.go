@@ -16,60 +16,41 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/exec"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
+// getTraceparent extracts the W3C Trace Context traceparent from the context.
 func getTraceparent(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
+	if !span.SpanContext().IsValid() {
+		return ""
+	}
 
-		// Extract trace context to W3C Trace Context format
-		carrier := propagation.MapCarrier{}
-		propagator := otel.GetTextMapPropagator()
-		propagator.Inject(ctx, carrier)
+	// Extract trace context to W3C Trace Context format
+	carrier := propagation.MapCarrier{}
+	propagator := otel.GetTextMapPropagator()
+	propagator.Inject(ctx, carrier)
 
-		// Get traceparent value (format: version-trace_id-span_id-flags)
-		if traceparent, ok := carrier["traceparent"]; ok {
-			return traceparent
-		}
+	// Get traceparent value (format: version-trace_id-span_id-flags)
+	if traceparent, ok := carrier["traceparent"]; ok {
+		return traceparent
 	}
 	return ""
 }
 
-func addTraceparent(ctx context.Context, cmd *exec.Cmd) {
-	var traceparent string
-	if cmd.Process == nil {
-		traceparent = getTraceparent(ctx)
+// TraceparentEnvVar returns the TRACEPARENT environment variable string
+// for propagating trace context to subprocesses, in the format "TRACEPARENT=value".
+// Returns an empty string if the context has no valid span.
+//
+// Note: When using executil.Command(), trace propagation is handled automatically.
+// This function is exported for cases where manual trace propagation is needed.
+func TraceparentEnvVar(ctx context.Context) string {
+	traceparent := getTraceparent(ctx)
+	if traceparent == "" {
+		return ""
 	}
-
-	if traceparent != "" {
-		// Initialize Env with current environment if not set
-		if cmd.Env == nil {
-			cmd.Env = os.Environ()
-		}
-		// Add TRACEPARENT environment variable
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TRACEPARENT=%s", traceparent))
-	}
-}
-
-func StartCmd(ctx context.Context, cmd *exec.Cmd) error {
-	addTraceparent(ctx, cmd)
-	return cmd.Start()
-}
-
-func RunCmd(ctx context.Context, cmd *exec.Cmd, clientSpan bool) error {
-	var span trace.Span
-	if clientSpan {
-		ctx, span = tracer.Start(ctx, cmd.Path)
-		defer span.End()
-	}
-
-	addTraceparent(ctx, cmd)
-	return cmd.Run()
+	return "TRACEPARENT=" + traceparent
 }

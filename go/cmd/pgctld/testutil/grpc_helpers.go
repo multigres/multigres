@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,34 +32,40 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	StartCalls   []*pb.StartRequest
-	StopCalls    []*pb.StopRequest
-	RestartCalls []*pb.RestartRequest
-	ReloadCalls  []*pb.ReloadConfigRequest
-	StatusCalls  []*pb.StatusRequest
-	VersionCalls []*pb.VersionRequest
-	InitDirCalls []*pb.InitDataDirRequest
+	mu            sync.Mutex
+	StartCalls    []*pb.StartRequest
+	StopCalls     []*pb.StopRequest
+	RestartCalls  []*pb.RestartRequest
+	ReloadCalls   []*pb.ReloadConfigRequest
+	StatusCalls   []*pb.StatusRequest
+	VersionCalls  []*pb.VersionRequest
+	InitDirCalls  []*pb.InitDataDirRequest
+	PgRewindCalls []*pb.PgRewindRequest
 
 	// Response configurations
-	StartResponse   *pb.StartResponse
-	StopResponse    *pb.StopResponse
-	RestartResponse *pb.RestartResponse
-	ReloadResponse  *pb.ReloadConfigResponse
-	StatusResponse  *pb.StatusResponse
-	VersionResponse *pb.VersionResponse
-	InitDirResponse *pb.InitDataDirResponse
+	StartResponse    *pb.StartResponse
+	StopResponse     *pb.StopResponse
+	RestartResponse  *pb.RestartResponse
+	ReloadResponse   *pb.ReloadConfigResponse
+	StatusResponse   *pb.StatusResponse
+	VersionResponse  *pb.VersionResponse
+	InitDirResponse  *pb.InitDataDirResponse
+	PgRewindResponse *pb.PgRewindResponse
 
 	// Error configurations
-	StartError   error
-	StopError    error
-	RestartError error
-	ReloadError  error
-	StatusError  error
-	VersionError error
-	InitDirError error
+	StartError    error
+	StopError     error
+	RestartError  error
+	ReloadError   error
+	StatusError   error
+	VersionError  error
+	InitDirError  error
+	PgRewindError error
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.StartCalls = append(m.StartCalls, req)
 	if m.StartError != nil {
 		return nil, m.StartError
@@ -70,6 +77,8 @@ func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*p
 }
 
 func (m *MockPgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.StopCalls = append(m.StopCalls, req)
 	if m.StopError != nil {
 		return nil, m.StopError
@@ -81,6 +90,8 @@ func (m *MockPgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.
 }
 
 func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.RestartCalls = append(m.RestartCalls, req)
 	if m.RestartError != nil {
 		return nil, m.RestartError
@@ -92,6 +103,8 @@ func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest)
 }
 
 func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ReloadCalls = append(m.ReloadCalls, req)
 	if m.ReloadError != nil {
 		return nil, m.ReloadError
@@ -103,6 +116,8 @@ func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConf
 }
 
 func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
@@ -123,6 +138,8 @@ func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (
 }
 
 func (m *MockPgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.VersionCalls = append(m.VersionCalls, req)
 	if m.VersionError != nil {
 		return nil, m.VersionError
@@ -134,6 +151,8 @@ func (m *MockPgCtldService) Version(ctx context.Context, req *pb.VersionRequest)
 }
 
 func (m *MockPgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.InitDirCalls = append(m.InitDirCalls, req)
 	if m.InitDirError != nil {
 		return nil, m.InitDirError
@@ -142,6 +161,29 @@ func (m *MockPgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDir
 		return m.InitDirResponse, nil
 	}
 	return &pb.InitDataDirResponse{Message: "Mock data directory initialized"}, nil
+}
+
+func (m *MockPgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PgRewindCalls = append(m.PgRewindCalls, req)
+	if m.PgRewindError != nil {
+		return nil, m.PgRewindError
+	}
+	if m.PgRewindResponse != nil {
+		return m.PgRewindResponse, nil
+	}
+	// Default response: no divergence for dry-run, success for actual rewind
+	if req.DryRun {
+		return &pb.PgRewindResponse{
+			Message: "Mock pg_rewind dry-run completed",
+			Output:  "", // Empty output means no divergence
+		}, nil
+	}
+	return &pb.PgRewindResponse{
+		Message: "Mock pg_rewind completed successfully",
+		Output:  "Done!",
+	}, nil
 }
 
 // TestGRPCServer provides utilities for testing gRPC services
@@ -270,9 +312,9 @@ ready:
 	return client, cleanup
 }
 
-// StartMockPgctldServer starts a mock pgctld server
+// StartMockPgctldServer starts a mock pgctld server with the provided mock service
 // Returns the server address and a cleanup function
-func StartMockPgctldServer(t *testing.T) (string, func()) {
+func StartMockPgctldServer(t *testing.T, mockService *MockPgCtldService) (string, func()) {
 	t.Helper()
 
 	// Create a listener on a random port
@@ -283,7 +325,6 @@ func StartMockPgctldServer(t *testing.T) (string, func()) {
 
 	// Create gRPC server with mock service
 	grpcServer := grpc.NewServer()
-	mockService := &MockPgCtldService{}
 	pb.RegisterPgCtldServer(grpcServer, mockService)
 
 	// Start serving in background

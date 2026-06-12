@@ -14,12 +14,14 @@
 
 version: "2"
 run:
+  timeout: 10m
   build-tags:
     - ruleguard
 linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar # Go 1.22+ loop variable capture bug prevention
     - depguard
     - errcheck
     - errorlint
@@ -33,15 +35,21 @@ linters:
     - gosec
     - govet
     - ineffassign
+    - mirror # Prevents incorrect array/slice copying patterns
     - misspell
     - modernize
     - nilerr
     # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
     # - noctx
+    - nolintlint # Ensures //nolint directives are documented
+    - nosprintfhostport # Prevents fmt.Sprintf with host:port pattern bugs
+    - perfsprint # Avoids unnecessary sprintf calls for performance
     - sloglint
+    - sqlclosecheck # Prevents database connection leaks
     - staticcheck
     - unconvert
     - unused
+    - whitespace # Detects trailing whitespace and extra blank lines
   settings:
     # goconst:
     #   # Minimum length of string to trigger (shorter strings are often not worth extracting)
@@ -92,6 +100,16 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
+        parser-isolation:
+          list-mode: lax
+          files:
+            - "**/go/common/parser/**"
+          deny:
+            - pkg: "github.com/multigres/multigres/go/common"
+              desc: "parser can only depend on itself within go/common - this component should be usable as a standalone library"
+          allow:
+            - $gostd
+            - github.com/multigres/multigres/go/common/parser
         multiadmin-isolation:
           files:
             - "!**/go/services/multiadmin/*.go"
@@ -115,41 +133,38 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
-        # TODO: Move go/multigateway to go/services/multigateway and update paths below
         multigateway-isolation:
           files:
-            - "!**/go/multigateway/*.go"
-            - "!**/go/multigateway/**/*.go"
+            - "!**/go/services/multigateway/*.go"
+            - "!**/go/services/multigateway/**/*.go"
             - "!**/go/cmd/multigateway/*.go"
             - "!**/go/cmd/multigateway/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multigateway"
+            - pkg: "github.com/multigres/multigres/go/services/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
-        # TODO: Move go/multiorch to go/services/multiorch and update paths below
         multiorch-isolation:
           files:
-            - "!**/go/multiorch/*.go"
-            - "!**/go/multiorch/**/*.go"
+            - "!**/go/services/multiorch/*.go"
+            - "!**/go/services/multiorch/**/*.go"
             - "!**/go/cmd/multiorch/*.go"
             - "!**/go/cmd/multiorch/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multiorch"
+            - pkg: "github.com/multigres/multigres/go/services/multiorch"
               desc: "multiorch can only be imported by its own package and cmd"
-        # TODO: Move go/multipooler to go/services/multipooler and update paths below
         multipooler-isolation:
           files:
-            - "!**/go/multipooler/*.go"
-            - "!**/go/multipooler/**/*.go"
+            - "!**/go/services/multipooler/*.go"
+            - "!**/go/services/multipooler/**/*.go"
             - "!**/go/cmd/multipooler/*.go"
             - "!**/go/cmd/multipooler/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multipooler"
+            - pkg: "github.com/multigres/multigres/go/services/multipooler"
               desc: "multipooler can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
@@ -284,7 +299,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(parser|pgprotocol|tools/ruleguard)
+        path: ^go/(common/parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec
@@ -308,7 +323,12 @@ linters:
       # Parser has many unnecessary type conversions
       - linters:
           - unconvert
-        path: ^go/parser/
+        path: ^go/common/parser/
+      # grpc.WithBlock is deprecated upstream but still required by the etcd v3 client
+      - linters:
+          - staticcheck
+        path: ^go/common/topoclient/etcdtopo/store\.go$
+        text: "SA1019: grpc.WithBlock"
 formatters:
   enable:
     - gofumpt

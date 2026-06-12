@@ -158,6 +158,20 @@ func (m *mockConn) TryLockName(ctx context.Context, dirPath, contents string) (L
 	return &mockLockDescriptor{}, nil
 }
 
+func (m *mockConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
+	if err := m.checkError(); err != nil {
+		return nil, err
+	}
+	return &mockLockDescriptor{}, nil
+}
+
+func (m *mockConn) RevokeLockWithLease(ctx context.Context, key string) error {
+	if err := m.checkError(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (m *mockConn) Watch(ctx context.Context, filePath string) (current *WatchData, changes <-chan *WatchData, err error) {
 	if err := m.checkError(); err != nil {
 		return nil, nil, err

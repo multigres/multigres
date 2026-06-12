@@ -1,0 +1,75 @@
+# Table creation, inserts, basic DML, and straightforward SELECTs.
+
+statement ok
+CREATE TABLE t (a INT, b TEXT)
+
+statement ok
+INSERT INTO t VALUES (1, 'one'), (2, 'two'), (3, 'three')
+
+query I
+SELECT count(*) FROM t
+----
+3
+
+query IT rowsort
+SELECT a, b FROM t
+----
+1	one
+2	two
+3	three
+
+query I
+SELECT sum(a) FROM t
+----
+6
+
+query R
+SELECT avg(a) FROM t
+----
+2.000
+
+query I
+SELECT min(a) FROM t
+----
+1
+
+query I
+SELECT max(a) FROM t
+----
+3
+
+statement ok
+UPDATE t SET b = 'uno' WHERE a = 1
+
+query T
+SELECT b FROM t WHERE a = 1
+----
+uno
+
+statement ok
+DELETE FROM t WHERE a = 3
+
+query I
+SELECT count(*) FROM t
+----
+2
+
+# Unique/not-null violations must surface as errors through either target.
+
+statement ok
+CREATE TABLE unique_t (id INT UNIQUE, label TEXT NOT NULL)
+
+statement ok
+INSERT INTO unique_t VALUES (1, 'x')
+
+statement error
+INSERT INTO unique_t VALUES (1, 'y')
+
+statement error
+INSERT INTO unique_t VALUES (2, NULL)
+
+statement ok
+DROP TABLE unique_t
+
+statement ok
+DROP TABLE t

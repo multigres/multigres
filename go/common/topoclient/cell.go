@@ -162,7 +162,7 @@ func (ts *store) DeleteCell(ctx context.Context, cell string, force bool) error 
 		for _, dbName := range databaseNames {
 			db, err := ts.GetDatabase(ctx, dbName)
 			if err != nil {
-				return mterrors.Wrap(err, fmt.Sprintf("failed to get database %s", dbName))
+				return mterrors.Wrap(err, "failed to get database "+dbName)
 			}
 
 			// Check if this database references the cell to be deleted

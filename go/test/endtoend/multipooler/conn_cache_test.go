@@ -26,11 +26,10 @@ import (
 
 	"golang.org/x/net/nettest"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -48,25 +47,16 @@ func makePooler(addr string) *clustermetadatapb.MultiPooler {
 	}
 }
 
-// fakeConsensusServer is a minimal implementation of the consensus service for testing.
-type fakeConsensusServer struct {
-	consensuspb.UnimplementedMultiPoolerConsensusServer
-}
-
-func (f *fakeConsensusServer) Status(ctx context.Context, req *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
-	return &consensusdatapb.StatusResponse{}, nil
-}
-
 // fakeManagerServer is a minimal implementation of the manager service for testing.
 type fakeManagerServer struct {
 	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
 }
 
-func (f *fakeManagerServer) State(ctx context.Context, req *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error) {
-	return &multipoolermanagerdatapb.StateResponse{}, nil
+func (f *fakeManagerServer) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+	return &multipoolermanagerdatapb.StatusResponse{}, nil
 }
 
-// grpcTestServer starts a gRPC server with both consensus and manager services for testing.
+// grpcTestServer starts a gRPC server with the manager service for testing.
 // Returns the address and a cleanup function.
 func grpcTestServer(t testing.TB) (string, func()) {
 	listener, err := nettest.NewLocalListener("tcp")
@@ -75,7 +65,6 @@ func grpcTestServer(t testing.TB) (string, func()) {
 	}
 
 	s := grpc.NewServer()
-	consensuspb.RegisterMultiPoolerConsensusServer(s, &fakeConsensusServer{})
 	multipoolermanagerpb.RegisterMultiPoolerManagerServer(s, &fakeManagerServer{})
 
 	go func() {
@@ -102,7 +91,7 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100)
+	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -111,9 +100,9 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
-		_, err := client.ConsensusStatus(ctx, pooler, &consensusdatapb.StatusRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
-			b.Fatalf("ConsensusStatus RPC failed: %v", err)
+			b.Fatalf("Status RPC failed: %v", err)
 		}
 	}
 }
@@ -132,7 +121,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100)
+	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -140,7 +129,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 	// Pre-populate by making one call to each address
 	for _, addr := range addrs {
 		pooler := makePooler(addr)
-		_, err := client.State(ctx, pooler, &multipoolermanagerdatapb.StateRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			b.Fatalf("Status RPC failed: %v", err)
 		}
@@ -150,7 +139,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
-		_, err := client.State(ctx, pooler, &multipoolermanagerdatapb.StateRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			b.Fatalf("Status RPC failed: %v", err)
 		}
@@ -174,7 +163,7 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 	}()
 
 	// Use default capacity (100) to force evictions with 1000 addresses
-	client := rpcclient.NewMultiPoolerClient(100)
+	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -183,9 +172,9 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 		addr := addrs[n%len(addrs)]
 		pooler := makePooler(addr)
 
-		_, err := client.ConsensusStatus(ctx, pooler, &consensusdatapb.StatusRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
-			b.Fatalf("ConsensusStatus RPC failed: %v", err)
+			b.Fatalf("Status RPC failed: %v", err)
 		}
 	}
 }
@@ -212,7 +201,7 @@ func TestMultiPoolerClient(t *testing.T) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100)
+	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
@@ -231,24 +220,13 @@ func TestMultiPoolerClient(t *testing.T) {
 					addr := addrs[workerID%len(addrs)]
 					pooler := makePooler(addr)
 
-					// Make an RPC to both services
-					_, err := client.ConsensusStatus(ctx, pooler, &consensusdatapb.StatusRequest{})
+					_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 					if err != nil && ctx.Err() == nil {
 						// With grpc.NewClient() lazy connections, DeadlineExceeded can occur
 						// when the context expires right before/during connection establishment.
 						// This is expected behavior near test completion, not a real failure.
 						if !strings.Contains(err.Error(), "DeadlineExceeded") && !strings.Contains(err.Error(), "context deadline exceeded") {
-							t.Errorf("worker %d: consensus Status RPC failed: %v", workerID, err)
-						}
-					}
-
-					_, err = client.State(ctx, pooler, &multipoolermanagerdatapb.StateRequest{})
-					if err != nil && ctx.Err() == nil {
-						// With grpc.NewClient() lazy connections, DeadlineExceeded can occur
-						// when the context expires right before/during connection establishment.
-						// This is expected behavior near test completion, not a real failure.
-						if !strings.Contains(err.Error(), "DeadlineExceeded") && !strings.Contains(err.Error(), "context deadline exceeded") {
-							t.Errorf("worker %d: manager Status RPC failed: %v", workerID, err)
+							t.Errorf("worker %d: Status RPC failed: %v", workerID, err)
 						}
 					}
 				}
@@ -280,7 +258,7 @@ func TestMultiPoolerClient_evictions(t *testing.T) {
 	}()
 
 	// Default capacity is 100, so with 200 addresses we'll trigger evictions
-	client := rpcclient.NewMultiPoolerClient(100)
+	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -289,9 +267,9 @@ func TestMultiPoolerClient_evictions(t *testing.T) {
 	for i, addr := range addrs {
 		pooler := makePooler(addr)
 
-		_, err := client.ConsensusStatus(ctx, pooler, &consensusdatapb.StatusRequest{})
+		_, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
-			t.Fatalf("iteration %d: ConsensusStatus RPC failed: %v", i, err)
+			t.Fatalf("iteration %d: Status RPC failed: %v", i, err)
 		}
 	}
 

@@ -1,0 +1,482 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package server
+
+import (
+	"bufio"
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+)
+
+// Listener listens for incoming PostgreSQL client connections.
+type Listener struct {
+	// listener is the network listener.
+	listener net.Listener
+
+	// handler processes queries for connections.
+	handler Handler
+
+	// cancelHandler handles cancel requests, potentially routing to remote gateways.
+	// When nil, cancel requests are handled locally only.
+	cancelHandler CancelHandler
+
+	// credentialProvider supplies per-role authentication data: the SCRAM
+	// password hash and the rolreplication flag from pg_authid. A single
+	// fetch satisfies both SCRAM and the post-auth replication-role gate,
+	// so neither path has to round-trip to the pooler twice.
+	credentialProvider CredentialProvider
+
+	// trustAuthProvider enables trust authentication for testing.
+	// When set and AllowTrustAuth() returns true, password auth is skipped.
+	trustAuthProvider TrustAuthProvider
+
+	// tlsConfig holds the TLS configuration for SSL connections.
+	// When set, the server accepts SSLRequest and upgrades to TLS.
+	// When nil, SSLRequest is declined with 'N'.
+	tlsConfig *tls.Config
+
+	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
+	// hostssl posture. Validated against tlsConfig at construction.
+	requireTLS bool
+
+	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
+	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
+	// authentication_timeout GUC. Negative disables the timeout. The
+	// constructor maps a zero-valued ListenerConfig to
+	// DefaultAuthenticationTimeout, so this field is never zero in practice.
+	authenticationTimeout time.Duration
+
+	// authMetrics is the sink for auth- and TLS-path metrics emitted during
+	// the startup phase. Always non-nil after NewListener — a noop
+	// implementation is substituted when the config leaves AuthMetrics unset,
+	// so call sites in startup.go can invoke methods unconditionally.
+	authMetrics AuthMetricsRecorder
+
+	// logger for logging.
+	logger *slog.Logger
+
+	// readersPool pools bufio.Reader objects.
+	readersPool *sync.Pool
+
+	// writersPool pools bufio.Writer objects.
+	writersPool *sync.Pool
+
+	// bufPool pools byte buffers for packet I/O.
+	bufPool *bufpool.Pool
+
+	// gatewayID is the PID prefix from topology, encoded into the upper bits
+	// of connection PIDs for cross-gateway cancel request routing.
+	gatewayID uint32
+
+	// nextConnectionID is the counter for assigning local connection IDs.
+	// Protected by connsMu.
+	nextConnectionID uint32
+
+	// connsMu protects conns and nextConnectionID.
+	connsMu sync.Mutex
+	// conns maps encoded PID to active connections for cancel request lookup.
+	conns map[uint32]*Conn
+
+	// wg tracks active connection handlers.
+	wg sync.WaitGroup
+
+	// ctx is the context for the listener, cancelled when Close is called.
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// TrustAuthProvider determines whether trust authentication is allowed.
+// When this interface is provided, connections can skip password authentication.
+// This is intended for testing scenarios to simulate Unix socket trust auth.
+//
+// WARNING: This should only be used in tests. Production code should not
+// provide a TrustAuthProvider, ensuring all connections use SCRAM authentication.
+type TrustAuthProvider interface {
+	// AllowTrustAuth returns true if the given user/database connection
+	// should be allowed with trust authentication (no password).
+	AllowTrustAuth(ctx context.Context, user, database string) bool
+}
+
+// Credentials carries the per-role authentication data the gateway needs
+// to admit a startup connection. A single lookup feeds both the SCRAM
+// handshake (Hash) and the post-auth replication-role gate
+// (IsReplicationRole), so the gateway never has to round-trip twice for
+// the same role.
+type Credentials struct {
+	// Hash is the SCRAM-SHA-256 hash from pg_authid. Always set for
+	// successful lookups; the gateway hands it to ScramAuthenticator.
+	Hash *scram.ScramHash
+
+	// IsReplicationRole mirrors pg_authid.rolreplication. PostgreSQL
+	// requires this attribute (or rolsuper) for any connection started
+	// with the replication=true / replication=database startup
+	// parameter. The gateway gates replication startups on this flag
+	// after SCRAM succeeds, matching PG's "must be superuser or
+	// replication role to start walsender" error (SQLSTATE 42501).
+	IsReplicationRole bool
+}
+
+// CredentialProvider supplies the per-role authentication data the gateway
+// needs to admit a startup connection. Implementations should look up the
+// role once (e.g. via the multipooler admin connection) and return both
+// the SCRAM hash and any role attributes the listener will gate on.
+//
+// Lookup outcomes:
+//   - User missing or has no password: return scram.ErrUserNotFound. The
+//     gateway emits the opaque "password authentication failed" error
+//     (SQLSTATE 28P01) so user existence is not disclosed.
+//   - rolcanlogin=false: return scram.ErrLoginDisabled. The gateway emits
+//     "role \"X\" is not permitted to log in" (SQLSTATE 28000).
+//   - rolvaliduntil in the past: return scram.ErrPasswordExpired. The
+//     gateway emits the same opaque 28P01 message as unknown user.
+//   - Any other lookup failure: return the error as-is; the gateway fails
+//     closed and surfaces a generic FATAL so we don't leak which roles
+//     exist on lookup failure.
+type CredentialProvider interface {
+	GetCredentials(ctx context.Context, username, database string) (*Credentials, error)
+}
+
+// ListenerConfig holds configuration for the listener.
+type ListenerConfig struct {
+	// Address to listen on (e.g., "localhost:5432").
+	Address string
+
+	// Handler processes queries.
+	Handler Handler
+
+	// GatewayID is the PID prefix assigned from topology for this gateway.
+	// Encoded into the upper bits of connection PIDs for cross-gateway cancel routing.
+	// When 0, connection IDs are used as-is (backward compatible).
+	GatewayID uint32
+
+	// CredentialProvider supplies the SCRAM hash and rolreplication flag
+	// for each authenticating role. Required unless TrustAuthProvider is
+	// set. When nil and a startup requests replication != false, the
+	// gateway rejects the connection because it cannot verify the role's
+	// replication attribute.
+	CredentialProvider CredentialProvider
+
+	// TrustAuthProvider enables trust authentication for testing.
+	// When set, connections that pass AllowTrustAuth() skip password auth.
+	// This is intended for testing to simulate Unix socket trust auth.
+	// Production code should NOT set this field.
+	TrustAuthProvider TrustAuthProvider
+
+	// TLSConfig enables SSL for client connections.
+	// When set, the listener accepts SSLRequest and upgrades connections to TLS.
+	// When nil, SSLRequest is declined with 'N' (plaintext only).
+	TLSConfig *tls.Config
+
+	// RequireTLS rejects any client that does not negotiate TLS before
+	// sending a StartupMessage. Mirrors the `hostssl` posture in
+	// PostgreSQL's pg_hba.conf. CancelRequest is still accepted over
+	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
+	RequireTLS bool
+
+	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
+	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
+	// client cannot pin a goroutine past this deadline. Zero falls back to
+	// DefaultAuthenticationTimeout (60s, matching PostgreSQL's default).
+	// Negative disables the timeout.
+	AuthenticationTimeout time.Duration
+
+	// AuthMetrics receives auth- and TLS-path metric events during the
+	// startup phase. Nil means metrics are dropped (a noop sink is
+	// substituted internally). The pgprotocol/server package intentionally
+	// has no OTel dependency; production callers wire an OTel-backed
+	// implementation here.
+	AuthMetrics AuthMetricsRecorder
+
+	// Logger for logging (optional, defaults to slog.Default()).
+	Logger *slog.Logger
+}
+
+// DefaultAuthenticationTimeout matches PostgreSQL's authentication_timeout
+// default (60s). Used when ListenerConfig.AuthenticationTimeout is zero.
+const DefaultAuthenticationTimeout = 60 * time.Second
+
+// NewListener creates a new PostgreSQL protocol listener.
+func NewListener(config ListenerConfig) (*Listener, error) {
+	if config.Handler == nil {
+		return nil, errors.New("handler is required")
+	}
+
+	// CredentialProvider is required unless TrustAuthProvider is set.
+	if config.CredentialProvider == nil && config.TrustAuthProvider == nil {
+		return nil, errors.New("credential provider is required (or TrustAuthProvider for testing)")
+	}
+
+	if config.RequireTLS && config.TLSConfig == nil {
+		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
+	}
+
+	netListener, err := net.Listen("tcp", config.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
+	}
+
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	authTimeout := config.AuthenticationTimeout
+	if authTimeout == 0 {
+		authTimeout = DefaultAuthenticationTimeout
+	}
+
+	authMetrics := config.AuthMetrics
+	if authMetrics == nil {
+		authMetrics = noopAuthMetrics{}
+	}
+
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	l := &Listener{
+		listener:              netListener,
+		handler:               config.Handler,
+		credentialProvider:    config.CredentialProvider,
+		trustAuthProvider:     config.TrustAuthProvider,
+		tlsConfig:             config.TLSConfig,
+		requireTLS:            config.RequireTLS,
+		authenticationTimeout: authTimeout,
+		authMetrics:           authMetrics,
+		logger:                logger,
+		gatewayID:             config.GatewayID,
+		conns:                 make(map[uint32]*Conn),
+		ctx:                   ctx,
+		cancel:                cancel,
+	}
+
+	// Initialize buffer pools.
+	l.readersPool = &sync.Pool{
+		New: func() any {
+			return bufio.NewReaderSize(nil, connBufferSize)
+		},
+	}
+	l.writersPool = &sync.Pool{
+		New: func() any {
+			return bufio.NewWriterSize(nil, connBufferSize)
+		},
+	}
+	l.bufPool = bufpool.New(16*1024, 64*1024*1024) // 16 KB to 64 MB
+
+	// Warn when TLS is configured but no path will yield a server certificate.
+	// crypto/tls would fail the handshake in this state, but the SCRAM-SHA-256-
+	// PLUS advertisement would also silently disappear, so surface this early
+	// instead of letting it look like a channel-binding regression at runtime.
+	if config.TLSConfig != nil && !tlsConfigYieldsServerCert(config.TLSConfig) {
+		logger.Warn("TLS config has no Certificates, GetCertificate, or GetConfigForClient; SCRAM-SHA-256-PLUS will not be advertised and TLS handshakes will fail")
+	}
+
+	logger.Info("PostgreSQL listener started", "address", config.Address)
+
+	return l, nil
+}
+
+// Serve accepts and handles incoming connections.
+// This method blocks until the listener is closed or an error occurs.
+func (l *Listener) Serve() error {
+	for {
+		netConn, err := l.listener.Accept()
+		if err != nil {
+			select {
+			case <-l.ctx.Done():
+				// Listener was closed.
+				return nil
+			default:
+				l.logger.Error("failed to accept connection", "error", err)
+				continue
+			}
+		}
+
+		// Assign a unique connection PID, skipping IDs already in use.
+		connID, ok := l.assignConnectionID()
+		if !ok {
+			l.logger.Error("no available connection ID, rejecting connection",
+				"remote_addr", netConn.RemoteAddr())
+			netConn.Close()
+			continue
+		}
+		conn := newConn(netConn, l, connID)
+		conn.handler = l.handler
+		conn.credentialProvider = l.credentialProvider
+		conn.trustAuthProvider = l.trustAuthProvider
+		conn.tlsConfig = l.tlsConfig
+		conn.requireTLS = l.requireTLS
+		conn.authMetrics = l.authMetrics
+
+		// Handle connection in a new goroutine.
+		l.wg.Go(func() {
+			l.handleConnection(conn)
+		})
+	}
+}
+
+// handleConnection handles a single client connection.
+func (l *Listener) handleConnection(conn *Conn) {
+	// Catch panics and ensure cleanup happens in all cases.
+	defer func() {
+		if x := recover(); x != nil {
+			conn.logger.Error("panic in connection handler",
+				"panic", x,
+				"remote_addr", conn.RemoteAddr())
+		}
+
+		// Unregister from cancel lookup before cleaning up.
+		l.UnregisterConn(conn.ConnectionID())
+
+		// Notify the handler so it can clean up connection-specific state
+		// (e.g., rollback active transactions, release reserved connections).
+		// This must run before conn.Close() which clears the connection state.
+		if conn.handler != nil {
+			conn.handler.ConnectionClosed(conn)
+		}
+
+		// Clean up connection resources.
+		if err := conn.Close(); err != nil {
+			conn.logger.Error("error closing connection", "error", err)
+		}
+	}()
+
+	conn.logger.Info("connection accepted", "remote_addr", conn.RemoteAddr())
+
+	// Serve the connection (startup + command loop).
+	if err := conn.serve(); err != nil {
+		switch {
+		case errors.Is(err, io.EOF):
+			// Client closed cleanly — no log.
+		case errors.Is(err, errAuthenticationTimeout):
+			// Auth timeout already logged at Warn from serve()
+			// with full context (timeout, remote_addr). Skip the
+			// redundant Error log here so a stalled client doesn't
+			// produce two entries per connection. Matching on the
+			// dedicated sentinel (rather than os.ErrDeadlineExceeded)
+			// keeps unrelated future deadlines visible.
+		default:
+			conn.logger.Error("connection error", "error", err)
+		}
+	}
+
+	conn.logger.Info("connection closed")
+}
+
+// CloseListener closes only the TCP listener and stops accepting new connections.
+// Existing connections are not affected. This is useful for testing reconnection
+// failure scenarios where initial connections should keep working but new dial
+// attempts should fail.
+func (l *Listener) CloseListener() error {
+	l.cancel()
+	return l.listener.Close()
+}
+
+// Close closes the listener and waits for all connections to finish.
+func (l *Listener) Close() error {
+	l.cancel()
+	err := l.listener.Close()
+	l.wg.Wait()
+	l.logger.Info("PostgreSQL listener stopped")
+	return err
+}
+
+// assignConnectionID returns the next unused PID for a new connection.
+// It encodes the gateway prefix into the upper bits and skips PIDs that
+// are already in use or have a zero local ID (PID 0 is reserved in PostgreSQL).
+func (l *Listener) assignConnectionID() (uint32, bool) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+
+	for range pid.MaxLocalConnID {
+		localID := l.nextLocalID()
+		encodedPID := pid.EncodePID(l.gatewayID, localID)
+
+		if _, exists := l.conns[encodedPID]; !exists {
+			return encodedPID, true
+		}
+	}
+	return 0, false
+}
+
+// nextLocalID increments the connection counter, wrapping back to 1
+// when it reaches MaxLocalConnID. This keeps the counter bounded and avoids
+// producing localID=0 (which is reserved in PostgreSQL).
+// Must be called with connsMu held.
+func (l *Listener) nextLocalID() uint32 {
+	l.nextConnectionID++
+	if l.nextConnectionID > pid.MaxLocalConnID {
+		l.nextConnectionID = 1
+	}
+	return l.nextConnectionID
+}
+
+// SetCancelHandler sets the handler for cancel requests.
+// Must be called before Serve().
+func (l *Listener) SetCancelHandler(ch CancelHandler) {
+	l.cancelHandler = ch
+}
+
+// RegisterConn registers a connection in the conn map for cancel request lookup.
+func (l *Listener) RegisterConn(conn *Conn) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	l.conns[conn.connectionID] = conn
+}
+
+// UnregisterConn removes a connection from the conn map.
+func (l *Listener) UnregisterConn(pid uint32) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	delete(l.conns, pid)
+}
+
+// CancelLocalConnection looks up a connection by PID, verifies the secret key,
+// and cancels its in-flight query. Returns true if the cancel was successful.
+func (l *Listener) CancelLocalConnection(pid, secret uint32) bool {
+	l.connsMu.Lock()
+	conn, ok := l.conns[pid]
+	l.connsMu.Unlock()
+
+	if !ok {
+		return false
+	}
+	if conn.BackendKeyData() != secret {
+		l.logger.Warn("cancel request secret mismatch", "pid", pid)
+		return false
+	}
+	return conn.CancelQuery()
+}
+
+// ConnectionCount returns the number of active client connections.
+func (l *Listener) ConnectionCount() int {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	return len(l.conns)
+}
+
+// Addr returns the listener's network address.
+func (l *Listener) Addr() net.Addr {
+	return l.listener.Addr()
+}

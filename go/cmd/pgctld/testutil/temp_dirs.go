@@ -15,15 +15,18 @@
 package testutil
 
 import (
-	"fmt"
+	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
@@ -47,12 +50,13 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 	return dir, cleanup
 }
 
-// CreateDataDir creates a PostgreSQL-like data directory structure for testing
+// CreateDataDir creates a PostgreSQL-like data directory structure for testing.
+// It sets the PGDATA environment variable to baseDir/pg_data for the duration of the test.
 func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	t.Helper()
 
-	// This is the base location where multigres expects postgres data
-	dataDir := pgctld.PostgresDataDir(baseDir)
+	dataDir := filepath.Join(baseDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("Failed to create data dir: %v", err)
 	}
@@ -64,7 +68,7 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
 		// Generate a proper postgresql.conf file using the postgresconfig_gen functionality
-		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432, "postgres")
+		_, err := pgctld.GeneratePostgresServerConfig(baseDir, "postgres", []string{})
 		if err != nil {
 			t.Fatalf("Failed to generate PostgreSQL config: %v", err)
 		}
@@ -96,23 +100,16 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
 	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := exec.Command("sleep", "3600")
+	cmd := executil.Command(utils.WithShortDeadline(t), "sleep", "3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}
 
 	realPID := cmd.Process.Pid
-
-	// Register cleanup to kill the background process when test finishes
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	})
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
-		fmt.Sprintf("%d", realPID),
+		strconv.Itoa(realPID),
 		dataDir,
 		"1234567890",
 		"5432",
@@ -146,7 +143,7 @@ func CreateDeadPIDFile(t *testing.T, dataDir string, deadPID int) {
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
-		fmt.Sprintf("%d", deadPID),
+		strconv.Itoa(deadPID),
 		dataDir,
 		"1234567890",
 		"5432",
@@ -184,9 +181,9 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 				pidStr := strings.TrimSpace(lines[0])
 				if pid, parseErr := strconv.Atoi(pidStr); parseErr == nil {
 					// Try to kill the process (ignore errors since process might already be dead)
-					if process, findErr := os.FindProcess(pid); findErr == nil {
-						_ = process.Kill()
-					}
+					killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, _ = executil.KillPID(killCtx, pid)
+					cancel()
 				}
 			}
 		}

@@ -18,9 +18,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // fakeHandler implements server.Handler to return pre-configured query results.
@@ -53,6 +54,14 @@ type portal struct {
 func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(context.Context, *sqltypes.Result) error) error {
 	result, err := h.server.handleQuery(queryStr)
 	if err != nil {
+		if result != nil {
+			// AfterCallbackError: deliver the result first, then return the
+			// error. This simulates mid-stream failures (rows sent, then
+			// connection error).
+			if err := callback(ctx, result); err != nil {
+				return err
+			}
+		}
 		return err
 	}
 	return callback(ctx, result)
@@ -95,7 +104,7 @@ func (h *fakeHandler) HandleBind(ctx context.Context, conn *server.Conn, portalN
 }
 
 // HandleExecute handles an Execute message for the extended query protocol.
-func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(context.Context, *sqltypes.Result) error) error {
+func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	p, ok := h.portals[portalName]
 	if !ok {
 		return fmt.Errorf("portal %q not found", portalName)
@@ -165,6 +174,22 @@ func (h *fakeHandler) HandleClose(ctx context.Context, conn *server.Conn, typ by
 func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	// Clear unnamed portal after sync (per PostgreSQL protocol).
 	delete(h.portals, "")
+	return nil
+}
+
+// ConnectionEstablished records the replication mode of the freshly
+// authenticated connection so tests can assert on it via
+// Server.LastReplicationMode.
+func (h *fakeHandler) ConnectionEstablished(conn *server.Conn) {
+	h.server.recordReplicationMode(conn.ReplicationMode())
+}
+
+// ConnectionClosed handles connection cleanup.
+func (h *fakeHandler) ConnectionClosed(conn *server.Conn) {}
+
+// GetPreparedStatementInfo returns nil — fakepgserver does not manage
+// gateway-level prepared statement consolidation.
+func (h *fakeHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
 	return nil
 }
 

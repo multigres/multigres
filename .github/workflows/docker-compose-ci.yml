@@ -1,0 +1,140 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Docker Compose Cluster Smoke Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile.cluster"
+      - "docker/**"
+      - ".github/workflows/docker-compose-ci.yml"
+      - "go/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compose-smoke-test:
+    name: Build cluster image and run compatibility smoke test
+    runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and start the Multigres cluster
+        run: docker compose up -d --build
+
+      - name: Wait for the cluster to become healthy
+        run: |
+          set -euo pipefail
+          echo "Waiting for the multigres service to report healthy..."
+          for _ in $(seq 1 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q multigres)" 2>/dev/null || echo "starting")"
+            echo "  health: ${status}"
+            if [ "${status}" = "healthy" ]; then
+              echo "Cluster is healthy."
+              exit 0
+            fi
+            if [ "${status}" = "unhealthy" ]; then
+              echo "Cluster reported unhealthy." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for the cluster to become healthy." >&2
+          exit 1
+
+      - name: Run PostgreSQL compatibility smoke test
+        run: |
+          set -euo pipefail
+          # Resolve the gateway port from the container's own env so the smoke
+          # test follows MULTIGRES_GATEWAY_PG_PORT wherever it's reconfigured.
+          gateway_port="$(docker compose exec -T multigres sh -c 'echo "${MULTIGRES_GATEWAY_PG_PORT:-15432}"' | tr -d '\r')"
+          echo "Using gateway port: ${gateway_port}"
+          run_sql() {
+            docker compose exec -T -e PGPASSWORD=postgres multigres \
+              psql -h 127.0.0.1 -p "${gateway_port}" -U postgres -d postgres -v ON_ERROR_STOP=1 "$@"
+          }
+          echo "== SELECT version() =="
+          run_sql -c "SELECT version();"
+          echo "== DDL + DML round-trip =="
+          run_sql <<'SQL'
+          CREATE TABLE compat_check (id int primary key, label text);
+          INSERT INTO compat_check (id, label) VALUES (1, 'multigres'), (2, 'postgres');
+          SELECT count(*) FROM compat_check;
+          SELECT label FROM compat_check WHERE id = 1;
+          DROP TABLE compat_check;
+          SQL
+          echo "== pgvector extension =="
+          # The vector(3) column type and the <-> distance operator only resolve
+          # if pgvector is installed in the image, so ON_ERROR_STOP=1 turns a
+          # missing extension into a hard failure of this step.
+          run_sql <<'SQL'
+          CREATE EXTENSION vector;
+          CREATE TABLE vec_check (id int primary key, embedding vector(3));
+          INSERT INTO vec_check (id, embedding) VALUES (1, '[1,2,3]'), (2, '[4,5,6]');
+          SELECT id FROM vec_check ORDER BY embedding <-> '[3,2,1]' LIMIT 1;
+          DROP TABLE vec_check;
+          DROP EXTENSION vector;
+          SQL
+
+      - name: Dump cluster logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Notify Slack on main failure
+        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          sha_short="${GITHUB_SHA:0:7}"
+
+          payload=$(jq -n \
+            --arg url "$run_url" \
+            --arg sha "$sha_short" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: ":rotating_light: docker-compose cluster smoke test failed on main"}},
+                {type: "section", text: {type: "mrkdwn", text: ("The Multigres docker-compose cluster smoke test failed on `main` (commit `" + $sha + "`). The cluster image build, bootstrap, or compatibility queries may be broken.")}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Tear down the cluster
+        if: always()
+        run: docker compose down -v --remove-orphans

@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1.6
+# =========================================================================
+# All-in-one Multigres cluster image for docker-compose / CI compatibility
+# testing.
+#
+# It bundles PostgreSQL, etcd, pgBackRest, and every multigres binary so the
+# "local" provisioner can bootstrap a complete cluster (etcd + multiadmin +
+# per-cell pgctld/postgres, multipooler, multiorch, multigateway) inside a
+# single container. The container exposes the zone1 multigateway on the
+# PostgreSQL wire protocol so compatibility test suites can connect to it.
+#
+# Build:
+#   docker build -f Dockerfile.cluster -t multigres-cluster:local .
+# Run (via compose):
+#   docker compose up
+# =========================================================================
+
+# =========================================================================
+# Stage 1: Build the multigres binaries
+# =========================================================================
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+
+# Intentionally unpinned: the builder base (golang:1.25-alpine) is a rolling
+# tag, so pinning exact apk versions breaks whenever Alpine bumps these
+# packages. These are build-stage tools from the base image's own apk
+# repository, not external supply-chain downloads.
+# hadolint ignore=DL3018
+RUN apk add --no-cache git make bash
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN make build-release
+
+# =========================================================================
+# Stage 2: Download and verify the etcd binaries
+# =========================================================================
+FROM debian:bookworm-slim AS etcd
+
+# etcd v3.6.4. Checksums match tools/tool_checksums.sh; the local provisioner
+# only enforces a major-version match (v3), so 3.6.x satisfies its config.
+ARG TARGETARCH
+ARG ETCD_VERSION=v3.6.4
+ARG ETCD_SHA256_AMD64=4d5f3101daa534e45ccaf3eec8d21c19b7222db377bcfd5e5a9144155238c105
+ARG ETCD_SHA256_ARM64=323421fa279f4f3d7da4c7f2dfa17d9e49529cb2b4cdf40899a7416bccdde42d
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN case "${TARGETARCH}" in \
+      amd64) ETCD_SHA256="${ETCD_SHA256_AMD64}" ;; \
+      arm64) ETCD_SHA256="${ETCD_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${TARGETARCH}.tar.gz" -o /tmp/etcd.tar.gz && \
+    echo "${ETCD_SHA256}  /tmp/etcd.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/etcd.tar.gz -C /tmp && \
+    mv "/tmp/etcd-${ETCD_VERSION}-linux-${TARGETARCH}/etcd" /usr/local/bin/etcd && \
+    mv "/tmp/etcd-${ETCD_VERSION}-linux-${TARGETARCH}/etcdctl" /usr/local/bin/etcdctl && \
+    rm -rf /tmp/etcd*
+
+# =========================================================================
+# Stage 3: Final image (PostgreSQL + pgBackRest + etcd + multigres)
+# =========================================================================
+FROM postgres:17.7
+
+LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
+LABEL org.opencontainers.image.description="All-in-one Multigres cluster for docker-compose / CI compatibility testing."
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Install pgBackRest and pgvector from the PostgreSQL APT repository plus procps
+# (pgrep is used by the entrypoint to detect if the gateway dies). pgvector is
+# preinstalled so compatibility suites can CREATE EXTENSION vector against the
+# bundled PostgreSQL; the PGDG package is built for these exact pg17 binaries.
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release && \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    pgbackrest \
+    postgresql-17-pgvector \
+    procps && \
+    pgbackrest version && \
+    apt-get remove -y gnupg lsb-release && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# etcd client and server binaries.
+COPY --from=etcd /usr/local/bin/etcd /usr/local/bin/etcdctl /usr/local/bin/
+
+# All multigres binaries (multigateway, multipooler, multiorch, multiadmin,
+# pgctld, multigres CLI, portpoolserver).
+COPY --from=builder /src/bin/ /usr/local/bin/
+
+# Entrypoint that bootstraps and supervises the cluster.
+COPY --chmod=0755 docker/cluster-entrypoint.sh /usr/local/bin/cluster-entrypoint.sh
+
+# Working directory for the cluster's config, data, logs, and sockets. Kept
+# short so the PostgreSQL Unix socket paths stay under the 104-char limit.
+ENV MULTIGRES_CONFIG_PATH=/multigres/cluster
+# Image-internal default for the gateway port. The entrypoint and the
+# HEALTHCHECK both read this env var, so overriding it (e.g. from compose)
+# keeps them in sync.
+ENV MULTIGRES_GATEWAY_PG_PORT=15432
+RUN mkdir -p "${MULTIGRES_CONFIG_PATH}" && \
+    chown -R postgres:postgres /multigres
+
+# Ports: zone1 multigateway PostgreSQL, multigateway HTTP, multiadmin HTTP.
+EXPOSE 15432 15100 15000
+
+# initdb and the postgres server both refuse to run as root, so run as the
+# postgres user that the base image provides.
+USER postgres
+WORKDIR /multigres/cluster
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
+    CMD PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc 'SELECT 1' || exit 1
+
+# Reset the base image's CMD (["postgres"]) so it isn't passed to the entrypoint.
+ENTRYPOINT ["/usr/local/bin/cluster-entrypoint.sh"]
+CMD []

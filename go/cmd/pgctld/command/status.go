@@ -15,14 +15,16 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/executil"
 
 	"github.com/spf13/cobra"
 )
@@ -31,6 +33,21 @@ import (
 const (
 	statusStopped = "STOPPED"
 	statusRunning = "RUNNING"
+)
+
+const (
+	// pgIsReadyDefaultTimeout is the connection timeout passed to pg_isready when
+	// no context deadline is present. pg_isready's built-in default is also 3s,
+	// but we pass it explicitly so the value is visible and intentional.
+	pgIsReadyDefaultTimeout = 3 * time.Second
+
+	// pgIsReadyDeadlineBuffer is subtracted from the remaining context deadline
+	// before passing it to pg_isready via -t. This ensures pg_isready's own
+	// timeout fires before the context cancels the subprocess mid-wait, avoiding
+	// a race between libpq's connection timeout and executil's SIGTERM.
+	// Must be >= 1s because -t only accepts whole seconds and the sub-second
+	// remainder is truncated, so a smaller buffer may provide no margin at all.
+	pgIsReadyDeadlineBuffer = 1 * time.Second
 )
 
 // StatusResult contains the result of checking PostgreSQL status
@@ -91,7 +108,7 @@ Examples:
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
-func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
+func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
 	result := &StatusResult{
 		DataDir: config.PostgresDataDir,
 		Port:    config.Port,
@@ -104,7 +121,17 @@ func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) 
 		return result, nil
 	}
 
-	// Server is running
+	// Process exists — verify it is actually accepting connections.
+	// A process that exists but cannot respond (e.g. SIGSTOP, cgroup freeze)
+	// is treated as not running so that multipooler and multiorch can detect
+	// the failure and trigger recovery rather than waiting indefinitely.
+	if result.Ready = isServerReadyWithConfig(ctx, config); !result.Ready {
+		result.Status = statusStopped
+		result.Message = "PostgreSQL process exists but is not accepting connections"
+		return result, nil
+	}
+
+	// Server is running and accepting connections
 	result.Status = statusRunning
 	result.Message = "PostgreSQL server is running"
 
@@ -112,14 +139,11 @@ func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) 
 	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
 		result.PID = pid
 	} else {
-		logger.Warn("Could not read postmaster PID", "error", err)
+		logger.WarnContext(ctx, "Could not read postmaster PID", "error", err)
 	}
 
-	// Check if server is accepting connections
-	result.Ready = isServerReadyWithConfig(config)
-
 	// Get server version if possible
-	result.Version = getServerVersionWithConfig(config)
+	result.Version = getServerVersionWithConfig(ctx, config)
 
 	// Get uptime (approximate based on pidfile mtime)
 	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
@@ -137,7 +161,7 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	}
 	// No local flag overrides needed - all flags are global now
 
-	result, err := GetStatusWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	result, err := GetStatusWithResult(cmd.Context(), s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}
@@ -198,31 +222,53 @@ func formatUptime(seconds int64) string {
 	}
 }
 
-func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
-	// Use Unix socket connection for pg_isready
-	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("pg_isready",
-		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
-		"-U", config.User,
-		"-d", config.Database,
-	)
-
-	return cmd.Run() == nil
+// pgIsReadyTimeoutSecs returns the value to pass to pg_isready's -t flag.
+//
+// pg_isready -t only accepts whole seconds. The timeout is derived from the
+// context deadline so pg_isready's own connection timeout fires before the
+// context cancels the subprocess mid-wait. Without this, the subprocess relies
+// on libpq's default (3 s), which may race with the gRPC deadline propagated
+// down from multiorch (5 s total, shared across two hops).
+//
+// pgIsReadyDeadlineBuffer is subtracted from the remaining deadline before
+// truncating to whole seconds, ensuring the truncation cannot accidentally push
+// the timeout above the remaining deadline.
+func pgIsReadyTimeoutSecs(ctx context.Context) int {
+	timeout := pgIsReadyDefaultTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline) - pgIsReadyDeadlineBuffer; remaining > 0 && remaining < timeout {
+			timeout = remaining
+		}
+	}
+	return max(1, int(timeout.Seconds()))
 }
 
-func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
+func isServerReadyWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) bool {
+	// Use Unix socket connection for pg_isready
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+
+	timeoutSecs := pgIsReadyTimeoutSecs(ctx)
+
+	return executil.Command(ctx, "pg_isready",
+		"-h", socketDir,
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
+		"-U", config.User,
+		"-d", config.Database,
+		"-t", strconv.Itoa(timeoutSecs),
+	).WithClientSpan().Run() == nil
+}
+
+func getServerVersionWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) string {
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("psql",
+
+	output, err := executil.Command(ctx, "psql",
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", "-c", "SELECT version()",
-	)
-
-	output, err := cmd.Output()
+	).WithClientSpan().Output()
 	if err != nil {
 		return ""
 	}

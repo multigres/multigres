@@ -1,0 +1,100 @@
+--- a
++++ b
+@@ -157,57 +157,63 @@
+ -- Foreign Data Wrapper and Foreign Server
+ --
+ CREATE FOREIGN DATA WRAPPER alt_fdw1;
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ CREATE FOREIGN DATA WRAPPER alt_fdw2;
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ CREATE SERVER alt_fserv1 FOREIGN DATA WRAPPER alt_fdw1;
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ CREATE SERVER alt_fserv2 FOREIGN DATA WRAPPER alt_fdw2;
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw2; -- failed (name conflict)
+-ERROR: foreign-data wrapper "alt_fdw2" already exists
++ERROR: foreign-data wrapper "alt_fdw1" does not exist
+ ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw3; -- OK
++ERROR: foreign-data wrapper "alt_fdw1" does not exist
+ ALTER SERVER alt_fserv1 RENAME TO alt_fserv2; -- failed (name conflict)
+-ERROR: server "alt_fserv2" already exists
++ERROR: server "alt_fserv1" does not exist
+ ALTER SERVER alt_fserv1 RENAME TO alt_fserv3; -- OK
++ERROR: server "alt_fserv1" does not exist
+ SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname like 'alt_fdw%';
+ fdwname
+-----------
+-alt_fdw2
+-alt_fdw3
+-(2 rows)
++---------
++(0 rows)
+ 
+ SELECT srvname FROM pg_foreign_server WHERE srvname like 'alt_fserv%';
+ srvname
+-------------
+-alt_fserv2
+-alt_fserv3
+-(2 rows)
++---------
++(0 rows)
+ 
+ --
+ -- Procedural Language
+ --
+ CREATE LANGUAGE alt_lang1 HANDLER plpgsql_call_handler;
++ERROR: CREATE LANGUAGE is not supported: installing procedural languages is not permitted through the connection pooler
+ CREATE LANGUAGE alt_lang2 HANDLER plpgsql_call_handler;
++ERROR: CREATE LANGUAGE is not supported: installing procedural languages is not permitted through the connection pooler
+ ALTER LANGUAGE alt_lang1 OWNER TO regress_alter_generic_user1; -- OK
++ERROR: language "alt_lang1" does not exist
+ ALTER LANGUAGE alt_lang2 OWNER TO regress_alter_generic_user2; -- OK
++ERROR: language "alt_lang2" does not exist
+ SET SESSION AUTHORIZATION regress_alter_generic_user1;
+ ALTER LANGUAGE alt_lang1 RENAME TO alt_lang2; -- failed (name conflict)
+-ERROR: language "alt_lang2" already exists
++ERROR: language "alt_lang1" does not exist
+ ALTER LANGUAGE alt_lang2 RENAME TO alt_lang3; -- failed (not owner)
+-ERROR: must be owner of language alt_lang2
++ERROR: language "alt_lang2" does not exist
+ ALTER LANGUAGE alt_lang1 RENAME TO alt_lang3; -- OK
++ERROR: language "alt_lang1" does not exist
+ ALTER LANGUAGE alt_lang2 OWNER TO regress_alter_generic_user3; -- failed (not owner)
+-ERROR: must be owner of language alt_lang2
++ERROR: language "alt_lang2" does not exist
+ ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user2; -- failed (no role membership)
+-ERROR: must be able to SET ROLE "regress_alter_generic_user2"
++ERROR: language "alt_lang3" does not exist
+ ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user3; -- OK
++ERROR: language "alt_lang3" does not exist
+ RESET SESSION AUTHORIZATION;
+ SELECT lanname, a.rolname
+ FROM pg_language l, pg_authid a
+ WHERE l.lanowner = a.oid AND l.lanname like 'alt_lang%'
+ ORDER BY lanname;
+ lanname | rolname
+------------+-----------------------------
+-alt_lang2 | regress_alter_generic_user2
+-alt_lang3 | regress_alter_generic_user3
+-(2 rows)
++---------+---------
++(0 rows)
+ 
+ --
+ -- Operator
+@@ -704,11 +710,13 @@
+ --- Cleanup resources
+ ---
+ DROP FOREIGN DATA WRAPPER alt_fdw2 CASCADE;
+-NOTICE: drop cascades to server alt_fserv2
++ERROR: foreign-data wrapper "alt_fdw2" does not exist
+ DROP FOREIGN DATA WRAPPER alt_fdw3 CASCADE;
+-NOTICE: drop cascades to server alt_fserv3
++ERROR: foreign-data wrapper "alt_fdw3" does not exist
+ DROP LANGUAGE alt_lang2 CASCADE;
++ERROR: language "alt_lang2" does not exist
+ DROP LANGUAGE alt_lang3 CASCADE;
++ERROR: language "alt_lang3" does not exist
+ DROP SCHEMA alt_nsp1 CASCADE;
+ NOTICE: drop cascades to 28 other objects
+ DETAIL: drop cascades to function alt_func3(integer)

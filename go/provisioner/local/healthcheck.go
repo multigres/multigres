@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -37,7 +38,7 @@ func (p *localProvisioner) waitForServiceReady(parentCtx context.Context, servic
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
-	ctx, span := tracer.Start(ctx, fmt.Sprintf("wait_for_service_ready/%s", serviceName))
+	ctx, span := tracer.Start(ctx, "wait_for_service_ready/"+serviceName)
 	defer span.End()
 
 	span.SetAttributes(attribute.String("service.name", serviceName))
@@ -51,7 +52,7 @@ func (p *localProvisioner) waitForServiceReady(parentCtx context.Context, servic
 		// First check TCP connectivity on all advertised ports
 		allPortsReady := true
 		for _, port := range servicePorts {
-			address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			address := net.JoinHostPort(host, strconv.Itoa(port))
 			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 			if err != nil {
 				allPortsReady = false
@@ -81,23 +82,26 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 		switch portType {
 		case "http_port":
 			// Run HTTP health check
-			httpAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			httpAddress := net.JoinHostPort(host, strconv.Itoa(port))
 			if err := p.checkDebugConfigEndpoint(ctx, httpAddress); err != nil {
 				return err
 			}
 		case "grpc_port":
 			// Run gRPC health check for pgctld
 			if serviceName == "pgctld" {
-				grpcAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				grpcAddress := net.JoinHostPort(host, strconv.Itoa(port))
 				if err := p.checkPgctldGrpcHealth(ctx, grpcAddress); err != nil {
 					return err
 				}
 			}
 		case "etcd_port":
-			// Run etcd health check
+			// TCP connectivity is already verified above; no HTTP check on the client port.
+			// /readyz is only available on the metrics listener (etcd_metrics_port).
+		case "etcd_metrics_port":
+			// Run etcd readiness check via /readyz on the dedicated metrics listener.
 			if serviceName == "etcd" {
-				etcdAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-				if err := p.checkEtcdHealth(ctx, etcdAddress); err != nil {
+				etcdMetricsAddress := net.JoinHostPort(host, strconv.Itoa(port))
+				if err := p.checkEtcdHealth(ctx, etcdMetricsAddress); err != nil {
 					return err
 				}
 			}
@@ -111,7 +115,8 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 }
 
 // checkEtcdHealth checks if etcd is ready by querying its /readyz endpoint.
-// This matches the Kubernetes readiness probe behavior.
+// address must be the host:port of etcd's metrics listener (--listen-metrics-urls),
+// not the client listener. /readyz returns 404 on the client port.
 func (p *localProvisioner) checkEtcdHealth(ctx context.Context, address string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -162,7 +167,7 @@ func (p *localProvisioner) checkPgctldGrpcHealth(ctx context.Context, address st
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	conn, err := grpccommon.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...))
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}

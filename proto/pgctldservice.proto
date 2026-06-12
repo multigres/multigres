@@ -17,6 +17,7 @@ syntax = "proto3";
 package pgctldservice;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
@@ -147,6 +148,24 @@ message StatusResponse {
 
   // Additional status information
   string message = 9;
+
+  // pgBackRest TLS server status
+  PgBackRestStatus pgbackrest_status = 10;
+}
+
+// pgBackRest TLS server status
+message PgBackRestStatus {
+  // Whether pgBackRest TLS server is currently running
+  bool running = 1;
+
+  // Error message if startup failed or last crash reason
+  string error_message = 2;
+
+  // Number of times pgBackRest has been restarted due to crashes
+  int32 restart_count = 3;
+
+  // Last successful startup timestamp
+  google.protobuf.Timestamp last_started = 4;
 }
 
 // Server status enumeration
@@ -195,17 +214,25 @@ message InitDataDirResponse {
 
 // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 message PgRewindRequest {
-  // Source server connection string (--source-server)
-  // Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
-  string source_server = 1;
+  // Source server hostname
+  string source_host = 1;
+
+  // Source server port
+  int32 source_port = 2;
 
   // Perform a dry run without making changes (--dry-run)
-  bool dry_run = 2;
+  bool dry_run = 3;
 
   // Additional pg_rewind command line arguments
-  repeated string extra_args = 3;
+  repeated string extra_args = 4;
+
+  // Application name for replication connection (used with -R flag)
+  // This identifies the standby in pg_stat_replication and synchronous_standby_names
+  string application_name = 5;
 }
 
 message PgRewindResponse {
+  // Status message
+  string message = 1;
+  string output = 2;
 }
-

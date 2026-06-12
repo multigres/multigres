@@ -56,7 +56,14 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 FILTERED_INPUTS=()
 for i in "${!INPUTS[@]}"; do
   FILTERED="$TEMP_DIR/filtered-$i.txt"
-  grep -v -e "/go/parser/postgres\.y:" -e "/go/parser/yaccpar:" -e "/go/parser/yacctab:" "${INPUTS[$i]}" >"$FILTERED" || true
+  grep -v \
+    -e "/go/common/parser/postgres\.y:" \
+    -e "/go/common/parser/yaccpar:" \
+    -e "/go/common/parser/yacctab:" \
+    -e "/go/common/parser/replparser/grammar\.y:" \
+    -e "/go/common/parser/replparser/yaccpar:" \
+    -e "/go/common/parser/replparser/yacctab:" \
+    "${INPUTS[$i]}" >"$FILTERED" || true
   FILTERED_INPUTS+=("$FILTERED")
 done
 

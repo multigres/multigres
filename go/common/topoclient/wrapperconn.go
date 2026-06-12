@@ -131,7 +131,6 @@ func (c *WrapperConn) retryConnection(err error) {
 	// still be good to inherit from a higher-level background context for better
 	// tracing.
 	for range r.Attempts(context.TODO()) {
-
 		conn, err := c.newFunc()
 		mustContinue := func() bool {
 			// We have to do this entire operation within a lock:
@@ -141,17 +140,23 @@ func (c *WrapperConn) retryConnection(err error) {
 			c.mu.Lock()
 			defer c.mu.Unlock()
 
+			// Check error first - if err != nil, conn is unusable (may be typed nil).
+			if err != nil {
+				if c.closed {
+					// Wrapper was closed while retrying, stop.
+					return false
+				}
+				// Continue retrying.
+				return true
+			}
+
+			// No error, so conn is valid. Check if we should still use it.
 			if c.closed {
 				// If the wrapper was closed, we have to close this extra
 				// connection and stop retrying.
-				if conn != nil {
-					// No need to hold the lock while closing the connection.
-					go conn.Close()
-				}
+				// No need to hold the lock while closing the connection.
+				go conn.Close()
 				return false
-			}
-			if err != nil {
-				return true
 			}
 			c.wrapped = conn
 			return false
@@ -317,6 +322,28 @@ func (c *WrapperConn) TryLock(ctx context.Context, dirPath, contents string) (Lo
 	result, err := conn.TryLock(ctx, dirPath, contents)
 	c.handleConnectionError(conn, err)
 	return result, err
+}
+
+// TryLockWithLease atomically creates a lease-backed key.
+func (c *WrapperConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
+	conn, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+	result, err := conn.TryLockWithLease(ctx, key, contents, ttl)
+	c.handleConnectionError(conn, err)
+	return result, err
+}
+
+// RevokeLockWithLease forcefully removes the ephemeral lock at the given key.
+func (c *WrapperConn) RevokeLockWithLease(ctx context.Context, key string) error {
+	conn, err := c.getConnection()
+	if err != nil {
+		return err
+	}
+	err = conn.RevokeLockWithLease(ctx, key)
+	c.handleConnectionError(conn, err)
+	return err
 }
 
 // Watch monitors a file for changes and returns the current state and a channel for updates.

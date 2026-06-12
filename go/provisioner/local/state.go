@@ -16,6 +16,7 @@ package local
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func (p *localProvisioner) createLogFile(serviceName, serviceID, databaseName st
 	}
 
 	// Create the log file path
-	logFile := filepath.Join(serviceLogDir, fmt.Sprintf("%s.log", serviceID))
+	logFile := filepath.Join(serviceLogDir, serviceID+".log")
 	return logFile, nil
 }
 
@@ -157,7 +158,7 @@ func (p *localProvisioner) removeServiceState(serviceID, serviceName, databaseNa
 // loadDbProvisionedServices loads provisioned services for a specific database
 func (p *localProvisioner) loadDbProvisionedServices(databaseName string) ([]*LocalProvisionedService, error) {
 	if databaseName == "" {
-		return nil, fmt.Errorf("database name is required")
+		return nil, errors.New("database name is required")
 	}
 
 	stateDir := p.getStateDir()

@@ -15,12 +15,15 @@
 package preparedstatement
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/parser"
-	"github.com/multigres/multigres/go/parser/ast"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
@@ -32,7 +35,7 @@ type Consolidator struct {
 	// Mutex to protect the fields
 	mu sync.Mutex
 
-	// Map from statement body to canonical prepared statement
+	// Map from (query, paramTypes) dedup key to canonical prepared statement
 	stmts map[string]*PreparedStatementInfo
 	// Map from connection ID and statement name to prepared statement reference
 	incoming map[uint32]map[string]*PreparedStatementInfo
@@ -41,6 +44,28 @@ type Consolidator struct {
 
 	// lastUsedID is the last id of the statement name that we used.
 	lastUsedID int
+}
+
+// ConsolidatorStats contains statistics about the prepared statement consolidator.
+type ConsolidatorStats struct {
+	// UniqueStatements is the number of unique prepared statements being tracked.
+	UniqueStatements int `json:"unique_statements"`
+	// TotalReferences is the total number of references across all connections.
+	TotalReferences int `json:"total_references"`
+	// ConnectionCount is the number of connections that have prepared statements.
+	ConnectionCount int `json:"connection_count"`
+	// Statements contains details about each unique prepared statement.
+	Statements []StatementStats `json:"statements"`
+}
+
+// StatementStats contains statistics for a single prepared statement.
+type StatementStats struct {
+	// Name is the canonical name of the prepared statement.
+	Name string `json:"name"`
+	// Query is the SQL query of the prepared statement.
+	Query string `json:"query"`
+	// UsageCount is the number of connections using this prepared statement.
+	UsageCount int `json:"usage_count"`
 }
 
 type PortalInfo struct {
@@ -53,15 +78,23 @@ type PreparedStatementInfo struct {
 	astStruct ast.Stmt
 }
 
+// AstStmt returns the parsed AST statement for this prepared statement.
+func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
+	return psi.astStruct
+}
+
 // NewPreparedStatementInfo parses the query in the prepared statement and stores it along with the
 // prepared statement information for future use.
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {
 	asts, err := parser.ParseSQL(ps.Query)
 	if err != nil {
-		return nil, err
+		// ParseSQL only does syntactic parsing, so any error here is a syntax
+		// error. Surface it as a 42601 diagnostic (the parser stays
+		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would.
+		return nil, mterrors.NewParseError(err.Error())
 	}
 	if len(asts) != 1 {
-		return nil, fmt.Errorf("more than 1 query in prepare statement")
+		return nil, errors.New("more than 1 query in prepare statement")
 	}
 	return &PreparedStatementInfo{
 		PreparedStatement: ps,
@@ -99,13 +132,29 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		psc.incoming[connId] = make(map[string]*PreparedStatementInfo)
 	}
 
-	// If the name is non-empty, and a prepared statement for this name already exists on the connection, we throw an error.
-	if _, exists := psc.incoming[connId][name]; exists && name != "" {
-		return nil, fmt.Errorf("Prepared statement with this name exists")
+	// If the name is non-empty and a prepared statement for this name already exists
+	// on the connection, replace it. This matches PostgreSQL behavior where re-parsing
+	// with an existing name replaces the old statement. This is necessary to handle
+	// the case where Parse succeeds (adding to consolidator) but the subsequent
+	// Describe fails — the client retries Parse with the same name.
+	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
+		slog.Debug("replacing existing prepared statement",
+			"connId", connId,
+			"name", name,
+			"oldQuery", existing.Query,
+			"newQuery", queryStr,
+		)
+		psc.usageCount[existing]--
+		if psc.usageCount[existing] == 0 {
+			delete(psc.stmts, existing.Query)
+			delete(psc.usageCount, existing)
+		}
+		delete(psc.incoming[connId], name)
 	}
 
-	// Let's check if a prepared statement with this statement already exists.
-	existingPs, foundExisting := psc.stmts[queryStr]
+	// Let's check if a prepared statement with this (query, paramTypes) already exists.
+	key := dedupKey(queryStr, paramTypes)
+	existingPs, foundExisting := psc.stmts[key]
 	if foundExisting {
 		// We found an existing prepared statement, we should be using that.
 		psc.usageCount[existingPs] += 1
@@ -113,7 +162,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		return existingPs, nil
 	}
 
-	// We didn't find any existing prepared statement with this sql.
+	// We didn't find any existing prepared statement with this (query, paramTypes).
 	// Create a new one in our stmts list tracking unique prepared statements.
 	newName := fmt.Sprintf("stmt%d", psc.lastUsedID)
 	psc.lastUsedID += 1
@@ -122,7 +171,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		return nil, err
 	}
 
-	psc.stmts[queryStr] = newPS
+	psc.stmts[key] = newPS
 	psc.usageCount[newPS] += 1
 	psc.incoming[connId][name] = newPS
 	return newPS, nil
@@ -145,9 +194,55 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 	if exists {
 		psc.usageCount[psi] -= 1
 		if psc.usageCount[psi] == 0 {
-			delete(psc.stmts, psi.Query)
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
 			delete(psc.usageCount, psi)
 		}
 		delete(psc.incoming[connId], name)
 	}
+}
+
+// RemoveConnection removes all prepared statements associated with a connection.
+// This should be called when a client connection is closed.
+func (psc *Consolidator) RemoveConnection(connId uint32) {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	connStmts, exists := psc.incoming[connId]
+	if !exists {
+		return
+	}
+
+	for _, psi := range connStmts {
+		psc.usageCount[psi]--
+		if psc.usageCount[psi] == 0 {
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
+			delete(psc.usageCount, psi)
+		}
+	}
+	delete(psc.incoming, connId)
+}
+
+// Stats returns statistics about the consolidator's current state.
+func (psc *Consolidator) Stats() ConsolidatorStats {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	stats := ConsolidatorStats{
+		UniqueStatements: len(psc.stmts),
+		TotalReferences:  0,
+		ConnectionCount:  len(psc.incoming),
+		Statements:       make([]StatementStats, 0, len(psc.stmts)),
+	}
+
+	for _, psi := range psc.stmts {
+		usageCount := psc.usageCount[psi]
+		stats.TotalReferences += usageCount
+		stats.Statements = append(stats.Statements, StatementStats{
+			Name:       psi.Name,
+			Query:      psi.Query,
+			UsageCount: usageCount,
+		})
+	}
+
+	return stats
 }

@@ -1,0 +1,1352 @@
+[
+  {
+    "query": "SELECT 1"
+  },
+  {
+    "query": "SELECT 1; SELECT 2"
+  },
+  {
+    "query": "SELECT 1 FROM t(1)"
+  },
+  {
+    "query": "SELECT sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek WHERE unique1 < 100)) FROM tenk1"
+  },
+  {
+    "query": "SELECT a AS b FROM x WHERE y = 5 AND z = y"
+  },
+  {
+    "query": "SELECT FROM x WHERE y = 5 AND z = y"
+  },
+  {
+    "query": "SELECT a AS b FROM public.x WHERE y = 5 AND z = y"
+  },
+  {
+    "query": "SELECT DISTINCT a, b, * FROM c WHERE d = e"
+  },
+  {
+    "query": "SELECT DISTINCT ON (a) a, b FROM c"
+  },
+  {
+    "query": "SELECT * INTO films_recent FROM films WHERE date_prod >= '2002-01-01'"
+  },
+  {
+    "query": "SELECT current_timestamp"
+  },
+  {
+    "query": "SELECT current_time(2)"
+  },
+  {
+    "query": "SELECT memory_total_bytes, memory_swap_total_bytes - memory_swap_free_bytes AS swap, date_part('year', s.collected_at) AS collected_at FROM snapshots s JOIN system_snapshots ON snapshot_id = s.id WHERE s.database_id = 23 AND s.collected_at >= 90 AND s.collected_at <= 160 ORDER BY collected_at ASC"
+  },
+  {
+    "query": "SELECT * FROM a ORDER BY x ASC NULLS FIRST"
+  },
+  {
+    "query": "SELECT * FROM a ORDER BY x ASC NULLS LAST"
+  },
+  {
+    "query": "SELECT * FROM a ORDER BY x COLLATE \"tr_TR\" DESC NULLS LAST"
+  },
+  {
+    "query": "SELECT 'foo' COLLATE \"tr_TR\""
+  },
+  {
+    "query": "WITH kodsis AS (SELECT * FROM application), kodsis2 AS (SELECT * FROM application) SELECT * FROM kodsis UNION SELECT * FROM kodsis ORDER BY id DESC"
+  },
+  {
+    "query": "SELECT id, name FROM table1 UNION (SELECT id, name FROM table2 ORDER BY name) ORDER BY id ASC"
+  },
+  {
+    "query": "SELECT a FROM kodsis EXCEPT SELECT a FROM application"
+  },
+  {
+    "query": "SELECT * FROM (VALUES ('anne', 'smith'), ('bob', 'jones'), ('joe', 'blow')) names(first, last)"
+  },
+  {
+    "query": "SELECT * FROM users WHERE name LIKE 'postgresql:%'"
+  },
+  {
+    "query": "SELECT * FROM users WHERE name NOT LIKE 'postgresql:%'"
+  },
+  {
+    "query": "SELECT * FROM users WHERE name ILIKE 'postgresql:%'"
+  },
+  {
+    "query": "SELECT * FROM users WHERE name NOT ILIKE 'postgresql:%'"
+  },
+  {
+    "query": "WITH t AS (SELECT random() AS x FROM generate_series(1, 3)) SELECT * FROM t"
+  },
+  {
+    "query": "WITH RECURSIVE search_graph(id, link, data, depth, path, cycle) AS (SELECT g.id, g.link, g.data, 1, ARRAY[ROW(g.f1, g.f2)], false FROM graph g UNION ALL SELECT g.id, g.link, g.data, sg.depth + 1, path || ROW(g.f1, g.f2), ROW(g.f1, g.f2) = ANY(path) FROM graph g, search_graph sg WHERE g.id = sg.link AND NOT cycle) SELECT id, data, link FROM search_graph"
+  },
+  {
+    "query": "SELECT OVERLAY(m.name PLACING '******' FROM 3 FOR 6) AS tc_kimlik FROM tb_test m"
+  },
+  {
+    "query": "SELECT sum(price_cents) FROM products"
+  },
+  {
+    "query": "SELECT ARRAY(SELECT id FROM products)::bigint[]"
+  },
+  {
+    "query": "SELECT m.name AS mname, pname FROM manufacturers m, LATERAL get_product_names(m.id) pname"
+  },
+  {
+    "query": "SELECT m.name AS mname, pname FROM manufacturers m LEFT JOIN LATERAL get_product_names(m.id) pname ON true"
+  },
+  {
+    "query": "SELECT * FROM tb_test_main mh JOIN LATERAL (SELECT ftnrm.* FROM test ftnrm WHERE ftnrm.hizmet_id = mh.id UNION ALL SELECT ftarc.* FROM test.test2 ftarc WHERE ftarc.hizmet_id = mh.id) ft ON true"
+  },
+  {
+    "query": "SELECT x, y FROM a CROSS JOIN b"
+  },
+  {
+    "query": "SELECT x, y FROM a NATURAL JOIN b"
+  },
+  {
+    "query": "SELECT x, y FROM a LEFT JOIN b ON 1 > 0"
+  },
+  {
+    "query": "SELECT x, y FROM a RIGHT JOIN b ON 1 > 0"
+  },
+  {
+    "query": "SELECT x, y FROM a FULL JOIN b ON 1 > 0"
+  },
+  {
+    "query": "SELECT x, y FROM a JOIN b USING (z)"
+  },
+  {
+    "query": "SELECT 2 + 2"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS NULL"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS NOT NULL"
+  },
+  {
+    "query": "SELECT count(*) FROM x WHERE y IS NOT NULL"
+  },
+  {
+    "query": "SELECT count(DISTINCT a) FROM x WHERE y IS NOT NULL"
+  },
+  {
+    "query": "SELECT CASE WHEN a.status = 1 THEN 'active' WHEN a.status = 2 THEN 'inactive' END FROM accounts a"
+  },
+  {
+    "query": "SELECT CASE 1 > 0 WHEN true THEN 'ok' ELSE NULL END"
+  },
+  {
+    "query": "SELECT CASE WHEN a.status = 1 THEN 'active' WHEN a.status = 2 THEN 'inactive' ELSE 'unknown' END FROM accounts a"
+  },
+  {
+    "query": "SELECT * FROM accounts WHERE status = CASE WHEN x = 1 THEN 'active' ELSE 'inactive' END"
+  },
+  {
+    "query": "SELECT CASE WHEN EXISTS (SELECT 1) THEN 1 ELSE 2 END"
+  },
+  {
+    "query": "SELECT (SELECT 'x')"
+  },
+  {
+    "query": "SELECT * FROM (SELECT generate_series(0, 100)) a"
+  },
+  {
+    "query": "SELECT * FROM x WHERE id IN (1, 2, 3)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE id IN (SELECT id FROM account)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE id NOT IN (1, 2, 3)"
+  },
+  {
+    "query": "SELECT * FROM x JOIN (SELECT n FROM z) b ON a.id = b.id"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[5]"
+  },
+  {
+    "query": "SELECT (foo(1)).y"
+  },
+  {
+    "query": "SELECT proname, (SELECT regexp_split_to_array(proargtypes::text, ' '))[idx] AS argtype, proargnames[idx] AS argname FROM pg_proc"
+  },
+  {
+    "query": "SELECT COALESCE((SELECT customer.sp_person(n.id) AS sp_person).city_id, NULL::int) AS city_id FROM customer.tb_customer n"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[1][4]"
+  },
+  {
+    "query": "SELECT (k #= hstore('{id}'::text[], ARRAY[1::text])).* FROM test k"
+  },
+  {
+    "query": "SELECT * FROM x WHERE NOT y"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x OR y"
+  },
+  {
+    "query": "SELECT 1 WHERE (1 = 1 OR 1 = 2) AND 1 = 2"
+  },
+  {
+    "query": "SELECT 1 WHERE (1 = 1 AND 2 = 2) OR 2 = 3"
+  },
+  {
+    "query": "SELECT 1 WHERE 1 = 1 OR 2 = 2 OR 2 = 3"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ALL (SELECT x FROM y WHERE z = 20)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ANY (SELECT x FROM y WHERE z = 20)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = COALESCE(y, z)"
+  },
+  {
+    "query": "SELECT a, b, max(c) FROM c WHERE d = 1 GROUP BY a, b"
+  },
+  {
+    "query": "SELECT * FROM x LIMIT 50"
+  },
+  {
+    "query": "SELECT * FROM x OFFSET 50"
+  },
+  {
+    "query": "SELECT amount * 0.5"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x BETWEEN '2016-01-01' AND '2016-02-02'"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x NOT BETWEEN '2016-01-01' AND '2016-02-02'"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x BETWEEN SYMMETRIC 20 AND 10"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x NOT BETWEEN SYMMETRIC 20 AND 10"
+  },
+  {
+    "query": "SELECT NULLIF(id, 0) AS id FROM x"
+  },
+  {
+    "query": "SELECT NULL FROM x"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS TRUE"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS NOT TRUE"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS FALSE"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS NOT FALSE"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS UNKNOWN"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y IS NOT UNKNOWN"
+  },
+  {
+    "query": "SELECT * FROM crosstab('SELECT department, role, COUNT(id) FROM users GROUP BY department, role ORDER BY department, role', 'VALUES (''admin''::text), (''ordinary''::text)') AS (department varchar, admin int, ordinary int)"
+  },
+  {
+    "query": "SELECT * FROM crosstab('SELECT department, role, COUNT(id) FROM users GROUP BY department, role ORDER BY department, role', 'VALUES (''admin''::text), (''ordinary''::text)') ctab (department varchar, admin int, ordinary int)"
+  },
+  {
+    "query": "SELECT row_cols[0] AS dept, row_cols[1] AS sub, admin, ordinary FROM crosstab('SELECT ARRAY[department, sub] AS row_cols, role, COUNT(id) FROM users GROUP BY department, role ORDER BY department, role', 'VALUES (''admin''::text), (''ordinary''::text)') AS (row_cols varchar[], admin int, ordinary int)"
+  },
+  {
+    "query": "SELECT 1::int8"
+  },
+  {
+    "query": "SELECT CAST(1 + 3 AS int8)"
+  },
+  {
+    "query": "SELECT x::regclass"
+  },
+  {
+    "query": "SELECT table_field::bool, table_field::boolean FROM t"
+  },
+  {
+    "query": "SELECT true, false"
+  },
+  {
+    "query": "SELECT 1::boolean, 0::boolean"
+  },
+  {
+    "query": "SELECT $5"
+  },
+  {
+    "query": "INSERT INTO x (y, z) VALUES (1, 'abc')"
+  },
+  {
+    "query": "INSERT INTO x (\"user\") VALUES ('abc')"
+  },
+  {
+    "query": "INSERT INTO x (y, z) VALUES (1, 'abc') RETURNING id"
+  },
+  {
+    "query": "INSERT INTO x SELECT * FROM y"
+  },
+  {
+    "query": "WITH moved AS (DELETE FROM employees WHERE manager_name = 'Mary') INSERT INTO employees_of_mary SELECT * FROM moved"
+  },
+  {
+    "query": "INSERT INTO x (y, z) VALUES (1, 'abc') ON CONFLICT (y) DO UPDATE SET \"user\" = excluded.\"user\" RETURNING y"
+  },
+  {
+    "query": "INSERT INTO x (y, z) VALUES (1, 'abc') ON CONFLICT (y) DO NOTHING RETURNING y"
+  },
+  {
+    "query": "INSERT INTO distributors (did, dname) VALUES (10, 'Conrad International') ON CONFLICT (did) WHERE is_active DO NOTHING"
+  },
+  {
+    "query": "INSERT INTO distributors (did, dname) VALUES (9, 'Antwerp Design') ON CONFLICT ON CONSTRAINT distributors_pkey DO NOTHING"
+  },
+  {
+    "query": "INSERT INTO foo (a, b, c, d) VALUES ($1) ON CONFLICT (id) DO UPDATE SET (a, b, c, d) = (excluded.a, excluded.b, excluded.c, CASE WHEN foo.d = excluded.d THEN excluded.d END)"
+  },
+  {
+    "query": "INSERT INTO employees SELECT * FROM people WHERE 1 = 1 GROUP BY name HAVING count(name) > 1 ORDER BY name DESC LIMIT 10 OFFSET 15 FOR UPDATE"
+  },
+  {
+    "query": "INSERT INTO films VALUES ('T_601', 'Yojimbo', 106, DEFAULT, 'Drama', DEFAULT)"
+  },
+  {
+    "query": "SELECT * FROM people FOR UPDATE OF name, email"
+  },
+  {
+    "query": "SELECT name::varchar(255) FROM people"
+  },
+  {
+    "query": "SELECT name::varchar FROM people"
+  },
+  {
+    "query": "SELECT age::numeric(5, 2) FROM people"
+  },
+  {
+    "query": "SELECT age::numeric FROM people"
+  },
+  {
+    "query": "UPDATE x SET y = 1 WHERE z = 'abc'"
+  },
+  {
+    "query": "UPDATE ONLY x table_x SET y = 1 WHERE z = 'abc' RETURNING y AS changed_y"
+  },
+  {
+    "query": "WITH archived AS (DELETE FROM employees WHERE manager_name = 'Mary') UPDATE users SET archived = true WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "WITH archived AS (DELETE FROM employees WHERE manager_name = 'Mary' RETURNING user_id) UPDATE users SET archived = true FROM archived WHERE archived.user_id = id RETURNING id"
+  },
+  {
+    "query": "INSERT INTO jackdanger_card_totals (id, amount_cents, created_at) SELECT series.i, random() * 1000, (SELECT '2015-08-25 00:00:00 -0700'::timestamp + (('2015-08-25 23:59:59 -0700'::timestamp - '2015-08-25 00:00:00 -0700'::timestamp) * random())) FROM generate_series(1, 10000) series(i)"
+  },
+  {
+    "query": "UPDATE foo SET a = 24, b = true"
+  },
+  {
+    "query": "UPDATE x SET \"user\" = 'emin'"
+  },
+  {
+    "query": "DELETE FROM x WHERE y = 1"
+  },
+  {
+    "query": "DELETE FROM ONLY x table_x USING table_z WHERE y = 1 RETURNING *"
+  },
+  {
+    "query": "WITH archived AS (DELETE FROM employees WHERE manager_name = 'Mary') DELETE FROM users WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "CREATE CAST (bigint AS int4) WITH FUNCTION int4(bigint) AS ASSIGNMENT"
+  },
+  {
+    "query": "CREATE CAST (bigint AS int4) WITHOUT FUNCTION AS IMPLICIT"
+  },
+  {
+    "query": "CREATE CAST (bigint AS int4) WITH INOUT AS ASSIGNMENT"
+  },
+  {
+    "query": "CREATE DOMAIN us_postal_code AS text CHECK (\"VALUE\" ~ E'^\\\\d{5}$' OR \"VALUE\" ~ E'^\\\\d{5}-\\\\d{4}$')"
+  },
+  {
+    "query": "CREATE FUNCTION getfoo(int) RETURNS SETOF users AS $$SELECT * FROM \"users\" WHERE users.id = $1;$$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$SELECT * FROM \"users\" WHERE users.id = $1;$$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$SELECT * FROM \"users\" WHERE users.id = $1;$$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$SELECT * FROM \"users\" WHERE users.id = $1;$$ LANGUAGE sql IMMUTABLE RETURNS NULL ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$SELECT * FROM \"users\" WHERE users.id = $1;$$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo() RETURNS text AS $$SELECT name FROM \"users\" LIMIT 1$$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE SCHEMA myschema"
+  },
+  {
+    "query": "CREATE SCHEMA AUTHORIZATION joe"
+  },
+  {
+    "query": "CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION joe"
+  },
+  {
+    "query": "CREATE SCHEMA hollywood CREATE TABLE films (title text, release date, awards text[]) CREATE VIEW winners AS SELECT title, release FROM films WHERE awards IS NOT NULL"
+  },
+  {
+    "query": "CREATE UNLOGGED TABLE cities (name text, population real, altitude double, identifier smallint, postal_code int, foreign_id bigint)"
+  },
+  {
+    "query": "CREATE TABLE IF NOT EXISTS distributors (name varchar(40) DEFAULT 'Luso Films', len interval hour to second(3), name varchar(40) DEFAULT 'Luso Films', did int DEFAULT nextval('distributors_serial'), stamp timestamp DEFAULT now() NOT NULL, stamptz timestamp with time zone, \"time\" time NOT NULL, timetz time with time zone, CONSTRAINT name_len PRIMARY KEY (name, len))"
+  },
+  {
+    "query": "CREATE TABLE types (a real, b double precision, c numeric(2, 3), d char(4), e char(5), f varchar(6), g varchar(7))"
+  },
+  {
+    "query": "CREATE TABLE types (a geometry(point) NOT NULL)"
+  },
+  {
+    "query": "CREATE TABLE tablename (colname int NOT NULL DEFAULT nextval('tablename_colname_seq'))"
+  },
+  {
+    "query": "CREATE TABLE capitals (state char(2)) INHERITS (cities)"
+  },
+  {
+    "query": "CREATE TEMPORARY TABLE temp AS SELECT c FROM t"
+  },
+  {
+    "query": "CREATE TABLE films2 AS SELECT * FROM films"
+  },
+  {
+    "query": "CREATE TEMPORARY TABLE films_recent ON COMMIT DROP AS SELECT * FROM films WHERE date_prod > $1"
+  },
+  {
+    "query": "DROP SERVER IF EXISTS foo"
+  },
+  {
+    "query": "DROP PUBLICATION mypublication"
+  },
+  {
+    "query": "DROP TYPE box"
+  },
+  {
+    "query": "DROP TABLESPACE mystuff"
+  },
+  {
+    "query": "DROP CONVERSION myname"
+  },
+  {
+    "query": "DROP SEQUENCE serial"
+  },
+  {
+    "query": "DROP INDEX title_idx"
+  },
+  {
+    "query": "DROP MATERIALIZED VIEW order_summary"
+  },
+  {
+    "query": "DROP TRIGGER if_dist_exists ON films"
+  },
+  {
+    "query": "DROP RULE newrule ON mytable"
+  },
+  {
+    "query": "DROP CAST (text AS int)"
+  },
+  {
+    "query": "DROP OPERATOR FAMILY float_ops USING btree"
+  },
+  {
+    "query": "DROP AGGREGATE myavg(int), myavg(bigint)"
+  },
+  {
+    "query": "DROP COLLATION german"
+  },
+  {
+    "query": "DROP FOREIGN DATA WRAPPER dbi"
+  },
+  {
+    "query": "DROP ACCESS METHOD heptree"
+  },
+  {
+    "query": "DROP STATISTICS IF EXISTS accounting.users_uid_creation, public.grants_user_role"
+  },
+  {
+    "query": "DROP TEXT SEARCH DICTIONARY english"
+  },
+  {
+    "query": "DROP OPERATOR CLASS widget_ops USING btree"
+  },
+  {
+    "query": "DROP POLICY p1 ON my_table"
+  },
+  {
+    "query": "DROP SUBSCRIPTION mysub"
+  },
+  {
+    "query": "DROP TEXT SEARCH CONFIGURATION my_english"
+  },
+  {
+    "query": "DROP EVENT TRIGGER snitch"
+  },
+  {
+    "query": "DROP TEXT SEARCH PARSER my_parser"
+  },
+  {
+    "query": "DROP EXTENSION hstore"
+  },
+  {
+    "query": "DROP DOMAIN box"
+  },
+  {
+    "query": "DROP TEXT SEARCH TEMPLATE thesaurus"
+  },
+  {
+    "query": "DROP TRANSFORM FOR hstore LANGUAGE plpythonu"
+  },
+  {
+    "query": "DROP FOREIGN TABLE films, distributors"
+  },
+  {
+    "query": "DROP FUNCTION sqrt(int)"
+  },
+  {
+    "query": "DROP FUNCTION update_employee_salaries()"
+  },
+  {
+    "query": "DROP FUNCTION update_employee_salaries"
+  },
+  {
+    "query": "DROP TABLE IF EXISTS any_table CASCADE"
+  },
+  {
+    "query": "DROP TABLE IF EXISTS any_table"
+  },
+  {
+    "query": "DROP SCHEMA IF EXISTS any_schema"
+  },
+  {
+    "query": "ALTER TABLE distributors DROP CONSTRAINT distributors_pkey, ADD CONSTRAINT distributors_pkey PRIMARY KEY USING INDEX dist_id_temp_idx, ADD CONSTRAINT zipchk CHECK (char_length(zipcode) = 5), ALTER COLUMN tstamp DROP DEFAULT, ALTER COLUMN tstamp TYPE timestamp with time zone USING 'epoch'::timestamp with time zone + (date_part('epoch', tstamp) * '1 second'::interval), ALTER COLUMN tstamp SET DEFAULT now(), ALTER COLUMN tstamp DROP DEFAULT, ALTER COLUMN tstamp SET STATISTICS -5, ADD COLUMN some_int int NOT NULL, DROP IF EXISTS other_column CASCADE"
+  },
+  {
+    "query": "ALTER TABLE distributors RENAME TO suppliers"
+  },
+  {
+    "query": "ALTER TABLE distributors ADD CONSTRAINT distfk FOREIGN KEY (address) REFERENCES addresses (address)"
+  },
+  {
+    "query": "ALTER TABLE distributors ADD CONSTRAINT distfk FOREIGN KEY (address) REFERENCES addresses (address) NOT VALID"
+  },
+  {
+    "query": "ALTER TRIGGER emp_stamp ON emp RENAME TO emp_track_chgs"
+  },
+  {
+    "query": "ALTER CONVERSION iso_8859_1_to_utf8 RENAME TO latin1_to_unicode"
+  },
+  {
+    "query": "ALTER TABLE distributors RENAME CONSTRAINT zipchk TO zip_check"
+  },
+  {
+    "query": "ALTER INDEX distributors RENAME TO suppliers"
+  },
+  {
+    "query": "ALTER MATERIALIZED VIEW foo RENAME TO bar"
+  },
+  {
+    "query": "ALTER TABLESPACE index_space RENAME TO fast_raid"
+  },
+  {
+    "query": "ALTER TABLE distributors RENAME COLUMN address TO city"
+  },
+  {
+    "query": "ALTER COLLATION \"de_DE\" RENAME TO german"
+  },
+  {
+    "query": "ALTER TYPE electronic_mail RENAME TO email"
+  },
+  {
+    "query": "ALTER DOMAIN zipcode RENAME CONSTRAINT zipchk TO zip_check"
+  },
+  {
+    "query": "ALTER AGGREGATE myavg(int) RENAME TO my_average"
+  },
+  {
+    "query": "ALTER FUNCTION sqrt(int) RENAME TO square_root"
+  },
+  {
+    "query": "ALTER RULE notify_all ON emp RENAME TO notify_me"
+  },
+  {
+    "query": "BEGIN"
+  },
+  {
+    "query": "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "query": "BEGIN READ ONLY"
+  },
+  {
+    "query": "BEGIN ISOLATION LEVEL READ COMMITTED, DEFERRABLE"
+  },
+  {
+    "query": "START TRANSACTION READ ONLY"
+  },
+  {
+    "query": "ROLLBACK"
+  },
+  {
+    "query": "ROLLBACK AND CHAIN"
+  },
+  {
+    "query": "COMMIT"
+  },
+  {
+    "query": "COMMIT AND CHAIN"
+  },
+  {
+    "query": "SAVEPOINT \"x y\""
+  },
+  {
+    "query": "ROLLBACK TO SAVEPOINT x"
+  },
+  {
+    "query": "RELEASE x"
+  },
+  {
+    "query": "SELECT rank(*) OVER ()"
+  },
+  {
+    "query": "SELECT rank(*) OVER (PARTITION BY id)"
+  },
+  {
+    "query": "SELECT rank(*) OVER (ORDER BY id)"
+  },
+  {
+    "query": "SELECT rank(*) OVER (PARTITION BY id, id2 ORDER BY id DESC, id2)"
+  },
+  {
+    "query": "SELECT rank(*) OVER named_window"
+  },
+  {
+    "query": "SELECT max(create_date::date) FILTER (WHERE cancel_date IS NULL) OVER (ORDER BY create_date DESC) FROM tb_x"
+  },
+  {
+    "query": "ALTER VIEW foo RENAME TO bar"
+  },
+  {
+    "query": "CREATE OR REPLACE TEMPORARY VIEW view_a AS SELECT * FROM a(1) WITH CHECK OPTION"
+  },
+  {
+    "query": "DROP VIEW kinds"
+  },
+  {
+    "query": "CREATE VIEW view_a (a, b) AS WITH RECURSIVE view_a(a, b) AS (SELECT * FROM a(1)) SELECT a, b FROM view_a"
+  },
+  {
+    "query": "SET statement_timeout TO 10000"
+  },
+  {
+    "query": "SET search_path TO my_schema, public"
+  },
+  {
+    "query": "SET LOCAL search_path TO my_schema, public"
+  },
+  {
+    "query": "SET \"user\" TO 4"
+  },
+  {
+    "query": "SET TIME ZONE interval '+00:00' hour to minute"
+  },
+  {
+    "query": "SET timezone TO -7"
+  },
+  {
+    "query": "VACUUM"
+  },
+  {
+    "query": "VACUUM t"
+  },
+  {
+    "query": "VACUUM (FULL) t"
+  },
+  {
+    "query": "VACUUM (FREEZE) t"
+  },
+  {
+    "query": "VACUUM (VERBOSE) t"
+  },
+  {
+    "query": "VACUUM (ANALYZE) t"
+  },
+  {
+    "query": "VACUUM (FULL, FREEZE, VERBOSE, ANALYZE)"
+  },
+  {
+    "query": "VACUUM (ANALYZE) t(a, b)"
+  },
+  {
+    "query": "LOCK TABLE t"
+  },
+  {
+    "query": "LOCK TABLE t, u"
+  },
+  {
+    "query": "EXPLAIN SELECT a FROM b"
+  },
+  {
+    "query": "EXPLAIN (ANALYZE) SELECT a FROM b"
+  },
+  {
+    "query": "EXPLAIN (ANALYZE, BUFFERS) SELECT a FROM b"
+  },
+  {
+    "query": "COPY t FROM STDIN"
+  },
+  {
+    "query": "COPY t(c1, c2) FROM STDIN"
+  },
+  {
+    "query": "COPY t FROM PROGRAM '/bin/false'"
+  },
+  {
+    "query": "COPY t FROM '/dev/null'"
+  },
+  {
+    "query": "COPY t TO STDOUT"
+  },
+  {
+    "query": "COPY (SELECT 1 FROM foo) TO STDOUT"
+  },
+  {
+    "query": "COPY t FROM STDIN WITH (convert_selectively, some_str test, some_num 1, some_list (a), some_star *)"
+  },
+  {
+    "query": "DO $$BEGIN PERFORM * FROM information_schema.tables; END$$"
+  },
+  {
+    "query": "DO LANGUAGE plpgsql $$ BEGIN PERFORM * FROM information_schema.tables; END $$"
+  },
+  {
+    "query": "DO $$ BEGIN PERFORM * FROM information_schema.tables; END $$ LANGUAGE plpgsql"
+  },
+  {
+    "query": "DISCARD ALL"
+  },
+  {
+    "query": "DISCARD PLANS"
+  },
+  {
+    "query": "DISCARD SEQUENCES"
+  },
+  {
+    "query": "DISCARD TEMP"
+  },
+  {
+    "query": "CREATE AGGREGATE aggregate1 (int4) (sfunc = sfunc1, stype = stype1)"
+  },
+  {
+    "query": "CREATE AGGREGATE aggregate1 (int4, bool) (sfunc = sfunc1, stype = stype1)"
+  },
+  {
+    "query": "CREATE AGGREGATE aggregate1 (*) (sfunc = sfunc1, stype = stype1)"
+  },
+  {
+    "query": "CREATE AGGREGATE aggregate1 (int4) (sfunc = sfunc1, stype = stype1, finalfunc_extra, mfinalfuncextra)"
+  },
+  {
+    "query": "CREATE AGGREGATE aggregate1 (int4) (sfunc = sfunc1, stype = stype1, finalfunc_modify = read_only, parallel = restricted)"
+  },
+  {
+    "query": "CREATE AGGREGATE percentile_disc (float8 ORDER BY anyelement) (sfunc = ordered_set_transition, stype = internal, finalfunc = percentile_disc_final, finalfunc_extra)"
+  },
+  {
+    "query": "CREATE OPERATOR + (procedure = plusfunc)"
+  },
+  {
+    "query": "CREATE OPERATOR + (procedure = plusfunc, leftarg = int4, rightarg = int4)"
+  },
+  {
+    "query": "CREATE OPERATOR + (procedure = plusfunc, hashes, merges)"
+  },
+  {
+    "query": "CREATE TYPE type1"
+  },
+  {
+    "query": "CREATE TYPE type1 AS (attr1 int4, attr2 bool)"
+  },
+  {
+    "query": "CREATE TYPE type1 AS (attr1 int4 COLLATE collation1, attr2 bool)"
+  },
+  {
+    "query": "CREATE TYPE type1 AS ENUM ('value1', 'value2', 'value3')"
+  },
+  {
+    "query": "CREATE TYPE type1 AS RANGE (subtype = int4)"
+  },
+  {
+    "query": "CREATE TYPE type1 AS RANGE (subtype = int4, receive = receive_func, passedbyvalue)"
+  },
+  {
+    "query": "CREATE TYPE type1 (input = input1, output = output1)"
+  },
+  {
+    "query": "CREATE TYPE type1 (input = input1, output = output1, passedbyvalue)"
+  },
+  {
+    "query": "GRANT select ON \"table\" TO \"user\""
+  },
+  {
+    "query": "GRANT select, update, insert ON \"table\" TO \"user\""
+  },
+  {
+    "query": "GRANT select ON ALL TABLES IN SCHEMA schema TO \"user\""
+  },
+  {
+    "query": "GRANT select ON \"table\" TO user1, user2"
+  },
+  {
+    "query": "GRANT select ON \"table\" TO public"
+  },
+  {
+    "query": "GRANT select ON \"table\" TO CURRENT_USER"
+  },
+  {
+    "query": "GRANT select ON \"table\" TO SESSION_USER"
+  },
+  {
+    "query": "GRANT ALL ON \"table\" TO \"user\""
+  },
+  {
+    "query": "GRANT select ON \"table\" TO \"user\" WITH GRANT OPTION"
+  },
+  {
+    "query": "GRANT select (\"column\") ON \"table\" TO \"user\""
+  },
+  {
+    "query": "GRANT select (column1, column2) ON \"table\" TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON SEQUENCE sequence TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON ALL SEQUENCES IN SCHEMA schema TO \"user\""
+  },
+  {
+    "query": "GRANT create ON DATABASE database TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON DOMAIN domain TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON FOREIGN DATA WRAPPER fdw TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON FOREIGN SERVER server TO \"user\""
+  },
+  {
+    "query": "GRANT execute ON FUNCTION function TO \"user\""
+  },
+  {
+    "query": "GRANT execute ON FUNCTION function() TO \"user\""
+  },
+  {
+    "query": "GRANT execute ON FUNCTION function(string) TO \"user\""
+  },
+  {
+    "query": "GRANT execute ON FUNCTION function(string, string, boolean) TO \"user\""
+  },
+  {
+    "query": "GRANT execute ON ALL FUNCTIONS IN SCHEMA schema TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON LANGUAGE plpgsql TO \"user\""
+  },
+  {
+    "query": "GRANT select ON LARGE OBJECT 1234 TO \"user\""
+  },
+  {
+    "query": "GRANT create ON SCHEMA schema TO \"user\""
+  },
+  {
+    "query": "GRANT create ON TABLESPACE tablespace TO \"user\""
+  },
+  {
+    "query": "GRANT usage ON TYPE type TO \"user\""
+  },
+  {
+    "query": "GRANT role TO \"user\""
+  },
+  {
+    "query": "GRANT role1, role2 TO \"user\""
+  },
+  {
+    "query": "GRANT role TO \"user\" WITH ADMIN OPTION"
+  },
+  {
+    "query": "DROP ROLE jonathan"
+  },
+  {
+    "query": "REVOKE ALL ON kinds FROM manuel"
+  },
+  {
+    "query": "REVOKE admins FROM joe"
+  },
+  {
+    "query": "REVOKE insert ON films FROM public"
+  },
+  {
+    "query": "SELECT m.name AS mname, pname FROM manufacturers m LEFT JOIN LATERAL get_product_names(m.id) pname ON true"
+  },
+  {
+    "query": "SELECT m.name AS mname, pname FROM manufacturers m LEFT JOIN LATERAL get_product_names(m.id) pname ON true; INSERT INTO manufacturers_daily (a, b) SELECT a, b FROM manufacturers"
+  },
+  {
+    "query": "SELECT m.name AS mname, pname FROM manufacturers m LEFT JOIN LATERAL get_product_names(m.id) pname ON true; UPDATE users SET name = 'bobby; drop tables'; INSERT INTO manufacturers_daily (a, b) SELECT a, b FROM manufacturers"
+  },
+  {
+    "query": "SELECT * FROM a CROSS JOIN (b CROSS JOIN c)"
+  },
+  {
+    "query": "SELECT 1 FOR UPDATE"
+  },
+  {
+    "query": "SELECT 1 FOR UPDATE NOWAIT"
+  },
+  {
+    "query": "SELECT 1 FOR UPDATE SKIP LOCKED"
+  },
+  {
+    "query": "COMMENT ON POLICY a ON b IS 'test'"
+  },
+  {
+    "query": "COMMENT ON PROCEDURE a() IS 'test'"
+  },
+  {
+    "query": "COMMENT ON ROUTINE a() IS 'test'"
+  },
+  {
+    "query": "COMMENT ON TRANSFORM FOR int4 LANGUAGE sql IS 'test'"
+  },
+  {
+    "query": "COMMENT ON OPERATOR CLASS a USING b IS 'test'"
+  },
+  {
+    "query": "COMMENT ON OPERATOR FAMILY a USING b IS 'test'"
+  },
+  {
+    "query": "COMMENT ON LARGE OBJECT 42 IS 'test'"
+  },
+  {
+    "query": "COMMENT ON CAST (int4 AS int8) IS 'test'"
+  },
+  {
+    "query": "SELECT ROW(1 + 2)"
+  },
+  {
+    "query": "ALTER TABLE a ALTER COLUMN b SET DEFAULT 1"
+  },
+  {
+    "query": "ALTER TABLE a ALTER COLUMN b DROP DEFAULT"
+  },
+  {
+    "query": "SELECT (3 + 3) OPERATOR(pg_catalog.*) 2"
+  },
+  {
+    "query": "SELECT 3 + (3 * 2)"
+  },
+  {
+    "query": "SELECT LIMIT ALL"
+  },
+  {
+    "query": "SELECT * FROM ROWS FROM (foo() AS (foo_res_a text COLLATE a, foo_res_b text))"
+  },
+  {
+    "query": "CREATE DATABASE x OWNER abc CONNECTION LIMIT 5"
+  },
+  {
+    "query": "CREATE DATABASE x ENCODING \"SQL_ASCII\""
+  },
+  {
+    "query": "CREATE DATABASE x LC_COLLATE \"en_US.UTF-8\""
+  },
+  {
+    "query": "CREATE DATABASE x LOCATION DEFAULT"
+  },
+  {
+    "query": "CREATE DATABASE x TABLESPACE abc"
+  },
+  {
+    "query": "CREATE DATABASE x TEMPLATE TRUE"
+  },
+  {
+    "query": "ALTER DATABASE x CONNECTION LIMIT 5"
+  },
+  {
+    "query": "ALTER DATABASE x ALLOW_CONNECTIONS FALSE"
+  },
+  {
+    "query": "ALTER DATABASE x IS_TEMPLATE TRUE"
+  },
+  {
+    "query": "ALTER DATABASE x TABLESPACE abc"
+  },
+  {
+    "query": "ALTER DATABASE x SET work_mem TO \"10MB\""
+  },
+  {
+    "query": "ALTER EXTENSION x UPDATE"
+  },
+  {
+    "query": "ALTER EXTENSION x UPDATE TO \"1.2\""
+  },
+  {
+    "query": "ALTER EXTENSION x ADD ACCESS METHOD a"
+  },
+  {
+    "query": "ALTER EXTENSION x DROP ACCESS METHOD a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD AGGREGATE a(b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD CAST (a AS b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD COLLATION a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD CONVERSION a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD DOMAIN a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD FUNCTION a(b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD LANGUAGE a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD OPERATOR ~~(a, b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD OPERATOR CLASS a USING b"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD OPERATOR FAMILY a USING b"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD PROCEDURE a(b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD ROUTINE a(b)"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD SCHEMA a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD EVENT TRIGGER a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TABLE a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TEXT SEARCH PARSER a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TEXT SEARCH DICTIONARY a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TEXT SEARCH TEMPLATE a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TEXT SEARCH CONFIGURATION a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD SEQUENCE a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD VIEW a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD MATERIALIZED VIEW a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD FOREIGN TABLE a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD FOREIGN DATA WRAPPER a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD SERVER a"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TRANSFORM FOR a LANGUAGE b"
+  },
+  {
+    "query": "ALTER EXTENSION x ADD TYPE a"
+  },
+  {
+    "query": "ALTER TABLESPACE x SET (seq_page_cost=3)"
+  },
+  {
+    "query": "ALTER TABLESPACE x RESET (random_page_cost)"
+  },
+  {
+    "query": "CREATE TABLESPACE x LOCATION 'a'"
+  },
+  {
+    "query": "CREATE TABLESPACE x OWNER a LOCATION 'b' WITH (random_page_cost=42, seq_page_cost=3)"
+  },
+  {
+    "query": "ALTER FUNCTION x(y) DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER FUNCTION x(y) NO DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER PROCEDURE x(y) DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER ROUTINE x(y) DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER TRIGGER x ON y DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER MATERIALIZED VIEW x DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "ALTER INDEX x DEPENDS ON EXTENSION a"
+  },
+  {
+    "query": "LOAD 'test file'"
+  },
+  {
+    "query": "ALTER SYSTEM SET fsync TO OFF"
+  },
+  {
+    "query": "ALTER SYSTEM RESET fsync"
+  },
+  {
+    "query": "CREATE EXTENSION x"
+  },
+  {
+    "query": "CREATE EXTENSION IF NOT EXISTS x CASCADE VERSION \"1.2\" SCHEMA a"
+  },
+  {
+    "query": "CREATE TABLE like_constraint_rename_cache (LIKE constraint_rename_cache INCLUDING ALL)"
+  },
+  {
+    "query": "COPY manual_export TO STDOUT CSV HEADER"
+  },
+  {
+    "query": "SELECT 1 FROM a.b.c"
+  },
+  {
+    "query": "CREATE PUBLICATION foo FOR TABLES IN SCHEMA bar"
+  },
+  {
+    "query": "ALTER TABLE ALL IN TABLESPACE foo OWNED BY bar, quux SET TABLESPACE fred NOWAIT"
+  },
+  {
+    "query": "MERGE INTO measurement m USING new_measurement nm ON m.city_id = nm.city_id AND m.logdate = nm.logdate WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = GREATEST(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + COALESCE(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)"
+  },
+  {
+    "query": "COPY vistest FROM STDIN FREEZE CSV"
+  },
+  {
+    "query": "CREATE INDEX \"foo.index\" ON foo USING btree (bar)"
+  },
+  {
+    "query": "CREATE TABLE distributors (did int, name varchar(40), UNIQUE (name) WITH (fillfactor=70)) WITH (fillfactor=70)"
+  },
+  {
+    "query": "SHOW ALL"
+  },
+  {
+    "query": "ALTER TABLE ONLY public.\"Test 123\" ADD CONSTRAINT \"Test 123_pkey\" PRIMARY KEY (c1)"
+  },
+  {
+    "query": "CREATE PROCEDURE insert_data(a int, b int) LANGUAGE sql BEGIN ATOMIC INSERT INTO tbl VALUES (a); INSERT INTO tbl VALUES (b); END"
+  },
+  {
+    "query": "CREATE PROCEDURE do_nothing() LANGUAGE sql BEGIN ATOMIC END"
+  },
+  {
+    "query": "CREATE PROCEDURE returns_one() LANGUAGE sql BEGIN ATOMIC RETURN 1; END"
+  },
+  {
+    "query": "CREATE PROCEDURE updates_and_returns_one() LANGUAGE sql BEGIN ATOMIC UPDATE tbl SET a = 1; RETURN 1; END"
+  },
+  {
+    "query": "SELECT 1 FROM tbl LIMIT COALESCE($1, $2)"
+  },
+  {
+    "query": "SELECT (false AND true) IS FALSE"
+  },
+  {
+    "query": "SELECT a = (true IS FALSE)"
+  },
+  {
+    "query": "ALTER TABLE a ENABLE TRIGGER b"
+  },
+  {
+    "query": "ALTER TABLE a ENABLE TRIGGER ALL"
+  },
+  {
+    "query": "ALTER TABLE a ENABLE TRIGGER USER"
+  },
+  {
+    "query": "ALTER TABLE a DISABLE TRIGGER b"
+  },
+  {
+    "query": "ALTER TABLE a DISABLE TRIGGER ALL"
+  },
+  {
+    "query": "ALTER TABLE a DISABLE TRIGGER USER"
+  },
+  {
+    "query": "CREATE INDEX myindex ON public.mytable USING btree (col1, (col2::varchar) varchar_pattern_ops)"
+  },
+  {
+    "query": "SELECT * FROM CAST(1 AS text)"
+  },
+  {
+    "query": "DECLARE \"Foo1\" SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "query": "FETCH BACKWARD 23 \"Foo1\""
+  },
+  {
+    "query": "CREATE TABLE my_table (created_at timestamptz NOT NULL DEFAULT (now() AT TIME ZONE 'UTC'))"
+  },
+  {
+    "query": "CREATE TABLE my_table (created_at timestamptz NOT NULL DEFAULT (now() AT LOCAL))"
+  },
+  {
+    "query": "CREATE TABLE my_table (created_at timestamptz NOT NULL DEFAULT '1 hour'::interval + (current_timestamp AT TIME ZONE 'UTC'))"
+  },
+  {
+    "query": "ALTER TABLE my_table ADD COLUMN created_at timestamptz NOT NULL DEFAULT '1 hour'::interval + (current_timestamp AT TIME ZONE 'UTC')"
+  },
+  {
+    "query": "CREATE TABLE my_table (created_at int NOT NULL DEFAULT 1 + 2)"
+  },
+  {
+    "query": "SELECT (1 + 3)::int8"
+  },
+  {
+    "query": "ALTER TABLE a ALTER COLUMN b SET STATISTICS DEFAULT"
+  },
+  {
+    "query": "/* Comment 1 */ SELECT 1; /* Comment 2 */ SELECT 2"
+  },
+  {
+    "query": "SELECT memory_total_bytes, memory_swap_total_bytes - memory_swap_free_bytes AS swap, date_part($1, s.collected_at) AS collected_at FROM snapshots s JOIN system_snapshots ON snapshot_id = s.id WHERE s.database_id = $2 AND s.collected_at >= $3 AND s.collected_at <= $4 ORDER BY collected_at ASC"
+  },
+  {
+    "query": "SELECT 'a' INTERSECT SELECT 'b'"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[$1]"
+  },
+  {
+    "query": "SELECT proname, (SELECT regexp_split_to_array(proargtypes::text, ' ') )[idx] AS argtype, proargnames[idx] AS argname FROM pg_proc"
+  },
+  {
+    "query": "SELECT * FROM x WHERE y = z[$1][$2]"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ALL($1)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = ANY($1)"
+  },
+  {
+    "query": "SELECT * FROM x WHERE x = COALESCE(y, $1)"
+  },
+  {
+    "query": "SELECT $1::regclass"
+  },
+  {
+    "query": "SELECT 't'::boolean, 'f'::boolean"
+  },
+  {
+    "query": "UPDATE foo SET a = $1, b = $2"
+  },
+  {
+    "query": "SELECT a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))"
+  },
+  {
+    "query": "SELECT * FROM t0 JOIN t1 ON 1 JOIN t2 ON 1 JOIN t3 ON 1 JOIN t4 ON 1 JOIN t5 ON 1 JOIN t6 ON 1 JOIN t7 ON 1 JOIN t8 ON 1 JOIN t9 ON 1 JOIN t10 ON 1 JOIN t11 ON 1 JOIN t12 ON 1 JOIN t13 ON 1 JOIN t14 ON 1 JOIN t15 ON 1 JOIN t16 ON 1 JOIN t17 ON 1 JOIN t18 ON 1 JOIN t19 ON 1 JOIN t20 ON 1 JOIN t21 ON 1 JOIN t22 ON 1 JOIN t23 ON 1 JOIN t24 ON 1 JOIN t25 ON 1 JOIN t26 ON 1 JOIN t27 ON 1 JOIN t28 ON 1 JOIN t29 ON 1"
+  },
+  {
+    "query": "SELECT ARRAY[department, sub] AS row_cols, role, COUNT(id) FROM users GROUP BY department, role ORDER BY department, roleVALUES (admin::text), (ordinary::text)"
+  },
+  {
+    "query": "WITH moved AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) INSERT INTO employees_of_mary SELECT * FROM moved"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) UPDATE users SET archived = true WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' RETURNING user_id ) UPDATE users SET archived = true FROM archived WHERE archived.user_id = id RETURNING id"
+  },
+  {
+    "query": "WITH archived AS ( DELETE FROM employees WHERE manager_name = 'Mary' ) DELETE FROM users WHERE users.id IN (SELECT user_id FROM moved)"
+  },
+  {
+    "query": "CREATE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE RETURNS NULL ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo(int) RETURNS SETOF users AS $$ SELECT * FROM \"users\" WHERE users.id = $1; $$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE OR REPLACE FUNCTION getfoo() RETURNS text AS $$ SELECT name FROM \"users\" LIMIT 1 $$ LANGUAGE sql IMMUTABLE CALLED ON NULL INPUT"
+  },
+  {
+    "query": "CREATE UNLOGGED TABLE cities ( name text, population real, altitude double, identifier smallint, postal_code int, foreign_id bigint )"
+  },
+  {
+    "query": "CREATE TABLE IF NOT EXISTS distributors ( name varchar(40) DEFAULT 'Luso Films', len interval hour to second(3), name varchar(40) DEFAULT 'Luso Films', did int DEFAULT nextval('distributors_serial'), stamp timestamp DEFAULT now() NOT NULL, stamptz timestamp with time zone, \"time\" time NOT NULL, timetz time with time zone, CONSTRAINT name_len PRIMARY KEY (name, len) )"
+  },
+  {
+    "query": "CREATE TABLE types (a float(2), b float(49), c NUMERIC(2, 3), d character(4), e char(5), f varchar(6), g character varying(7))"
+  },
+  {
+    "query": "CREATE TABLE types (a geometry(point) not null)"
+  },
+  {
+    "query": "CREATE TABLE tablename ( colname int NOT NULL DEFAULT nextval('tablename_colname_seq') )"
+  },
+  {
+    "query": "CREATE TABLE capitals ( state char(2) ) INHERITS (cities)"
+  },
+  {
+    "query": "SET SESSION search_path TO 10000"
+  }
+]

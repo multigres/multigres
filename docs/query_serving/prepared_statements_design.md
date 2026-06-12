@@ -1,9 +1,9 @@
-# Prepared Statements and Portals in MultiGres
+# Prepared Statements and Portals in Multigres
 
 ## Overview
 
 This document outlines the design for implementing prepared statements and
-portals in MultiGres, leveraging PostgreSQL's Extended Query Protocol to
+portals in Multigres, leveraging PostgreSQL's Extended Query Protocol to
 optimize query execution performance.
 
 ## Background: Extended Query Protocol
@@ -105,56 +105,176 @@ Each connection in the MultiPooler's pool must track:
 - Which prepared statements exist on that connection
 - The mapping between logical statement names and physical statement names
 
-## Prepared Statement Consolidator
+## Prepared Statement Consolidation
 
-Both MultiGateway and MultiPooler can use the same consolidation strategy to
-manage prepared statements efficiently.
+The gateway and pooler have different consolidation needs and use separate
+implementations.
 
-### Data Structure
+### Deduplication Key
+
+Both consolidators deduplicate by **(query text, parameter types)** — not
+query text alone. The same SQL with different type hints (e.g.,
+`SELECT $1` with `INT4` vs `TEXT`) produces different PostgreSQL prepared
+statements with different plans and type coercion, so they must be tracked
+separately.
+
+### Gateway Consolidator (`Consolidator`)
+
+The gateway consolidator maps `(connectionID, clientName) → canonical name`.
+It has real per-client connection IDs to namespace by.
 
 ```go
-type PreparedStatementConsolidator struct {
-    // Map from statement body to canonical prepared statement
-    Stmts map[string]*PreparedStatement
+type Consolidator struct {
+    // Map from (query, paramTypes) dedup key to canonical prepared statement
+    Stmts map[string]*PreparedStatementInfo
 
     // Map from connection ID and statement name to prepared statement reference
-    Incoming map[int]map[string]*PreparedStatement
-
-    // Map from prepared statement to its name on the underlying connection
-    Outgoing map[*PreparedStatement]string
+    Incoming map[uint32]map[string]*PreparedStatementInfo
 
     // Reference count: number of connections using each prepared statement
-    UsageCount map[*PreparedStatement]int
+    UsageCount map[*PreparedStatementInfo]int
 }
 ```
 
-### Algorithm
+**Algorithm** — when processing `PREPARE stmt1 AS body1` with `paramTypes`:
 
-When processing a PREPARE request like `PREPARE stmt1 AS body1`:
+1. **Check for existing statement**: Look up `dedupKey(body1, paramTypes)` in
+   `Stmts`
+2. **If exists**: increment usage count, store
+   `Incoming[connectionId]["stmt1"] = existingPS`
+3. **If not exists**: create a new canonical name (e.g., `stmt0`), store in
+   `Stmts`, initialize usage count, store incoming mapping
 
-1. **Check for existing statement**: Look up `body1` in the `Stmts` map
-2. **If exists**:
-   - Increment the usage count for the statement
-   - Store the mapping: `Incoming[connectionId]["stmt1"] = preparedStatement`
-   - Return the existing prepared statement
-3. **If not exists**:
-   - Create a new prepared statement on the underlying connection with a
-     unique name (e.g., `ppstmt1`)
-   - Store it in `Stmts[body1]`
-   - Store the outgoing name mapping:
-     `Outgoing[preparedStatement] = "ppstmt1"`
-   - Initialize usage count to 1
-   - Store the incoming mapping:
-     `Incoming[connectionId]["stmt1"] = preparedStatement`
+**Name translation**: clients use their own names (`stmt1`, `myquery`); the
+consolidator maps these to canonical names (`stmt0`, `stmt1`) shared across
+connections with the same query.
 
-### Name Translation
+### Pooler Consolidator (`PoolerConsolidator`)
 
-Since multiple clients may use different names for the same logical prepared
-statement:
+The pooler consolidator is intentionally simpler. It receives requests from
+multiple stateless gateway replicas, each of which independently assigns
+canonical names starting from `stmt0`. Since different gateways can assign
+the same name to different queries, the pooler **ignores incoming names
+entirely** and deduplicates purely by (query text, parameter types).
 
-- **Client-facing names**: Stored in the `Incoming` map (e.g., `stmt1`,
-  `myquery`)
-- **Backend names**: Stored in the `Outgoing` map (e.g., `ppstmt1`, `ppstmt2`)
+```go
+type PoolerConsolidator struct {
+    // Map from (query, paramTypes) dedup key to canonical name
+    Stmts map[string]string
+}
+```
 
-This allows clients to use their own naming conventions while sharing the
-underlying prepared statement.
+**Algorithm** — `CanonicalName(query, paramTypes) → name`:
+
+1. Compute `dedupKey(query, paramTypes)`
+2. If key exists in `Stmts`, return the existing canonical name
+3. Otherwise, generate a new name (e.g., `ppstmt0`), store it, return it
+
+The `ppstmt` prefix distinguishes pooler-level names from gateway-level names.
+
+Per-postgres-connection state (which statements are prepared on which backend
+connection) is tracked separately by `connstate.ConnectionState`, not by the
+consolidator.
+
+### Why Two Consolidators?
+
+The gateway consolidator needs per-connection name tracking, reference
+counting, and lifecycle management because it maps client-chosen names to
+shared canonical names across long-lived client connections.
+
+The pooler consolidator needs none of that — it just needs a stable
+`(query, paramTypes) → canonical name` mapping. Using the gateway
+consolidator at the pooler level with a shared `connId=0` caused name
+collisions when multiple gateway replicas sent the same canonical name
+for different queries.
+
+## Wrapped EXECUTE Forms
+
+PostgreSQL grammar allows an `ExecuteStmt` in three places: as a top-level
+statement, inside `EXPLAIN`, and as the body of `CREATE TABLE ... AS EXECUTE`.
+The top-level case is handled by `ExecutePrimitive` routing through
+`PortalStreamExecute`, which calls `ensurePrepared()` on the chosen backend
+connection and then runs a protocol-level Bind+Execute.
+
+The wrapped forms — `EXPLAIN EXECUTE p`, `CREATE TABLE t AS EXECUTE p`, and
+the nested `EXPLAIN CREATE TABLE t AS EXECUTE p` — cannot use the same path:
+they are not "execute a prepared statement" operations, they are raw SQL
+statements that happen to reference a prepared statement by name. The backend
+session must therefore have a prepared statement under exactly that name when
+the raw SQL runs.
+
+### Planner-Side AST Rewrite
+
+When the planner sees a wrapped EXECUTE, it:
+
+1. Looks up the inner `ExecuteStmt.Name` (e.g. `p`) in the gateway
+   consolidator, obtaining the canonical name (e.g. `stmt42`), the inner
+   query body, and the param type OIDs.
+2. **Mutates `ExecuteStmt.Name` in place** from the user name to the
+   canonical name. The AST is freshly parsed per query in `HandleQuery`,
+   so in-place mutation is safe.
+3. Regenerates the wrapper SQL via `SqlString()`. The result references the
+   canonical name, e.g. `EXPLAIN (COSTS OFF) EXECUTE stmt42`.
+4. Builds a `Route` (or `TempTableRoute` for `CREATE TEMP TABLE ... AS
+EXECUTE`) that carries the `PreparedStatement` metadata (the
+   **gateway-assigned** canonical name, plus the query body and param types).
+
+### Multipooler-Side ensurePreparedWithName
+
+The multipooler's `StreamExecute` RPC reads `options.PreparedStatement`
+(an optional field on `ExecuteOptions`). When set, it calls
+`ensurePreparedWithName()` on the chosen backend connection before running
+the query. Unlike `ensurePrepared()`, this variant uses the caller-supplied
+name directly rather than deriving a pooler-canonical name: the rewritten
+SQL references a specific name, and the backend must have a prepared
+statement under exactly that name.
+
+This works because the gateway consolidator assigns globally unique
+monotonic names (`stmt0`, `stmt1`, ...) deduplicated by `(query, paramTypes)`,
+so using them as backend-session prepared statement names is safe across
+multiple gateway client sessions sharing a pool connection. On a given
+backend connection it is possible to end up with **both** a pooler-canonical
+entry (from top-level EXECUTE via `PortalStreamExecute`) **and** a
+gateway-canonical entry (from wrapped EXECUTE via `StreamExecute`) for the
+same query body. They are different names on the same connection, which
+PostgreSQL allows; the cost is one extra `Parse` the first time each path
+is exercised for a given query.
+
+### Connection Stickiness
+
+Because reconnection on a regular pool connection wipes per-connection
+prepared statement state, the wrapped-EXECUTE path on the regular pool
+cannot use the retry-on-connection-error variant of `QueryStreaming`: a
+silent reconnect would leave the backend without the statement the
+rewritten SQL references. The regular path uses plain `QueryStreaming`
+instead and surfaces connection errors to the caller, who can reissue
+the query at the application level.
+
+The reserved-pool wrapped-EXECUTE path (`reserveAndStreamExecute` in
+`executor.go` and the `portalExecuteWithReserved` new-conn branch) does
+recover from stale sockets transparently: it wires `ensurePreparedWithName`
+/ `ensurePrepared` through `reserved.WithValidate`, so a connection-class
+error on the Parse triggers a retry on a fresh socket and re-runs the
+Parse there before the conn is registered. Both the empty-settings and
+non-empty-settings cases benefit. See `connection_pooling.md` for the
+underlying primitive.
+
+### Scope and Known Limitation
+
+This rewrite handles **SQL-level** wrapped EXECUTE reachable via the
+PostgreSQL grammar:
+
+- `EXPLAIN [options] EXECUTE p [(params)]`
+- `CREATE [TEMP] TABLE t AS EXECUTE p [(params)]`
+- `EXPLAIN [options] CREATE [TEMP] TABLE t AS EXECUTE p [(params)]`
+
+It does **not** handle EXECUTE reached through PL/pgSQL dynamic SQL
+(e.g. `EXECUTE format('explain execute %s', ...)` inside a server-side
+function like `explain_filter` or `explain_parallel_append`). Those cases
+run entirely on the backend session, which only sees the outer `SELECT`
+that invokes the function — the gateway never parses the wrapped EXECUTE
+and therefore cannot rewrite it. PostgreSQL's own `pg_regress` suite
+exercises this pattern heavily (e.g. `explain.sql`, `partition_prune.sql`
+parallel-append tests); those tests continue to fail until multigres
+supports pushing SQL-level PREPARE down to a backend session, which is a
+separate architectural change.

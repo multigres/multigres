@@ -15,14 +15,18 @@
 package shardsetup
 
 import (
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -34,6 +38,25 @@ func skipIfShort(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end test (no postgres binaries)")
 	}
+}
+
+// openMultigatewayConn opens a single *sql.Conn to the multigateway PG port.
+// Forces a single underlying connection so every query goes through the same
+// multigateway session (TCP connection).
+func openMultigatewayConn(t *testing.T, setup *ShardSetup) *sql.Conn {
+	t.Helper()
+	connStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	conn, err := db.Conn(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
 // TestShardSetup_ThreeNodeCluster validates that a 3-node cluster is created correctly
@@ -96,80 +119,6 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 
 		standbyClient.Close()
 	}
-}
-
-// TestShardSetup_DemoteAndReset validates that after demoting the primary,
-// ResetToCleanState correctly restores the cluster.
-func TestShardSetup_DemoteAndReset(t *testing.T) {
-	skipIfShort(t)
-	setup := getSharedSetup(t)
-	setup.SetupTest(t)
-
-	ctx := t.Context()
-
-	// Verify initial state - primary is not in recovery
-	primaryClient := setup.NewPrimaryClient(t)
-	inRecovery, err := QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
-	require.NoError(t, err)
-	require.Equal(t, "f", inRecovery, "primary should start as primary (not in recovery)")
-	primaryClient.Close()
-
-	// Demote the primary
-	setup.DemotePrimary(t)
-
-	// Verify primary is now in recovery (demoted)
-	primaryClient = setup.NewPrimaryClient(t)
-	inRecovery, err = QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
-	require.NoError(t, err)
-	require.Equal(t, "t", inRecovery, "primary should be in recovery after demotion")
-	primaryClient.Close()
-
-	// Manually call reset
-	t.Log("Calling ResetToCleanState...")
-	setup.ResetToCleanState(t)
-
-	// Verify primary is restored
-	primaryClient = setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
-
-	require.Eventually(t, func() bool {
-		val, err := QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
-		return err == nil && val == "f"
-	}, 10*time.Second, 100*time.Millisecond, "primary should be restored to primary state")
-
-	// Verify pooler type is PRIMARY
-	err = ValidatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, setup.PrimaryName)
-	require.NoError(t, err)
-
-	// Verify term is reset to 1
-	err = ValidateTerm(ctx, primaryClient.Consensus, 1, setup.PrimaryName)
-	require.NoError(t, err)
-
-	t.Log("Primary restored successfully")
-
-	// Verify standbys are still standbys with correct state
-	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.NewClient(t, standby.Name)
-
-		// Should be in recovery
-		inRecovery, err := QueryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
-		require.NoError(t, err)
-		assert.Equal(t, "t", inRecovery, "%s should be in recovery", standby.Name)
-
-		// Term should be 1
-		err = ValidateTerm(ctx, standbyClient.Consensus, 1, standby.Name)
-		require.NoError(t, err)
-
-		// Pooler type should be REPLICA
-		err = ValidatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, standby.Name)
-		require.NoError(t, err)
-
-		standbyClient.Close()
-	}
-
-	// Verify clean state validation passes
-	err = setup.ValidateCleanState()
-	require.NoError(t, err, "ValidateCleanState should pass after reset")
 }
 
 // TestShardSetup_ReplicationWorks validates that data written to primary replicates to standbys.
@@ -300,7 +249,7 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 		} else {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
 		}
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 		client.Close()
 		t.Logf("%s GUCs modified", name)
 	}
@@ -336,11 +285,14 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	// Create a writer validator pointing to the primary
-	primaryClient := setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
+	// Connect to multigateway for writes (realistic client path)
+	require.NotNil(t, setup.Multigateway, "multigateway should be available in shared setup")
+	gatewayConnStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDB, err := sql.Open("postgres", gatewayConnStr)
+	require.NoError(t, err)
+	defer gatewayDB.Close()
 
-	validator, cleanup, err := NewWriterValidator(t, primaryClient.Pooler,
+	validator, cleanup, err := NewWriterValidator(t, gatewayDB,
 		WithWorkerCount(4),
 		WithWriteInterval(10*time.Millisecond),
 	)
@@ -360,18 +312,122 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	t.Logf("WriterValidator stats: %d successful, %d failed", successful, failed)
 	require.Greater(t, successful, 0, "should have some successful writes")
 
-	// Collect all pooler clients for verification
-	var poolers []*endtoend.MultiPoolerTestClient
-	poolers = append(poolers, primaryClient.Pooler)
+	// Collect all multipooler test clients for verification
+	var poolerClients []*MultiPoolerTestClient
+
+	// Add primary's multipooler client
+	primaryInst := setup.GetPrimary(t)
+	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", primaryInst.Multipooler.GrpcPort))
+	require.NoError(t, err)
+	defer primaryPoolerClient.Close()
+	poolerClients = append(poolerClients, primaryPoolerClient)
+
+	// Add standbys' multipooler clients
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.NewClient(t, standby.Name)
-		defer standbyClient.Close()
-		poolers = append(poolers, standbyClient.Pooler)
+		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standby.Multipooler.GrpcPort))
+		require.NoError(t, err)
+		defer standbyPoolerClient.Close()
+		poolerClients = append(poolerClients, standbyPoolerClient)
 	}
 
 	// Wait for replication to catch up, then verify
 	require.Eventually(t, func() bool {
-		err := validator.Verify(t, poolers)
+		err := validator.Verify(t, poolerClients)
 		return err == nil
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
+}
+
+// TestShardSetup_InitdbSQLFilesExecuted validates the --pg-initdb-sql-files flag
+// end-to-end: pgctld runs each provided SQL file against the target database
+// during InitDataDir (triggered by shard bootstrap). We assert that the
+// artifacts those files create — a table with data, and a cluster-wide role —
+// exist on the elected primary.
+func TestShardSetup_InitdbSQLFilesExecuted(t *testing.T) {
+	skipIfShort(t)
+
+	sqlDir := t.TempDir()
+	tableFile := filepath.Join(sqlDir, "01-table.sql")
+	roleFile := filepath.Join(sqlDir, "02-role.sql")
+
+	require.NoError(t, os.WriteFile(tableFile, []byte(`
+CREATE TABLE IF NOT EXISTS init_db_sql_test (
+    id   int PRIMARY KEY,
+    note text NOT NULL
+);
+INSERT INTO init_db_sql_test (id, note) VALUES (1, 'from-init-sql');
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(roleFile, []byte(`
+CREATE ROLE init_db_sql_role NOLOGIN;
+`), 0o644))
+
+	setup, cleanup := NewIsolated(t,
+		WithMultipoolerCount(2),
+		WithInitdbSQLFiles(tableFile, roleFile),
+	)
+	defer cleanup()
+
+	ctx := t.Context()
+
+	// Primary must have the table row created by the first init SQL file.
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	note, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT note FROM init_db_sql_test WHERE id = 1")
+	require.NoError(t, err, "primary should be queryable for init-sql table")
+	assert.Equal(t, "from-init-sql", note, "row inserted by init SQL must be present on primary")
+
+	// Primary must also have the cluster-wide role created by the second init SQL file.
+	roleFound, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT 1 FROM pg_roles WHERE rolname = 'init_db_sql_role'")
+	require.NoError(t, err)
+	assert.Equal(t, "1", roleFound, "role created by init SQL must exist")
+}
+
+// TestShardSetup_InitdbSQLDirsExecuted validates the --pg-initdb-sql-dirs flag
+// end-to-end: pgctld reads all .sql files from the given directory (in
+// lexicographic order, skipping non-.sql files) and runs them under
+// SET SESSION AUTHORIZATION <role>. We assert that the artifacts exist on
+// the elected primary and that the non-.sql file did not cause an error.
+func TestShardSetup_InitdbSQLDirsExecuted(t *testing.T) {
+	skipIfShort(t)
+
+	sqlDir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "01-table.sql"), []byte(`
+CREATE TABLE IF NOT EXISTS init_sql_dir_test (
+    id   int PRIMARY KEY,
+    note text NOT NULL
+);
+INSERT INTO init_sql_dir_test (id, note) VALUES (1, 'from-init-sql-dir');
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "02-role.sql"), []byte(`
+CREATE ROLE init_sql_dir_role NOLOGIN;
+`), 0o644))
+
+	// This file must be silently skipped (not a .sql file).
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "README.md"), []byte("should be ignored"), 0o644))
+
+	setup, cleanup := NewIsolated(t,
+		WithMultipoolerCount(2),
+		WithInitdbSQLDirs("postgres:"+sqlDir),
+	)
+	defer cleanup()
+
+	ctx := t.Context()
+
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	note, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT note FROM init_sql_dir_test WHERE id = 1")
+	require.NoError(t, err, "primary should be queryable for init-sql-dir table")
+	assert.Equal(t, "from-init-sql-dir", note, "row inserted by init SQL dir must be present on primary")
+
+	roleFound, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT 1 FROM pg_roles WHERE rolname = 'init_sql_dir_role'")
+	require.NoError(t, err)
+	assert.Equal(t, "1", roleFound, "role created by init SQL dir must exist")
 }

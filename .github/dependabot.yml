@@ -4,8 +4,26 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: "npm"
+    directory: "/web/multiadmin"
     schedule:
       interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      multiadmin-npm:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

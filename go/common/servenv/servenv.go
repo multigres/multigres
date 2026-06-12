@@ -29,12 +29,42 @@ import (
 	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
+	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+// ServiceIdentity holds service identification for telemetry and topology registration.
+type ServiceIdentity struct {
+	// ServiceName is the logical name of the service (e.g., "multipooler", "multigateway").
+	ServiceName string
+
+	// ServiceInstanceID is the unique identifier for this service instance.
+	ServiceInstanceID string
+
+	// Cell is the availability zone/cell this service runs in.
+	Cell string
+
+	// Shard is the shard range this service handles (multipooler-specific).
+	// Example: "0-inf"
+	Shard string
+
+	// Database is the PostgreSQL database this service manages (multipooler-specific).
+	// Example: "postgres"
+	Database string
+
+	// TableGroup is the table group this service handles (multipooler-specific).
+	// Example: "default"
+	TableGroup string
+}
+
+// GenerateRandomServiceID generates a random 8-character service instance ID.
+func GenerateRandomServiceID() string {
+	return stringutil.RandomString(8)
+}
 
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
@@ -68,6 +98,8 @@ type ServEnv struct {
 	mu           sync.Mutex
 	inited       bool
 	listeningURL url.URL
+	readyMu      sync.RWMutex
+	readyChecks  []func() error
 
 	mux          *http.ServeMux
 	onCloseHooks event.Hooks
@@ -116,7 +148,13 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			Dynamic:  false,
 		}),
 		onTermTimeout: viperutil.Configure(reg, "onterm-timeout", viperutil.Options[time.Duration]{
-			Default:  10 * time.Second,
+			// Default matches Kubernetes' default terminationGracePeriodSeconds
+			// (30s). A pod manifest that doesn't override the grace period gets
+			// SIGKILL'd at 30s, so it doesn't help to give OnTermSync hooks
+			// more than that — they'd be cut off mid-flight anyway. Manifests
+			// that need a longer graceful-shutdown budget should bump both
+			// terminationGracePeriodSeconds and --onterm-timeout in lockstep.
+			Default:  30 * time.Second,
 			FlagName: "onterm-timeout",
 			Dynamic:  false,
 		}),
@@ -131,7 +169,7 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			Dynamic:  false,
 		}),
 		httpPprof: viperutil.Configure(reg, "pprof-http", viperutil.Options[bool]{
-			Default:  false,
+			Default:  true,
 			FlagName: "pprof-http",
 			Dynamic:  false,
 		}),
@@ -177,6 +215,13 @@ func (se *ServEnv) PopulateListeningURL(port int32) {
 		Host:   netutil.JoinHostPort(hostname, port),
 		Path:   "/",
 	})
+}
+
+// RegisterReadyCheck adds a function called on each /ready request.
+func (se *ServEnv) RegisterReadyCheck(f func() error) {
+	se.readyMu.Lock()
+	defer se.readyMu.Unlock()
+	se.readyChecks = append(se.readyChecks, f)
 }
 
 // GetHTTPPort returns the HTTP port value
@@ -267,10 +312,10 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 
 	select {
 	case <-done:
-		slog.Info(fmt.Sprintf("%s hooks finished", name))
+		slog.Info(name + " hooks finished")
 		return true
 	case <-timer.C:
-		slog.Info(fmt.Sprintf("%s hooks timed out", name))
+		slog.Info(name + " hooks timed out")
 		return false
 	}
 }

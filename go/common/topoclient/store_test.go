@@ -578,8 +578,8 @@ func TestStatus_MultipleCells(t *testing.T) {
 	for i := 1; i < 4; i++ {
 		cellName := fmt.Sprintf("cell%d", i)
 		cellInfo := &clustermetadatapb.Cell{
-			ServerAddresses: []string{fmt.Sprintf("%s:2181", cellName)},
-			Root:            fmt.Sprintf("/%s", cellName),
+			ServerAddresses: []string{cellName + ":2181"},
+			Root:            "/" + cellName,
 		}
 		err := ts.CreateCell(ctx, cellName, cellInfo)
 		require.NoError(t, err)

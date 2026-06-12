@@ -17,121 +17,90 @@ syntax = "proto3";
 package consensusdata;
 
 import "clustermetadata.proto";
-import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensusdata";
 
-// WAL position for tracking replication state
-message WALPosition {
-  // For primary: current write position from pg_current_wal_lsn()
-  // For standby: empty (use last_receive_lsn and last_replay_lsn instead)
-  string current_lsn = 1;
+// CoordinatorProposal is a coordinator-assisted rule proposal. It either reflects
+// a rule that's not yet in WAL that the coordinator wants to write, or it could
+// reflect a rule discovered in WAL that hasn't been propagated to the point of
+// becoming a decision.
+message CoordinatorProposal {
+  // The authority under which this proposal is made. Coordinators must revoke
+  // previous agents before making a proposal.
+  clustermetadata.TermRevocation term_revocation = 1;
 
-  // For standby: last WAL position received from pg_last_wal_receive_lsn()
-  // For primary: empty
-  string last_receive_lsn = 2;
+  // The node that should become primary to facilitate this proposal.
+  clustermetadata.PoolerAddress proposal_leader = 2;
 
-  // For standby: last WAL position replayed from pg_last_wal_replay_lsn()
-  // For primary: empty
-  string last_replay_lsn = 3;
+  // The full proposed rule. This can either be an entirely new rule or an
+  // existing rule that hasn't yet finished propagating to durability.
+  clustermetadata.ShardRule proposed_rule = 3;
 
-  // Timestamp when this position was recorded
-  google.protobuf.Timestamp timestamp = 4;
+  // When true, the leader must apply the incoming cohort GUC directly without
+  // first satisfying the outgoing cohort quorum. Only valid for externally-
+  // certified proposals (bootstrap, etc.).
+  bool skip_outgoing_quorum = 4;
 }
 
-// BeginTerm is sent by coordinators during leader appointments
-message BeginTermRequest {
-  // Term of the candidate
-  int64 term = 1;
-
-  // ID of the candidate for appointment
-  clustermetadata.ID candidate_id = 2;
-
-  // Shard ID for this appointment
-  string shard_id = 3;
-
-  // Version of the durability policy
-  int64 policy_version = 4;
+// RecruitRequest asks a pooler to revoke all terms below the one in the
+// enclosed term_revocation and record the coordinator's exclusive right to
+// propose at this term.
+message RecruitRequest {
+  // The revocation to accept. The pooler persists this to disk and responds
+  // with its current ConsensusStatus (which includes the updated revocation).
+  clustermetadata.TermRevocation term_revocation = 1;
 }
 
-message BeginTermResponse {
-  // Current term, for candidate to update itself
-  int64 term = 1;
-
-  // True if the term was accepted
-  bool accepted = 2;
-
-  // ID of the responding pooler
-  string pooler_id = 3;
-
-  // If this node was a primary and demoted itself, this contains the final LSN
-  // before demotion. Standbys should replicate up to this point before switching
-  // to a new primary. Empty if node was not a primary or didn't demote.
-  string demote_lsn = 4;
+// RecruitResponse carries the pooler's authoritative state after processing
+// a RecruitRequest. The coordinator uses current_position to select the best
+// promotion candidate.
+message RecruitResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// Status returns the current status of a node
-message StatusRequest {
-  // Optional term to include in response
-  int64 term = 1;
+// PromoteRequest carries the coordinator's complete proposal for a new shard
+// state. Every cohort member receives this: the designated leader promotes
+// itself; all others configure replication toward the new primary.
+message PromoteRequest {
+  CoordinatorProposal proposal = 1;
 
-  // Shard ID to query status for
-  string shard_id = 2;
+  // Human-readable reason for this proposal (e.g. "dead_primary", "bootstrap").
+  string reason = 2;
+
+  // IDs of cohort members that accepted the term revocation during recruitment.
+  // Used to record which nodes acknowledged the proposal in the rule history.
+  repeated clustermetadata.ID accepted_node_ids = 3;
 }
 
-message StatusResponse {
-  // Pooler ID
-  string pooler_id = 1;
-
-  // Current term from local file
-  int64 current_term = 2;
-
-  // Current WAL position
-  WALPosition wal_position = 4;
-
-  // Whether Postgres is healthy and reachable
-  bool is_healthy = 5;
-
-  // Whether this pooler is eligible to be a leader
-  bool is_eligible = 6;
-
-  // Cell identifier
-  string cell = 7;
-
-  // Current role (primary/replica)
-  string role = 9;
+// PromoteResponse carries the pooler's state after applying a PromoteRequest.
+message PromoteResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// GetLeadershipView returns leadership information from the heartbeat table
-message LeadershipViewRequest {
-  // Shard ID to query
-  string shard_id = 1;
+// SetPrimaryRequest tells a pooler about the current leader and the rule
+// the caller knows the cluster is at. The pooler compares the supplied rule
+// against its own; if the supplied rule is strictly higher it applies the
+// change (standby: update primary_conninfo; stale primary: demote), otherwise
+// it returns success without changes. Idempotent under retries and safe
+// against out-of-order delivery from stale recovery rounds.
+//
+// The pooler also validates that leader.id matches rule.leader_id — the
+// rule's identity is authoritative; the leader field is just the contact
+// information needed to act on that identity.
+message SetPrimaryRequest {
+  // Contact info for the leader named in rule.leader_id. The pooler uses
+  // leader.host and leader.postgres_port when it rewrites primary_conninfo.
+  // leader.id must match rule.leader_id.
+  clustermetadata.PoolerAddress leader = 1;
+
+  // The rule the caller is informing about. The pooler compares this against
+  // its own observed rule (by RuleNumber) and only applies the change when
+  // the supplied rule is strictly higher.
+  clustermetadata.ShardRule rule = 2;
 }
 
-message LeadershipViewResponse {
-  // ID of the current leader
-  string leader_id = 1;
-
-  // Last heartbeat timestamp
-  google.protobuf.Timestamp last_heartbeat = 4;
-
-  // Calculated replication lag in nanoseconds
-  int64 replication_lag_ns = 5;
-}
-
-// CanReachPrimary checks if this node can reach the primary
-message CanReachPrimaryRequest {
-  // Primary host
-  string primary_host = 1;
-
-  // Primary port
-  int32 primary_port = 2;
-}
-
-message CanReachPrimaryResponse {
-  // Whether primary is reachable
-  bool reachable = 1;
-
-  // Error message if not reachable
-  string error_message = 2;
+// SetPrimaryResponse carries the pooler's state after processing a
+// SetPrimaryRequest.
+message SetPrimaryResponse {
+  clustermetadata.ConsensusStatus consensus_status = 1;
 }

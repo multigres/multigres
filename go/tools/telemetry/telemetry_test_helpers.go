@@ -17,21 +17,57 @@ package telemetry
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-// testTelemetrySetup holds test telemetry infrastructure
+// testTelemetrySetup holds test telemetry infrastructure.
 type testTelemetrySetup struct {
 	Telemetry    *Telemetry
 	SpanExporter *tracetest.InMemoryExporter
 	MetricReader *metric.ManualReader
+	LogProcessor *testLogProcessor
 }
 
+// testLogProcessor is a simple in-memory processor for testing logs
+type testLogProcessor struct {
+	mu      sync.Mutex
+	records []*sdklog.Record
+}
+
+func (p *testLogProcessor) OnEmit(ctx context.Context, record *sdklog.Record) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.records = append(p.records, record)
+	return nil
+}
+
+func (p *testLogProcessor) Enabled(ctx context.Context, params sdklog.EnabledParameters) bool {
+	return true
+}
+
+func (p *testLogProcessor) Shutdown(ctx context.Context) error {
+	return nil
+}
+
+func (p *testLogProcessor) ForceFlush(ctx context.Context) error {
+	return nil
+}
+
+func (p *testLogProcessor) GetRecords() []*sdklog.Record {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Return a shallow copy to avoid race conditions
+	return append([]*sdklog.Record(nil), p.records...)
+}
+
+// ForceFlush flushes both the tracer and meter providers.
 func (t *testTelemetrySetup) ForceFlush(ctx context.Context) error {
 	err := t.Telemetry.tracerProvider.ForceFlush(ctx)
 	if err != nil {
@@ -65,13 +101,15 @@ func SetupTestTelemetry(t *testing.T) *testTelemetrySetup {
 
 	spanExporter := tracetest.NewInMemoryExporter()
 	metricReader := metric.NewManualReader()
+	logProcessor := &testLogProcessor{}
 
 	// Create telemetry with test exporters - this will use them during InitTelemetry
-	telemetry := NewTelemetry().WithTestExporters(spanExporter, metricReader)
+	telemetry := NewTelemetry().WithTestExporters(spanExporter, metricReader, logProcessor)
 
 	return &testTelemetrySetup{
 		Telemetry:    telemetry,
 		SpanExporter: spanExporter,
 		MetricReader: metricReader,
+		LogProcessor: logProcessor,
 	}
 }

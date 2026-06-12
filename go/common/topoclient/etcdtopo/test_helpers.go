@@ -16,8 +16,8 @@ package etcdtopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -43,9 +44,11 @@ func checkPortAvailable(port int) error {
 }
 
 // WaitForReady waits for etcd to be ready by querying its /readyz endpoint in a loop.
-// The loop will retry until the endpoint returns 200 OK or the context is cancelled.
+// metricsAddr must be the HTTP address of etcd's metrics listener (the address passed
+// to --listen-metrics-urls), e.g. "http://localhost:2381". /readyz is not served on
+// the client listener, so passing the client address here will always return 404.
 // Callers should pass a context with an appropriate timeout.
-func WaitForReady(ctx context.Context, clientAddr string) error {
+func WaitForReady(ctx context.Context, metricsAddr string) error {
 	var lastErr error
 	var lastStatusCode int
 
@@ -70,7 +73,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 			return fmt.Errorf("etcd failed to become ready: %w", err)
 		}
 
-		url := fmt.Sprintf("%s/readyz", clientAddr)
+		url := metricsAddr + "/readyz"
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
@@ -89,7 +92,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 		lastErr = nil
 		lastStatusCode = resp.StatusCode
 	}
-	return fmt.Errorf("etcd failed to become ready")
+	return errors.New("etcd failed to become ready")
 }
 
 // EtcdOptions contains optional configuration for starting etcd.
@@ -103,24 +106,33 @@ type EtcdOptions struct {
 	// If 0 and ClientPort is specified, defaults to ClientPort+1 for backwards compatibility.
 	PeerPort int
 
+	// MetricsPort is the port for etcd's metrics/health listener (--listen-metrics-urls).
+	// /readyz is only served on this listener, not on the client listener.
+	// If 0, a port will be automatically assigned.
+	MetricsPort int
+
 	// DataDir is the directory for etcd data storage.
 	// If empty, a temporary directory will be created and cleaned up after the test.
 	DataDir string
 }
 
 // StartEtcd starts an etcd subprocess with automatically allocated ports.
-// Returns the client address (which includes the port) and the process handle.
-func StartEtcd(t *testing.T) (string, *exec.Cmd) {
+// Returns the client address, the metrics address (to pass to WaitForReady),
+// and the process handle.
+func StartEtcd(t *testing.T) (clientAddr, metricsAddr string, cmd *executil.Cmd) {
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
+	metricsPort := utils.GetFreePort(t)
 	return StartEtcdWithOptions(t, EtcdOptions{
-		ClientPort: clientPort,
-		PeerPort:   peerPort,
+		ClientPort:  clientPort,
+		PeerPort:    peerPort,
+		MetricsPort: metricsPort,
 	})
 }
 
 // StartEtcdWithOptions starts an etcd subprocess with custom options, and waits for it to be ready.
-func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
+// Returns the client address, the metrics address (to pass to WaitForReady), and the process handle.
+func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (clientAddr, metricsAddr string, cmd *executil.Cmd) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd not found in PATH")
@@ -131,9 +143,13 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 		dataDir = t.TempDir()
 	}
 
-	// Get our two ports to listen to - both must be specified
+	// Get our ports to listen to - client and peer must be specified; metrics is auto-allocated if unset.
 	clientPort := opts.ClientPort
 	peerPort := opts.PeerPort
+	metricsPort := opts.MetricsPort
+	if metricsPort == 0 {
+		metricsPort = utils.GetFreePort(t)
+	}
 
 	require.NotZero(t, clientPort, "EtcdOptions.ClientPort must be set to a non-zero value")
 	require.NotZero(t, peerPort, "EtcdOptions.PeerPort must be set to a non-zero value")
@@ -143,19 +159,24 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	require.NoError(t, err, "Port check failed")
 	err = checkPortAvailable(peerPort)
 	require.NoError(t, err, "Peer port check failed")
+	err = checkPortAvailable(metricsPort)
+	require.NoError(t, err, "Metrics port check failed")
 
 	name := "multigres_unit_test"
-	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
+	clientAddr = fmt.Sprintf("http://localhost:%v", clientPort)
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
+	metricsAddr = fmt.Sprintf("http://localhost:%v", metricsPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
-	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
+	// the test context is cancelled so run_in_test.sh can terminate etcd cleanly.
+	cmd = utils.CommandWithOrphanProtection(t.Context(), "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
 		"-listen-client-urls", clientAddr,
 		"-listen-peer-urls", peerAddr,
+		"-listen-metrics-urls", metricsAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
 
@@ -167,38 +188,11 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	err = cmd.Start()
 	require.NoError(t, err, "failed to start etcd")
 
-	// Wait for etcd to be ready
+	// Wait for etcd to be ready via the metrics listener (/readyz requires --listen-metrics-urls)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	err = WaitForReady(ctx, clientAddr)
+	err = WaitForReady(ctx, metricsAddr)
 	require.NoError(t, err, "etcd failed to become ready")
 
-	t.Cleanup(func() {
-		// Ensure the process is killed and cleaned up
-		if cmd.Process != nil {
-			// Try graceful shutdown first
-			if err := cmd.Process.Signal(os.Interrupt); err == nil {
-				// Wait a bit for graceful shutdown
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			// Force kill if still running
-			if err := cmd.Process.Kill(); err != nil {
-				slog.Error("cmd.Process.Kill() failed killing etcd", "error", err)
-			}
-
-			// Wait for process to finish
-			if err := cmd.Wait(); err != nil {
-				// Ignore "signal: killed" and "signal: interrupt" errors as they're expected
-				if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
-					slog.Error("cmd.Wait() failed killing etcd", "error", err)
-				}
-			}
-		}
-
-		// Additional cleanup: try to release the ports
-		time.Sleep(50 * time.Millisecond)
-	})
-
-	return clientAddr, cmd
+	return clientAddr, metricsAddr, cmd
 }

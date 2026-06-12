@@ -1,0 +1,43 @@
+#
+# Extended-query protocol coverage.
+#
+# Parse / Bind / Describe / Execute / Close / Sync, including Describe of both a
+# prepared statement ('S') and a portal ('P'), and two prepared statements
+# pipelined before a single Sync.
+#
+# Data-file field layout (tab-separated):
+#   'P'  "stmt"   "query"  <noids>
+#   'B'  "portal" "stmt"   <ncodes> <nparams> <nresultcodes>
+#   'D'  'S'|'P'  "name"
+#   'E'  "portal" <maxrows>
+#   'C'  'S'|'P'  "name"
+#
+# NOTE: pgproto 1.5 cannot send *values* for bound parameters (its Bind parser
+# is missing a tab-skip between a parameter's length and value), so these
+# statements take no parameters and embed literals directly. See the README.
+#
+
+# Setup via simple query.
+'Q'	"CREATE TABLE pgproto_ext (id int, name text)"
+'Y'
+'Q'	"INSERT INTO pgproto_ext VALUES (1, 'alice'), (2, 'bob')"
+'Y'
+
+# Named statement: Parse, Describe(statement), Bind, Describe(portal),
+# Execute, Close(portal).
+'P'	"stmt_by_id"	"SELECT id, name FROM pgproto_ext WHERE id = 2"	0
+'D'	'S'	"stmt_by_id"
+'B'	"portal1"	"stmt_by_id"	0	0	0
+'D'	'P'	"portal1"
+'E'	"portal1"	0
+'C'	'P'	"portal1"
+
+# Second statement pipelined before Sync.
+'P'	"stmt_all"	"SELECT count(*) FROM pgproto_ext"	0
+'B'	"portal2"	"stmt_all"	0	0	0
+'E'	"portal2"	0
+'C'	'S'	"stmt_all"
+
+'S'
+'Y'
+'X'

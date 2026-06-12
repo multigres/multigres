@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":configMigration"
+  ],
+  "enabledManagers": ["gomod", "github-actions"],
+  "semanticCommits": "auto",
+  "rangeStrategy": "bump",
+  "updatePinnedDependencies": true,
+  "postUpdateOptions": ["gomodTidy"],
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "description": "Only update the Go directive in go.mod",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "bump",
+      "enabled": true
+    },
+    {
+      "description": "Leave Go module dependency updates to Dependabot",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "enabled": false
+    },
+    {
+      "description": "Pin and update GitHub Actions by commit SHA",
+      "matchManagers": ["github-actions"],
+      "updatePinnedDependencies": true
+    },
+    {
+      "description": "Group GitHub Actions minor and patch updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "[github-actions] all non-major dependencies",
+      "groupSlug": "github-actions-all-minor-patch"
+    },
+    {
+      "description": "Disable major Go version bumps",
+      "matchDatasources": ["golang-version"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}

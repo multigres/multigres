@@ -75,7 +75,6 @@ Dispatch() on a pointer.
 package event
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 )
@@ -91,7 +90,7 @@ var (
 type BadListenerError string
 
 func (why BadListenerError) Error() string {
-	return fmt.Sprintf("bad listener func: %s", string(why))
+	return "bad listener func: " + string(why)
 }
 
 // AddListener registers a listener function that will be called when a matching

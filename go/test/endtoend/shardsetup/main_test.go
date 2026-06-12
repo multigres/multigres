@@ -21,8 +21,8 @@ import (
 
 // setupManager manages the shared test setup for tests in this package.
 var setupManager = NewSharedSetupManager(func(t *testing.T) *ShardSetup {
-	// Create a 3-node cluster for testing
-	return New(t, WithMultipoolerCount(3))
+	// Create a 3-node cluster with multigateway for testing
+	return New(t, WithMultipoolerCount(3), WithMultigateway())
 })
 
 // TestMain sets the path and cleans up after all tests.

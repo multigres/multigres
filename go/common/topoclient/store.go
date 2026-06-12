@@ -60,9 +60,11 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -72,7 +74,6 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -90,11 +91,12 @@ const (
 
 // Filenames for all object types.
 const (
-	CellFile     = "Cell"
-	DatabaseFile = "Database"
-	GatewayFile  = "Gateway"
-	PoolerFile   = "Pooler"
-	OrchFile     = "Orch"
+	CellFile           = "Cell"
+	DatabaseFile       = "Database"
+	GatewayFile        = "Gateway"
+	PoolerFile         = "Pooler"
+	OrchFile           = "Orch"
+	ShardInitClaimFile = "ShardInitClaim"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -204,11 +206,37 @@ type Store interface {
 
 	// LockShard acquires a lock on the specified shard.
 	// See shard_lock.go for full documentation.
-	LockShard(ctx context.Context, shardKey types.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error)
+	LockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string, opts ...LockOption) (context.Context, func(*error), error)
 
 	// TryLockShard attempts to acquire a lock on the specified shard without blocking.
 	// See shard_lock.go for full documentation.
-	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
+	TryLockShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+
+	// TryLockBackup attempts to acquire a backup lock on the specified shard without blocking.
+	// See backup_lock.go for full documentation.
+	TryLockBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey, action string) (context.Context, func(*error), error)
+
+	// ClaimShardInitialization atomically claims the right to initialize a shard.
+	// Persists both the claimer ID and the proposed cohort. On crash-retry the
+	// committed cohort is returned so the caller reuses the same members.
+	// Returns won=false if a different coordinator already owns the claim.
+	ClaimShardInitialization(ctx context.Context, shardKey *clustermetadatapb.ShardKey, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
+
+	// RevokeBackup forcefully removes the backup lock for the specified shard.
+	// See backup_lock.go for full documentation.
+	RevokeBackup(ctx context.Context, shardKey *clustermetadatapb.ShardKey) error
+
+	// WithBackupLease acquires a backup lease, runs fn, and releases the lease when fn returns.
+	// See backup_lock.go for full documentation.
+	WithBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+
+	// WithStolenBackupLease acquires a backup lease (stealing if necessary), runs fn, and releases.
+	// See backup_lock.go for full documentation.
+	WithStolenBackupLease(ctx context.Context, shardKey *clustermetadatapb.ShardKey, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+
+	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
+	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+	GetRemoteOperationTimeout() time.Duration
 
 	// Resource cleanup
 	io.Closer
@@ -264,8 +292,9 @@ func (ts *store) getLockTimeout() time.Duration {
 	return ts.config.GetLockTimeout()
 }
 
-// getRemoteOperationTimeout returns the configured remote operation timeout.
-func (ts *store) getRemoteOperationTimeout() time.Duration {
+// GetRemoteOperationTimeout returns the configured remote operation timeout.
+// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+func (ts *store) GetRemoteOperationTimeout() time.Duration {
 	return ts.config.GetRemoteOperationTimeout()
 }
 
@@ -413,7 +442,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 // root path, and server addresses for the global topology server.
 func OpenServer(implementation, root string, serverAddrs []string, config *TopoConfig) (Store, error) {
 	if config == nil {
-		return nil, fmt.Errorf("TopoConfig is required")
+		return nil, errors.New("TopoConfig is required")
 	}
 
 	factory, ok := factories[implementation]
@@ -425,7 +454,7 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 		}
 
 		if len(available) == 0 {
-			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+			return nil, errors.New("no topology implementations registered. This may indicate a build or import issue")
 		}
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
@@ -441,10 +470,10 @@ func (config *TopoConfig) Open() (Store, error) {
 	root := config.globalRoot.Get()
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
+		return nil, errors.New("topo-global-server-addresses must be configured")
 	}
 	if root == "" {
-		return nil, fmt.Errorf("topo-global-root must be non-empty")
+		return nil, errors.New("topo-global-root must be non-empty")
 	}
 
 	ts, err := OpenServer(DefaultTopoImplementation, root, addresses, config)

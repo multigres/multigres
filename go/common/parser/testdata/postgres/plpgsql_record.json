@@ -1,0 +1,607 @@
+[
+  {
+    "comment": "plpgsql_record - Statement 1",
+    "query": "create type two_int4s as (f1 int4, f2 int4)",
+    "expected": "CREATE TYPE two_int4s AS (f1 INT, f2 INT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 2",
+    "query": "create type more_int4s as (f0 text, f1 int4, f2 int4)",
+    "expected": "CREATE TYPE more_int4s AS (f0 TEXT, f1 INT, f2 INT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 3",
+    "query": "create type two_int8s as (q1 int8, q2 int8)",
+    "expected": "CREATE TYPE two_int8s AS (q1 BIGINT, q2 BIGINT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 4",
+    "query": "create type nested_int8s as (c1 two_int8s, c2 two_int8s)",
+    "expected": "CREATE TYPE nested_int8s AS (c1 two_int8s, c2 two_int8s)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 5",
+    "query": "create function retc(int) returns two_int8s language plpgsql as $$ begin return row($1,1)::two_int8s; end $$",
+    "expected": "CREATE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ begin return row($1,1)::two_int8s; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 6",
+    "query": "select retc(42)",
+    "expected": "SELECT retc(42)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 7",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ begin return row($1::int8, 1::int8); end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ begin return row($1::int8, 1::int8); end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 8",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ begin return row($1,1); end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ begin return row($1,1); end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 9",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ begin return row($1::int8, 1::int8, 42); end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ begin return row($1::int8, 1::int8, 42); end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 10",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ declare r record; begin r := row($1::int8, 1::int8); return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ declare r record; begin r := row($1::int8, 1::int8); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 11",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ declare r record; begin r := row($1,1); return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ declare r record; begin r := row($1,1); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 12",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ declare r record; begin r := row($1::int8, 1::int8, 42); return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ declare r record; begin r := row($1::int8, 1::int8, 42); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 13",
+    "query": "create or replace function retc(int) returns two_int8s language plpgsql as $$ declare r two_int8s; begin r := row($1::int8, 1::int8, 42); return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION retc (INT) RETURNS two_int8s LANGUAGE plpgsql AS $$ declare r two_int8s; begin r := row($1::int8, 1::int8, 42); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 14",
+    "query": "do $$ declare c two_int8s; begin c := row(1,2); raise notice 'c = %', c; end$$",
+    "expected": "DO ' declare c two_int8s; begin c := row(1,2); raise notice ''c = %'', c; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 15",
+    "query": "do $$ declare c two_int8s; begin for c in select 1,2 loop raise notice 'c = %', c; end loop; end$$",
+    "expected": "DO ' declare c two_int8s; begin for c in select 1,2 loop raise notice ''c = %'', c; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 16",
+    "query": "do $$ declare c4 two_int4s; c8 two_int8s; begin c8 := row(1,2); c4 := c8; c8 := c4; raise notice 'c4 = %', c4; raise notice 'c8 = %', c8; end$$",
+    "expected": "DO ' declare c4 two_int4s; c8 two_int8s; begin c8 := row(1,2); c4 := c8; c8 := c4; raise notice ''c4 = %'', c4; raise notice ''c8 = %'', c8; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 17",
+    "query": "do $$ declare c two_int8s; d nested_int8s; begin c := row(1,2); d := row(c, row(c.q1, c.q2+1)); raise notice 'c = %, d = %', c, d; c.q1 := 10; d.c1 := row(11,12); d.c2.q2 := 42; raise notice 'c = %, d = %', c, d; raise notice 'c.q1 = %, d.c2 = %', c.q1, d.c2; raise notice '(d).c2.q2 = %', (d).c2.q2; raise notice '(d.c2).q2 = %', (d.c2).q2; end$$",
+    "expected": "DO ' declare c two_int8s; d nested_int8s; begin c := row(1,2); d := row(c, row(c.q1, c.q2+1)); raise notice ''c = %, d = %'', c, d; c.q1 := 10; d.c1 := row(11,12); d.c2.q2 := 42; raise notice ''c = %, d = %'', c, d; raise notice ''c.q1 = %, d.c2 = %'', c.q1, d.c2; raise notice ''(d).c2.q2 = %'', (d).c2.q2; raise notice ''(d.c2).q2 = %'', (d.c2).q2; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 18",
+    "query": "do $$ <<b>> declare c two_int8s; d nested_int8s; begin b.c := row(1,2); b.d := row(b.c, row(b.c.q1, b.c.q2+1)); raise notice 'b.c = %, b.d = %', b.c, b.d; b.c.q1 := 10; b.d.c1 := row(11,12); b.d.c2.q2 := 42; raise notice 'b.c = %, b.d = %', b.c, b.d; raise notice 'b.c.q1 = %, b.d.c2 = %', b.c.q1, b.d.c2; raise notice '(b.d).c2.q2 = %', (b.d).c2.q2; raise notice '(b.d.c2).q2 = %', (b.d.c2).q2; end$$",
+    "expected": "DO ' <<b>> declare c two_int8s; d nested_int8s; begin b.c := row(1,2); b.d := row(b.c, row(b.c.q1, b.c.q2+1)); raise notice ''b.c = %, b.d = %'', b.c, b.d; b.c.q1 := 10; b.d.c1 := row(11,12); b.d.c2.q2 := 42; raise notice ''b.c = %, b.d = %'', b.c, b.d; raise notice ''b.c.q1 = %, b.d.c2 = %'', b.c.q1, b.d.c2; raise notice ''(b.d).c2.q2 = %'', (b.d).c2.q2; raise notice ''(b.d.c2).q2 = %'', (b.d.c2).q2; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 19",
+    "query": "do $$ declare c two_int8s; begin c.x = 1; end $$",
+    "expected": "DO ' declare c two_int8s; begin c.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 20",
+    "query": "do $$ declare c nested_int8s; begin c.x = 1; end $$",
+    "expected": "DO ' declare c nested_int8s; begin c.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 21",
+    "query": "do $$ declare c nested_int8s; begin c.x.q1 = 1; end $$",
+    "expected": "DO ' declare c nested_int8s; begin c.x.q1 = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 22",
+    "query": "do $$ declare c nested_int8s; begin c.c2.x = 1; end $$",
+    "expected": "DO ' declare c nested_int8s; begin c.c2.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 23",
+    "query": "do $$ declare c nested_int8s; begin d.c2.x = 1; end $$",
+    "expected": "DO ' declare c nested_int8s; begin d.c2.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 24",
+    "query": "do $$ <<b>> declare c two_int8s; begin b.c.x = 1; end $$",
+    "expected": "DO ' <<b>> declare c two_int8s; begin b.c.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 25",
+    "query": "do $$ <<b>> declare c nested_int8s; begin b.c.x = 1; end $$",
+    "expected": "DO ' <<b>> declare c nested_int8s; begin b.c.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 26",
+    "query": "do $$ <<b>> declare c nested_int8s; begin b.c.x.q1 = 1; end $$",
+    "expected": "DO ' <<b>> declare c nested_int8s; begin b.c.x.q1 = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 27",
+    "query": "do $$ <<b>> declare c nested_int8s; begin b.c.c2.x = 1; end $$",
+    "expected": "DO ' <<b>> declare c nested_int8s; begin b.c.c2.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 28",
+    "query": "do $$ <<b>> declare c nested_int8s; begin b.d.c2.x = 1; end $$",
+    "expected": "DO ' <<b>> declare c nested_int8s; begin b.d.c2.x = 1; end '"
+  },
+  {
+    "comment": "plpgsql_record - Statement 29",
+    "query": "create function getq1(two_int8s) returns int8 language plpgsql as $$ declare r two_int8s; begin r := $1; return r.q1; end $$",
+    "expected": "CREATE FUNCTION getq1 (two_int8s) RETURNS BIGINT LANGUAGE plpgsql AS $$ declare r two_int8s; begin r := $1; return r.q1; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 30",
+    "query": "select getq1(retc(344))",
+    "expected": "SELECT getq1(retc(344))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 31",
+    "query": "select getq1(row(1,2))",
+    "expected": "SELECT getq1(ROW(1, 2))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 32",
+    "query": "do $$ declare r1 two_int8s; r2 record; x int8; begin r1 := retc(345); perform getq1(r1); x := getq1(r1); raise notice 'x = %', x; r2 := retc(346); perform getq1(r2); x := getq1(r2); raise notice 'x = %', x; end$$",
+    "expected": "DO ' declare r1 two_int8s; r2 record; x int8; begin r1 := retc(345); perform getq1(r1); x := getq1(r1); raise notice ''x = %'', x; r2 := retc(346); perform getq1(r2); x := getq1(r2); raise notice ''x = %'', x; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 33",
+    "query": "do $$ declare r1 two_int8s; r2 two_int8s; r3 record; r4 record; begin r1 := row(1,2); raise notice 'r1 = %', r1; r1 := r1; raise notice 'r1 = %', r1; r2 := r1; raise notice 'r1 = %', r1; raise notice 'r2 = %', r2; r2.q2 = r1.q1 + 3; raise notice 'r1 = %', r1; raise notice 'r2 = %', r2; r1 := null; raise notice 'r1 = %', r1; raise notice 'r2 = %', r2; r1 := row(7,11)::two_int8s; r2 := r1; raise notice 'r1 = %', r1; raise notice 'r2 = %', r2; r3 := row(1,2); r4 := r3; raise notice 'r3 = %', r3; raise notice 'r4 = %', r4; r4.f1 := r4.f1 + 3; raise notice 'r3 = %', r3; raise notice 'r4 = %', r4; r1 := r3; raise notice 'r1 = %', r1; r4 := r1; raise notice 'r4 = %', r4; r4.q2 := r4.q2 + 1; raise notice 'r4 = %', r4; end$$",
+    "expected": "DO ' declare r1 two_int8s; r2 two_int8s; r3 record; r4 record; begin r1 := row(1,2); raise notice ''r1 = %'', r1; r1 := r1; raise notice ''r1 = %'', r1; r2 := r1; raise notice ''r1 = %'', r1; raise notice ''r2 = %'', r2; r2.q2 = r1.q1 + 3; raise notice ''r1 = %'', r1; raise notice ''r2 = %'', r2; r1 := null; raise notice ''r1 = %'', r1; raise notice ''r2 = %'', r2; r1 := row(7,11)::two_int8s; r2 := r1; raise notice ''r1 = %'', r1; raise notice ''r2 = %'', r2; r3 := row(1,2); r4 := r3; raise notice ''r3 = %'', r3; raise notice ''r4 = %'', r4; r4.f1 := r4.f1 + 3; raise notice ''r3 = %'', r3; raise notice ''r4 = %'', r4; r1 := r3; raise notice ''r1 = %'', r1; r4 := r1; raise notice ''r4 = %'', r4; r4.q2 := r4.q2 + 1; raise notice ''r4 = %'', r4; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 34",
+    "query": "do $$ declare r1 two_int8s; begin raise notice 'r1 = %', r1; raise notice 'r1.q1 = %', r1.q1; raise notice 'r1.q2 = %', r1.q2; raise notice 'r1 = %', r1; end$$",
+    "expected": "DO ' declare r1 two_int8s; begin raise notice ''r1 = %'', r1; raise notice ''r1.q1 = %'', r1.q1; raise notice ''r1.q2 = %'', r1.q2; raise notice ''r1 = %'', r1; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 35",
+    "query": "do $$ declare r1 two_int8s; begin raise notice 'r1.q1 = %', r1.q1; raise notice 'r1.q2 = %', r1.q2; raise notice 'r1 = %', r1; raise notice 'r1.nosuchfield = %', r1.nosuchfield; end$$",
+    "expected": "DO ' declare r1 two_int8s; begin raise notice ''r1.q1 = %'', r1.q1; raise notice ''r1.q2 = %'', r1.q2; raise notice ''r1 = %'', r1; raise notice ''r1.nosuchfield = %'', r1.nosuchfield; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 36",
+    "query": "do $$ declare r1 record; begin raise notice 'r1 = %', r1; raise notice 'r1.f1 = %', r1.f1; raise notice 'r1.f2 = %', r1.f2; raise notice 'r1 = %', r1; end$$",
+    "expected": "DO ' declare r1 record; begin raise notice ''r1 = %'', r1; raise notice ''r1.f1 = %'', r1.f1; raise notice ''r1.f2 = %'', r1.f2; raise notice ''r1 = %'', r1; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 37",
+    "query": "do $$ declare r1 record; begin raise notice 'r1 = %', r1; r1 := row(1,2); raise notice 'r1.f1 = %', r1.f1; raise notice 'r1.f2 = %', r1.f2; raise notice 'r1 = %', r1; raise notice 'r1.nosuchfield = %', r1.nosuchfield; end$$",
+    "expected": "DO ' declare r1 record; begin raise notice ''r1 = %'', r1; r1 := row(1,2); raise notice ''r1.f1 = %'', r1.f1; raise notice ''r1.f2 = %'', r1.f2; raise notice ''r1 = %'', r1; raise notice ''r1.nosuchfield = %'', r1.nosuchfield; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 38",
+    "query": "do $$ <<blk>> declare v int; r two_int8s; v1 v%type; v2 blk.v%type; r1 r%type; r2 blk.r%type; begin raise notice '%', pg_typeof(v1); raise notice '%', pg_typeof(v2); raise notice '%', pg_typeof(r1); raise notice '%', pg_typeof(r2); end$$",
+    "expected": "DO ' <<blk>> declare v int; r two_int8s; v1 v%type; v2 blk.v%type; r1 r%type; r2 blk.r%type; begin raise notice ''%'', pg_typeof(v1); raise notice ''%'', pg_typeof(v2); raise notice ''%'', pg_typeof(r1); raise notice ''%'', pg_typeof(r2); end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 39",
+    "query": "do $$ declare r1 record; r2 r1%type; begin r2 := row(1,2); raise notice 'r2 = %', r2; r2 := row(3,4,5); raise notice 'r2 = %', r2; end$$",
+    "expected": "DO ' declare r1 record; r2 r1%type; begin r2 := row(1,2); raise notice ''r2 = %'', r2; r2 := row(3,4,5); raise notice ''r2 = %'', r2; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 40",
+    "query": "do $$ declare r1 record[]; begin end$$",
+    "expected": "DO ' declare r1 record[]; begin end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 41",
+    "query": "do $$ declare r1 record; r2 r1%type[]; begin end$$",
+    "expected": "DO ' declare r1 record; r2 r1%type[]; begin end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 42",
+    "query": "create table some_table (id int, data text)",
+    "expected": "CREATE TABLE some_table (id INT, data TEXT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 43",
+    "query": "do $$ declare r some_table; begin r := (23, 'skidoo'); for i in 1 .. 10 loop r.id := r.id + i; r.data := r.data || ' ' || i; end loop; raise notice 'r = %', r; end$$",
+    "expected": "DO ' declare r some_table; begin r := (23, ''skidoo''); for i in 1 .. 10 loop r.id := r.id + i; r.data := r.data || '' '' || i; end loop; raise notice ''r = %'', r; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 44",
+    "query": "create function returnsrecord(int) returns record language plpgsql as $$ begin return row($1,$1+1); end $$",
+    "expected": "CREATE FUNCTION returnsrecord (INT) RETURNS record LANGUAGE plpgsql AS $$ begin return row($1,$1+1); end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 45",
+    "query": "select returnsrecord(42)",
+    "expected": "SELECT returnsrecord(42)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 46",
+    "query": "select * from returnsrecord(42) as r(x int, y int)",
+    "expected": "SELECT * FROM returnsrecord(42) AS r (x INT, y INT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 47",
+    "query": "select * from returnsrecord(42) as r(x int, y int, z int)",
+    "expected": "SELECT * FROM returnsrecord(42) AS r (x INT, y INT, z INT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 48",
+    "query": "select * from returnsrecord(42) as r(x int, y bigint)",
+    "expected": "SELECT * FROM returnsrecord(42) AS r (x INT, y BIGINT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 49",
+    "query": "create or replace function returnsrecord(int) returns record language plpgsql as $$ declare r record; begin r := row($1,$1+1); return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION returnsrecord (INT) RETURNS record LANGUAGE plpgsql AS $$ declare r record; begin r := row($1,$1+1); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 50",
+    "query": "create table has_hole(f1 int, f2 int, f3 int)",
+    "expected": "CREATE TABLE has_hole (f1 INT, f2 INT, f3 INT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 51",
+    "query": "alter table has_hole drop column f2",
+    "expected": "ALTER TABLE has_hole DROP COLUMN f2"
+  },
+  {
+    "comment": "plpgsql_record - Statement 52",
+    "query": "create or replace function returnsrecord(int) returns record language plpgsql as $$ begin return row($1,$1+1)::has_hole; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION returnsrecord (INT) RETURNS record LANGUAGE plpgsql AS $$ begin return row($1,$1+1)::has_hole; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 53",
+    "query": "create or replace function returnsrecord(int) returns record language plpgsql as $$ declare r record; begin r := row($1,$1+1)::has_hole; return r; end $$",
+    "expected": "CREATE OR REPLACE FUNCTION returnsrecord (INT) RETURNS record LANGUAGE plpgsql AS $$ declare r record; begin r := row($1,$1+1)::has_hole; return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 54",
+    "query": "create function getf1(x record) returns int language plpgsql as $$ begin return x.f1; end $$",
+    "expected": "CREATE FUNCTION getf1 (x record) RETURNS INT LANGUAGE plpgsql AS $$ begin return x.f1; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 55",
+    "query": "select getf1(1)",
+    "expected": "SELECT getf1(1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 56",
+    "query": "select getf1(row(1,2))",
+    "expected": "SELECT getf1(ROW(1, 2))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 57",
+    "query": "select getf1(row(1,2)::two_int4s)",
+    "expected": "SELECT getf1(CAST(ROW(1, 2) AS two_int4s))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 58",
+    "query": "select getf1(row('foo',123,456)::more_int4s)",
+    "expected": "SELECT getf1(CAST(ROW('foo', 123, 456) AS more_int4s))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 59",
+    "query": "create function getf2(record) returns int language plpgsql as $$ begin return $1.f2; end $$",
+    "expected": "CREATE FUNCTION getf2 (record) RETURNS INT LANGUAGE plpgsql AS $$ begin return $1.f2; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 60",
+    "query": "select getf2(row(1,2))",
+    "expected": "SELECT getf2(ROW(1, 2))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 61",
+    "query": "select getf2(row(1,2)::two_int4s)",
+    "expected": "SELECT getf2(CAST(ROW(1, 2) AS two_int4s))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 62",
+    "query": "select getf2(row('foo',123,456)::more_int4s)",
+    "expected": "SELECT getf2(CAST(ROW('foo', 123, 456) AS more_int4s))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 63",
+    "query": "do $$ declare r two_int8s; begin for r in select i, i+1 from generate_series(1,4) i loop raise notice 'r = %', r; end loop; end$$",
+    "expected": "DO ' declare r two_int8s; begin for r in select i, i+1 from generate_series(1,4) i loop raise notice ''r = %'', r; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 64",
+    "query": "create function returnssetofholes() returns setof has_hole language plpgsql as $$ declare r record; h has_hole; begin return next h; r := (1,2); h := (3,4); return next r; return next h; return next row(5,6); return next row(7,8)::has_hole; end$$",
+    "expected": "CREATE FUNCTION returnssetofholes () RETURNS SETOF has_hole LANGUAGE plpgsql AS $$ declare r record; h has_hole; begin return next h; r := (1,2); h := (3,4); return next r; return next h; return next row(5,6); return next row(7,8)::has_hole; end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 65",
+    "query": "select returnssetofholes()",
+    "expected": "SELECT returnssetofholes()"
+  },
+  {
+    "comment": "plpgsql_record - Statement 66",
+    "query": "create or replace function returnssetofholes() returns setof has_hole language plpgsql as $$ declare r record; begin return next r; end$$",
+    "expected": "CREATE OR REPLACE FUNCTION returnssetofholes () RETURNS SETOF has_hole LANGUAGE plpgsql AS $$ declare r record; begin return next r; end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 67",
+    "query": "create or replace function returnssetofholes() returns setof has_hole language plpgsql as $$ begin return next row(1,2,3); end$$",
+    "expected": "CREATE OR REPLACE FUNCTION returnssetofholes () RETURNS SETOF has_hole LANGUAGE plpgsql AS $$ begin return next row(1,2,3); end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 68",
+    "query": "create table mutable(f1 int, f2 text)",
+    "expected": "CREATE TABLE mutable (f1 INT, f2 TEXT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 69",
+    "query": "create function sillyaddone(int) returns int language plpgsql as $$ declare r mutable; begin r.f1 := $1; return r.f1 + 1; end $$",
+    "expected": "CREATE FUNCTION sillyaddone (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare r mutable; begin r.f1 := $1; return r.f1 + 1; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 70",
+    "query": "select sillyaddone(42)",
+    "expected": "SELECT sillyaddone(42)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 71",
+    "query": "alter table mutable drop column f1",
+    "expected": "ALTER TABLE mutable DROP COLUMN f1"
+  },
+  {
+    "comment": "plpgsql_record - Statement 72",
+    "query": "select getf3(null::mutable)",
+    "expected": "SELECT getf3(CAST(NULL AS mutable))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 73",
+    "query": "alter table mutable add column f3 int",
+    "expected": "ALTER TABLE mutable ADD COLUMN f3 INT"
+  },
+  {
+    "comment": "plpgsql_record - Statement 74",
+    "query": "alter table mutable drop column f3",
+    "expected": "ALTER TABLE mutable DROP COLUMN f3"
+  },
+  {
+    "comment": "plpgsql_record - Statement 75",
+    "query": "create function sillyaddtwo(int) returns int language plpgsql as $$ declare r mutable2; begin r.f1 := $1; return r.f1 + 2; end $$",
+    "expected": "CREATE FUNCTION sillyaddtwo (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare r mutable2; begin r.f1 := $1; return r.f1 + 2; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 76",
+    "query": "reset check_function_bodies",
+    "expected": "RESET check_function_bodies"
+  },
+  {
+    "comment": "plpgsql_record - Statement 77",
+    "query": "select sillyaddtwo(42)",
+    "expected": "SELECT sillyaddtwo(42)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 78",
+    "query": "create table mutable2(f1 int, f2 text)",
+    "expected": "CREATE TABLE mutable2 (f1 INT, f2 TEXT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 79",
+    "query": "drop table mutable2",
+    "expected": "DROP TABLE mutable2"
+  },
+  {
+    "comment": "plpgsql_record - Statement 80",
+    "query": "select sillyaddtwo(43)",
+    "expected": "SELECT sillyaddtwo(43)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 81",
+    "query": "create function sillytrig() returns trigger language plpgsql as $$begin raise notice 'old.ctid = %', old.ctid; raise notice 'old.tableoid = %', old.tableoid::regclass; return new; end$$",
+    "expected": "CREATE FUNCTION sillytrig () RETURNS trigger LANGUAGE plpgsql AS $$begin raise notice 'old.ctid = %', old.ctid; raise notice 'old.tableoid = %', old.tableoid::regclass; return new; end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 82",
+    "query": "create trigger mutable_trig before update on mutable for each row execute procedure sillytrig()",
+    "expected": "CREATE TRIGGER mutable_trig BEFORE UPDATE ON mutable FOR EACH ROW EXECUTE FUNCTION sillytrig()"
+  },
+  {
+    "comment": "plpgsql_record - Statement 83",
+    "query": "insert into mutable values ('foo'), ('bar')",
+    "expected": "INSERT INTO mutable VALUES ('foo'), ('bar')"
+  },
+  {
+    "comment": "plpgsql_record - Statement 84",
+    "query": "update mutable set f2 = f2 || ' baz'",
+    "expected": "UPDATE mutable SET f2 = f2 || ' baz'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 85",
+    "query": "table mutable",
+    "expected": "SELECT * FROM mutable"
+  },
+  {
+    "comment": "plpgsql_record - Statement 86",
+    "query": "create or replace function sillytrig() returns trigger language plpgsql as $$begin return row(new.*); end$$",
+    "expected": "CREATE OR REPLACE FUNCTION sillytrig () RETURNS trigger LANGUAGE plpgsql AS $$begin return row(new.*); end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 87",
+    "query": "create or replace function sillytrig() returns trigger language plpgsql as $$declare r record; begin r := row(new.*); return r; end$$",
+    "expected": "CREATE OR REPLACE FUNCTION sillytrig () RETURNS trigger LANGUAGE plpgsql AS $$declare r record; begin r := row(new.*); return r; end$$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 88",
+    "query": "create domain ordered_int8s as two_int8s check((value).q1 <= (value).q2)",
+    "expected": "CREATE DOMAIN ordered_int8s AS two_int8s CHECK ((value).q1 <= (value).q2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 89",
+    "query": "create function read_ordered_int8s(p ordered_int8s) returns int8 as $$ begin return p.q1 + p.q2; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION read_ordered_int8s (p ordered_int8s) RETURNS BIGINT AS $$ begin return p.q1 + p.q2; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 90",
+    "query": "select read_ordered_int8s(row(1, 2))",
+    "expected": "SELECT read_ordered_int8s(ROW(1, 2))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 91",
+    "query": "select read_ordered_int8s(row(2, 1))",
+    "expected": "SELECT read_ordered_int8s(ROW(2, 1))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 92",
+    "query": "create function build_ordered_int8s(i int8, j int8) returns ordered_int8s as $$ begin return row(i,j); end $$ language plpgsql",
+    "expected": "CREATE FUNCTION build_ordered_int8s (i BIGINT, j BIGINT) RETURNS ordered_int8s AS $$ begin return row(i,j); end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 93",
+    "query": "select build_ordered_int8s(1,2)",
+    "expected": "SELECT build_ordered_int8s(1, 2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 94",
+    "query": "select build_ordered_int8s(2,1)",
+    "expected": "SELECT build_ordered_int8s(2, 1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 95",
+    "query": "create function build_ordered_int8s_2(i int8, j int8) returns ordered_int8s as $$ declare r record; begin r := row(i,j); return r; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION build_ordered_int8s_2 (i BIGINT, j BIGINT) RETURNS ordered_int8s AS $$ declare r record; begin r := row(i,j); return r; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 96",
+    "query": "select build_ordered_int8s_2(1,2)",
+    "expected": "SELECT build_ordered_int8s_2(1, 2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 97",
+    "query": "select build_ordered_int8s_2(2,1)",
+    "expected": "SELECT build_ordered_int8s_2(2, 1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 98",
+    "query": "create function build_ordered_int8s_3(i int8, j int8) returns ordered_int8s as $$ declare r two_int8s; begin r := row(i,j); return r; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION build_ordered_int8s_3 (i BIGINT, j BIGINT) RETURNS ordered_int8s AS $$ declare r two_int8s; begin r := row(i,j); return r; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 99",
+    "query": "select build_ordered_int8s_3(1,2)",
+    "expected": "SELECT build_ordered_int8s_3(1, 2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 100",
+    "query": "select build_ordered_int8s_3(2,1)",
+    "expected": "SELECT build_ordered_int8s_3(2, 1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 101",
+    "query": "create function build_ordered_int8s_4(i int8, j int8) returns ordered_int8s as $$ declare r ordered_int8s; begin r := row(i,j); return r; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION build_ordered_int8s_4 (i BIGINT, j BIGINT) RETURNS ordered_int8s AS $$ declare r ordered_int8s; begin r := row(i,j); return r; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 102",
+    "query": "select build_ordered_int8s_4(1,2)",
+    "expected": "SELECT build_ordered_int8s_4(1, 2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 103",
+    "query": "select build_ordered_int8s_4(2,1)",
+    "expected": "SELECT build_ordered_int8s_4(2, 1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 104",
+    "query": "create function build_ordered_int8s_a(i int8, j int8) returns ordered_int8s[] as $$ begin return array[row(i,j), row(i,j+1)]; end $$ language plpgsql",
+    "expected": "CREATE FUNCTION build_ordered_int8s_a (i BIGINT, j BIGINT) RETURNS ordered_int8s[] AS $$ begin return array[row(i,j), row(i,j+1)]; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_record - Statement 105",
+    "query": "select build_ordered_int8s_a(1,2)",
+    "expected": "SELECT build_ordered_int8s_a(1, 2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 106",
+    "query": "select build_ordered_int8s_a(2,1)",
+    "expected": "SELECT build_ordered_int8s_a(2, 1)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 107",
+    "query": "do $$ declare r ordered_int8s; begin r.q1 := null; r.q2 := 43; r.q1 := 42; r.q2 := 41; end$$",
+    "expected": "DO ' declare r ordered_int8s; begin r.q1 := null; r.q2 := 43; r.q1 := 42; r.q2 := 41; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 108",
+    "query": "do $$ declare r ordered_int8s; begin r := null; r := row(null,null); r := row(1,2); r := row(2,1); end$$",
+    "expected": "DO ' declare r ordered_int8s; begin r := null; r := row(null,null); r := row(1,2); r := row(2,1); end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 109",
+    "query": "do $$ declare r ordered_int8s; begin for r in values (1,2),(3,4),(6,5) loop raise notice 'r = %', r; end loop; end$$",
+    "expected": "DO ' declare r ordered_int8s; begin for r in values (1,2),(3,4),(6,5) loop raise notice ''r = %'', r; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 110",
+    "query": "create type two_texts as (f1 text, f2 text)",
+    "expected": "CREATE TYPE two_texts AS (f1 TEXT, f2 TEXT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 111",
+    "query": "create domain ordered_texts as two_texts check((value).f1 <= (value).f2)",
+    "expected": "CREATE DOMAIN ordered_texts AS two_texts CHECK ((value).f1 <= (value).f2)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 112",
+    "query": "create table sometable (id int, a text, b text)",
+    "expected": "CREATE TABLE sometable (id INT, a TEXT, b TEXT)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 113",
+    "query": "insert into sometable values (1, 'a', repeat('ffoob',1000))",
+    "expected": "INSERT INTO sometable VALUES (1, 'a', repeat('ffoob', 1000))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 114",
+    "query": "insert into sometable values (2, 'a', repeat('ffoob',100000))",
+    "expected": "INSERT INTO sometable VALUES (2, 'a', repeat('ffoob', 100000))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 115",
+    "query": "insert into sometable values (3, 'z', repeat('ffoob',100000))",
+    "expected": "INSERT INTO sometable VALUES (3, 'z', repeat('ffoob', 100000))"
+  },
+  {
+    "comment": "plpgsql_record - Statement 116",
+    "query": "do $$ declare d ordered_texts; begin for d in select a, b from sometable loop raise notice 'succeeded at \"%\"', d.f1; end loop; end$$",
+    "expected": "DO ' declare d ordered_texts; begin for d in select a, b from sometable loop raise notice ''succeeded at \"%\"'', d.f1; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 117",
+    "query": "do $$ declare r record; d ordered_texts; begin for r in select * from sometable loop raise notice 'processing row %', r.id; d := row(r.a, r.b); end loop; end$$",
+    "expected": "DO ' declare r record; d ordered_texts; begin for r in select * from sometable loop raise notice ''processing row %'', r.id; d := row(r.a, r.b); end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 118",
+    "query": "do $$ declare r record; d ordered_texts; begin for r in select * from sometable loop raise notice 'processing row %', r.id; d := null; d.f1 := r.a; d.f2 := r.b; end loop; end$$",
+    "expected": "DO ' declare r record; d ordered_texts; begin for r in select * from sometable loop raise notice ''processing row %'', r.id; d := null; d.f1 := r.a; d.f2 := r.b; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_record - Statement 119",
+    "query": "create function compresult(int8) returns two_int8s language plpgsql as $$ declare r record; begin r := row($1,$1); return r; end $$",
+    "expected": "CREATE FUNCTION compresult (BIGINT) RETURNS two_int8s LANGUAGE plpgsql AS $$ declare r record; begin r := row($1,$1); return r; end $$"
+  },
+  {
+    "comment": "plpgsql_record - Statement 120",
+    "query": "create table two_int8s_tab (f1 two_int8s)",
+    "expected": "CREATE TABLE two_int8s_tab (f1 two_int8s)"
+  },
+  {
+    "comment": "plpgsql_record - Statement 121",
+    "query": "insert into two_int8s_tab values (compresult(42))",
+    "expected": "INSERT INTO two_int8s_tab VALUES (compresult(42))"
+  }
+]

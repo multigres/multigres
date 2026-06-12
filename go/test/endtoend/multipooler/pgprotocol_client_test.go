@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -40,10 +42,10 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	t.Run("connect_and_close", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 10*time.Second)
 
-		conn, err := client.Connect(ctx, &client.Config{
+		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
-			User:        "postgres",
+			User:        constants.DefaultPostgresUser,
 			Password:    testPostgresPassword,
 			Database:    "postgres",
 			DialTimeout: 5 * time.Second,
@@ -70,10 +72,10 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	t.Run("connection_state", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 10*time.Second)
 
-		conn, err := client.Connect(ctx, &client.Config{
+		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
-			User:        "postgres",
+			User:        constants.DefaultPostgresUser,
 			Password:    testPostgresPassword,
 			Database:    "postgres",
 			DialTimeout: 5 * time.Second,
@@ -100,10 +102,10 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
@@ -214,10 +216,10 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
@@ -232,7 +234,7 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 		// BindAndExecute - binds parameters and executes atomically
 		var results []*sqltypes.Result
-		completed, err := conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
+		completed, err := conn.BindAndExecute(ctx, "test_stmt", "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
 			func(ctx context.Context, result *sqltypes.Result) error {
 				results = append(results, result)
 				return nil
@@ -335,10 +337,10 @@ func TestPgProtocolClientDataTypes(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
@@ -456,10 +458,10 @@ func TestPgProtocolClientErrors(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
@@ -471,30 +473,30 @@ func TestPgProtocolClientErrors(t *testing.T) {
 		_, err := conn.Query(ctx, "SELEC 1") // typo
 		require.Error(t, err)
 
-		var pgErr *client.Error
-		require.True(t, errors.As(err, &pgErr), "expected *client.Error, got %T", err)
-		assert.Equal(t, "ERROR", pgErr.Severity)
-		assert.NotEmpty(t, pgErr.Code)
-		assert.NotEmpty(t, pgErr.Message)
-		t.Logf("Error: %s", pgErr.Error())
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag), "expected *mterrors.PgDiagnostic, got %T", err)
+		assert.Equal(t, "ERROR", diag.Severity)
+		assert.NotEmpty(t, diag.Code)
+		assert.NotEmpty(t, diag.Message)
+		t.Logf("Error: %s", diag.Error())
 	})
 
 	t.Run("undefined_table", func(t *testing.T) {
 		_, err := conn.Query(ctx, "SELECT * FROM nonexistent_table_xyz")
 		require.Error(t, err)
 
-		var pgErr *client.Error
-		require.True(t, errors.As(err, &pgErr), "expected *client.Error, got %T", err)
-		assert.Equal(t, "42P01", pgErr.Code) // undefined_table
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag), "expected *mterrors.PgDiagnostic, got %T", err)
+		assert.Equal(t, "42P01", diag.Code) // undefined_table
 	})
 
 	t.Run("division_by_zero", func(t *testing.T) {
 		_, err := conn.Query(ctx, "SELECT 1/0")
 		require.Error(t, err)
 
-		var pgErr *client.Error
-		require.True(t, errors.As(err, &pgErr), "expected *client.Error, got %T", err)
-		assert.Equal(t, "22012", pgErr.Code) // division_by_zero
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag), "expected *mterrors.PgDiagnostic, got %T", err)
+		assert.Equal(t, "22012", diag.Code) // division_by_zero
 	})
 
 	t.Run("connection_recovers_after_error", func(t *testing.T) {
@@ -520,10 +522,10 @@ func TestPgProtocolClientTransactions(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
@@ -592,10 +594,10 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
+		User:        constants.DefaultPostgresUser,
 		Password:    testPostgresPassword,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,

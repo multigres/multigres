@@ -16,109 +16,273 @@
 package mterrors
 
 import (
+	"errors"
 	"fmt"
-	"strings"
-
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"slices"
 )
 
-// Errors added to the list of variables below must be added to the Errors slice a little below in this same file.
-// This will enable the auto-documentation of error code in the website repository.
+// PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
+// See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+const (
+	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSConnectionFailure       = "08006" // connection_failure
+	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
+	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
+	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
+	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
+	PgSSAuthFailed              = "28P01" // invalid_password
+	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
+	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
+	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
+	PgSSSyntaxError             = "42601" // syntax_error
+	PgSSUndefinedObject         = "42704" // undefined_object
+	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSInternalError           = "XX000" // internal_error
+	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
+	PgSSSerializationFailure    = "40001" // serialization_failure
+)
+
+// NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
+// (e.g. CancelRequest). SQLSTATE 57014 (query_canceled).
+func NewQueryCanceled() *PgDiagnostic {
+	return NewPgError("ERROR", PgSSQueryCanceled,
+		"canceling statement due to user request", "")
+}
+
+// NewStatementTimeout creates a PgDiagnostic for a statement timeout expiry.
+// SQLSTATE 57014 (query_canceled).
+func NewStatementTimeout() *PgDiagnostic {
+	return NewPgError("ERROR", PgSSQueryCanceled,
+		"canceling statement due to statement timeout", "")
+}
+
+// NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
+// connection that was terminated before its in-flight work could continue or
+// be concluded — e.g. force-closed when a planned failover drain exceeded its
+// grace period while the client sat idle. The message is deliberately not
+// transaction-specific: a reserved connection may hold a transaction or only
+// non-transactional session state (temp tables, portals, COPY, LISTEN), and
+// the same termination applies to all of them. SQLSTATE 40001
+// (serialization_failure) so clients and ORMs retry their in-flight work; the
+// connection's state was rolled back, so a retry is the correct recovery.
+//
+// This is deliberately NOT MTF01: the connection is gone, so there is nothing
+// to buffer or auto-retry inside the cluster — only the client can replay it.
+func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSerializationFailure,
+		"reserved connection terminated during a planned failover; please retry",
+		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
+}
+
+// NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
+// expiry during the startup phase (SSLRequest, StartupMessage, or SCRAM
+// exchange). SQLSTATE 08006 (connection_failure), severity FATAL — matches
+// the way native PostgreSQL closes the connection when the timeout fires.
+func NewAuthenticationTimeout() *PgDiagnostic {
+	return NewPgError("FATAL", PgSSConnectionFailure,
+		"canceling authentication due to timeout", "")
+}
+
+// MTError defines a Multigres-specific error code for conditions that have no
+// PostgreSQL equivalent. Each instance is a template that produces a
+// *PgDiagnostic via its New method. The ID is a 5-character code (e.g.
+// "MTD01") placed in the SQLSTATE field, making MT errors directly
+// identifiable by clients. For errors that have a real PostgreSQL SQLSTATE
+// equivalent, use NewPgError instead.
+type MTError struct {
+	ID          string // e.g. "MTD01" — 5-char code used as the SQLSTATE
+	Description string // long description, used as the Detail field
+	Severity    string
+	Format      string // fmt format string for message
+}
+
+// New builds a *PgDiagnostic from this error definition.
+// The MT ID is placed in the SQLSTATE Code field and the Description
+// is placed in the Detail field. If args are provided, the Format
+// string is passed through fmt.Sprintf.
+func (e *MTError) New(args ...any) *PgDiagnostic {
+	msg := e.Format
+	if len(args) != 0 {
+		msg = fmt.Sprintf(e.Format, args...)
+	}
+	return &PgDiagnostic{
+		MessageType: 'E',
+		Severity:    e.Severity,
+		Code:        e.ID,
+		Message:     msg,
+		Detail:      e.Description,
+	}
+}
+
+// NewWithDetail builds a *PgDiagnostic from this error definition, using the
+// provided detail string instead of the Description. This is useful for wrapper
+// errors where the underlying error message should appear as the Detail field.
+func (e *MTError) NewWithDetail(detail string, args ...any) *PgDiagnostic {
+	d := e.New(args...)
+	d.Detail = detail
+	return d
+}
 
 var (
-	// MT13001 General Error
-	MT13001 = errorWithoutState("MT13001", mtrpcpb.Code_INTERNAL, "[BUG] %s", "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.")
-
-	// MT13002 Pooler Type Mismatch
-	MT13002 = errorWithoutState("MT13002", mtrpcpb.Code_FAILED_PRECONDITION, "pooler type mismatch: topology says %s but PostgreSQL is %s", "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.")
-
-	// Errors is a list of errors that must match all the variables
-	// defined above to enable auto-documentation of error codes.
-	Errors = []func(args ...any) *MultigresError{
-		MT13001,
-		MT13002,
+	MTD01 = &MTError{
+		ID: "MTD01", Severity: "ERROR",
+		Format:      "[BUG] %s",
+		Description: "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.",
 	}
 
-	ErrorsWithNoCode = []func(code mtrpcpb.Code, args ...any) *MultigresError{}
+	MTD02 = &MTError{
+		ID: "MTD02", Severity: "ERROR",
+		Format:      "pooler type mismatch: topology says %s but PostgreSQL is %s",
+		Description: "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.",
+	}
+
+	MTD03 = &MTError{
+		ID: "MTD03", Severity: "ERROR",
+		Format:      "internal error",
+		Description: "Internal proxy error.",
+	}
+
+	MTD04 = &MTError{
+		ID: "MTD04", Severity: "ERROR",
+		Format:      "parse failed",
+		Description: "Extended query Parse could not be processed.",
+	}
+
+	MTD05 = &MTError{
+		ID: "MTD05", Severity: "ERROR",
+		Format:      "bind failed",
+		Description: "Extended query Bind could not be processed.",
+	}
+
+	MTD06 = &MTError{
+		ID: "MTD06", Severity: "ERROR",
+		Format:      "describe failed",
+		Description: "Extended query Describe could not be processed.",
+	}
+
+	MTD07 = &MTError{
+		ID: "MTD07", Severity: "ERROR",
+		Format:      "close failed",
+		Description: "Extended query Close could not be processed.",
+	}
+
+	MTD08 = &MTError{
+		ID: "MTD08", Severity: "ERROR",
+		Format:      "sync failed",
+		Description: "Extended query Sync could not be processed.",
+	}
+
+	MTE01 = &MTError{
+		ID: "MTE01", Severity: "FATAL",
+		Format:      "connection startup failed",
+		Description: "Invalid startup message.",
+	}
+
+	MTB01 = &MTError{
+		ID: "MTB01", Severity: "ERROR",
+		Format:      "failover buffer full",
+		Description: "The request was evicted because the failover buffer is at capacity. Retry the query.",
+	}
+
+	MTB02 = &MTError{
+		ID: "MTB02", Severity: "ERROR",
+		Format:      "failover buffer timeout",
+		Description: "The request was evicted because the failover did not complete within the buffer window. Retry the query.",
+	}
+
+	MTB03 = &MTError{
+		ID: "MTB03", Severity: "ERROR",
+		Format:      "failover buffer shutting down",
+		Description: "The request was evicted because the gateway is shutting down.",
+	}
+
+	// MTF01 is returned by multipooler when a planned failover is in progress
+	// (servingStatus == SERVING_RDONLY). The gateway's classifyError uses this
+	// code to trigger failover buffering for PRIMARY queries.
+	MTF01 = &MTError{
+		ID: "MTF01", Severity: "ERROR",
+		Format:      "planned failover in progress",
+		Description: "The pooler is transitioning during a planned failover. The query will be retried automatically.",
+	}
 )
 
-type MultigresError struct {
-	Err         error
-	Description string
-	ID          string
-	State       State
-}
-
-func (o *MultigresError) Error() string {
-	return o.Err.Error()
-}
-
-func (o *MultigresError) Cause() error {
-	return o.Err
-}
-
-var _ error = (*MultigresError)(nil)
-
-// errorWithoutState is an error that does not have any state, e.g. the state will be unknown
-func errorWithoutState(id string, code mtrpcpb.Code, short, long string) func(args ...any) *MultigresError {
-	return func(args ...any) *MultigresError {
-		s := short
-		if len(args) != 0 {
-			s = fmt.Sprintf(s, args...)
-		}
-
-		return &MultigresError{
-			Err:         New(code, id+": "+s),
-			Description: long,
-			ID:          id,
-		}
+// NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
+// Use this for errors that should present as native PostgreSQL errors to clients
+// (e.g., authentication failures, protocol violations, aborted transactions).
+func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'E',
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
 	}
 }
 
-//nolint:unused // Will be used for future error codes with state
-func errorWithState(id string, code mtrpcpb.Code, state State, short, long string) func(args ...any) *MultigresError {
-	return func(args ...any) *MultigresError {
-		var err error
-		if len(args) != 0 {
-			err = NewErrorf(code, state, id+": "+short, args...)
-		} else {
-			err = NewError(code, state, id+": "+short)
-		}
+// NewParseError returns a *PgDiagnostic for a SQL parse/syntax failure, carrying
+// SQLSTATE 42601 (syntax_error) — PostgreSQL's class for parse-stage errors. The
+// parser produces these so a malformed statement surfaces to clients with the
+// same SQLSTATE PostgreSQL itself would send, rather than an opaque internal
+// error. This is the single source of truth for the parse-error SQLSTATE.
+func NewParseError(message string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError, message, "")
+}
 
-		return &MultigresError{
-			Err:         err,
-			Description: long,
-			ID:          id,
-			State:       state,
-		}
+// NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
+// ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
+// (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a
+// successful CommandComplete — e.g., the WARNING emitted for `SET LOCAL`
+// outside a transaction block.
+func NewPgNotice(severity, sqlState, message, detail string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'N',
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
 	}
 }
 
-// ErrorWithNoCode refers to error code that do not have a predefined error code.
-type ErrorWithNoCode func(code mtrpcpb.Code, args ...any) *MultigresError
-
-// errorWithNoCode creates a MultigresError where the error code is set by the user when creating the error
-// instead of having a static error code that is declared in this file.
-//
-//nolint:unused // Will be used for future dynamic error codes
-func errorWithNoCode(id string, short, long string) func(code mtrpcpb.Code, args ...any) *MultigresError {
-	return func(code mtrpcpb.Code, args ...any) *MultigresError {
-		s := short
-		if len(args) != 0 {
-			s = fmt.Sprintf(s, args...)
-		}
-
-		return &MultigresError{
-			Err:         New(code, id+": "+s),
-			Description: long,
-			ID:          id,
-		}
-	}
+// NewUnrecognizedParameter creates a PgDiagnostic for an unrecognized configuration
+// parameter (SQLSTATE 42704 undefined_object). This matches PostgreSQL's error for
+// SHOW/SET/RESET of unknown GUC parameters.
+func NewUnrecognizedParameter(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSUndefinedObject,
+		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
 }
 
-func IsError(err error, code string) bool {
+// NewInvalidPreparedStatementError creates a PgDiagnostic for a reference to
+// a nonexistent prepared statement. SQLSTATE 26000 (invalid_sql_statement_name).
+func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidSQLStatementName,
+		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
+}
+
+// NewInvalidPortalError creates a PgDiagnostic for a reference to
+// a nonexistent portal. SQLSTATE 34000 (invalid_cursor_name).
+func NewInvalidPortalError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidCursorName,
+		fmt.Sprintf("portal \"%s\" does not exist", name), "")
+}
+
+// NewDuplicatePreparedStatementError creates a PgDiagnostic for a PREPARE
+// that reuses an existing statement name. SQLSTATE 42P05.
+func NewDuplicatePreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSDuplicatePreparedStmt,
+		fmt.Sprintf("prepared statement \"%s\" already exists", name), "")
+}
+
+// IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic
+// whose SQLSTATE Code matches any of the provided codes.
+func IsErrorCode(err error, codes ...string) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), code)
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) {
+		return slices.Contains(codes, diag.Code)
+	}
+	return false
 }

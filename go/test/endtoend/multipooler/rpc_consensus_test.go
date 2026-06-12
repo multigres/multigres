@@ -25,431 +25,28 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestConsensus_Status(t *testing.T) {
+// TestUpdateConsensusRule tests the UpdateConsensusRule API on the consensus service.
+// UpdateConsensusRule was previously UpdateConsensusRule on the manager service.
+func TestUpdateConsensusRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
 
 	setup := getSharedTestSetup(t)
 
-	// Wait for both managers to be ready before running tests
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-	// Create shared clients for all subtests
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	t.Run("Status_Primary", func(t *testing.T) {
-		t.Log("Testing Status on primary multipooler...")
-
-		req := &consensusdatapb.StatusRequest{
-			ShardId: "test-shard",
-		}
-		resp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "Status should succeed on primary")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Verify node ID
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
-
-		// Verify cell
-		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
-
-		// Verify role (should be primary)
-		assert.Equal(t, "primary", resp.Role, "Role should be primary")
-
-		// Verify term (should be 1 from setup)
-		assert.Equal(t, int64(1), resp.CurrentTerm, "TermNumber should be 1")
-
-		// Verify health (should be healthy with database connection)
-		assert.True(t, resp.IsHealthy, "Primary should be healthy")
-
-		// Verify eligibility
-		assert.True(t, resp.IsEligible, "Primary should be eligible")
-
-		// Verify WAL position is present
-		require.NotNil(t, resp.WalPosition, "WAL position should be present")
-		assert.NotEmpty(t, resp.WalPosition.CurrentLsn, "CurrentLsn should not be empty on primary")
-		assert.Regexp(t, `^[0-9A-F]+/[0-9A-F]+$`, resp.WalPosition.CurrentLsn, "CurrentLsn should be in PostgreSQL format")
-
-		t.Logf("Primary node status verified: role=%s, healthy=%v, CurrentLSN=%s",
-			resp.Role, resp.IsHealthy, resp.WalPosition.CurrentLsn)
-	})
-
-	t.Run("Status_Standby", func(t *testing.T) {
-		t.Log("Testing Status on standby multipooler...")
-
-		req := &consensusdatapb.StatusRequest{
-			ShardId: "test-shard",
-		}
-		resp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "Status should succeed on standby")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Verify node ID
-		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
-
-		// Verify cell
-		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
-
-		// Verify role (should be replica)
-		assert.Equal(t, "replica", resp.Role, "Role should be replica")
-
-		// Verify health
-		assert.True(t, resp.IsHealthy, "Standby should be healthy")
-
-		// Verify eligibility
-		assert.True(t, resp.IsEligible, "Standby should be eligible")
-
-		t.Logf("Standby node status verified: role=%s, healthy=%v", resp.Role, resp.IsHealthy)
-	})
-}
-
-func TestConsensus_BeginTerm(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	// Setup test cleanup - this will restore term to 1 after all subtests complete
-	setupPoolerTest(t, setup, WithoutReplication())
-
-	// Create clients
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	t.Run("BeginTerm_OldTerm_Rejected", func(t *testing.T) {
-		t.Log("Testing BeginTerm with old term (should be rejected)...")
-
-		// Attempt to begin term 0 (older than current term 1)
-		req := &consensusdatapb.BeginTermRequest{
-			Term: 0,
-			CandidateId: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "test-candidate",
-			},
-			ShardId: "test-shard",
-		}
-
-		resp, err := standbyConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Term should be rejected because it is too old
-		assert.False(t, resp.Accepted, "Old term should not be accepted")
-		assert.Equal(t, int64(1), resp.Term, "Response term should be current term (1)")
-		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
-
-		t.Log("BeginTerm correctly rejected old term")
-	})
-
-	t.Run("BeginTerm_NewTerm_Accepted", func(t *testing.T) {
-		t.Log("Testing BeginTerm with new term (should be accepted)...")
-
-		// Begin term 2 (newer than current term 1)
-		req := &consensusdatapb.BeginTermRequest{
-			Term: 2,
-			CandidateId: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "new-leader-candidate",
-			},
-			ShardId: "test-shard",
-		}
-
-		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Term 2 should be accepted because:
-		// 1. Term is newer (2 > 1)
-		// 3. Haven't accepted any other leader yet in this term
-		assert.True(t, resp.Accepted, "New term should be accepted")
-		assert.Equal(t, int64(2), resp.Term, "Response term should be updated to new term")
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
-
-		t.Log("BeginTerm correctly granted for new term")
-	})
-
-	t.Run("BeginTerm_SameTerm_AlreadyAccepted", func(t *testing.T) {
-		t.Log("Testing BeginTerm for same term after already accepting (should be rejected)...")
-
-		// Begin term 2 again but different candidate
-		req := &consensusdatapb.BeginTermRequest{
-			Term: 2,
-			CandidateId: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "different-candidate",
-			},
-			ShardId: "test-shard",
-		}
-
-		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Candidate should be rejected because already accepted another leader in this term
-		assert.False(t, resp.Accepted, "BeginTerm should not be accepted when already accepted this term for another leader")
-		assert.Equal(t, int64(2), resp.Term, "Response term should remain 2")
-
-		t.Log("BeginTerm correctly rejected when already accepted a leader in term")
-	})
-}
-
-func TestConsensus_GetLeadershipView(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	t.Log("Manager primary-multipooler is ready")
-	t.Log("Manager standby-multipooler is ready")
-
-	// Create clients
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	t.Run("GetLeadershipView_FromPrimary", func(t *testing.T) {
-		t.Log("Testing GetLeadershipView from primary...")
-
-		req := &consensusdatapb.LeadershipViewRequest{
-			ShardId: "test-shard",
-		}
-
-		resp, err := primaryConsensusClient.GetLeadershipView(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetLeadershipView RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Verify leader_id is set (should be the primary multipooler)
-		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, setup.PrimaryName, resp.LeaderId, "LeaderId should be primary")
-
-		// Verify last_heartbeat is set and recent
-		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
-		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
-
-		// Heartbeat should be recent (within last 30 seconds)
-		heartbeatTime := resp.LastHeartbeat.AsTime()
-		timeSinceHeartbeat := time.Since(heartbeatTime)
-		assert.Less(t, timeSinceHeartbeat, 30*time.Second,
-			"LastHeartbeat should be recent (within 30 seconds)")
-
-		// Verify replication_lag_ns is set (should be 0 or small for primary)
-		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
-			"ReplicationLagNs should be non-negative")
-
-		t.Logf("Leadership view: leader_id=%s, lag=%dns",
-			resp.LeaderId, resp.ReplicationLagNs)
-		t.Log("GetLeadershipView returns valid data from primary")
-	})
-
-	t.Run("GetLeadershipView_FromStandby", func(t *testing.T) {
-		t.Log("Testing GetLeadershipView from standby...")
-
-		req := &consensusdatapb.LeadershipViewRequest{
-			ShardId: "test-shard",
-		}
-
-		resp, err := standbyConsensusClient.GetLeadershipView(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "GetLeadershipView RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Standby should also see the same leader information
-		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.LeaderId, "LeaderId should be primary-multipooler")
-		// LeaderTerm is deprecated and always 0 now (stored only in consensus state file)
-
-		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
-		assert.True(t, resp.LastHeartbeat.IsValid(), "LastHeartbeat should be a valid timestamp")
-
-		// Replication lag on standby might be higher than on primary
-		assert.GreaterOrEqual(t, resp.ReplicationLagNs, int64(0),
-			"ReplicationLagNs should be non-negative")
-
-		t.Log("GetLeadershipView returns valid data from standby")
-	})
-}
-
-func TestConsensus_CanReachPrimary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	t.Log("Manager primary-multipooler is ready")
-	t.Log("Manager standby-multipooler is ready")
-
-	// Create clients
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
-
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-
-	// TODO: Add test case that verifies host/port matching when WAL receiver is active.
-	// This requires waiting for streaming replication to be fully established or having
-	// code that explicitly establishes primary/standby relationships. Currently the WAL
-	// receiver is not active immediately after setup, so we cannot test the host/port
-	// comparison logic.
-
-	t.Run("Standby_CanReachPrimary", func(t *testing.T) {
-		t.Log("Testing CanReachPrimary from standby (should detect active WAL receiver)...")
-
-		req := &consensusdatapb.CanReachPrimaryRequest{
-			PrimaryHost: "localhost",
-			PrimaryPort: int32(setup.PrimaryPgctld.PgPort),
-		}
-
-		resp, err := standbyConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "CanReachPrimary RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Standby should be able to reach primary if WAL receiver is active
-		// However, WAL receiver might not be active immediately after setup
-		if resp.Reachable {
-			assert.Empty(t, resp.ErrorMessage, "Should have no error message when reachable")
-			t.Log("Standby can reach primary (WAL receiver active)")
-		} else {
-			// Acceptable failure reasons: WAL receiver not active yet
-			assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
-				"Error message should indicate no active WAL receiver")
-			t.Logf("Note: WAL receiver not yet active (%s)", resp.ErrorMessage)
-		}
-	})
-
-	t.Run("Primary_CannotReachPrimary", func(t *testing.T) {
-		t.Log("Testing CanReachPrimary from primary (should return false - no WAL receiver)...")
-
-		req := &consensusdatapb.CanReachPrimaryRequest{
-			PrimaryHost: "localhost",
-			PrimaryPort: int32(setup.PrimaryPgctld.PgPort),
-		}
-
-		resp, err := primaryConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "CanReachPrimary RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Primary should NOT have an active WAL receiver
-		assert.False(t, resp.Reachable, "Primary should not be able to reach itself via WAL receiver")
-		assert.NotEmpty(t, resp.ErrorMessage, "Should have error message explaining why")
-		assert.Contains(t, resp.ErrorMessage, "no active WAL receiver",
-			"Error message should indicate no WAL receiver")
-
-		t.Log("Primary correctly reports no WAL receiver")
-	})
-
-	t.Run("InvalidHost_CannotReach", func(t *testing.T) {
-		t.Log("Testing CanReachPrimary with invalid host (should return false)...")
-
-		req := &consensusdatapb.CanReachPrimaryRequest{
-			PrimaryHost: "invalid-host",
-			PrimaryPort: 12345,
-		}
-
-		resp, err := standbyConsensusClient.CanReachPrimary(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "CanReachPrimary RPC should succeed (even if host is invalid)")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// Note: The implementation checks pg_stat_wal_receiver and compares conninfo host/port
-		// with the requested host/port. However, since WAL receiver is not active immediately
-		// after setup, this test cannot verify the host/port mismatch detection.
-		// TODO: fix after implementing full cluster initialization
-		t.Logf("Response: reachable=%v, error=%s", resp.Reachable, resp.ErrorMessage)
-	})
-}
-
-// TestBeginTermDemotesPrimary verifies that when a primary accepts a BeginTerm
-// for a higher term, it automatically demotes itself to prevent split-brain.
-// The response includes the demote_lsn (final LSN before demotion).
-func TestBeginTermDemotesPrimary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
-	}
-
-	setup := getSharedTestSetup(t)
-
-	// Wait for both managers to be ready before running tests
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-
-	// Create shared clients
 	primaryConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -465,178 +62,324 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
-	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
-	t.Run("BeginTerm_AutoDemotesPrimary", func(t *testing.T) {
+	primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryPoolerClient.Close() })
+
+	// realStandbyID is the actual standby pooler in the test setup. It must
+	// stay in the synchronous standby list throughout each subtest so that
+	// rule_history writes (which require sync ack from the cohort) can
+	// acknowledge through it. With only fake-named standbys in the cohort,
+	// every subsequent UpdateConsensusRule's rule_history INSERT would block
+	// until the caller's deadline.
+	//
+	// Derive the name dynamically: multiorch elects either pooler-1 or
+	// pooler-2 as primary, so the actual standby's name is whichever was
+	// not elected.
+	realStandbyName := setup.GetStandbys()[0].Name
+	realStandbyID := makeMultipoolerID(setup.CellName, realStandbyName)
+	// leaderID is the primary pooler. The rule store cohort always includes the leader, so
+	// resetStandbys must never try to remove it.
+	leaderID := makeMultipoolerID(setup.CellName, setup.PrimaryName)
+
+	// resetStandbys atomically replaces the standby list using ADD + REMOVE.
+	// realStandbyID is always present in the cohort so subsequent sync writes
+	// can ack; it is implicitly added to ids if the caller did not include it.
+	// ctx must be derived from context.Background() or ctxutil.Detach when called
+	// from t.Cleanup, since t.Context() is already cancelled at that point.
+	resetStandbys := func(t *testing.T, ctx context.Context, ids ...*clustermetadatapb.ID) {
+		t.Helper()
+
+		// Build the desired list with realStandbyID guaranteed to be present.
+		desired := []*clustermetadatapb.ID{realStandbyID}
+		for _, id := range ids {
+			if id.Cell == realStandbyID.Cell && id.Name == realStandbyID.Name {
+				continue
+			}
+			desired = append(desired, id)
+		}
+
+		addCtx, addCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer addCancel()
+
+		// ADD all desired standbys first (keeps list non-empty throughout).
+		_, err := primaryConsensusClient.UpdateConsensusRule(addCtx,
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+				StandbyIds:           desired,
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, ctx, primaryManagerClient),
+			})
+		require.NoError(t, err, "ADD setup should succeed")
+
+		// Read current cohort from rule store (not GUC) to find stale members to remove.
+		// GUC may differ from rule store if setupPoolerTest cleanup restored it to baseline.
+		statusCtx, statusCancel := context.WithTimeout(ctx, 5*time.Second)
+		statusResp, err := primaryManagerClient.Status(statusCtx, &multipoolermanagerdatapb.StatusRequest{})
+		statusCancel()
+		require.NoError(t, err, "Status should succeed to read current cohort")
+		var toRemove []*clustermetadatapb.ID
+		for _, existing := range statusResp.Status.GetCohortMembers() {
+			// The rule store cohort includes the leader; never try to remove it.
+			if existing.Cell == leaderID.Cell && existing.Name == leaderID.Name {
+				continue
+			}
+			wanted := false
+			for _, id := range desired {
+				if existing.Cell == id.Cell && existing.Name == id.Name {
+					wanted = true
+					break
+				}
+			}
+			if !wanted {
+				toRemove = append(toRemove, existing)
+			}
+		}
+		if len(toRemove) > 0 {
+			removeCtx, removeCancel := context.WithTimeout(ctx, 10*time.Second)
+			_, err = primaryConsensusClient.UpdateConsensusRule(removeCtx,
+				&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+					Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+					StandbyIds:           toRemove,
+					ExpectedOutgoingRule: currentRuleNumberFromClient(t, ctx, primaryManagerClient),
+				})
+			removeCancel()
+			require.NoError(t, err, "REMOVE cleanup should succeed")
+		}
+
+		// GUC includes all cohort members: leader + desired standbys.
+		// BuildSyncReplicationConfig intentionally includes the leader in SyncStandbyIDs.
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
+			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+				return config != nil && len(config.StandbyIds) == len(desired)+1
+			}, "resetStandbys should converge")
+	}
+
+	// setupUpdateConsensusRuleTest combines standard test setup with cohort
+	// initialization. It registers a cleanup to restore the cohort to just
+	// realStandbyID before the shared SetupTest cleanup runs ValidateCleanState.
+	// Without this, fake standbys left in the committed rule would cause the
+	// manager to re-apply them to synchronous_standby_names after RestoreGUCs
+	// resets it, failing the baseline GUC check.
+	setupUpdateConsensusRuleTest := func(t *testing.T, standbys ...*clustermetadatapb.ID) {
+		t.Helper()
 		setupPoolerTest(t, setup)
+		t.Cleanup(func() { resetStandbys(t, ctxutil.Detach(t.Context())) })
+		resetStandbys(t, t.Context(), standbys...)
+	}
 
-		t.Log("=== Testing BeginTerm auto-demotion of primary ===")
+	t.Run("ADD_Success", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"))
+		t.Log("Testing UpdateConsensusRule ADD operation...")
 
-		// Get current term and verify primary is actually primary
-		statusReq := &consensusdatapb.StatusRequest{}
-		statusResp, err := primaryConsensusClient.Status(utils.WithShortDeadline(t), statusReq)
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "ADD should succeed")
+
+		// 4 entries: leader + realStandby + standby1 + standby2
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
+			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+				return config != nil && len(config.StandbyIds) == 4 &&
+					containsStandbyIDInConfig(config, "test-cell", "standby2")
+			}, "ADD should converge")
+
+		// Cohort: leader + realStandbyID + standby1 (from resetStandbys) + standby2.
+		status := getPrimaryStatusFromClient(t, primaryManagerClient)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 4)
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, setup.PrimaryName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
+
+		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		require.Equal(t, "primary", statusResp.Role, "Node should be primary before test")
-		currentTerm := statusResp.CurrentTerm
-		t.Logf("Current term: %d, role: %s", currentTerm, statusResp.Role)
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, setup.PrimaryName), "GUC should include leader")
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, realStandbyName), "GUC should include real standby")
+		assert.Contains(t, guc, `"test-cell_standby1"`, "GUC should include standby1")
+		assert.Contains(t, guc, `"test-cell_standby2"`, "GUC should include standby2")
+		t.Log("ADD operation verified successfully")
+	})
 
-		// Verify PostgreSQL is actually running as primary (not in recovery)
-		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	t.Run("ADD_Idempotent", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
+		t.Log("Testing UpdateConsensusRule ADD is idempotent...")
+		initialStatus := getPrimaryStatusFromClient(t, primaryManagerClient)
+
+		// ADD a standby that already exists
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "ADD should be idempotent")
+
+		time.Sleep(500 * time.Millisecond)
+		afterStatus := getPrimaryStatusFromClient(t, primaryManagerClient)
+		assert.Len(t, afterStatus.SyncReplicationConfig.StandbyIds, len(initialStatus.SyncReplicationConfig.StandbyIds),
+			"Standby count should be unchanged after idempotent ADD")
+		t.Log("ADD idempotency verified")
+	})
+
+	t.Run("REMOVE_Success", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t,
+			makeMultipoolerID("test-cell", "standby1"),
+			makeMultipoolerID("test-cell", "standby2"),
+			makeMultipoolerID("test-cell", "standby3"),
+		)
+		t.Log("Testing UpdateConsensusRule REMOVE operation...")
+
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+				StandbyIds:           []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "REMOVE should succeed")
+
+		// 4 entries: leader + realStandby + standby1 + standby3
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
+			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+				return config != nil && len(config.StandbyIds) == 4 &&
+					!containsStandbyIDInConfig(config, "test-cell", "standby2")
+			}, "REMOVE should converge")
+
+		// Cohort: leader + realStandbyID + standby1 + standby3 (standby2 removed).
+		status := getPrimaryStatusFromClient(t, primaryManagerClient)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 4)
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, setup.PrimaryName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
+		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
+
+		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		defer primaryPoolerClient.Close()
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, setup.PrimaryName), "GUC should include leader")
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, realStandbyName), "GUC should include real standby")
+		assert.Contains(t, guc, `"test-cell_standby1"`, "GUC should include standby1")
+		assert.Contains(t, guc, `"test-cell_standby3"`, "GUC should include standby3")
+		t.Log("REMOVE operation verified successfully")
+	})
 
-		resp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+	t.Run("REMOVE_NonExistent_Idempotent", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
+		t.Log("Testing UpdateConsensusRule REMOVE with non-existent standby (idempotency)...")
+
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+				StandbyIds: []*clustermetadatapb.ID{
+					makeMultipoolerID("test-cell", "does-not-exist"),
+				},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "REMOVE of non-existent standby should succeed")
+
+		// Cohort: leader + realStandbyID + standby1 + standby2.
+		status := getPrimaryStatusFromClient(t, primaryManagerClient)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 4, "List should be unchanged")
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, setup.PrimaryName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
+		t.Log("REMOVE idempotency verified")
+	})
+
+	t.Run("ADD_Then_REMOVE_Sequence", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t, makeMultipoolerID("test-cell", "standby1"), makeMultipoolerID("test-cell", "standby2"))
+		t.Log("Testing UpdateConsensusRule ADD followed by REMOVE...")
+
+		// ADD two more
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+				StandbyIds: []*clustermetadatapb.ID{
+					makeMultipoolerID("test-cell", "standby3"),
+					makeMultipoolerID("test-cell", "standby4"),
+				},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "ADD should succeed")
+
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
+			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+				return config != nil && len(config.StandbyIds) == 6
+			}, "ADD should converge to 6 standbys (leader + realStandby + standby1..4)")
+
+		// REMOVE two
+		_, err = primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+				StandbyIds: []*clustermetadatapb.ID{
+					makeMultipoolerID("test-cell", "standby2"),
+					makeMultipoolerID("test-cell", "standby4"),
+				},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.NoError(t, err, "REMOVE should succeed")
+
+		// 4 entries: leader + realStandby + standby1 + standby3
+		waitForSyncConfigConvergenceWithClient(t, primaryManagerClient,
+			func(config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool {
+				return config != nil && len(config.StandbyIds) == 4 &&
+					containsStandbyIDInConfig(config, "test-cell", "standby1") &&
+					containsStandbyIDInConfig(config, "test-cell", "standby3")
+			}, "REMOVE should converge")
+
+		// Cohort: leader + realStandbyID + standby1 + standby3.
+		status := getPrimaryStatusFromClient(t, primaryManagerClient)
+		assert.Len(t, status.SyncReplicationConfig.StandbyIds, 4)
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, setup.PrimaryName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, setup.CellName, realStandbyName))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
+		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby2"))
+		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby3"))
+		assert.False(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby4"))
+
+		guc, err := shardsetup.QueryStringValue(utils.WithShortDeadline(t), primaryPoolerClient, "SHOW synchronous_standby_names")
 		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
-		t.Log("Confirmed PostgreSQL is running as primary")
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, setup.PrimaryName), "GUC should include leader")
+		assert.Contains(t, guc, fmt.Sprintf(`"%s_%s"`, setup.CellName, realStandbyName), "GUC should include real standby")
+		assert.Contains(t, guc, `"test-cell_standby1"`, "GUC should include standby1")
+		assert.Contains(t, guc, `"test-cell_standby3"`, "GUC should include standby3")
+		t.Log("ADD then REMOVE sequence verified successfully")
+	})
 
-		// Send BeginTerm with a higher term to the primary
-		newTerm := currentTerm + 100 // Use a high term to avoid conflicts with other tests
-		fakeCoordinatorID := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIORCH,
-			Cell:      "test-cell",
-			Name:      "fake-coordinator-for-demote-test",
-		}
+	t.Run("REMOVE_All_Fails", func(t *testing.T) {
+		setupUpdateConsensusRuleTest(t) // no fake standbys; cohort = leader + realStandbyID
+		t.Log("Testing that removing all standbys fails with a clear error...")
 
-		beginTermReq := &consensusdatapb.BeginTermRequest{
-			Term:        newTerm,
-			CandidateId: fakeCoordinatorID,
-		}
+		_, err := primaryConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 10*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+				StandbyIds:           []*clustermetadatapb.ID{realStandbyID},
+				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
+			})
+		require.Error(t, err, "Removing all standbys should fail")
+		assert.Contains(t, err.Error(), "durability not achievable", "Error should indicate cohort cannot satisfy durability policy")
+		t.Log("Confirmed: removing all standbys correctly rejected")
+	})
 
-		t.Logf("Sending BeginTerm with term %d to primary...", newTerm)
-		beginTermResp, err := primaryConsensusClient.BeginTerm(utils.WithTimeout(t, 30*time.Second), beginTermReq)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
+	t.Run("Standby_Fails", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+		t.Log("Testing UpdateConsensusRule fails on REPLICA pooler...")
 
-		// Verify response
-		assert.True(t, beginTermResp.Accepted, "Primary should accept the higher term")
-		assert.Equal(t, newTerm, beginTermResp.Term, "Response term should be the new term")
-		assert.NotEmpty(t, beginTermResp.DemoteLsn, "Primary should include demote_lsn after auto-demotion")
-		t.Logf("BeginTerm response: accepted=%v, term=%d, demote_lsn=%s",
-			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.DemoteLsn)
-
-		// Wait for PostgreSQL to restart as standby
-		time.Sleep(2 * time.Second)
-
-		// Verify PostgreSQL is now in recovery mode (demoted)
-		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
-		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		assert.Equal(t, "t", string(resp.Rows[0].Values[0]),
-			"PostgreSQL should be in recovery after auto-demotion")
-		t.Log("SUCCESS: PostgreSQL is now in recovery mode (demoted)")
-
-		// Verify writes are rejected
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(),
-			"CREATE TABLE IF NOT EXISTS beginterm_demote_test (id serial PRIMARY KEY)", 1)
-		require.Error(t, err, "Writes should be rejected after demotion")
-		assert.Contains(t, err.Error(), "read-only", "Error should indicate read-only mode")
-		t.Logf("SUCCESS: Writes correctly rejected: %v", err)
-
-		// === RESTORE STATE ===
-		// We need to restore the primary back to its original state for other tests
-		t.Log("Restoring original state...")
-
-		// Configure demoted primary to replicate from standby
-		primary := &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      setup.CellName,
-				Name:      setup.StandbyMultipooler.Name,
-			},
-			Hostname: "localhost",
-			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
-		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Primary:               primary,
-			StopReplicationBefore: false,
-			StartReplicationAfter: true,
-			CurrentTerm:           newTerm,
-			Force:                 true,
-		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
-		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
-
-		// Set term on standby for promotion
-		promoteTerm := newTerm + 1
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: promoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
-		// Stop replication on standby
-		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
-		require.NoError(t, err, "StopReplication should succeed")
-
-		// Get current LSN
-		standbyStatusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
-		standbyStatusResp, err := standbyManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), standbyStatusReq)
-		require.NoError(t, err)
-		standbyLSN := standbyStatusResp.Status.LastReplayLsn
-
-		// Promote standby to primary
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: promoteTerm,
-			ExpectedLsn:   standbyLSN,
-			Force:         false,
-		}
-		_, err = standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
-		require.NoError(t, err, "Promote should succeed on standby")
-		t.Log("Standby promoted to primary")
-
-		// Now demote the new primary (standby) and promote original primary back
-		demoteTerm := promoteTerm + 1
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: demoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err)
-
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
-			ConsensusTerm: demoteTerm,
-			Force:         false,
-		}
-		_, err = standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.NoError(t, err, "Demote should succeed on new primary")
-		t.Log("New primary (original standby) demoted")
-
-		// Promote original primary back
-		restoreTerm := demoteTerm + 1
-		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: restoreTerm,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
-		require.NoError(t, err)
-
-		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
-		require.NoError(t, err)
-
-		primaryStatusReq := &multipoolermanagerdatapb.StandbyReplicationStatusRequest{}
-		primaryStatusResp, err := primaryManagerClient.StandbyReplicationStatus(utils.WithShortDeadline(t), primaryStatusReq)
-		require.NoError(t, err)
-		primaryLSN := primaryStatusResp.Status.LastReplayLsn
-
-		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: restoreTerm,
-			ExpectedLsn:   primaryLSN,
-			Force:         false,
-		}
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
-		require.NoError(t, err, "Promote should succeed on original primary")
-
-		// Verify original primary is primary again
-		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
-		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
-
-		t.Log("Original state restored - primary is primary, standby is standby")
+		_, err := standbyConsensusClient.UpdateConsensusRule(utils.WithTimeout(t, 1*time.Second),
+			&multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:  multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD,
+				StandbyIds: []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
+				// Expected rule is a placeholder; the call should fail at the
+				// REPLICA guardrail before the CAS check would matter.
+				ExpectedOutgoingRule: &clustermetadatapb.RuleNumber{},
+			})
+		require.Error(t, err, "UpdateConsensusRule should fail on standby")
+		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on REPLICA")
+		t.Log("Confirmed: UpdateConsensusRule correctly rejected on REPLICA pooler")
 	})
 }

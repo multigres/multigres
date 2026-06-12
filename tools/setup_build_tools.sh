@@ -30,6 +30,11 @@ PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
 ETCD_VERSION="$ETCD_VER"
 PGBACKREST_VERSION="${PGBACKREST_VER:-2.57.0}"
+SQLLOGICTEST_VERSION="${SQLLOGICTEST_VER:-v0.29.1}"
+# pgproto has no prebuilt binaries; it is built from the pgpool-II release
+# source tarball (pgproto lives in the pgpool2 tree under src/tools/pgproto).
+# PGPROTO_VERSION is the pgpool-II release version.
+PGPROTO_VERSION="${PGPROTO_VER:-4.6.6}"
 
 get_platform() {
   case $(uname) in
@@ -89,6 +94,12 @@ install_dep() {
     ;;
   "pgbackrest")
     install_pgbackrest "$version" "$dist"
+    ;;
+  "sqllogictest")
+    install_sqllogictest "$version" "$dist"
+    ;;
+  "pgproto")
+    install_pgproto "$version" "$dist"
     ;;
   *)
     echo "ERROR: unknown dependency $name"
@@ -412,6 +423,121 @@ install_pgbackrest_macos() {
   exit 1
 }
 
+# Download and install the sqllogictest-rs CLI binary from upstream releases,
+# SHA-pinned via tool_checksums.sh. The resulting binary is symlinked into
+# $MTROOT/bin/sqllogictest so end-to-end tests can invoke it hermetically.
+install_sqllogictest() {
+  local version="$1"
+  local dist="$2"
+
+  # Rust target triple used by upstream release assets.
+  case $(uname) in
+  Linux)
+    local platform="unknown-linux-musl"
+    ;;
+  Darwin)
+    local platform="apple-darwin"
+    ;;
+  *)
+    echo "ERROR: unsupported platform for sqllogictest"
+    exit 1
+    ;;
+  esac
+
+  case $(uname -m) in
+  aarch64) local arch="aarch64" ;;
+  arm64) local arch="aarch64" ;;
+  x86_64) local arch="x86_64" ;;
+  *)
+    echo "ERROR: unsupported architecture for sqllogictest"
+    exit 1
+    ;;
+  esac
+
+  local ext="tar.gz"
+  local filename="sqllogictest-bin-${version}-${arch}-${platform}.${ext}"
+  local url="https://github.com/risinglightdb/sqllogictest-rs/releases/download/${version}/${filename}"
+
+  local sha256
+  sha256=$(get_sha256 "sqllogictest" "$version" "$platform" "$arch" "$ext")
+
+  cd "$dist"
+  echo "Downloading ${url}..."
+  safe_download "${url}" "${filename}" "${sha256}"
+
+  echo "Extracting sqllogictest..."
+  tar xzf "$filename"
+  rm "$filename"
+
+  # The archive lays down a single executable named "sqllogictest". Symlink it
+  # into $MTROOT/bin so it's discoverable alongside the other pinned tools.
+  mkdir -p "$MTROOT/bin"
+  ln -snf "$dist/sqllogictest" "$MTROOT/bin/sqllogictest"
+  cd - >/dev/null
+}
+
+# Build pgproto (the PostgreSQL wire-protocol conformance tool, maintained in
+# the pgpool2 tree under src/tools/pgproto) from a pinned pgpool-II release and
+# symlink the resulting binary into $MTROOT/bin/pgproto.
+#
+# pgproto publishes no prebuilt binaries — it is C built against libpq — so we
+# fetch the pgpool-II release source tarball (SHA-verified via
+# tool_checksums.sh), run its shipped autoconf `configure`, then `make` only the
+# src/tools/pgproto subdirectory. Only a C compiler and libpq headers (located
+# via pg_config) are required; no autotools are needed because the release
+# tarball ships a generated configure/Makefile.in.
+#
+# libpq is used only to open the connection and complete startup/auth — the
+# wire-protocol trace pgproto emits is produced by its own socket code — so any
+# libpq version works (per the upstream README).
+install_pgproto() {
+  local version="$1"
+  local dist="$2"
+
+  if ! command -v pg_config >/dev/null 2>&1; then
+    echo "ERROR: pg_config not found; pgproto needs libpq headers to build." >&2
+    echo "" >&2
+    echo "Install the PostgreSQL client/dev package, then re-run 'make tools':" >&2
+    echo "  Debian/Ubuntu: sudo apt-get install -y libpq-dev" >&2
+    echo "  RHEL/Fedora:   sudo dnf install -y libpq-devel" >&2
+    echo "  macOS:         brew install libpq && export PATH=\"\$(brew --prefix libpq)/bin:\$PATH\"" >&2
+    exit 1
+  fi
+
+  local sha256
+  sha256=$(get_sha256 "pgproto" "$version" "src" "src" "tar.gz")
+
+  local filename="pgpool-II-${version}.tar.gz"
+  # Official pgpool-II release source tarball; stable per release version.
+  local url="https://www.pgpool.net/source/pgpool-II-${version}.tar.gz"
+
+  local startdir
+  startdir=$(pwd)
+  cd "$dist"
+  echo "Downloading ${url}..."
+  safe_download "${url}" "${filename}" "${sha256}"
+
+  echo "Extracting and building pgproto..."
+  tar xzf "$filename"
+  rm "$filename"
+
+  # The release tarball extracts to "pgpool-II-<version>" and ships a generated
+  # configure; pgproto lives under src/tools/pgproto and needs only libpq, so we
+  # configure the tree and build just that subdirectory.
+  cd "$dist/pgpool-II-${version}"
+  ./configure -q
+  make -s -C src/tools/pgproto
+
+  if [ ! -x "src/tools/pgproto/pgproto" ]; then
+    echo "ERROR: pgproto build did not produce src/tools/pgproto/pgproto" >&2
+    exit 1
+  fi
+
+  mkdir -p "$MTROOT/bin"
+  ln -snf "$dist/pgpool-II-${version}/src/tools/pgproto/pgproto" "$MTROOT/bin/pgproto"
+  cd "$startdir"
+}
+
 install_go_plugins() {
   # Reinstall protoc-gen-go and protoc-gen-go-grpc
   GOBIN=$MTROOT/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
@@ -439,6 +565,12 @@ install_all() {
 
   # Install pgBackRest
   install_dep "pgbackrest" "$PGBACKREST_VERSION" "$MTROOT/dist/pgbackrest"
+
+  # Install sqllogictest-rs CLI (used by the differential SLT harness).
+  install_dep "sqllogictest" "$SQLLOGICTEST_VERSION" "$MTROOT/dist/sqllogictest-$SQLLOGICTEST_VERSION"
+
+  # Build pgproto from source (used by the wire-protocol conformance harness).
+  install_dep "pgproto" "$PGPROTO_VERSION" "$MTROOT/dist/pgproto-$PGPROTO_VERSION"
 
   # Install Go dependencies
   install_go_plugins

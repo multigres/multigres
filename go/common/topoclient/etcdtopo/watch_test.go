@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Set orphan detection environment variable as baseline protection
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	exitCode := m.Run()
 
@@ -57,7 +58,7 @@ func TestMain(m *testing.M) {
 // Watch implementation. Today, those logical versions are based on the key's
 // ModRevision value, which is a monotonically increasing int64 value. See
 // https://github.com/vitessio/vitess/pull/15847 for additional details and the
-// current reasoning behing using ModRevision. This can be changed in the future
+// current reasoning behind using ModRevision. This can be changed in the future
 // but should be done so intentionally, thus this test ensures we don't change the
 // behavior accidentally/uinintentionally.
 func TestWatchTopoVersion(t *testing.T) {
@@ -65,7 +66,7 @@ func TestWatchTopoVersion(t *testing.T) {
 		t.Skip("Skipping etcd integration tests in short mode")
 	}
 	ctx := utils.LeakCheckContext(t)
-	etcdServerAddr, _ := StartEtcd(t)
+	etcdServerAddr, _, _ := StartEtcd(t)
 	root := "/vitess/test"
 	name := "testkey"
 	path := path.Join(root, name)
@@ -201,7 +202,7 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	peerPort := utils.GetFreePort(t)
 
 	// Start first etcd server with persistent data
-	etcdServerAddr, etcdServer := StartEtcdWithOptions(t, EtcdOptions{
+	etcdServerAddr, _, etcdServer := StartEtcdWithOptions(t, EtcdOptions{
 		ClientPort: clientPort,
 		PeerPort:   peerPort,
 		DataDir:    dataDir,
@@ -268,7 +269,7 @@ func TestWatchRecursiveReconnection(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "ports should be released after etcd shutdown")
 
 	// Restart etcd with SAME data directory (simulates cluster recovery)
-	_, newEtcdServer := StartEtcdWithOptions(t, EtcdOptions{
+	_, _, newEtcdServer := StartEtcdWithOptions(t, EtcdOptions{
 		ClientPort: clientPort,
 		PeerPort:   peerPort,
 		DataDir:    dataDir,
@@ -307,7 +308,7 @@ func TestWatchRecursiveCompaction(t *testing.T) {
 	}
 	ctx := utils.LeakCheckContext(t)
 
-	etcdServerAddr, _ := StartEtcd(t)
+	etcdServerAddr, _, _ := StartEtcd(t)
 	root := "/vitess/test"
 
 	client, err := clientv3.New(clientv3.Config{

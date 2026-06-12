@@ -1,0 +1,142 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package server
+
+import (
+	"context"
+
+	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
+)
+
+// CancelHandler handles PostgreSQL cancel requests, potentially routing them
+// to remote gateways when the cancel lands on a different gateway than the
+// original query. This is separate from Handler because only multigateway
+// needs cross-gateway cancel routing.
+type CancelHandler interface {
+	// HandleCancelRequest processes a cancel request with the given PID and secret key.
+	// The PID encodes a gateway prefix and local connection ID.
+	HandleCancelRequest(ctx context.Context, processID, secretKey uint32)
+}
+
+// Handler defines the interface for query execution.
+// This abstracts the actual query processing from the protocol layer,
+// allowing the protocol implementation to be decoupled from routing/execution logic.
+//
+// Implementations of this interface should handle routing queries to the appropriate
+// backend (e.g., multipooler via gRPC), and stream results back via the callback function.
+//
+// The callback-based approach allows for efficient streaming of large result sets
+// without needing to buffer all results in memory before sending to the client.
+//
+// Supports multiple statements in a single query (e.g., "SELECT 1; SELECT 2;") where
+// each statement can have a large streaming result set, using the CommandTag field
+// to indicate result set boundaries.
+type Handler interface {
+	// HandleQuery processes a simple query protocol message ('Q').
+	// The callback function is called with the query result.
+	//
+	// The handler should set result.CommandTag when a result set is complete:
+	// - If CommandTag is empty: More packets coming (continuing current result set)
+	// - If CommandTag is set: This is the last packet of this result set, triggers CommandComplete
+	//
+	// For streaming a single large result set:
+	//   callback(chunk1)           // Fields + rows, CommandTag=""
+	//   callback(chunk2)           // More rows, CommandTag=""
+	//   callback(chunk3)           // Final rows, CommandTag="SELECT 42"
+	//
+	// For multiple statements with streaming (e.g., "SELECT * FROM big_table1; SELECT * FROM big_table2;"):
+	//   callback(chunk1_q1)        // Query 1, chunk 1, CommandTag=""
+	//   callback(chunk2_q1)        // Query 1, chunk 2, CommandTag=""
+	//   callback(chunk3_q1)        // Query 1, final chunk, CommandTag="SELECT 100" → CommandComplete
+	//   callback(chunk1_q2)        // Query 2, chunk 1, CommandTag=""
+	//   callback(chunk2_q2)        // Query 2, final chunk, CommandTag="SELECT 200" → CommandComplete
+	//
+	// After all callbacks complete, ReadyForQuery ('Z') is sent once.
+	//
+	// Returns an error if query execution or result streaming fails.
+	HandleQuery(ctx context.Context, conn *Conn, query string, callback func(ctx context.Context, result *sqltypes.Result) error) error
+
+	// HandleParse processes a Parse message ('P') for the extended query protocol.
+	// Prepares a statement with the given name and parameter types.
+	// An empty name indicates an unnamed statement.
+	HandleParse(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error
+
+	// HandleBind processes a Bind message ('B') for the extended query protocol.
+	// Binds parameters to a prepared statement, creating a portal.
+	// portalName: name of the portal to create (empty for unnamed portal)
+	// stmtName: name of the prepared statement to bind (empty for unnamed statement)
+	// params: parameter values in the format specified by paramFormats
+	// paramFormats: format codes for parameters (0=text, 1=binary)
+	// resultFormats: desired format codes for result columns (0=text, 1=binary)
+	HandleBind(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
+
+	// HandleExecute processes an Execute message ('E') for the extended query protocol.
+	// Executes a bound portal and streams results via callback.
+	// portalName: name of the portal to execute (empty for unnamed portal)
+	// maxRows: maximum number of rows to return (0 for no limit)
+	// includeDescribe: when true, the protocol layer has folded a preceding
+	//   Describe('P') for this portal into this Execute call. The handler is
+	//   expected to ask its execution path to fetch the portal RowDescription
+	//   alongside the data rows so the streaming callback can surface Fields
+	//   on the first chunk; the protocol layer writes RowDescription (or
+	//   NoData for non-result statements) before any DataRow.
+	// callback: function called for each result chunk
+	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error
+
+	// HandleDescribe processes a Describe message ('D').
+	// Returns description of a prepared statement or portal.
+	// typ: 'S' for statement, 'P' for portal
+	// name: name of the statement or portal
+	HandleDescribe(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error)
+
+	// HandleClose processes a Close message ('C').
+	// Closes a prepared statement or portal.
+	// typ: 'S' for statement, 'P' for portal (extended protocol, silent on nonexistent)
+	//       'D' for deallocate (simple protocol, errors on nonexistent)
+	//       'A' for deallocate all (simple protocol)
+	// name: name of the statement or portal to close
+	HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error
+
+	// HandleSync processes a Sync message ('S').
+	// Called at the end of an extended query cycle to indicate transaction boundary.
+	HandleSync(ctx context.Context, conn *Conn) error
+
+	// ConnectionClosed is called when a client connection is closed.
+	// The handler should clean up any connection-specific state, such as
+	// rolling back active transactions and releasing reserved connections.
+	// The connection's context may already be cancelled at this point.
+	ConnectionClosed(conn *Conn)
+
+	// GetPreparedStatementInfo returns metadata for a SQL-level prepared
+	// statement registered under the given user-visible name on connID.
+	// Returns nil if no such statement exists. This is used by the planner
+	// to resolve wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE AS
+	// EXECUTE) without type-asserting to a concrete handler implementation.
+	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
+}
+
+// ConnectionEstablishedHandler is an optional interface a Handler may
+// implement to be notified when a client connection completes the startup
+// phase (authentication and any post-auth role-attribute gates have passed).
+// The hook is invoked via interface assertion, so existing Handler
+// implementations do not need to opt in.
+//
+// Typical use is in test fixtures that need to observe per-connection
+// startup state (replication mode, startup parameters) once it is settled.
+type ConnectionEstablishedHandler interface {
+	ConnectionEstablished(conn *Conn)
+}

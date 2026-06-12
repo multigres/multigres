@@ -20,7 +20,7 @@
 package multiorch
 
 import (
-	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -32,8 +32,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -51,12 +53,13 @@ func TestBootstrapInitialization(t *testing.T) {
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithoutInitialization(),
-		shardsetup.WithDurabilityPolicy("ANY_2"),
+		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
 	)
 	defer cleanup()
 
-	// Verify nodes are completely uninitialized (no data directory, no postgres running)
-	// Multiorch will detect these as needing bootstrap and call InitializeEmptyPrimary
+	// Verify that no node has cohort members configured before multiorch starts.
+	// Nodes may have auto-initialized (data directory created, postgres running),
+	// but cohort membership (sync replication) is only configured by multiorch.
 	for name, inst := range setup.Multipoolers {
 		func() {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -67,38 +70,75 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "should get status from %s", name)
 
-			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
+			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresStatus=%s, PoolerType=%s, CohortMembers=%d",
 				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
-				status.Status.PostgresRunning, status.Status.PostgresRole, status.Status.PoolerType)
+				status.Status.PostgresReady, status.Status.PostgresStatus, status.Status.PoolerType,
+				len(status.Status.CohortMembers))
 
-			// Nodes should be completely uninitialized (no data directory at all)
-			require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
-			require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
-			require.False(t, status.Status.PostgresRunning, "Node %s should not have postgres running yet", name)
-			t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
+			// No node should have a cohort configured before multiorch starts
+			require.Empty(t, status.Status.CohortMembers, "Node %s should have no cohort members before multiorch", name)
+			// No node should be primary before multiorch elects one
+			require.NotEqual(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, status.Status.PostgresStatus, "Node %s should not be primary before multiorch", name)
+			t.Logf("Node %s has no cohort members and is not primary (ready for multiorch to configure)", name)
 		}()
 	}
 
-	// Create and start multiorch to trigger bootstrap
+	// Create and start multiorch to trigger cohort initialization
 	watchTargets := []string{"postgres/default/0-inf"}
-	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", setup.CellName, watchTargets)
-	require.NoError(t, mo.Start(t), "should start multiorch")
+	config := &shardsetup.SetupConfig{CellName: setup.CellName}
+	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)
+	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
 	t.Cleanup(moCleanup)
 
-	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
-	t.Log("Waiting for multiorch to detect and bootstrap the shard...")
-	primaryName := waitForShardPrimary(t, setup, 30*time.Second)
+	// Wait for multiorch to bootstrap the shard: primary elected, both standbys
+	// initialized and replicating, sync replication configured on primary.
+	t.Log("Waiting for multiorch to bootstrap the shard...")
+	primaryName := waitForShardReady(t, setup, 2, 60*time.Second)
 	require.NotEmpty(t, primaryName, "Expected multiorch to bootstrap shard automatically")
 	setup.PrimaryName = primaryName
-
-	// Wait for both standbys to initialize and sync replication to be configured
-	// (waitForStandbysInitialized includes sync replication check)
-	t.Log("Waiting for standbys to complete initialization...")
-	waitForStandbysInitialized(t, setup, 2, 30*time.Second)
 
 	// Get primary instance for verification tests
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
 	require.NotNil(t, primary, "Primary instance should exist")
+
+	// The backup creator and elected primary can be different poolers (any node that wins
+	// the backup lease creates the first backup), so check all pooler logs.
+	t.Run("verify backup.attempt events", func(t *testing.T) {
+		found := false
+		for _, inst := range setup.Multipoolers {
+			data, err := os.ReadFile(inst.Multipooler.LogFile)
+			require.NoError(t, err)
+			events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+			if shardsetup.HasEvent(events, "backup.attempt", "success") {
+				found = true
+				assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
+				break
+			}
+		}
+		assert.True(t, found, "expected backup.attempt success event in at least one pooler log")
+	})
+
+	t.Run("verify restore.attempt events in standby logs", func(t *testing.T) {
+		for name, inst := range setup.Multipoolers {
+			if name == setup.PrimaryName {
+				continue
+			}
+			// WaitForEvent handles the timing race: isInitialized() can return true
+			// before restoreFromBackupLocked emits its success event.
+			events := shardsetup.WaitForEvent(t, inst.Multipooler.LogFile,
+				"restore.attempt", "success", 30*time.Second)
+			assert.True(t, shardsetup.HasEvent(events, "restore.attempt", "started"),
+				"expected restore.attempt started in standby %s log", name)
+		}
+	})
+
+	t.Run("verify primary.promotion event in multiorch log", func(t *testing.T) {
+		data, err := os.ReadFile(mo.LogFile)
+		require.NoError(t, err)
+		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "started"))
+		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "success"))
+	})
 
 	// Verify bootstrap results
 	t.Run("verify primary initialized", func(t *testing.T) {
@@ -109,61 +149,22 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		ctx := t.Context()
 
+		// Verify primary term is set to 1 (bootstrap term)
+		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Should be able to get status from primary")
+		require.NotNil(t, status.ConsensusStatus.GetTermRevocation(), "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Primary should be on term 1 after bootstrap")
+		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
+		assert.Equal(t, int64(1), commonconsensus.LeaderTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
+		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
+			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.LeaderTerm(status.ConsensusStatus))
+
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
 			"SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')", 1)
 		require.NoError(t, err)
 		require.Len(t, resp.Rows, 1)
 		assert.Equal(t, "t", string(resp.Rows[0].Values[0]), "multigres schema should exist")
-
-		// Verify durability_policy table exists
-		resp, err = primaryClient.Pooler.ExecuteQuery(ctx,
-			"SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'multigres' AND tablename = 'durability_policy')", 1)
-		require.NoError(t, err)
-		require.Len(t, resp.Rows, 1)
-		assert.Equal(t, "t", string(resp.Rows[0].Values[0]), "durability_policy table should exist")
-
-		// Query the durability policy
-		resp, err = primaryClient.Pooler.ExecuteQuery(ctx, `
-			SELECT policy_name, policy_version, quorum_rule::text, is_active
-			FROM multigres.durability_policy
-			WHERE policy_name = 'ANY_2'
-		`, 4)
-		require.NoError(t, err, "Should find ANY_2 policy")
-		require.Len(t, resp.Rows, 1)
-
-		policyName := string(resp.Rows[0].Values[0])
-		policyVersion := string(resp.Rows[0].Values[1])
-		quorumRuleJSON := string(resp.Rows[0].Values[2])
-		isActive := string(resp.Rows[0].Values[3])
-
-		// Verify policy fields
-		assert.Equal(t, "ANY_2", policyName)
-		assert.Equal(t, "1", policyVersion)
-		assert.Equal(t, "t", isActive)
-
-		// Parse and verify JSONB structure
-		var quorumRule map[string]any
-		err = json.Unmarshal([]byte(quorumRuleJSON), &quorumRule)
-		require.NoError(t, err, "Should parse quorum_rule JSON")
-
-		// Verify QuorumType (protojson uses camelCase field names)
-		quorumType, ok := quorumRule["quorumType"].(float64)
-		require.True(t, ok, "quorumType should be a number")
-		assert.Equal(t, float64(clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N), quorumType)
-
-		// Verify RequiredCount
-		requiredCount, ok := quorumRule["requiredCount"].(float64)
-		require.True(t, ok, "requiredCount should be a number")
-		assert.Equal(t, float64(2), requiredCount)
-
-		// Verify Description
-		description, ok := quorumRule["description"].(string)
-		require.True(t, ok, "description should be a string")
-		assert.Equal(t, "Any 2 nodes must acknowledge", description)
-
-		t.Logf("Verified durability policy: policy_name=%s, quorum_type=ANY_N, required_count=%d",
-			policyName, int(requiredCount))
 	})
 
 	t.Run("verify standbys initialized", func(t *testing.T) {
@@ -177,13 +178,18 @@ func TestBootstrapInitialization(t *testing.T) {
 
 			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
-
 			require.NoError(t, err)
 			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
-				t.Logf("Standby node: %s (pooler_type=%s)", name, status.Status.PoolerType)
+
+				// Verify replica has primary_term = 0 (never been primary)
+				assert.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
+					"Standby %s should have primary_term=0 (never been primary)", name)
+
+				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
+					name, status.Status.PoolerType, commonconsensus.LeaderTerm(status.ConsensusStatus))
 			}
+			client.Close()
 		}
 		// Should have at least 1 standby
 		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")
@@ -196,39 +202,47 @@ func TestBootstrapInitialization(t *testing.T) {
 		}
 	})
 
-	t.Run("verify consensus term", func(t *testing.T) {
-		// All initialized nodes should have consensus term = 1
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
-
-			ctx := utils.WithTimeout(t, 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
-
-			require.NoError(t, err)
-			if status.Status.IsInitialized {
-				assert.Equal(t, int64(1), status.Status.ConsensusTerm, "Node %s should have consensus term 1", name)
-			}
+	t.Run("verify all nodes initialized", func(t *testing.T) {
+		// All nodes should eventually be marked initialized after bootstrap.
+		// We deliberately don't assert ConsensusStatus.TermRevocation.RevokedBelowTerm
+		// here: under the Recruit/Promote/SetPrimary model that field is a per-pooler
+		// revocation promise set by Recruit, and bootstrap only requires a Recruit
+		// quorum (e.g. 2 of 3) — non-recruited members legitimately stay at term 0
+		// while still being healthy cohort participants once SetPrimary brings them in.
+		var allInstances []*shardsetup.MultipoolerInstance
+		for _, inst := range setup.Multipoolers {
+			allInstances = append(allInstances, inst)
 		}
+		shardsetup.EventuallyPoolerCondition(t, allInstances, 30*time.Second, 1*time.Second,
+			func(r shardsetup.PoolerStatusResult) (bool, string) {
+				if !r.Status.IsInitialized {
+					return false, "not yet initialized"
+				}
+				return true, ""
+			},
+			"All nodes should be initialized after bootstrap",
+		)
 	})
 
-	t.Run("verify leadership history", func(t *testing.T) {
+	t.Run("verify rule history", func(t *testing.T) {
 		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
 		ctx := t.Context()
 
-		// Query leadership_history table
+		// Query rule_history table for the bootstrap promotion record.
+		// TODO: Switch to requesting consensus status from the multipooler RPC once
+		// ConsensusStatus is hooked up to RPCs; that will avoid the direct SQL query.
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx, `
-			SELECT term_number, leader_id, coordinator_id, wal_position, reason,
-			       cohort_members, accepted_members
-			FROM multigres.leadership_history
-			ORDER BY term_number DESC
+			SELECT coordinator_term, leader_id, coordinator_id, wal_position, reason,
+			       array_to_json(cohort_members)::text, array_to_json(accepted_members)::text
+			FROM multigres.rule_history
+			WHERE event_type = 'promotion'
+			ORDER BY coordinator_term DESC, leader_subterm DESC
 			LIMIT 1
 		`, 7)
-		require.NoError(t, err, "should query leadership_history")
-		require.Len(t, resp.Rows, 1, "should have exactly one leadership history record")
+		require.NoError(t, err, "should query rule_history")
+		require.Len(t, resp.Rows, 1, "should have exactly one rule history promotion record")
 
 		row := resp.Rows[0]
 		termNumber := string(row.Values[0])
@@ -239,8 +253,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		cohortMembersJSON := string(row.Values[5])
 		acceptedMembersJSON := string(row.Values[6])
 
-		// Verify term_number is 1
-		assert.Equal(t, "1", termNumber, "term_number should be 1 for initial bootstrap")
+		// Verify coordinator_term is 1
+		assert.Equal(t, "1", termNumber, "coordinator_term should be 1 for initial bootstrap")
 
 		// Verify leader_id matches primary name (format: cell_name)
 		expectedLeaderID := fmt.Sprintf("%s_%s", setup.CellName, setup.PrimaryName)
@@ -248,14 +262,13 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Verify coordinator_id matches the multiorch's cell_name format
 		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_test-multiorch", setup.CellName)
+		expectedCoordinatorID := setup.CellName + "_test-multiorch"
 		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")
 
-		// Verify reason is ShardNeedsBootstrap
-		assert.Equal(t, "ShardNeedsBootstrap", reason, "reason should be 'ShardNeedsBootstrap'")
+		assert.Equal(t, "ShardInit", reason, "reason should be 'ShardInit'")
 
 		// Parse and verify cohort_members is a valid JSON array
 		var cohortMembers []string
@@ -269,7 +282,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err, "accepted_members should be valid JSON array")
 		assert.Contains(t, acceptedMembers, expectedLeaderID, "accepted_members should contain leader")
 
-		t.Logf("Leadership history verified: term=%s, leader=%s, coordinator=%s, reason=%s",
+		t.Logf("Rule history verified: term=%s, leader=%s, coordinator=%s, reason=%s",
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
@@ -282,12 +295,17 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err, "should query synchronous_standby_names")
 
 		assert.NotEmpty(t, syncStandbyNames,
-			"synchronous_standby_names should be configured for ANY_2 policy")
+			"synchronous_standby_names should be configured for AT_LEAST_2 policy")
 		t.Logf("synchronous_standby_names = %s", syncStandbyNames)
 
-		// Verify it contains ANY keyword (for ANY_2 policy)
+		// Verify it contains ANY keyword (postgres sync replication method for AT_LEAST_2 policy)
 		assert.Contains(t, strings.ToUpper(syncStandbyNames), "ANY",
-			"should use ANY method for ANY_2 policy")
+			"should use ANY method for AT_LEAST_2 policy")
+
+		// Verify synchronous_commit is set to 'on'
+		syncCommit, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
+		require.NoError(t, err, "should query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on'")
 	})
 
 	t.Run("verify auto-restore on startup", func(t *testing.T) {
@@ -315,40 +333,45 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Selected standby for auto-restore test: %s", standbyName)
 
 		// Stop multipooler
-		standbyInst.Multipooler.Stop()
+		standbyInst.Multipooler.TerminateGracefully(t.Logf, 5*time.Second)
 
 		// Stop postgres via pgctld
 		standbyInst.Pgctld.StopPostgres(t)
 
 		// Remove pg_data directory to simulate complete data loss
-		pgDataDir := filepath.Join(standbyInst.Pgctld.DataDir, "pg_data")
+		pgDataDir := filepath.Join(standbyInst.Pgctld.PoolerDir, "pg_data")
 		err := os.RemoveAll(pgDataDir)
 		require.NoError(t, err, "Should remove pg_data directory")
 		t.Logf("Removed pg_data directory: %s", pgDataDir)
 
 		// Restart multipooler (should auto-restore from backup)
-		require.NoError(t, standbyInst.Multipooler.Start(t), "Should restart multipooler")
+		require.NoError(t, standbyInst.Multipooler.Start(t.Context(), t), "Should restart multipooler")
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready
 		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
 
-		// Wait for auto-restore to complete
-		require.Eventually(t, func() bool {
-			client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
-			if err != nil {
-				return false
-			}
-			defer client.Close()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			if err != nil {
-				return false
-			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm > 0
-		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
+		// Wait for auto-restore to complete. We don't assert
+		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a
+		// freshly-restored standby that joins via SetPrimary/FixReplication never
+		// makes a revocation promise (Recruit isn't called on join), so term=0
+		// is the expected steady state for it.
+		const autoRestoreTimeout = 90 * time.Second
+		restoreStart := time.Now()
+		shardsetup.EventuallyPoolerCondition(t,
+			[]*shardsetup.MultipoolerInstance{standbyInst}, autoRestoreTimeout, 1*time.Second,
+			func(r shardsetup.PoolerStatusResult) (bool, string) {
+				if !r.Status.IsInitialized {
+					return false, "not yet initialized"
+				}
+				if !r.Status.PostgresReady {
+					return false, "postgres not running"
+				}
+				return true, ""
+			},
+			"auto-restore should complete within timeout",
+		)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), autoRestoreTimeout)
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
@@ -361,12 +384,33 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		assert.True(t, status.Status.IsInitialized, "Standby should be initialized after auto-restore")
 		assert.True(t, status.Status.HasDataDirectory, "Standby should have data directory after auto-restore")
-		assert.True(t, status.Status.PostgresRunning, "PostgreSQL should be running after auto-restore")
-		assert.Equal(t, "standby", status.Status.PostgresRole, "Should be in standby role after auto-restore")
+		assert.True(t, status.Status.PostgresReady, "PostgreSQL should be running after auto-restore")
+		assert.Equal(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY, status.Status.PostgresStatus, "Should be in standby role after auto-restore")
 
-		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
+		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, ServerStatus=%s",
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
-			status.Status.PostgresRunning, status.Status.PostgresRole)
+			status.Status.PostgresReady, status.Status.PostgresStatus)
+	})
+
+	t.Run("verify archive_command config on all nodes", func(t *testing.T) {
+		// Verify each pooler has archive_command pointing to its own local pgbackrest.conf
+		for name, inst := range setup.Multipoolers {
+			// Read postgresql.auto.conf
+			autoConfPath := filepath.Join(inst.Pgctld.PoolerDir, "pg_data", "postgresql.auto.conf")
+			content, err := os.ReadFile(autoConfPath)
+			require.NoError(t, err, "Should read postgresql.auto.conf on %s", name)
+
+			autoConfStr := string(content)
+
+			// Verify archive_mode is enabled (we write it with quotes to match PostgreSQL's normalized format)
+			assert.Contains(t, autoConfStr, "archive_mode = 'on'",
+				"Node %s should have archive_mode enabled", name)
+
+			// Verify archive_command points to this pooler's local pgbackrest.conf
+			expectedConfigPath := filepath.Join(inst.Pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			assert.Contains(t, autoConfStr, "--config="+expectedConfigPath,
+				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
+		}
 	})
 }
 
@@ -401,21 +445,6 @@ func verifyMultigresTables(t *testing.T, name string, grpcPort int) {
 	}
 	if string(resp.Rows[0].Values[0]) != "t" {
 		t.Errorf("Heartbeat table should exist on %s", name)
-	}
-
-	// Check durability_policy table exists
-	resp, err = client.Pooler.ExecuteQuery(ctx, `
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'multigres' AND table_name = 'durability_policy'
-		)
-	`, 1)
-	if err != nil {
-		t.Errorf("Failed to query durability_policy table on %s: %v", name, err)
-		return
-	}
-	if string(resp.Rows[0].Values[0]) != "t" {
-		t.Errorf("Durability policy table should exist on %s", name)
 	}
 
 	t.Logf("Verified multigres tables exist on %s (pooler_type=%s)", name, status.Status.PoolerType)

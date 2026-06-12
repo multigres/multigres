@@ -19,6 +19,7 @@ package grpccommon
 import (
 	"github.com/spf13/pflag"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -60,18 +61,71 @@ func MaxMessageSize() int {
 // in MacOS where localhost host takes too long to resolve.
 // See the following PR for more details: https://github.com/multigres/multigres/pull/152
 func LocalClientDialOptions() []grpc.DialOption {
+	return ClientDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials()))
+}
+
+// ClientDialOptions returns the standard dial options for a gRPC client given
+// a caller-supplied transport credentials dial option. It always includes
+// WithDisableServiceConfig, a macOS localhost-resolution workaround (see #152),
+// so callers can't forget it when wiring up TLS or insecure credentials.
+func ClientDialOptions(transportCreds grpc.DialOption) []grpc.DialOption {
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		transportCreds,
 		grpc.WithDisableServiceConfig(),
 	}
 }
 
-// NewClient creates a gRPC client connection with OpenTelemetry instrumentation.
-// Use this instead of grpc.NewClient() directly to ensure consistent telemetry.
-func NewClient(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	// Prepend our telemetry handler so caller's options can override if needed
+// ClientOption configures OpenTelemetry instrumentation for the gRPC client.
+// These options extend the stats handler that NewClient creates.
+type ClientOption interface {
+	apply(*clientConfig)
+}
+
+type clientConfig struct {
+	otelOptions []otelgrpc.Option
+	dialOptions []grpc.DialOption
+}
+
+// WithAttributes adds custom OpenTelemetry attributes to gRPC client spans.
+// This is a generic helper that can be used by domain-specific code to add
+// custom span attributes without making grpccommon domain-aware.
+func WithAttributes(attrs ...attribute.KeyValue) ClientOption {
+	return funcOption(func(c *clientConfig) {
+		c.otelOptions = append(c.otelOptions,
+			otelgrpc.WithSpanAttributes(attrs...),
+		)
+	})
+}
+
+// WithDialOptions adds standard gRPC dial options to the client.
+func WithDialOptions(opts ...grpc.DialOption) ClientOption {
+	return funcOption(func(c *clientConfig) {
+		c.dialOptions = append(c.dialOptions, opts...)
+	})
+}
+
+type funcOption func(*clientConfig)
+
+func (f funcOption) apply(c *clientConfig) {
+	f(c)
+}
+
+// NewClient creates a gRPC client with OpenTelemetry instrumentation.
+// Use WithPeerService to set the remote service identifier in traces.
+// Use WithDialOptions to pass standard gRPC dial options.
+//
+// All ClientOptions are used to configure a single stats handler, preventing
+// duplication and ensuring consistent telemetry across the application.
+func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
+	cfg := &clientConfig{}
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+
+	// Create single stats handler with all OTel options
 	allOpts := append([]grpc.DialOption{
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-	}, opts...)
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler(cfg.otelOptions...)),
+	}, cfg.dialOptions...)
+
 	return grpc.NewClient(target, allOpts...)
 }

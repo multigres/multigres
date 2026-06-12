@@ -1,0 +1,29 @@
+#
+# Simple-query protocol coverage.
+#
+# Exercises the 'Q' (simple Query) path end to end: a query against a missing
+# relation (ErrorResponse), DDL, DML with a row-count command tag, and a
+# multi-row SELECT. Each 'Y' reads backend messages until ReadyForQuery.
+#
+
+# Error path: relation does not exist -> ErrorResponse + ReadyForQuery.
+'Q'	"SELECT * FROM pgproto_missing"
+'Y'
+
+# DDL.
+'Q'	"CREATE TABLE pgproto_simple (id int primary key, label text)"
+'Y'
+
+# DML with a multi-row insert -> CommandComplete(INSERT 0 3).
+'Q'	"INSERT INTO pgproto_simple VALUES (1, 'one'), (2, 'two'), (3, 'three')"
+'Y'
+
+# Multi-row read -> RowDescription, three DataRow, CommandComplete(SELECT 3).
+'Q'	"SELECT id, label FROM pgproto_simple ORDER BY id"
+'Y'
+
+# Empty query string -> EmptyQueryResponse.
+'Q'	""
+'Y'
+
+'X'

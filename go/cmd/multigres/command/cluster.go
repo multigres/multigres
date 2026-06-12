@@ -36,6 +36,11 @@ func AddClusterCommand(root *cobra.Command, mc *MultigresCommand) {
 	cluster.AddStatusCommand(clusterCmd)
 	cluster.AddBackupCommand(clusterCmd)
 	cluster.AddListBackupsCommand(clusterCmd)
+	cluster.AddCheckBackupConfigCommand(clusterCmd)
+	cluster.AddRefreshCredentialsCommand(clusterCmd)
+	cluster.AddExpireBackupsCommand(clusterCmd)
+	cluster.AddVerifyBackupsCommand(clusterCmd)
+	cluster.AddApplyRuleChangeCommand(clusterCmd)
 
 	// Register cluster command with root
 	root.AddCommand(clusterCmd)

@@ -25,7 +25,7 @@
 //
 //	result, err := asthelpergen.GenerateASTHelpers(&asthelpergen.Options{
 //	    Packages:      []string{"./mypackage"},
-//	    RootInterface: "github.com/multigres/multigres/go/parser/ast.Node",
+//	    RootInterface: "github.com/multigres/multigres/go/common/parser/ast.Node",
 //	})
 //
 // The generated code follows Go conventions and includes proper error handling,
@@ -348,7 +348,7 @@ type Options struct {
 	Packages []string
 
 	// RootInterface is the fully qualified name of the root interface that all AST nodes implement.
-	// Format: "package.path.InterfaceName" (e.g., "github.com/multigres/multigres/go/parser/ast.Node")
+	// Format: "package.path.InterfaceName" (e.g., "github.com/multigres/multigres/go/common/parser/ast.Node")
 	RootInterface string
 
 	// Clone configures the clone generator options

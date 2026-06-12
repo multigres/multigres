@@ -11,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Modifications Copyright 2026 Supabase, Inc.
 
 /*
 Package etcdtopo implements topoclient.Conn with etcd as the backend.
@@ -43,6 +45,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 )
 
@@ -56,7 +59,7 @@ var _ topoclient.Conn = (*etcdtopo)(nil)
 
 // remoteOperationTimeout is used for operations where we have to
 // call out to etcd for initial data fetches (e.g., watch setup).
-const remoteOperationTimeout = 15 * time.Second
+const remoteOperationTimeout = timeouts.RemoteOperationTimeout
 
 // Factory is the etcd topoclient.Factory implementation.
 type Factory struct{}
@@ -95,7 +98,7 @@ func registerEtcdTopoFlags(fs *pflag.FlagSet) {
 
 // Close implements topoclient.Conn.Close.
 // It will nil out the global and cells fields, so any attempt to
-// re-use this server will panic.
+// reuse this server will panic.
 func (s *etcdtopo) Close() error {
 	close(s.running)
 	if err := s.cli.Close(); err != nil {
@@ -145,7 +148,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
 		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // nolint:staticcheck
+		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // grpc.WithBlock is deprecated but required by etcd client
 	}
 
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)

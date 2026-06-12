@@ -21,7 +21,6 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
 
@@ -29,11 +28,7 @@ import (
 )
 
 // NewMultiGateway creates a new MultiGateway record with the given name, cell, and hostname.
-// If name is empty, a random name will be generated.
 func NewMultiGateway(name string, cell, host string) *clustermetadatapb.MultiGateway {
-	if name == "" {
-		name = stringutil.RandomString(8)
-	}
 	return &clustermetadatapb.MultiGateway{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIGATEWAY,

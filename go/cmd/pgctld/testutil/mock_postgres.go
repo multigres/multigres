@@ -58,7 +58,7 @@ func (m *MockExecCommand) MockCommand(name string, args ...string) *exec.Cmd {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(cmd.Env, fmt.Sprintf("MOCK_CMD=%s", cmdLine))
+	cmd.Env = append(cmd.Env, "MOCK_CMD="+cmdLine)
 
 	return cmd
 }
@@ -305,6 +305,26 @@ if [[ "$*" == *"-h /tmp"* ]] || [[ "$*" == *"pg_sockets"* ]]; then
     echo "socket connection - accepting connections"
 else
     echo "localhost:5432 - accepting connections"
+fi
+exit 0
+`)
+
+	// Mock pg_rewind
+	MockBinary(t, binDir, "pg_rewind", `
+# Parse flags
+DRY_RUN=false
+for arg in "$@"; do
+    case $arg in
+        --dry-run)
+            DRY_RUN=true
+            ;;
+    esac
+done
+
+if [ "$DRY_RUN" = "true" ]; then
+    echo "servers diverged at WAL location 0/5000000 on timeline 1"
+else
+    echo "pg_rewind: done"
 fi
 exit 0
 `)

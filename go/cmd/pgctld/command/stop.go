@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -95,7 +96,19 @@ func (s *PgCtlStopCmd) runStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	password, _, _, err := s.pgCtlCmd.GetPostgresPassword()
+	if err != nil {
+		return err
+	}
+	config.Password = password
 
+	// Stop PostgreSQL and get detailed result information. We are using a
+	// password here because the CHECKPOINT command requires authentication,
+	// even if the stop command itself does not.
+	//
+	// TODO: Consider removing the CHECKPOINT command in the stop flow since
+	// it's not strictly necessary and adds complexity (requires password, can
+	// fail if PostgreSQL is already in a bad state, etc.)
 	result, err := StopPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, s.mode.Get())
 	if err != nil {
 		return err
@@ -175,7 +188,7 @@ func stopWithPgCtlWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConf
 		"stop",
 		"-D", config.PostgresDataDir,
 		"-m", mode,
-		"-t", fmt.Sprintf("%d", config.Timeout),
+		"-t", strconv.Itoa(config.Timeout),
 	}
 
 	cmd := exec.Command("pg_ctl", args...)
@@ -193,7 +206,7 @@ func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	args := []string{
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-c", "CHECKPOINT;",
@@ -201,6 +214,9 @@ func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error
 	}
 
 	cmd := exec.Command("psql", args...)
+	if config.Password != "" {
+		cmd.Env = append(os.Environ(), "PGPASSWORD="+config.Password)
+	}
 
 	// Capture output to avoid cluttering the terminal
 	output, err := cmd.CombinedOutput()

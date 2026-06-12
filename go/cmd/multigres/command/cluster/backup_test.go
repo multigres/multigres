@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 )
 
 // getBackupCommand creates a cluster command and adds backup to it for testing
@@ -48,4 +50,22 @@ func TestBackupCommandFlags_Primary(t *testing.T) {
 	primaryFlag := cmd.Flag("primary")
 	assert.NotNil(t, primaryFlag, "primary flag should exist")
 	assert.Equal(t, "false", primaryFlag.DefValue, "primary flag should default to false")
+}
+
+func TestBackupCommand_AdminServerFlag(t *testing.T) {
+	cmd := getBackupCommand()
+	require.NotNil(t, cmd)
+
+	// Verify flag exists with correct default
+	adminServerFlag := cmd.Flag("admin-server")
+	assert.NotNil(t, adminServerFlag, "admin-server flag should exist")
+	assert.Equal(t, "", adminServerFlag.DefValue, "admin-server flag should default to empty string")
+
+	// Verify flag is used by GetServerAddress
+	err := cmd.Flags().Set("admin-server", "localhost:18070")
+	require.NoError(t, err)
+
+	address, err := admin.GetServerAddress(cmd)
+	require.NoError(t, err)
+	assert.Equal(t, "localhost:18070", address, "GetServerAddress should return the admin-server flag value")
 }

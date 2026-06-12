@@ -16,16 +16,19 @@ package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
-	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // startPostgreSQLViaPgctld checks PostgreSQL status via pgctld gRPC.
@@ -35,7 +38,7 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(ctx context.Context, address
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpccommon.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...))
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -93,7 +96,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpccommon.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...))
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -142,7 +145,28 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 // provisionPgctld provisions a pgctld instance for a multipooler with the new directory structure
 func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGroup, serviceID, cell string) (*PgctldProvisionResult, error) {
 	// Create unique pgctld service ID using multipooler's service ID
-	pgctldServiceID := fmt.Sprintf("pgctld-%s", serviceID)
+	pgctldServiceID := "pgctld-" + serviceID
+
+	// Resolve pgctld config up-front so we can materialize the postgres
+	// password file before either branch (already-running or fresh start)
+	// returns. The file is the wire format both pgctld and the multipooler
+	// in this cell consume via POSTGRES_PASSWORD_FILE.
+	pgctldConfig, err := p.getCellServiceConfig(cell, "pgctld")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
+	}
+	poolerDir, ok := pgctldConfig["pooler_dir"].(string)
+	if !ok || poolerDir == "" {
+		return nil, errors.New("pooler_dir not found in config")
+	}
+	pgPassword, ok := pgctldConfig["password"].(string)
+	if !ok || pgPassword == "" {
+		return nil, fmt.Errorf("pgctld password not configured for cell %s: set pg-password in the local provisioner config", cell)
+	}
+	pgPasswordFile, err := writePostgresPasswordFile(poolerDir, pgPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to materialize postgres password file: %w", err)
+	}
 
 	// Check if pgctld is already running for this service combination
 	existingService, err := p.findRunningDbService("pgctld", dbName, cell)
@@ -163,16 +187,11 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 		fmt.Printf(" ✓\n")
 		return &PgctldProvisionResult{
-			Address: fmt.Sprintf("localhost:%d", existingService.Ports["grpc_port"]),
-			Port:    existingService.Ports["grpc_port"],
-			LogFile: existingService.LogFile,
+			Address:      fmt.Sprintf("localhost:%d", existingService.Ports["grpc_port"]),
+			Port:         existingService.Ports["grpc_port"],
+			LogFile:      existingService.LogFile,
+			PasswordFile: pgPasswordFile,
 		}, nil
-	}
-
-	// Get cell-specific pgctld config
-	pgctldConfig, err := p.getCellServiceConfig(cell, "pgctld")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
 	}
 
 	// Find pgctld binary
@@ -185,6 +204,12 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	grpcPort := ports.DefaultPgctldGRPC
 	if port, ok := pgctldConfig["grpc_port"].(int); ok && port > 0 {
 		grpcPort = port
+	}
+
+	// Get HTTP port from config or use default
+	httpPort := ports.DefaultPgctldHTTP
+	if port, ok := pgctldConfig["http_port"].(int); ok && port > 0 {
+		httpPort = port
 	}
 
 	// Get PostgreSQL port from config or use default
@@ -214,13 +239,6 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		logLevel = level
 	}
 
-	poolerDir := ""
-	dir, ok := pgctldConfig["pooler_dir"].(string)
-	if !ok {
-		return nil, fmt.Errorf("pooler_dir not found in config")
-	}
-	poolerDir = dir
-
 	// Get gRPC socket file if configured
 	socketFile, err := getGRPCSocketFile(pgctldConfig)
 	if err != nil {
@@ -242,16 +260,17 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	// primary/standby replication across zones.
 
 	// Start pgctld server
-	fmt.Printf("▶️  - Starting pgctld server (gRPC:%d)...", grpcPort)
+	fmt.Printf("▶️  - Starting pgctld server (gRPC:%d, HTTP:%d)...", grpcPort, httpPort)
 
 	serverArgs := []string{
 		"server",
 		"--pooler-dir", poolerDir,
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--pg-database", pgDatabase,
 		"--pg-user", pgUser,
-		"--timeout", fmt.Sprintf("%d", timeout),
+		"--timeout", strconv.Itoa(timeout),
 		"--log-level", logLevel,
 		"--log-output", pgctldLogFile,
 	}
@@ -261,9 +280,38 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		serverArgs = append(serverArgs, "--grpc-socket-file", socketFile)
 	}
 
-	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
+	// Add pgBackRest configuration if certificates are available
+	if p.pgBackRestCertPaths != nil {
+		// Get pgbackrest port from config or use default
+		pgbackrestPort := ports.DefaultPgbackRestPort
+		if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
+			pgbackrestPort = port
+		}
 
-	if err := telemetry.StartCmd(ctx, pgctldCmd); err != nil {
+		serverArgs = append(serverArgs,
+			"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
+			"--pgbackrest-cert-dir", p.certDir(),
+		)
+	}
+
+	pgctldCmd := executil.Command(ctx, pgctldBinary, serverArgs...)
+
+	// On macOS, ensure a valid locale is set for pgctld and its children (initdb, pg_ctl).
+	// Without LC_ALL or LANG, initdb fails with "invalid locale settings".
+	// Only inject when neither is set; an existing value in either variable is left untouched.
+	if runtime.GOOS == "darwin" && os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
+		pgctldCmd.AddEnv("LC_ALL=C")
+	}
+
+	// Set PGDATA so pgctld knows where the PostgreSQL data directory is.
+	pgctldCmd.AddEnv(constants.PgDataDirEnvVar + "=" + filepath.Join(poolerDir, "pg_data"))
+
+	// Point pgctld at the password file written above. pgctld reads it during
+	// init (--pwfile) and at server startup; multipooler reads the same file
+	// for its admin pool.
+	pgctldCmd.AddEnv(constants.PgPasswordFileEnvVar + "=" + pgPasswordFile)
+
+	if err := pgctldCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
 	}
 
@@ -273,7 +321,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Wait for pgctld to be ready
-	servicePorts := map[string]int{"grpc_port": grpcPort}
+	servicePorts := map[string]int{"grpc_port": grpcPort, "http_port": httpPort}
 	if err := p.waitForServiceReady(ctx, "pgctld", "localhost", servicePorts, 60*time.Second); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("pgctld readiness check failed: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)
@@ -308,9 +356,10 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	return &PgctldProvisionResult{
-		Address: fmt.Sprintf("localhost:%d", grpcPort),
-		Port:    grpcPort,
-		LogFile: pgctldLogFile,
+		Address:      fmt.Sprintf("localhost:%d", grpcPort),
+		Port:         grpcPort,
+		LogFile:      pgctldLogFile,
+		PasswordFile: pgPasswordFile,
 	}, nil
 }
 
@@ -341,4 +390,21 @@ func (p *localProvisioner) deprovisionPgctld(ctx context.Context, service *Local
 
 	fmt.Printf(" pgctld stopped ✓\n")
 	return nil
+}
+
+// writePostgresPasswordFile materializes the postgres password into a 0600
+// file at <poolerDir>/postgres-password and returns its path. The file is the
+// wire format both pgctld and the multipooler in this cell consume via
+// POSTGRES_PASSWORD_FILE; writing it idempotently (overwriting on each
+// provision) keeps the file in sync with the YAML config when operators rotate
+// the value. Cleanup is handled by the provisioner tearing down poolerDir.
+func writePostgresPasswordFile(poolerDir, password string) (string, error) {
+	if err := os.MkdirAll(poolerDir, 0o700); err != nil {
+		return "", fmt.Errorf("create pooler dir: %w", err)
+	}
+	path := filepath.Join(poolerDir, "postgres-password")
+	if err := os.WriteFile(path, []byte(password), 0o600); err != nil {
+		return "", fmt.Errorf("write postgres password file: %w", err)
+	}
+	return path, nil
 }

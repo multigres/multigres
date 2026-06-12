@@ -1,4 +1,5 @@
 import { PageLayout } from "@/components/page-layout";
+import { MultiGatewaysTable } from "./components/multigateways-table";
 
 export default function Page() {
   return (
@@ -9,7 +10,7 @@ export default function Page() {
         { label: "MultiGateways" },
       ]}
     >
-      <div className="px-4 lg:px-6">MultiGateways</div>
+      <MultiGatewaysTable />
     </PageLayout>
   );
 }

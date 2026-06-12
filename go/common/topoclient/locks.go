@@ -106,10 +106,11 @@ type LockType int
 const (
 	// Blocking is the default lock type when no other valid type
 	// is specified.
-	Blocking         LockType = iota
-	NonBlocking               // Uses TryLock
-	Named                     // Uses LockName
-	NamedNonBlocking          // Uses LockName semantics with TryLock fail-fast behavior
+	Blocking                LockType = iota
+	NonBlocking                      // Uses TryLock
+	Named                            // Uses LockName
+	NamedNonBlocking                 // Uses LockName semantics with TryLock fail-fast behavior
+	NamedNonBlockingWithTTL          // Uses TryLockNameWithTTL for fail-fast with custom TTL
 )
 
 func (lt LockType) String() string {
@@ -120,6 +121,8 @@ func (lt LockType) String() string {
 		return "named"
 	case NamedNonBlocking:
 		return "named non blocking"
+	case NamedNonBlockingWithTTL:
+		return "named non blocking with ttl"
 	default:
 		return "blocking"
 	}
@@ -176,6 +179,9 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 	case NamedNonBlocking:
 		lockOp = LockOpTryLockName
 		lockDescriptor, err = ts.globalTopo.TryLockName(ctx, lt.Path(), j)
+	case NamedNonBlockingWithTTL:
+		lockOp = LockOpTryLockName
+		lockDescriptor, err = ts.globalTopo.TryLockWithLease(ctx, lt.Path(), j, l.Options.ttl)
 	default:
 		if l.Options.ttl != 0 {
 			lockOp = LockOpLockWithTTL
@@ -205,7 +211,7 @@ func (l *Lock) unlock(ctx context.Context, ts *store, lt iTopoLock, lockDescript
 	// Detach from the parent timeout, but preserve the trace span.
 	// We need to still release the lock even if the parent context timed out.
 	ctx = context.WithoutCancel(ctx)
-	ctx, cancel := context.WithTimeout(ctx, ts.getRemoteOperationTimeout())
+	ctx, cancel := context.WithTimeout(ctx, ts.GetRemoteOperationTimeout())
 	defer cancel()
 
 	ctx, unlockSpan := telemetry.Tracer().Start(ctx, "TopoServer.Unlock",
@@ -343,5 +349,13 @@ func newFuncLockOption(f func(*lockOptions)) *funcLockOption {
 func WithType(lt LockType) LockOption {
 	return newFuncLockOption(func(o *lockOptions) {
 		o.lockType = lt
+	})
+}
+
+// WithTTL sets a custom TTL for the lock lease.
+// For Named locks, this overrides the default NamedLockTTL (24h).
+func WithTTL(ttl time.Duration) LockOption {
+	return newFuncLockOption(func(o *lockOptions) {
+		o.ttl = ttl
 	})
 }

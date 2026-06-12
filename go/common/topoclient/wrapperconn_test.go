@@ -944,3 +944,77 @@ func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 	defer conn.mu.Unlock()
 	assert.True(t, conn.closed, "Connection should be closed")
 }
+
+// typedNilMockFactory mimics the behavior of etcd's factory which can return
+// a typed nil (*etcdtopo)(nil) that becomes a non-nil interface value.
+type typedNilMockFactory struct {
+	mu         sync.Mutex
+	shouldFail bool
+	connID     int32
+}
+
+func newTypedNilMockFactory() *typedNilMockFactory {
+	return &typedNilMockFactory{}
+}
+
+func (f *typedNilMockFactory) setShouldFail(fail bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.shouldFail = fail
+}
+
+func (f *typedNilMockFactory) newConn() (Conn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Declare conn as concrete type to create typed nil
+	var conn *mockConn
+	if f.shouldFail {
+		// Returns typed nil (*mockConn)(nil) wrapped in Conn interface.
+		// When this is assigned to Conn interface, it becomes a non-nil
+		// interface with nil underlying value - the classic Go gotcha.
+		return conn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "factory error")
+	}
+
+	id := atomic.AddInt32(&f.connID, 1)
+	conn = newMockConn(int(id))
+	return conn, nil
+}
+
+// TestRetryConnection_HandlesTypedNilInterface is a regression test for a bug
+// where closing the wrapper during retry could panic if the factory returned
+// a typed nil interface. This mimics the behavior of etcd's factory.Create()
+// which returns (*etcdtopo, error) and can return (*etcdtopo)(nil) on error.
+func TestRetryConnection_HandlesTypedNilInterface(t *testing.T) {
+	factory := newTypedNilMockFactory()
+	// Make newConn return typed nil and go into retry loop
+	factory.setShouldFail(true)
+	wrapper := NewWrapperConn(factory.newConn, nil)
+
+	// Wait for retry to start
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		return wrapper.retrying
+	}, 100*time.Millisecond, time.Millisecond, "Expected retry to start")
+
+	// Lock factory and prepare to return typed nil on next attempt
+	factory.mu.Lock()
+	// Keep shouldFail=true so next attempt returns typed nil
+
+	// Close wrapper before releasing lock
+	_ = wrapper.Close()
+
+	// Release lock - this will create a typed nil conn with err != nil
+	factory.mu.Unlock()
+
+	// Verify retry loop terminates without panic.
+	// Before the fix, this would panic trying to call Close() on typed nil.
+	// After the fix, it checks err first and never calls Close().
+	require.Eventually(t, func() bool {
+		wrapper.mu.Lock()
+		defer wrapper.mu.Unlock()
+		// Retry should stop when wrapper is closed
+		return !wrapper.retrying
+	}, 100*time.Millisecond, time.Millisecond, "Expected retry to terminate after wrapper closed")
+}

@@ -4,7 +4,7 @@ This tool automatically generates helper methods for Multigres AST nodes.
 
 ## Purpose
 
-The AST Helper Generator analyzes the AST node types in `go/parser/ast/`
+The AST Helper Generator analyzes the AST node types in `go/common/parser/ast/`
 and automatically generates:
 
 1. **Rewrite Methods** (`ast_rewrite.go`): Tree-rewriting functionality
@@ -69,27 +69,27 @@ Code generation solves this by:
 From the AST package directory:
 
 ```bash
-cd go/parser/ast
+cd go/common/parser/ast
 go generate
 ```
 
 This executes the `//go:generate` directive in `generate.go`, which runs:
 
 ```bash
-go run ../../tools/asthelpergen/main \
+go run ../../../tools/asthelpergen/main \
   --in . \
-  --iface github.com/supabase/multigres/go/parser/ast.Node
+  --iface github.com/multigres/multigres/go/common/parser/ast.Node
 ```
 
 ### Command-Line Flags
 
 - `--in <package>`: Package(s) to analyze (default: current directory)
-- `--iface <interface>`: Fully qualified root interface name (e.g., `github.com/supabase/multigres/go/parser/ast.Node`)
+- `--iface <interface>`: Fully qualified root interface name (e.g., `github.com/multigres/multigres/go/common/parser/ast.Node`)
 - `--clone_exclude <types>`: Comma-separated list of types to exclude from deep cloning
 
 ## Generated Files
 
-The generator creates the following files in `go/parser/ast/`:
+The generator creates the following files in `go/common/parser/ast/`:
 
 1. **ast_rewrite.go** (~5000+ lines)
    - One `rewriteRefOf<Type>()` method per AST type
@@ -128,6 +128,6 @@ If you need to change the generated output:
 
 Test the generator by:
 
-1. Running it on the Multigres AST: `cd go/parser/ast && go generate`
+1. Running it on the Multigres AST: `cd go/common/parser/ast && go generate`
 2. Verifying generated files compile: `go build`
-3. Running AST tests: `go test ./go/parser/ast/...`
+3. Running AST tests: `go test ./go/common/parser/ast/...`

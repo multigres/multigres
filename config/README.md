@@ -58,6 +58,36 @@ Cluster orchestration service for consensus and failover.
 **Configuration file**: `multiorch.yaml`
 **Environment prefix**: `MULTIORCH_`
 
+## PostgreSQL Environment Variables
+
+The following environment variables are recognized by `pgctld` (and to
+some extent, Multipooler) and follow the Docker `postgres` image
+convention.
+
+| Variable                 | CLI flag               | Default    | Description                                                |
+| ------------------------ | ---------------------- | ---------- | ---------------------------------------------------------- |
+| `POSTGRES_USER`          | `--pg-user` / `-U`     | `postgres` | PostgreSQL user name                                       |
+| `POSTGRES_PASSWORD`      | _(none)_               | _(empty)_  | PostgreSQL password (inline)                               |
+| `POSTGRES_PASSWORD_FILE` | _(none)_               | _(empty)_  | Path to a file containing the password (preferred for k8s) |
+| `POSTGRES_DB`            | `--pg-database` / `-D` | `postgres` | PostgreSQL database name                                   |
+| `POSTGRES_INITDB_ARGS`   | `--pg-initdb-args`     | _(empty)_  | Extra arguments forwarded to `initdb`                      |
+
+`POSTGRES_USER`
+: PostgreSQL user that Multigres uses to connect to the PostgreSQL server and perform administrative actions. This user **must have `SUPERUSER` privileges**.
+The default `initdb` configuration sets up SCRAM-SHA-256 authentication over a local socket connection, which is what we recommend. Multigres itself does not require any specific authentication method, so any `pg_hba.conf` policy (including `trust`) will work, but anything weaker than SCRAM is not secure.
+
+`POSTGRES_PASSWORD`
+: Password for the user provided in `POSTGRES_USER`. Use `POSTGRES_PASSWORD_FILE` instead when running in environments that mount secrets as files (the k8s demo, for example).
+
+`POSTGRES_PASSWORD_FILE`
+: Path to a file containing the password for `POSTGRES_USER`. When set, `pgctld` reads the password from this file instead of `POSTGRES_PASSWORD`.
+
+`POSTGRES_DB`
+: PostgreSQL database name to use when connecting to the database.
+
+`POSTGRES_INITDB_ARGS`
+: Extra arguments forwarded to `initdb` during cluster initialisation (e.g. `--locale-provider=icu --icu-locale=en_US.UTF-8`). Note that these are split into separate arguments on space using `strings.Fields` so you should not use spaces in values to options.
+
 ## Example Usage
 
 ```bash

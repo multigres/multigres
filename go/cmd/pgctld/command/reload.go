@@ -15,6 +15,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -78,7 +79,7 @@ func ReloadPostgreSQLConfigWithResult(logger *slog.Logger, config *pgctld.Postgr
 	if !isPostgreSQLRunning(config.PostgresDataDir) {
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"
-		return result, fmt.Errorf("PostgreSQL is not running")
+		return result, errors.New("PostgreSQL is not running")
 	}
 
 	result.WasRunning = true

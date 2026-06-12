@@ -21,28 +21,38 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // NewMultiPooler creates a new MultiPooler record with the given name, cell, hostname, and tableGroup.
-// If name is empty, a random name will be generated.
 func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadatapb.MultiPooler {
-	if name == "" {
-		name = stringutil.RandomString(8)
-	}
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   host,
-		TableGroup: tableGroup,
-		PortMap:    make(map[string]int32),
+		Hostname: host,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+		},
+		PortMap: make(map[string]int32),
+		// The pooler process is up but postgres readiness has not yet been
+		// confirmed; the manager transitions this to ACTIVE once the
+		// pgMonitor observes postgres responding. The timestamp is set at
+		// construction time rather than at write time — the caller
+		// (registerFunc) invokes RegisterMultiPooler within microseconds
+		// of the factory call, so the difference is negligible and avoids
+		// plumbing a clock through the factory's call sites.
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+			Reason:  "process starting",
+			Updated: timestamppb.Now(),
+		},
 	}
 }
 
@@ -85,6 +95,19 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
 	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
+}
+
+// PoolerAddressFor projects a MultiPooler into the contact-info subset the
+// consensus RPCs (SetPrimary, Promote) take. Returns nil if mp is nil.
+func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
+	if mp == nil {
+		return nil
+	}
+	return &clustermetadatapb.PoolerAddress{
+		Id:           mp.GetId(),
+		Host:         mp.GetHostname(),
+		PostgresPort: mp.GetPortMap()["postgres"],
+	}
 }
 
 // GetMultiPooler is a high level function to read multipooler data.
@@ -203,16 +226,17 @@ func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt
 			return nil, err
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
+			sk := multipooler.GetShardKey()
 			// Database must match
-			if opt.DatabaseShard.Database != multipooler.Database {
+			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue
 			}
 			// If TableGroup is specified, it must match
-			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != multipooler.TableGroup {
+			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != sk.GetTableGroup() {
 				continue
 			}
 			// If Shard is specified, it must match
-			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != multipooler.Shard {
+			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != sk.GetShard() {
 				continue
 			}
 		}
@@ -309,12 +333,6 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
-		}
-
-		// Check we have the same database / shard, and if not,
-		// require the allowDifferentShard flag.
-		if oldMtPooler.Database != mtpooler.Database || oldMtPooler.Shard != mtpooler.Shard {
-			return fmt.Errorf("old mtpooler has shard %v/%v. Cannot override with shard %v/%v. Delete and re-add mtpooler if you want to change the mtpooler's database/shard", oldMtPooler.Database, oldMtPooler.Shard, mtpooler.Database, mtpooler.Shard)
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {

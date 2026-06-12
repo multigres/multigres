@@ -15,13 +15,107 @@
 package cluster
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner"
+	"github.com/multigres/multigres/go/tools/retry"
 
+	_ "github.com/lib/pq" // PostgreSQL driver for the readiness probe
 	"github.com/spf13/cobra"
 )
+
+// defaultPostgresUser, defaultPostgresPassword, and defaultPostgresDatabase
+// are fallback connection parameters used when the loaded config doesn't
+// override them. They match what the local provisioner writes by default.
+const (
+	defaultPostgresUser     = "postgres"
+	defaultPostgresPassword = "postgres"
+	defaultPostgresDatabase = "postgres"
+)
+
+// bootstrapCredentials are the postgres connection parameters the
+// readiness probe uses to authenticate against multigateway. We pull these
+// from the loaded config so a rotated password still works — hardcoding
+// "postgres" would break the moment an operator changed it.
+type bootstrapCredentials struct {
+	user     string
+	password string
+	database string
+}
+
+// extractBootstrapCredentials walks the provisioner config to find the
+// postgres user/password/database. It picks the first cell it sees (the
+// local provisioner writes the same credentials across cells); falls back
+// to defaults for any field that's missing.
+func extractBootstrapCredentials(provConfig map[string]any) bootstrapCredentials {
+	creds := bootstrapCredentials{
+		user:     defaultPostgresUser,
+		password: defaultPostgresPassword,
+		database: defaultPostgresDatabase,
+	}
+	cells, ok := provConfig["cells"].(map[string]any)
+	if !ok {
+		return creds
+	}
+	for _, cellRaw := range cells {
+		cell, ok := cellRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pgctld, ok := cell["pgctld"].(map[string]any); ok {
+			if v, ok := pgctld["pg-user"].(string); ok && v != "" {
+				creds.user = v
+			}
+			if v, ok := pgctld["pg-password"].(string); ok && v != "" {
+				creds.password = v
+			}
+		}
+		if mp, ok := cell["multipooler"].(map[string]any); ok {
+			if v, ok := mp["database"].(string); ok && v != "" {
+				creds.database = v
+			}
+		}
+		return creds
+	}
+	return creds
+}
+
+// gatewayProbeFunc is the signature waitForGatewaysReady expects. Tests
+// can pass stubs directly to waitForGatewaysReady; start() wraps
+// runGatewayProbeFn in a closure that captures the bootstrap credentials.
+type gatewayProbeFunc func(ctx context.Context, host string, port int) error
+
+// runGatewayProbeFn runs `SELECT 1` through a multigateway as the
+// operator's configured postgres user. Going through the gateway's PG
+// protocol exercises the entire path psql will use moments later —
+// gateway PoolerDiscovery → primary multipooler → GetAuthCredentials →
+// pg_authid → SCRAM compare — so a successful probe is the strongest
+// practical guarantee that user queries will succeed. It is a var (not a
+// func) so tests can swap it out without spinning up a real cluster.
+var runGatewayProbeFn = func(ctx context.Context, host string, port int, creds bootstrapCredentials) error {
+	connStr := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=2",
+		host, port, creds.user, creds.password, creds.database,
+	)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	probeCtx, cancel := context.WithTimeout(ctx, constants.LocalGatewayBootstrapProbeTimeout)
+	defer cancel()
+	_, err = db.ExecContext(probeCtx, "SELECT 1")
+	return err
+}
 
 // ServiceInfo holds information about a provisioned service
 type ServiceInfo struct {
@@ -102,14 +196,89 @@ func (s *ServiceSummary) PrintSummary() {
 	// Find services with HTTP ports and add direct links
 	for _, service := range s.Services {
 		if httpPort, exists := service.Ports["http_port"]; exists {
-			url := fmt.Sprintf("http://%s:%d", service.FQDN, httpPort)
+			hostPort := net.JoinHostPort(service.FQDN, strconv.Itoa(httpPort))
+			url := "http://" + hostPort
 			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
 		}
 	}
-	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway: TODO")
+	// Find the first multigateway service and show connection command
+	for _, service := range s.Services {
+		if strings.HasPrefix(service.Name, "multigateway") {
+			if pgPort, exists := service.Ports["pg_port"]; exists {
+				fmt.Printf("- 🐘 Connect to PostgreSQL: PGPASSWORD=postgres psql -h %s -p %d -U postgres\n",
+					service.FQDN, pgPort)
+				break // Show only the first gateway
+			}
+		}
+	}
 	fmt.Println("- 🟢 Cluster started successfully. Enjoy!")
 	fmt.Println("- To stop the cluster: \"multigres cluster stop\"")
 	fmt.Println(strings.Repeat("=", 65))
+}
+
+// gatewayEndpoint identifies a single multigateway's PostgreSQL endpoint.
+type gatewayEndpoint struct {
+	name string
+	host string
+	port int
+}
+
+// collectGateways returns the PostgreSQL endpoint for every multigateway in
+// results. Results without a pg_port are skipped.
+func collectGateways(results []*provisioner.ProvisionResult) []gatewayEndpoint {
+	var gws []gatewayEndpoint
+	for _, r := range results {
+		if r.ServiceName != "multigateway" {
+			continue
+		}
+		port, ok := r.Ports["pg_port"]
+		if !ok {
+			continue
+		}
+		gws = append(gws, gatewayEndpoint{name: r.ServiceName, host: r.FQDN, port: port})
+	}
+	return gws
+}
+
+// waitForGatewaysReady polls every gateway via probe until each succeeds
+// or ctx is cancelled. Each gateway is polled in its own goroutine.
+// Returns an error listing the gateways that never became ready by the
+// time ctx expires.
+func waitForGatewaysReady(ctx context.Context, gateways []gatewayEndpoint, probe gatewayProbeFunc) error {
+	ready := make([]bool, len(gateways))
+	var wg sync.WaitGroup
+	for i, gw := range gateways {
+		wg.Add(1)
+		go func(i int, gw gatewayEndpoint) {
+			defer wg.Done()
+			r := retry.New(constants.LocalGatewayBootstrapPollInterval, constants.LocalGatewayBootstrapPollInterval)
+			for _, err := range r.Attempts(ctx) {
+				if err != nil {
+					return
+				}
+				if err := probe(ctx, gw.host, gw.port); err == nil {
+					ready[i] = true
+					fmt.Printf("✅ - %s ready at %s:%d\n", gw.name, gw.host, gw.port)
+					return
+				}
+			}
+		}(i, gw)
+	}
+	wg.Wait()
+
+	var pending []string
+	for i, gw := range gateways {
+		if !ready[i] {
+			pending = append(pending, fmt.Sprintf("%s (%s:%d)", gw.name, gw.host, gw.port))
+		}
+	}
+	if len(pending) > 0 {
+		return fmt.Errorf(
+			"cluster did not become ready to serve queries within %s; gateways not ready: %s. Check the multigateway and multipooler log files listed above for details",
+			constants.LocalBootstrapWaitTimeout, strings.Join(pending, ", "),
+		)
+	}
+	return nil
 }
 
 // start handles the cluster up command
@@ -168,6 +337,30 @@ func start(cmd *cobra.Command, args []string) error {
 		summary.AddService(result.ServiceName, result)
 	}
 
+	waitForBootstrap, err := cmd.Flags().GetBool("wait-for-bootstrap")
+	if err != nil {
+		return fmt.Errorf("failed to get wait-for-bootstrap flag: %w", err)
+	}
+	if waitForBootstrap {
+		gateways := collectGateways(allResults)
+		if len(gateways) == 0 {
+			return errors.New("cluster bootstrap returned no multigateways with a pg_port; cluster cannot serve queries")
+		}
+
+		creds := extractBootstrapCredentials(config.ProvisionerConfig)
+		probe := func(ctx context.Context, host string, port int) error {
+			return runGatewayProbeFn(ctx, host, port, creds)
+		}
+
+		fmt.Println()
+		fmt.Printf("⏳ - Waiting up to %s for the cluster to start serving queries...\n", constants.LocalBootstrapWaitTimeout)
+		waitCtx, cancel := context.WithTimeout(ctx, constants.LocalBootstrapWaitTimeout)
+		defer cancel()
+		if err := waitForGatewaysReady(waitCtx, gateways, probe); err != nil {
+			return err
+		}
+	}
+
 	// Print comprehensive summary
 	fmt.Println()
 	summary.PrintSummary()
@@ -183,7 +376,8 @@ func AddStartCommand(clusterCmd *cobra.Command) {
 		RunE:  start,
 	}
 
-	// No additional flags needed - config-path is provided by viperutil via root command
+	startCmd.Flags().Bool("wait-for-bootstrap", true,
+		"Wait for every multigateway to execute SELECT 1 successfully (using the postgres password from the loaded config) before returning; on timeout the command exits with an error")
 
 	clusterCmd.AddCommand(startCmd)
 }

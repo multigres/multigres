@@ -18,6 +18,7 @@
 package fakepgserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,10 +29,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Server is a fake PostgreSQL server for testing.
@@ -84,6 +85,39 @@ type Server struct {
 
 	// queryPatternUserCallback stores optional callbacks when a query with a pattern is called.
 	queryPatternUserCallback map[*regexp.Regexp]func(string)
+
+	// credentialProvider is the optional inner CredentialProvider used by
+	// the listener's auth path. Tests that exercise replication startup
+	// (replication=true / replication=database) must install one whose
+	// IsReplicationRole is true; without it, verifyReplicationRole fails
+	// closed for the trust-auth path.
+	credentialProvider server.CredentialProvider
+
+	// lastReplicationMode is the parsed `replication` startup parameter
+	// of the most recently established connection. Recorded via the
+	// ConnectionEstablishedHandler hook.
+	lastReplicationMode server.ReplicationMode
+
+	// rejectNextReplStartup, when armed, causes the next replication-mode
+	// startup (replication=true / replication=database) to be rejected with
+	// FATAL 42501 as if the role lacked the REPLICATION attribute. One-shot:
+	// consumed via CompareAndSwap so it auto-resets after the first matching
+	// startup. Non-replication startups are unaffected. Used by tests to
+	// assert dial-failure cleanup paths.
+	//
+	// We piggyback on verifyReplicationRole's GetCredentials path (see the
+	// GetCredentials method below) rather than introducing a new
+	// startup-rejection hook so the fake's failure modes stay aligned with
+	// production rolreplication-rejection plumbing — tests exercise the same
+	// post-auth gate real postgres uses, not a parallel error path.
+	//
+	// Listener-config qualifier: this scoping works because GetCredentials is
+	// reached only from verifyReplicationRole under fakepgserver's hardcoded
+	// trust auth. If fakepgserver ever grows SCRAM (which calls
+	// GetCredentials for every login, not just replication startups), this
+	// toggle would broaden to non-replication startups and the logic in
+	// GetCredentials would need to gate on replication mode explicitly.
+	rejectNextReplStartup atomic.Bool
 }
 
 type exprResult struct {
@@ -93,12 +127,103 @@ type exprResult struct {
 	err          string
 }
 
+// trustAllProvider implements server.TrustAuthProvider for testing.
+// It allows all connections without password authentication,
+// simulating Unix socket trust authentication.
+type trustAllProvider struct{}
+
+// AllowTrustAuth always returns true, allowing all connections without password.
+func (p *trustAllProvider) AllowTrustAuth(_ context.Context, _, _ string) bool {
+	return true
+}
+
+// GetCredentials dispatches to the test-installed CredentialProvider when one
+// is set. Trust-auth replication startups invoke this path inside
+// verifyReplicationRole (server/startup.go) when the auth-time SCRAM lookup
+// was skipped. Without an installed provider, replication startups are
+// rejected — which is the right default for a fake server.
+func (s *Server) GetCredentials(ctx context.Context, user, database string) (*server.Credentials, error) {
+	s.mu.Lock()
+	provider := s.credentialProvider
+	s.mu.Unlock()
+	if provider == nil {
+		return nil, fmt.Errorf("fakepgserver: no credential provider configured for %q", user)
+	}
+	creds, err := provider.GetCredentials(ctx, user, database)
+	if err != nil {
+		return nil, err
+	}
+	// One-shot rejection toggle: clear IsReplicationRole so the post-auth
+	// gate in verifyReplicationRole rejects this connection with a FATAL
+	// 42501, matching production rolreplication-rejection plumbing rather
+	// than a parallel error path. Trust-auth replication startups are the
+	// only path that reaches here under fakepgserver's current listener
+	// config, so non-replication sessions are unaffected. See the
+	// rejectNextReplStartup field comment for the SCRAM caveat.
+	if s.rejectNextReplStartup.CompareAndSwap(true, false) {
+		out := *creds
+		out.IsReplicationRole = false
+		return &out, nil
+	}
+	return creds, nil
+}
+
+// SetRejectNextReplicationStartup arms a one-shot toggle that causes the
+// next replication-mode startup (replication=true / replication=database)
+// to be rejected at the rolreplication gate. The toggle auto-resets after
+// firing, so subsequent replication startups succeed again. Pass false to
+// disarm explicitly. Tests use this to exercise dial-failure cleanup
+// without dropping the listener.
+func (s *Server) SetRejectNextReplicationStartup(reject bool) {
+	s.rejectNextReplStartup.Store(reject)
+}
+
+// SetCredentialProvider installs a server.CredentialProvider that the
+// listener's auth path will consult. Tests that exercise replication startup
+// (replication=true / replication=database) must call this with a provider
+// whose Credentials carry IsReplicationRole=true, otherwise the post-auth
+// gate rejects the connection.
+func (s *Server) SetCredentialProvider(provider server.CredentialProvider) *Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.credentialProvider = provider
+	return s
+}
+
+// LastReplicationMode returns the replication mode of the most recently
+// established connection. Returns ReplicationOff if no connection has
+// completed startup, or the last connection was a normal (non-replication)
+// session.
+//
+// The `replication` startup parameter is stripped from GetStartupParams()
+// after parsing, so tests must use this accessor to verify wire-level
+// replication mode.
+func (s *Server) LastReplicationMode() server.ReplicationMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastReplicationMode
+}
+
+// recordReplicationMode is invoked by the handler's ConnectionEstablished
+// hook to stash the most recent connection's mode for test assertions.
+func (s *Server) recordReplicationMode(mode server.ReplicationMode) {
+	s.mu.Lock()
+	s.lastReplicationMode = mode
+	s.mu.Unlock()
+}
+
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
 // It is used for ordered expected output.
 type ExpectedExecuteFetch struct {
 	Query       string
 	QueryResult *sqltypes.Result
 	Error       error
+
+	// AfterCallbackError, when set alongside QueryResult, causes the handler
+	// to first deliver the result via callback and then return this error.
+	// This simulates mid-stream failures where partial data is delivered
+	// before the connection dies (e.g., rows sent then FATAL 57P01).
+	AfterCallbackError error
 }
 
 // New creates a new fake PostgreSQL server for testing.
@@ -118,12 +243,18 @@ func New(t testing.TB) *Server {
 	// Create the handler.
 	handler := &fakeHandler{server: s}
 
-	// Create listener on random port.
+	// Create listener on random port with trust auth (simulates Unix socket
+	// trust auth). The server itself is wired as the CredentialProvider so
+	// tests can install one at runtime via SetCredentialProvider — required
+	// for replication-mode startups, which post-auth gate on the role's
+	// IsReplicationRole flag.
 	var err error
 	s.listener, err = server.NewListener(server.ListenerConfig{
-		Address: "127.0.0.1:0", // Random available port.
-		Handler: handler,
-		Logger:  slog.Default(),
+		Address:            "127.0.0.1:0", // Random available port.
+		Handler:            handler,
+		TrustAuthProvider:  &trustAllProvider{},
+		CredentialProvider: s,
+		Logger:             slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("fakepgserver: failed to create listener: %v", err)
@@ -168,6 +299,7 @@ func (s *Server) Address() string {
 }
 
 // ClientConfig returns a client.Config for connecting to this server.
+// No password is needed since fakepgserver uses trust authentication.
 func (s *Server) ClientConfig() *client.Config {
 	host, port, err := net.SplitHostPort(s.address)
 	if err != nil {
@@ -189,6 +321,15 @@ func (s *Server) ClientConfig() *client.Config {
 func (s *Server) Close() {
 	if err := s.listener.Close(); err != nil {
 		s.t.Logf("fakepgserver: close error: %v", err)
+	}
+}
+
+// CloseListener closes only the TCP listener, preventing new connections
+// while keeping existing connections alive. Use this for testing scenarios
+// where the initial connection should work but reconnect attempts should fail.
+func (s *Server) CloseListener() {
+	if err := s.listener.CloseListener(); err != nil {
+		s.t.Logf("fakepgserver: close listener error: %v", err)
 	}
 }
 
@@ -476,6 +617,10 @@ func (s *Server) handleQueryOrdered(q string) (*sqltypes.Result, error) {
 
 	if entry.Error != nil {
 		return nil, entry.Error
+	}
+
+	if entry.AfterCallbackError != nil {
+		return entry.QueryResult, entry.AfterCallbackError
 	}
 
 	return entry.QueryResult, nil

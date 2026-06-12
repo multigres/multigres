@@ -1,0 +1,16 @@
+# Known divergence: multigateway rejects LOAD by design (loading shared
+# libraries through the connection pooler is not permitted; see
+# go/services/multigateway/planner/unsafe_stmt.go). The library is preloaded
+# cluster-wide instead via shared_preload_libraries (PreloadLibraries on the
+# plpgsql_check spec in extensions.go), so the test's LOAD is semantically a
+# no-op and only the extra ERROR line differs.
+--- a
++++ b
+@@ -1,5 +1,7 @@
+ load 'plpgsql';
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ load 'plpgsql_check';
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ set client_min_messages to notice;
+ -- enforce context's displaying
+ -- emulate pre 9.6 behave

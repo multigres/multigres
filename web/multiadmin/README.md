@@ -1,4 +1,13 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Multiadmin Web UI
+
+Next.js frontend for the `multiadmin` service. It is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Prerequisites
+
+A running `multiadmin` backend reachable over HTTP. The UI proxies API
+requests to `http://localhost:15000` by default; override with the
+`MULTIADMIN_API_URL` environment variable (see `middleware.ts`). The local
+cluster from `demo/local/` or the k8s demo from `demo/k8s/` will start one.
 
 ## Getting Started
 
@@ -14,7 +23,10 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:18100](http://localhost:18100) with your browser to see the result.
+`next dev` binds to port `3000` by default — open
+[http://localhost:3000](http://localhost:3000) with your browser to see the
+result. Pass `-- --port <N>` (e.g. `npm run dev -- --port 18100`) to bind a
+different port.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

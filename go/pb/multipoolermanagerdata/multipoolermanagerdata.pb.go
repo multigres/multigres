@@ -38,6 +38,187 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// PostgresStatus is the observed state of the PostgreSQL server process.
+// This reflects what postgres actually is right now and may differ from
+// PoolerType during transitions (e.g. a REPLICA pooler in PROMOTING state).
+type PostgresStatus int32
+
+const (
+	// Cannot determine state: no data directory, process dead, or pgctld unreachable.
+	PostgresStatus_POSTGRES_STATUS_UNKNOWN PostgresStatus = 0
+	// Process is alive but not yet accepting connections (startup in progress).
+	PostgresStatus_POSTGRES_STATUS_STARTING PostgresStatus = 1
+	// pg_is_in_recovery() = true; replicating from primary.
+	PostgresStatus_POSTGRES_STATUS_STANDBY PostgresStatus = 2
+	// pg_promote() has been issued; postgres has not yet transitioned to primary mode.
+	PostgresStatus_POSTGRES_STATUS_PROMOTING PostgresStatus = 3
+	// pg_is_in_recovery() = false; accepting read-write connections.
+	PostgresStatus_POSTGRES_STATUS_PRIMARY PostgresStatus = 4
+)
+
+// Enum value maps for PostgresStatus.
+var (
+	PostgresStatus_name = map[int32]string{
+		0: "POSTGRES_STATUS_UNKNOWN",
+		1: "POSTGRES_STATUS_STARTING",
+		2: "POSTGRES_STATUS_STANDBY",
+		3: "POSTGRES_STATUS_PROMOTING",
+		4: "POSTGRES_STATUS_PRIMARY",
+	}
+	PostgresStatus_value = map[string]int32{
+		"POSTGRES_STATUS_UNKNOWN":   0,
+		"POSTGRES_STATUS_STARTING":  1,
+		"POSTGRES_STATUS_STANDBY":   2,
+		"POSTGRES_STATUS_PROMOTING": 3,
+		"POSTGRES_STATUS_PRIMARY":   4,
+	}
+)
+
+func (x PostgresStatus) Enum() *PostgresStatus {
+	p := new(PostgresStatus)
+	*p = x
+	return p
+}
+
+func (x PostgresStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PostgresStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[0].Descriptor()
+}
+
+func (PostgresStatus) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[0]
+}
+
+func (x PostgresStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PostgresStatus.Descriptor instead.
+func (PostgresStatus) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{0}
+}
+
+// PostgresAction identifies a long-running postgres manager operation.
+type PostgresAction int32
+
+const (
+	// No action in progress.
+	PostgresAction_POSTGRES_ACTION_UNSPECIFIED PostgresAction = 0
+	// PostgreSQL is being started (data directory already initialized).
+	PostgresAction_POSTGRES_ACTION_STARTING PostgresAction = 1
+	// A pgBackRest restore is running to initialize the data directory.
+	PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP PostgresAction = 2
+	// No backup exists yet; running initdb and creating the first pgBackRest backup.
+	PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP PostgresAction = 3
+)
+
+// Enum value maps for PostgresAction.
+var (
+	PostgresAction_name = map[int32]string{
+		0: "POSTGRES_ACTION_UNSPECIFIED",
+		1: "POSTGRES_ACTION_STARTING",
+		2: "POSTGRES_ACTION_RESTORING_FROM_BACKUP",
+		3: "POSTGRES_ACTION_CREATING_FIRST_BACKUP",
+	}
+	PostgresAction_value = map[string]int32{
+		"POSTGRES_ACTION_UNSPECIFIED":           0,
+		"POSTGRES_ACTION_STARTING":              1,
+		"POSTGRES_ACTION_RESTORING_FROM_BACKUP": 2,
+		"POSTGRES_ACTION_CREATING_FIRST_BACKUP": 3,
+	}
+)
+
+func (x PostgresAction) Enum() *PostgresAction {
+	p := new(PostgresAction)
+	*p = x
+	return p
+}
+
+func (x PostgresAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PostgresAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[1].Descriptor()
+}
+
+func (PostgresAction) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[1]
+}
+
+func (x PostgresAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PostgresAction.Descriptor instead.
+func (PostgresAction) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{1}
+}
+
+// SnapshotTrigger describes why a ManagerHealthSnapshot was sent.
+type SnapshotTrigger int32
+
+const (
+	// Default / unknown trigger. Not used by the server.
+	SnapshotTrigger_SNAPSHOT_TRIGGER_UNSPECIFIED SnapshotTrigger = 0
+	// Sent immediately when the stream is first opened.
+	SnapshotTrigger_SNAPSHOT_TRIGGER_INITIAL SnapshotTrigger = 1
+	// Triggered by a state-change broadcast (e.g. type change, SetPrimary).
+	SnapshotTrigger_SNAPSHOT_TRIGGER_BROADCAST SnapshotTrigger = 2
+	// Triggered by an explicit poll request from the orchestrator.
+	SnapshotTrigger_SNAPSHOT_TRIGGER_POLL SnapshotTrigger = 3
+	// Sent by the periodic heartbeat ticker.
+	SnapshotTrigger_SNAPSHOT_TRIGGER_HEARTBEAT SnapshotTrigger = 4
+)
+
+// Enum value maps for SnapshotTrigger.
+var (
+	SnapshotTrigger_name = map[int32]string{
+		0: "SNAPSHOT_TRIGGER_UNSPECIFIED",
+		1: "SNAPSHOT_TRIGGER_INITIAL",
+		2: "SNAPSHOT_TRIGGER_BROADCAST",
+		3: "SNAPSHOT_TRIGGER_POLL",
+		4: "SNAPSHOT_TRIGGER_HEARTBEAT",
+	}
+	SnapshotTrigger_value = map[string]int32{
+		"SNAPSHOT_TRIGGER_UNSPECIFIED": 0,
+		"SNAPSHOT_TRIGGER_INITIAL":     1,
+		"SNAPSHOT_TRIGGER_BROADCAST":   2,
+		"SNAPSHOT_TRIGGER_POLL":        3,
+		"SNAPSHOT_TRIGGER_HEARTBEAT":   4,
+	}
+)
+
+func (x SnapshotTrigger) Enum() *SnapshotTrigger {
+	p := new(SnapshotTrigger)
+	*p = x
+	return p
+}
+
+func (x SnapshotTrigger) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SnapshotTrigger) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[2].Descriptor()
+}
+
+func (SnapshotTrigger) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[2]
+}
+
+func (x SnapshotTrigger) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SnapshotTrigger.Descriptor instead.
+func (SnapshotTrigger) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{2}
+}
+
 // Replication pause mode - defines what aspect of replication to pause
 type ReplicationPauseMode int32
 
@@ -78,11 +259,11 @@ func (x ReplicationPauseMode) String() string {
 }
 
 func (ReplicationPauseMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[0].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[3].Descriptor()
 }
 
 func (ReplicationPauseMode) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[0]
+	return &file_multipoolermanagerdata_proto_enumTypes[3]
 }
 
 func (x ReplicationPauseMode) Number() protoreflect.EnumNumber {
@@ -91,7 +272,7 @@ func (x ReplicationPauseMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ReplicationPauseMode.Descriptor instead.
 func (ReplicationPauseMode) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{0}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{3}
 }
 
 // Synchronization method for standby servers
@@ -131,11 +312,11 @@ func (x SynchronousMethod) String() string {
 }
 
 func (SynchronousMethod) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[1].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[4].Descriptor()
 }
 
 func (SynchronousMethod) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[1]
+	return &file_multipoolermanagerdata_proto_enumTypes[4]
 }
 
 func (x SynchronousMethod) Number() protoreflect.EnumNumber {
@@ -144,60 +325,57 @@ func (x SynchronousMethod) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SynchronousMethod.Descriptor instead.
 func (SynchronousMethod) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{1}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{4}
 }
 
-// Enum representing the type of standby list modification
-type StandbyUpdateOperation int32
+// Enum representing the type of cohort membership change
+type CohortUpdateOperation int32
 
 const (
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED StandbyUpdateOperation = 0
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD         StandbyUpdateOperation = 1
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE      StandbyUpdateOperation = 2
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE     StandbyUpdateOperation = 3
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED CohortUpdateOperation = 0
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD         CohortUpdateOperation = 1
+	CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE      CohortUpdateOperation = 2
 )
 
-// Enum value maps for StandbyUpdateOperation.
+// Enum value maps for CohortUpdateOperation.
 var (
-	StandbyUpdateOperation_name = map[int32]string{
-		0: "STANDBY_UPDATE_OPERATION_UNSPECIFIED",
-		1: "STANDBY_UPDATE_OPERATION_ADD",
-		2: "STANDBY_UPDATE_OPERATION_REMOVE",
-		3: "STANDBY_UPDATE_OPERATION_REPLACE",
+	CohortUpdateOperation_name = map[int32]string{
+		0: "COHORT_UPDATE_OPERATION_UNSPECIFIED",
+		1: "COHORT_UPDATE_OPERATION_ADD",
+		2: "COHORT_UPDATE_OPERATION_REMOVE",
 	}
-	StandbyUpdateOperation_value = map[string]int32{
-		"STANDBY_UPDATE_OPERATION_UNSPECIFIED": 0,
-		"STANDBY_UPDATE_OPERATION_ADD":         1,
-		"STANDBY_UPDATE_OPERATION_REMOVE":      2,
-		"STANDBY_UPDATE_OPERATION_REPLACE":     3,
+	CohortUpdateOperation_value = map[string]int32{
+		"COHORT_UPDATE_OPERATION_UNSPECIFIED": 0,
+		"COHORT_UPDATE_OPERATION_ADD":         1,
+		"COHORT_UPDATE_OPERATION_REMOVE":      2,
 	}
 )
 
-func (x StandbyUpdateOperation) Enum() *StandbyUpdateOperation {
-	p := new(StandbyUpdateOperation)
+func (x CohortUpdateOperation) Enum() *CohortUpdateOperation {
+	p := new(CohortUpdateOperation)
 	*p = x
 	return p
 }
 
-func (x StandbyUpdateOperation) String() string {
+func (x CohortUpdateOperation) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (StandbyUpdateOperation) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[2].Descriptor()
+func (CohortUpdateOperation) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[5].Descriptor()
 }
 
-func (StandbyUpdateOperation) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[2]
+func (CohortUpdateOperation) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[5]
 }
 
-func (x StandbyUpdateOperation) Number() protoreflect.EnumNumber {
+func (x CohortUpdateOperation) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use StandbyUpdateOperation.Descriptor instead.
-func (StandbyUpdateOperation) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{2}
+// Deprecated: Use CohortUpdateOperation.Descriptor instead.
+func (CohortUpdateOperation) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
 }
 
 // Synchronous commit level
@@ -245,11 +423,11 @@ func (x SynchronousCommitLevel) String() string {
 }
 
 func (SynchronousCommitLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[3].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[6].Descriptor()
 }
 
 func (SynchronousCommitLevel) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[3]
+	return &file_multipoolermanagerdata_proto_enumTypes[6]
 }
 
 func (x SynchronousCommitLevel) Number() protoreflect.EnumNumber {
@@ -258,7 +436,7 @@ func (x SynchronousCommitLevel) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SynchronousCommitLevel.Descriptor instead.
 func (SynchronousCommitLevel) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{3}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
 }
 
 // Status represents the state of a backup
@@ -295,11 +473,11 @@ func (x BackupMetadata_Status) String() string {
 }
 
 func (BackupMetadata_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[4].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[7].Descriptor()
 }
 
 func (BackupMetadata_Status) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[4]
+	return &file_multipoolermanagerdata_proto_enumTypes[7]
 }
 
 func (x BackupMetadata_Status) Number() protoreflect.EnumNumber {
@@ -308,7 +486,7 @@ func (x BackupMetadata_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BackupMetadata_Status.Descriptor instead.
 func (BackupMetadata_Status) EnumDescriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{58, 0}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{33, 0}
 }
 
 // Primary connection information parsed from PostgreSQL's primary_conninfo setting
@@ -412,8 +590,24 @@ type StandbyReplicationStatus struct {
 	LastXactReplayTimestamp string `protobuf:"bytes,6,opt,name=last_xact_replay_timestamp,json=lastXactReplayTimestamp,proto3" json:"last_xact_replay_timestamp,omitempty"`
 	// Primary connection info parsed from primary_conninfo setting
 	PrimaryConnInfo *PrimaryConnInfo `protobuf:"bytes,7,opt,name=primary_conn_info,json=primaryConnInfo,proto3" json:"primary_conn_info,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// WAL receiver status from pg_stat_wal_receiver.status
+	// Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+	// Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+	WalReceiverStatus string `protobuf:"bytes,8,opt,name=wal_receiver_status,json=walReceiverStatus,proto3" json:"wal_receiver_status,omitempty"`
+	// Last time the standby received a message (WAL or keepalive) from the
+	// primary. From pg_stat_wal_receiver.last_msg_receive_time. Null if WAL
+	// receiver is not running.
+	LastMsgReceiveTime *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=last_msg_receive_time,json=lastMsgReceiveTime,proto3" json:"last_msg_receive_time,omitempty"`
+	// How often the standby sends status messages to the primary.
+	// From current_setting('wal_receiver_status_interval').
+	// Used to derive the heartbeat staleness threshold dynamically.
+	WalReceiverStatusInterval *durationpb.Duration `protobuf:"bytes,10,opt,name=wal_receiver_status_interval,json=walReceiverStatusInterval,proto3" json:"wal_receiver_status_interval,omitempty"`
+	// How long the standby waits without receiving a message from the primary
+	// before terminating the WAL receiver connection.
+	// From current_setting('wal_receiver_timeout').
+	WalReceiverTimeout *durationpb.Duration `protobuf:"bytes,11,opt,name=wal_receiver_timeout,json=walReceiverTimeout,proto3" json:"wal_receiver_timeout,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StandbyReplicationStatus) Reset() {
@@ -491,6 +685,34 @@ func (x *StandbyReplicationStatus) GetLastXactReplayTimestamp() string {
 func (x *StandbyReplicationStatus) GetPrimaryConnInfo() *PrimaryConnInfo {
 	if x != nil {
 		return x.PrimaryConnInfo
+	}
+	return nil
+}
+
+func (x *StandbyReplicationStatus) GetWalReceiverStatus() string {
+	if x != nil {
+		return x.WalReceiverStatus
+	}
+	return ""
+}
+
+func (x *StandbyReplicationStatus) GetLastMsgReceiveTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastMsgReceiveTime
+	}
+	return nil
+}
+
+func (x *StandbyReplicationStatus) GetWalReceiverStatusInterval() *durationpb.Duration {
+	if x != nil {
+		return x.WalReceiverStatusInterval
+	}
+	return nil
+}
+
+func (x *StandbyReplicationStatus) GetWalReceiverTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.WalReceiverTimeout
 	}
 	return nil
 }
@@ -659,125 +881,6 @@ func (*StartReplicationResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{5}
 }
 
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-type SetPrimaryConnInfoRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
-	// The postgres port is extracted from port_map["postgres"].
-	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
-	// Whether to stop replication before making changes
-	StopReplicationBefore bool `protobuf:"varint,2,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
-	// Whether to start replication after making changes
-	StartReplicationAfter bool `protobuf:"varint,3,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
-	// Current term for consensus (used by MultiOrch during initialization)
-	CurrentTerm int64 `protobuf:"varint,4,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
-	// Force the operation even if the term doesn't match
-	Force         bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetPrimaryConnInfoRequest) Reset() {
-	*x = SetPrimaryConnInfoRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetPrimaryConnInfoRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetPrimaryConnInfoRequest) ProtoMessage() {}
-
-func (x *SetPrimaryConnInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetPrimaryConnInfoRequest.ProtoReflect.Descriptor instead.
-func (*SetPrimaryConnInfoRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *SetPrimaryConnInfoRequest) GetPrimary() *clustermetadata.MultiPooler {
-	if x != nil {
-		return x.Primary
-	}
-	return nil
-}
-
-func (x *SetPrimaryConnInfoRequest) GetStopReplicationBefore() bool {
-	if x != nil {
-		return x.StopReplicationBefore
-	}
-	return false
-}
-
-func (x *SetPrimaryConnInfoRequest) GetStartReplicationAfter() bool {
-	if x != nil {
-		return x.StartReplicationAfter
-	}
-	return false
-}
-
-func (x *SetPrimaryConnInfoRequest) GetCurrentTerm() int64 {
-	if x != nil {
-		return x.CurrentTerm
-	}
-	return 0
-}
-
-func (x *SetPrimaryConnInfoRequest) GetForce() bool {
-	if x != nil {
-		return x.Force
-	}
-	return false
-}
-
-type SetPrimaryConnInfoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetPrimaryConnInfoResponse) Reset() {
-	*x = SetPrimaryConnInfoResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetPrimaryConnInfoResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetPrimaryConnInfoResponse) ProtoMessage() {}
-
-func (x *SetPrimaryConnInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetPrimaryConnInfoResponse.ProtoReflect.Descriptor instead.
-func (*SetPrimaryConnInfoResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{7}
-}
-
 // StopReplication stops WAL replay on standby
 type StopReplicationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -793,7 +896,7 @@ type StopReplicationRequest struct {
 
 func (x *StopReplicationRequest) Reset() {
 	*x = StopReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -805,7 +908,7 @@ func (x *StopReplicationRequest) String() string {
 func (*StopReplicationRequest) ProtoMessage() {}
 
 func (x *StopReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -818,7 +921,7 @@ func (x *StopReplicationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopReplicationRequest.ProtoReflect.Descriptor instead.
 func (*StopReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StopReplicationRequest) GetMode() ReplicationPauseMode {
@@ -845,7 +948,7 @@ type StopReplicationResponse struct {
 
 func (x *StopReplicationResponse) Reset() {
 	*x = StopReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -857,7 +960,7 @@ func (x *StopReplicationResponse) String() string {
 func (*StopReplicationResponse) ProtoMessage() {}
 
 func (x *StopReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -870,92 +973,10 @@ func (x *StopReplicationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopReplicationResponse.ProtoReflect.Descriptor instead.
 func (*StopReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{9}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StopReplicationResponse) GetStatus() *StandbyReplicationStatus {
-	if x != nil {
-		return x.Status
-	}
-	return nil
-}
-
-// StandbyReplicationStatus gets the current replication status of the standby
-type StandbyReplicationStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StandbyReplicationStatusRequest) Reset() {
-	*x = StandbyReplicationStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StandbyReplicationStatusRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StandbyReplicationStatusRequest) ProtoMessage() {}
-
-func (x *StandbyReplicationStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StandbyReplicationStatusRequest.ProtoReflect.Descriptor instead.
-func (*StandbyReplicationStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{10}
-}
-
-type StandbyReplicationStatusResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current replication status
-	Status        *StandbyReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StandbyReplicationStatusResponse) Reset() {
-	*x = StandbyReplicationStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StandbyReplicationStatusResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StandbyReplicationStatusResponse) ProtoMessage() {}
-
-func (x *StandbyReplicationStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StandbyReplicationStatusResponse.ProtoReflect.Descriptor instead.
-func (*StandbyReplicationStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *StandbyReplicationStatusResponse) GetStatus() *StandbyReplicationStatus {
 	if x != nil {
 		return x.Status
 	}
@@ -972,14 +993,17 @@ type SynchronousReplicationConfiguration struct {
 	// Number of synchronous standbys
 	NumSync int32 `protobuf:"varint,3,opt,name=num_sync,json=numSync,proto3" json:"num_sync,omitempty"`
 	// List of standby IDs that can participate in synchronous replication
-	StandbyIds    []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	StandbyIds []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
+	// Application names for standbys in standby_ids (format: {cell}_{name}).
+	// Parallel to standby_ids: standby_application_names[i] is the application name for standby_ids[i].
+	StandbyApplicationNames []string `protobuf:"bytes,5,rep,name=standby_application_names,json=standbyApplicationNames,proto3" json:"standby_application_names,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *SynchronousReplicationConfiguration) Reset() {
 	*x = SynchronousReplicationConfiguration{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -991,7 +1015,7 @@ func (x *SynchronousReplicationConfiguration) String() string {
 func (*SynchronousReplicationConfiguration) ProtoMessage() {}
 
 func (x *SynchronousReplicationConfiguration) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1004,7 +1028,7 @@ func (x *SynchronousReplicationConfiguration) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use SynchronousReplicationConfiguration.ProtoReflect.Descriptor instead.
 func (*SynchronousReplicationConfiguration) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{12}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SynchronousReplicationConfiguration) GetSynchronousCommit() SynchronousCommitLevel {
@@ -1035,6 +1059,13 @@ func (x *SynchronousReplicationConfiguration) GetStandbyIds() []*clustermetadata
 	return nil
 }
 
+func (x *SynchronousReplicationConfiguration) GetStandbyApplicationNames() []string {
+	if x != nil {
+		return x.StandbyApplicationNames
+	}
+	return nil
+}
+
 // PostgreSQL primary server status
 type PrimaryStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1044,17 +1075,21 @@ type PrimaryStatus struct {
 	Ready bool `protobuf:"varint,2,opt,name=ready,proto3" json:"ready,omitempty"`
 	// Follower servers that are currently connected to the primary (parsed from pg_stat_replication).
 	// This only includes followers that have an active replication connection, not all configured standbys.
-	// For a complete view of all configured standbys (connected and disconnected), use GetFollowers.
 	ConnectedFollowers []*clustermetadata.ID `protobuf:"bytes,3,rep,name=connected_followers,json=connectedFollowers,proto3" json:"connected_followers,omitempty"`
 	// Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
 	SyncReplicationConfig *SynchronousReplicationConfiguration `protobuf:"bytes,4,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Maximum number of WAL sender processes the primary allows (the
+	// max_wal_senders setting). Surfacing this alongside connected_followers makes
+	// wal-sender capacity exhaustion visible: once connected_followers reaches
+	// max_wal_senders, additional standbys cannot stream.
+	MaxWalSenders int32 `protobuf:"varint,5,opt,name=max_wal_senders,json=maxWalSenders,proto3" json:"max_wal_senders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PrimaryStatus) Reset() {
 	*x = PrimaryStatus{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1101,7 @@ func (x *PrimaryStatus) String() string {
 func (*PrimaryStatus) ProtoMessage() {}
 
 func (x *PrimaryStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1114,7 @@ func (x *PrimaryStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrimaryStatus.ProtoReflect.Descriptor instead.
 func (*PrimaryStatus) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{13}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PrimaryStatus) GetLsn() string {
@@ -1110,168 +1145,11 @@ func (x *PrimaryStatus) GetSyncReplicationConfig() *SynchronousReplicationConfig
 	return nil
 }
 
-// PrimaryStatus gets the status of the primary server
-type PrimaryStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PrimaryStatusRequest) Reset() {
-	*x = PrimaryStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PrimaryStatusRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PrimaryStatusRequest) ProtoMessage() {}
-
-func (x *PrimaryStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
+func (x *PrimaryStatus) GetMaxWalSenders() int32 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.MaxWalSenders
 	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PrimaryStatusRequest.ProtoReflect.Descriptor instead.
-func (*PrimaryStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{14}
-}
-
-type PrimaryStatusResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Primary server status
-	Status        *PrimaryStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PrimaryStatusResponse) Reset() {
-	*x = PrimaryStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PrimaryStatusResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PrimaryStatusResponse) ProtoMessage() {}
-
-func (x *PrimaryStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PrimaryStatusResponse.ProtoReflect.Descriptor instead.
-func (*PrimaryStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *PrimaryStatusResponse) GetStatus() *PrimaryStatus {
-	if x != nil {
-		return x.Status
-	}
-	return nil
-}
-
-// PrimaryPosition gets the current LSN position of the primary
-type PrimaryPositionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PrimaryPositionRequest) Reset() {
-	*x = PrimaryPositionRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PrimaryPositionRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PrimaryPositionRequest) ProtoMessage() {}
-
-func (x *PrimaryPositionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PrimaryPositionRequest.ProtoReflect.Descriptor instead.
-func (*PrimaryPositionRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{16}
-}
-
-type PrimaryPositionResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current primary LSN position
-	LsnPosition   string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PrimaryPositionResponse) Reset() {
-	*x = PrimaryPositionResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PrimaryPositionResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PrimaryPositionResponse) ProtoMessage() {}
-
-func (x *PrimaryPositionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PrimaryPositionResponse.ProtoReflect.Descriptor instead.
-func (*PrimaryPositionResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *PrimaryPositionResponse) GetLsnPosition() string {
-	if x != nil {
-		return x.LsnPosition
-	}
-	return ""
+	return 0
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -1289,24 +1167,41 @@ type Status struct {
 	IsInitialized bool `protobuf:"varint,4,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`
 	// Whether data directory exists
 	HasDataDirectory bool `protobuf:"varint,5,opt,name=has_data_directory,json=hasDataDirectory,proto3" json:"has_data_directory,omitempty"`
-	// Whether PostgreSQL is currently running
+	// Whether the PostgreSQL process exists (regardless of whether it accepts connections).
+	// True if the postgres process is running (e.g. SIGSTOP'd postgres: process exists but
+	// pg_isready fails). False if the process is dead (e.g. after SIGKILL).
+	// Use this to distinguish a temporarily-unresponsive postgres (SIGSTOP) from a dead
+	// postgres (SIGKILL) when postgres_ready is false.
 	PostgresRunning bool `protobuf:"varint,6,opt,name=postgres_running,json=postgresRunning,proto3" json:"postgres_running,omitempty"`
-	// Current postgres-level role from pg_is_in_recovery ("primary", "standby", or "unknown")
-	// This may differ from pooler_type during transitions or failures.
-	PostgresRole string `protobuf:"bytes,7,opt,name=postgres_role,json=postgresRole,proto3" json:"postgres_role,omitempty"`
+	// Observed state of the PostgreSQL server process. This reflects what postgres
+	// actually is right now and may differ from pooler_type during transitions.
+	PostgresStatus PostgresStatus `protobuf:"varint,7,opt,name=postgres_status,json=postgresStatus,proto3,enum=multipoolermanagerdata.PostgresStatus" json:"postgres_status,omitempty"`
 	// Current WAL position (empty if db not connected)
 	WalPosition string `protobuf:"bytes,8,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
-	// Current consensus term
-	ConsensusTerm int64 `protobuf:"varint,9,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Shard ID that this pooler belongs to
-	ShardId       string `protobuf:"bytes,10,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	ShardId string `protobuf:"bytes,10,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	// Current long-running postgres action in progress, if any.
+	// UNSPECIFIED means no action is running (postgres is idle or already running).
+	PostgresAction PostgresAction `protobuf:"varint,11,opt,name=postgres_action,json=postgresAction,proto3,enum=multipoolermanagerdata.PostgresAction" json:"postgres_action,omitempty"`
+	// How long the current action has been running.
+	// Only meaningful when postgres_action != UNSPECIFIED.
+	PostgresActionDuration *durationpb.Duration `protobuf:"bytes,12,opt,name=postgres_action_duration,json=postgresActionDuration,proto3" json:"postgres_action_duration,omitempty"`
+	// Cohort members from the most recent multigres.rule_history record.
+	// Empty if the table has no records or the database is unreachable.
+	// A record with an empty list (written during first-backup creation) signals
+	// that the shard has been initialized but not yet had its cohort established.
+	CohortMembers []*clustermetadata.ID `protobuf:"bytes,13,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	// Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
+	// This is the combined check: process must exist AND respond to pg_isready.
+	// Use postgres_running to check only if the process exists.
+	PostgresReady bool `protobuf:"varint,14,opt,name=postgres_ready,json=postgresReady,proto3" json:"postgres_ready,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Status) Reset() {
 	*x = Status{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1318,7 +1213,7 @@ func (x *Status) String() string {
 func (*Status) ProtoMessage() {}
 
 func (x *Status) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1331,7 +1226,7 @@ func (x *Status) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Status.ProtoReflect.Descriptor instead.
 func (*Status) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{18}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Status) GetPoolerType() clustermetadata.PoolerType {
@@ -1376,11 +1271,11 @@ func (x *Status) GetPostgresRunning() bool {
 	return false
 }
 
-func (x *Status) GetPostgresRole() string {
+func (x *Status) GetPostgresStatus() PostgresStatus {
 	if x != nil {
-		return x.PostgresRole
+		return x.PostgresStatus
 	}
-	return ""
+	return PostgresStatus_POSTGRES_STATUS_UNKNOWN
 }
 
 func (x *Status) GetWalPosition() string {
@@ -1390,18 +1285,39 @@ func (x *Status) GetWalPosition() string {
 	return ""
 }
 
-func (x *Status) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
 func (x *Status) GetShardId() string {
 	if x != nil {
 		return x.ShardId
 	}
 	return ""
+}
+
+func (x *Status) GetPostgresAction() PostgresAction {
+	if x != nil {
+		return x.PostgresAction
+	}
+	return PostgresAction_POSTGRES_ACTION_UNSPECIFIED
+}
+
+func (x *Status) GetPostgresActionDuration() *durationpb.Duration {
+	if x != nil {
+		return x.PostgresActionDuration
+	}
+	return nil
+}
+
+func (x *Status) GetCohortMembers() []*clustermetadata.ID {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
+func (x *Status) GetPostgresReady() bool {
+	if x != nil {
+		return x.PostgresReady
+	}
+	return false
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -1413,7 +1329,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1425,7 +1341,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1438,19 +1354,32 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{19}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{11}
 }
 
 type StatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *Status                `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Status *Status                `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// Availability status for nodes that are or have been primary. Wraps
+	// LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
+	// which the signal applies. Used by multiorch to detect voluntary demotions
+	// (Recruit) without a separate ConsensusStatus RPC call.
+	// Staleness check: availability_status.leadership_status.primary_term must
+	// equal the coordinator term of the committed rule (via ConsensusStatus)
+	// to ensure signals from previous election cycles are ignored.
+	AvailabilityStatus *clustermetadata.AvailabilityStatus `protobuf:"bytes,3,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
+	// ConsensusStatus snapshot for this pooler. Used by multiorch to derive the
+	// primary term (via commonconsensus.PrimaryTerm) and to detect divergence
+	// without a separate ConsensusStatus RPC. This is the same data as the
+	// ConsensusStatus RPC response but delivered in-band with the health stream.
+	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,4,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1391,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1404,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{20}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StatusResponse) GetStatus() *Status {
@@ -1485,50 +1414,49 @@ func (x *StatusResponse) GetStatus() *Status {
 	return nil
 }
 
-// Replication statistics for a connected follower from pg_stat_replication
-type ReplicationStats struct {
+func (x *StatusResponse) GetAvailabilityStatus() *clustermetadata.AvailabilityStatus {
+	if x != nil {
+		return x.AvailabilityStatus
+	}
+	return nil
+}
+
+func (x *StatusResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus {
+	if x != nil {
+		return x.ConsensusStatus
+	}
+	return nil
+}
+
+// ManagerHealthStreamClientMessage is sent from the orchestrator to the pooler.
+// The first message on a new stream must be a start message; subsequent messages
+// may be poll requests.
+type ManagerHealthStreamClientMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// PostgreSQL backend process ID for this replication connection
-	Pid int32 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	// Client IP address of the follower
-	ClientAddr string `protobuf:"bytes,2,opt,name=client_addr,json=clientAddr,proto3" json:"client_addr,omitempty"`
-	// Current WAL sender state (startup, catchup, streaming, backup, stopping)
-	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
-	// Synchronous state (async, potential, sync, quorum)
-	SyncState string `protobuf:"bytes,4,opt,name=sync_state,json=syncState,proto3" json:"sync_state,omitempty"`
-	// LSN of the last WAL location sent to this standby
-	SentLsn string `protobuf:"bytes,5,opt,name=sent_lsn,json=sentLsn,proto3" json:"sent_lsn,omitempty"`
-	// LSN of the last WAL location written to disk on this standby
-	WriteLsn string `protobuf:"bytes,6,opt,name=write_lsn,json=writeLsn,proto3" json:"write_lsn,omitempty"`
-	// LSN of the last WAL location flushed to disk on this standby
-	FlushLsn string `protobuf:"bytes,7,opt,name=flush_lsn,json=flushLsn,proto3" json:"flush_lsn,omitempty"`
-	// LSN of the last WAL location replayed on this standby
-	ReplayLsn string `protobuf:"bytes,8,opt,name=replay_lsn,json=replayLsn,proto3" json:"replay_lsn,omitempty"`
-	// Time taken to write recent WAL locally (may be null)
-	WriteLag *durationpb.Duration `protobuf:"bytes,9,opt,name=write_lag,json=writeLag,proto3" json:"write_lag,omitempty"`
-	// Time taken to flush recent WAL locally (may be null)
-	FlushLag *durationpb.Duration `protobuf:"bytes,10,opt,name=flush_lag,json=flushLag,proto3" json:"flush_lag,omitempty"`
-	// Time taken to replay recent WAL on standby (may be null)
-	ReplayLag     *durationpb.Duration `protobuf:"bytes,11,opt,name=replay_lag,json=replayLag,proto3" json:"replay_lag,omitempty"`
+	// Types that are valid to be assigned to Message:
+	//
+	//	*ManagerHealthStreamClientMessage_Start
+	//	*ManagerHealthStreamClientMessage_Poll
+	Message       isManagerHealthStreamClientMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ReplicationStats) Reset() {
-	*x = ReplicationStats{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
+func (x *ManagerHealthStreamClientMessage) Reset() {
+	*x = ManagerHealthStreamClientMessage{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ReplicationStats) String() string {
+func (x *ManagerHealthStreamClientMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ReplicationStats) ProtoMessage() {}
+func (*ManagerHealthStreamClientMessage) ProtoMessage() {}
 
-func (x *ReplicationStats) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
+func (x *ManagerHealthStreamClientMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1539,119 +1467,88 @@ func (x *ReplicationStats) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReplicationStats.ProtoReflect.Descriptor instead.
-func (*ReplicationStats) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{21}
+// Deprecated: Use ManagerHealthStreamClientMessage.ProtoReflect.Descriptor instead.
+func (*ManagerHealthStreamClientMessage) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *ReplicationStats) GetPid() int32 {
+func (x *ManagerHealthStreamClientMessage) GetMessage() isManagerHealthStreamClientMessage_Message {
 	if x != nil {
-		return x.Pid
-	}
-	return 0
-}
-
-func (x *ReplicationStats) GetClientAddr() string {
-	if x != nil {
-		return x.ClientAddr
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetState() string {
-	if x != nil {
-		return x.State
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetSyncState() string {
-	if x != nil {
-		return x.SyncState
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetSentLsn() string {
-	if x != nil {
-		return x.SentLsn
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetWriteLsn() string {
-	if x != nil {
-		return x.WriteLsn
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetFlushLsn() string {
-	if x != nil {
-		return x.FlushLsn
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetReplayLsn() string {
-	if x != nil {
-		return x.ReplayLsn
-	}
-	return ""
-}
-
-func (x *ReplicationStats) GetWriteLag() *durationpb.Duration {
-	if x != nil {
-		return x.WriteLag
+		return x.Message
 	}
 	return nil
 }
 
-func (x *ReplicationStats) GetFlushLag() *durationpb.Duration {
+func (x *ManagerHealthStreamClientMessage) GetStart() *ManagerHealthStreamStartRequest {
 	if x != nil {
-		return x.FlushLag
+		if x, ok := x.Message.(*ManagerHealthStreamClientMessage_Start); ok {
+			return x.Start
+		}
 	}
 	return nil
 }
 
-func (x *ReplicationStats) GetReplayLag() *durationpb.Duration {
+func (x *ManagerHealthStreamClientMessage) GetPoll() *ManagerHealthStreamPollRequest {
 	if x != nil {
-		return x.ReplayLag
+		if x, ok := x.Message.(*ManagerHealthStreamClientMessage_Poll); ok {
+			return x.Poll
+		}
 	}
 	return nil
 }
 
-// Information about a follower that is part of the current cohort (configured in
-// synchronous_standby_names). Includes connection status and replication stats if connected.
-type FollowerInfo struct {
+type isManagerHealthStreamClientMessage_Message interface {
+	isManagerHealthStreamClientMessage_Message()
+}
+
+type ManagerHealthStreamClientMessage_Start struct {
+	// Sent once at stream open to identify the orchestrator.
+	Start *ManagerHealthStreamStartRequest `protobuf:"bytes,1,opt,name=start,proto3,oneof"`
+}
+
+type ManagerHealthStreamClientMessage_Poll struct {
+	// Requests an immediate health snapshot from the pooler.
+	// Used by the orchestrator to trigger fresh state on demand (e.g. in tests).
+	Poll *ManagerHealthStreamPollRequest `protobuf:"bytes,2,opt,name=poll,proto3,oneof"`
+}
+
+func (*ManagerHealthStreamClientMessage_Start) isManagerHealthStreamClientMessage_Message() {}
+
+func (*ManagerHealthStreamClientMessage_Poll) isManagerHealthStreamClientMessage_Message() {}
+
+// ManagerHealthStreamStartRequest is sent as the first message inside
+// ManagerHealthStreamClientMessage to open the stream and negotiate timing.
+type ManagerHealthStreamStartRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Cluster ID of the follower from synchronous_standby_names configuration
-	FollowerId *clustermetadata.ID `protobuf:"bytes,1,opt,name=follower_id,json=followerId,proto3" json:"follower_id,omitempty"`
-	// Application name (format: {cell}_{name})
-	ApplicationName string `protobuf:"bytes,2,opt,name=application_name,json=applicationName,proto3" json:"application_name,omitempty"`
-	// Whether this follower is currently connected to the primary
-	IsConnected bool `protobuf:"varint,3,opt,name=is_connected,json=isConnected,proto3" json:"is_connected,omitempty"`
-	// Replication statistics (only populated if is_connected is true)
-	ReplicationStats *ReplicationStats `protobuf:"bytes,4,opt,name=replication_stats,json=replicationStats,proto3" json:"replication_stats,omitempty"`
+	// snapshot_interval is how often the server should proactively push
+	// a snapshot when no state-change broadcast has occurred.
+	// Zero means use the server default (currently 5s).
+	SnapshotInterval *durationpb.Duration `protobuf:"bytes,1,opt,name=snapshot_interval,json=snapshotInterval,proto3" json:"snapshot_interval,omitempty"`
+	// staleness_timeout is the window after which the client will treat
+	// the stream as stale and reconnect. The server echoes the actual value it
+	// will use in ManagerHealthStreamStartResponse and in every subsequent
+	// ManagerHealthSnapshot.timeout_seconds.
+	// Zero means use the server default (currently 90s).
+	StalenessTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=staleness_timeout,json=stalenessTimeout,proto3" json:"staleness_timeout,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *FollowerInfo) Reset() {
-	*x = FollowerInfo{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
+func (x *ManagerHealthStreamStartRequest) Reset() {
+	*x = ManagerHealthStreamStartRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *FollowerInfo) String() string {
+func (x *ManagerHealthStreamStartRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*FollowerInfo) ProtoMessage() {}
+func (*ManagerHealthStreamStartRequest) ProtoMessage() {}
 
-func (x *FollowerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
+func (x *ManagerHealthStreamStartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1662,61 +1559,48 @@ func (x *FollowerInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use FollowerInfo.ProtoReflect.Descriptor instead.
-func (*FollowerInfo) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{22}
+// Deprecated: Use ManagerHealthStreamStartRequest.ProtoReflect.Descriptor instead.
+func (*ManagerHealthStreamStartRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *FollowerInfo) GetFollowerId() *clustermetadata.ID {
+func (x *ManagerHealthStreamStartRequest) GetSnapshotInterval() *durationpb.Duration {
 	if x != nil {
-		return x.FollowerId
+		return x.SnapshotInterval
 	}
 	return nil
 }
 
-func (x *FollowerInfo) GetApplicationName() string {
+func (x *ManagerHealthStreamStartRequest) GetStalenessTimeout() *durationpb.Duration {
 	if x != nil {
-		return x.ApplicationName
-	}
-	return ""
-}
-
-func (x *FollowerInfo) GetIsConnected() bool {
-	if x != nil {
-		return x.IsConnected
-	}
-	return false
-}
-
-func (x *FollowerInfo) GetReplicationStats() *ReplicationStats {
-	if x != nil {
-		return x.ReplicationStats
+		return x.StalenessTimeout
 	}
 	return nil
 }
 
-// GetFollowers gets the list of follower servers with detailed replication status
-type GetFollowersRequest struct {
+// ManagerHealthStreamPollRequest triggers an immediate health snapshot.
+// The message carries no payload; its presence on the stream is the signal.
+type ManagerHealthStreamPollRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetFollowersRequest) Reset() {
-	*x = GetFollowersRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
+func (x *ManagerHealthStreamPollRequest) Reset() {
+	*x = ManagerHealthStreamPollRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetFollowersRequest) String() string {
+func (x *ManagerHealthStreamPollRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetFollowersRequest) ProtoMessage() {}
+func (*ManagerHealthStreamPollRequest) ProtoMessage() {}
 
-func (x *GetFollowersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
+func (x *ManagerHealthStreamPollRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1727,38 +1611,40 @@ func (x *GetFollowersRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetFollowersRequest.ProtoReflect.Descriptor instead.
-func (*GetFollowersRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{23}
+// Deprecated: Use ManagerHealthStreamPollRequest.ProtoReflect.Descriptor instead.
+func (*ManagerHealthStreamPollRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{15}
 }
 
-type GetFollowersResponse struct {
+// ManagerHealthStreamStartResponse is the first message the server sends after
+// receiving a valid start message. It reports the actual values the server will
+// use, which may differ from the requested values if they were clamped or adjusted.
+type ManagerHealthStreamStartResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Information about all followers configured in synchronous_standby_names.
-	// Each entry indicates whether the follower is connected and includes replication
-	// statistics if available. This provides a complete view of the expected cohort.
-	Followers []*FollowerInfo `protobuf:"bytes,1,rep,name=followers,proto3" json:"followers,omitempty"`
-	// Current synchronous replication configuration for context
-	SyncConfig    *SynchronousReplicationConfiguration `protobuf:"bytes,2,opt,name=sync_config,json=syncConfig,proto3" json:"sync_config,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// snapshot_interval is the per-stream proactive snapshot interval.
+	SnapshotInterval *durationpb.Duration `protobuf:"bytes,1,opt,name=snapshot_interval,json=snapshotInterval,proto3" json:"snapshot_interval,omitempty"`
+	// staleness_timeout is the staleness window that will be echoed in
+	// every subsequent ManagerHealthSnapshot.timeout_seconds.
+	StalenessTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=staleness_timeout,json=stalenessTimeout,proto3" json:"staleness_timeout,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
-func (x *GetFollowersResponse) Reset() {
-	*x = GetFollowersResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
+func (x *ManagerHealthStreamStartResponse) Reset() {
+	*x = ManagerHealthStreamStartResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetFollowersResponse) String() string {
+func (x *ManagerHealthStreamStartResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetFollowersResponse) ProtoMessage() {}
+func (*ManagerHealthStreamStartResponse) ProtoMessage() {}
 
-func (x *GetFollowersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
+func (x *ManagerHealthStreamStartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1769,55 +1655,54 @@ func (x *GetFollowersResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetFollowersResponse.ProtoReflect.Descriptor instead.
-func (*GetFollowersResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{24}
+// Deprecated: Use ManagerHealthStreamStartResponse.ProtoReflect.Descriptor instead.
+func (*ManagerHealthStreamStartResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *GetFollowersResponse) GetFollowers() []*FollowerInfo {
+func (x *ManagerHealthStreamStartResponse) GetSnapshotInterval() *durationpb.Duration {
 	if x != nil {
-		return x.Followers
+		return x.SnapshotInterval
 	}
 	return nil
 }
 
-func (x *GetFollowersResponse) GetSyncConfig() *SynchronousReplicationConfiguration {
+func (x *ManagerHealthStreamStartResponse) GetStalenessTimeout() *durationpb.Duration {
 	if x != nil {
-		return x.SyncConfig
+		return x.StalenessTimeout
 	}
 	return nil
 }
 
-// Demote demotes the current leader server
-// This is called during the Revocation stage of generalized consensus to safely
-// transition a primary to read-only mode and prevent it from making further progress.
-type DemoteRequest struct {
+// ManagerHealthStreamResponse is sent by the pooler to the orchestrator.
+// The first message is always a ManagerHealthStreamStartResponse confirming
+// the negotiated timing; subsequent messages are health snapshots.
+type ManagerHealthStreamResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Consensus term for this demotion operation
-	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Drain timeout - how long to wait for in-flight queries (default: 5s)
-	DrainTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
-	// Force the operation even if term validation fails
-	Force         bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	// Types that are valid to be assigned to Message:
+	//
+	//	*ManagerHealthStreamResponse_Start
+	//	*ManagerHealthStreamResponse_Snapshot
+	Message       isManagerHealthStreamResponse_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DemoteRequest) Reset() {
-	*x = DemoteRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
+func (x *ManagerHealthStreamResponse) Reset() {
+	*x = ManagerHealthStreamResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DemoteRequest) String() string {
+func (x *ManagerHealthStreamResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DemoteRequest) ProtoMessage() {}
+func (*ManagerHealthStreamResponse) ProtoMessage() {}
 
-func (x *DemoteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
+func (x *ManagerHealthStreamResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1828,126 +1713,86 @@ func (x *DemoteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DemoteRequest.ProtoReflect.Descriptor instead.
-func (*DemoteRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
+// Deprecated: Use ManagerHealthStreamResponse.ProtoReflect.Descriptor instead.
+func (*ManagerHealthStreamResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *DemoteRequest) GetConsensusTerm() int64 {
+func (x *ManagerHealthStreamResponse) GetMessage() isManagerHealthStreamResponse_Message {
 	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-func (x *DemoteRequest) GetDrainTimeout() *durationpb.Duration {
-	if x != nil {
-		return x.DrainTimeout
+		return x.Message
 	}
 	return nil
 }
 
-func (x *DemoteRequest) GetForce() bool {
+func (x *ManagerHealthStreamResponse) GetStart() *ManagerHealthStreamStartResponse {
 	if x != nil {
-		return x.Force
+		if x, ok := x.Message.(*ManagerHealthStreamResponse_Start); ok {
+			return x.Start
+		}
 	}
-	return false
+	return nil
 }
 
-type DemoteResponse struct {
+func (x *ManagerHealthStreamResponse) GetSnapshot() *ManagerHealthSnapshot {
+	if x != nil {
+		if x, ok := x.Message.(*ManagerHealthStreamResponse_Snapshot); ok {
+			return x.Snapshot
+		}
+	}
+	return nil
+}
+
+type isManagerHealthStreamResponse_Message interface {
+	isManagerHealthStreamResponse_Message()
+}
+
+type ManagerHealthStreamResponse_Start struct {
+	// Sent once immediately after the start message is received.
+	Start *ManagerHealthStreamStartResponse `protobuf:"bytes,1,opt,name=start,proto3,oneof"`
+}
+
+type ManagerHealthStreamResponse_Snapshot struct {
+	// Full health snapshot, sent on connection, state change, poll, or heartbeat.
+	Snapshot *ManagerHealthSnapshot `protobuf:"bytes,2,opt,name=snapshot,proto3,oneof"`
+}
+
+func (*ManagerHealthStreamResponse_Start) isManagerHealthStreamResponse_Message() {}
+
+func (*ManagerHealthStreamResponse_Snapshot) isManagerHealthStreamResponse_Message() {}
+
+// ManagerHealthSnapshot is a full health snapshot of the pooler.
+// Sent immediately on connection, on any state change, and periodically as a
+// heartbeat when no state change has occurred.
+type ManagerHealthSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the pooler was already demoted (idempotent check)
-	WasAlreadyDemoted bool `protobuf:"varint,1,opt,name=was_already_demoted,json=wasAlreadyDemoted,proto3" json:"was_already_demoted,omitempty"`
-	// Consensus term at the time of demotion
-	ConsensusTerm int64 `protobuf:"varint,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// LSN position at the time of demotion (final position as primary)
-	LsnPosition string `protobuf:"bytes,3,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
-	// Number of connections that were terminated
-	ConnectionsTerminated int32 `protobuf:"varint,4,opt,name=connections_terminated,json=connectionsTerminated,proto3" json:"connections_terminated,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
-}
-
-func (x *DemoteResponse) Reset() {
-	*x = DemoteResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DemoteResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DemoteResponse) ProtoMessage() {}
-
-func (x *DemoteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DemoteResponse.ProtoReflect.Descriptor instead.
-func (*DemoteResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *DemoteResponse) GetWasAlreadyDemoted() bool {
-	if x != nil {
-		return x.WasAlreadyDemoted
-	}
-	return false
-}
-
-func (x *DemoteResponse) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-func (x *DemoteResponse) GetLsnPosition() string {
-	if x != nil {
-		return x.LsnPosition
-	}
-	return ""
-}
-
-func (x *DemoteResponse) GetConnectionsTerminated() int32 {
-	if x != nil {
-		return x.ConnectionsTerminated
-	}
-	return 0
-}
-
-// UndoDemote undoes a demotion
-type UndoDemoteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	// Full health state of the pooler.
+	Status *StatusResponse `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// The duration the orchestrator should use to detect a stale or dead stream.
+	// If no message is received within this duration, the pooler should be marked
+	// unhealthy.
+	Timeout *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Why this snapshot was sent. Useful for diagnostics and testing.
+	Trigger       SnapshotTrigger `protobuf:"varint,3,opt,name=trigger,proto3,enum=multipoolermanagerdata.SnapshotTrigger" json:"trigger,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UndoDemoteRequest) Reset() {
-	*x = UndoDemoteRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
+func (x *ManagerHealthSnapshot) Reset() {
+	*x = ManagerHealthSnapshot{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UndoDemoteRequest) String() string {
+func (x *ManagerHealthSnapshot) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UndoDemoteRequest) ProtoMessage() {}
+func (*ManagerHealthSnapshot) ProtoMessage() {}
 
-func (x *UndoDemoteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
+func (x *ManagerHealthSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1958,820 +1803,71 @@ func (x *UndoDemoteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UndoDemoteRequest.ProtoReflect.Descriptor instead.
-func (*UndoDemoteRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
+// Deprecated: Use ManagerHealthSnapshot.ProtoReflect.Descriptor instead.
+func (*ManagerHealthSnapshot) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{18}
 }
 
-type UndoDemoteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UndoDemoteResponse) Reset() {
-	*x = UndoDemoteResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UndoDemoteResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UndoDemoteResponse) ProtoMessage() {}
-
-func (x *UndoDemoteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UndoDemoteResponse.ProtoReflect.Descriptor instead.
-func (*UndoDemoteResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
-}
-
-// StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
-// and returns the status
-type StopReplicationAndGetStatusRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Mode specifying what aspect of replication to pause
-	Mode ReplicationPauseMode `protobuf:"varint,1,opt,name=mode,proto3,enum=multipoolermanagerdata.ReplicationPauseMode" json:"mode,omitempty"`
-	// Whether to wait for the pause operation to complete before returning
-	// If true, the response will include the replication status after pausing
-	// If false, the operation is asynchronous and status reflects state when call was made
-	Wait          bool `protobuf:"varint,2,opt,name=wait,proto3" json:"wait,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopReplicationAndGetStatusRequest) Reset() {
-	*x = StopReplicationAndGetStatusRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopReplicationAndGetStatusRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopReplicationAndGetStatusRequest) ProtoMessage() {}
-
-func (x *StopReplicationAndGetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopReplicationAndGetStatusRequest.ProtoReflect.Descriptor instead.
-func (*StopReplicationAndGetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *StopReplicationAndGetStatusRequest) GetMode() ReplicationPauseMode {
-	if x != nil {
-		return x.Mode
-	}
-	return ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY
-}
-
-func (x *StopReplicationAndGetStatusRequest) GetWait() bool {
-	if x != nil {
-		return x.Wait
-	}
-	return false
-}
-
-type StopReplicationAndGetStatusResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Replication status after stopping
-	Status        *StandbyReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopReplicationAndGetStatusResponse) Reset() {
-	*x = StopReplicationAndGetStatusResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopReplicationAndGetStatusResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopReplicationAndGetStatusResponse) ProtoMessage() {}
-
-func (x *StopReplicationAndGetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopReplicationAndGetStatusResponse.ProtoReflect.Descriptor instead.
-func (*StopReplicationAndGetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *StopReplicationAndGetStatusResponse) GetStatus() *StandbyReplicationStatus {
+func (x *ManagerHealthSnapshot) GetStatus() *StatusResponse {
 	if x != nil {
 		return x.Status
 	}
 	return nil
 }
 
-// ChangeType changes the pooler type
-type ChangeTypeRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// New pooler type (PRIMARY or REPLICA - maps to LEADER/FOLLOWER)
-	PoolerType    clustermetadata.PoolerType `protobuf:"varint,1,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ChangeTypeRequest) Reset() {
-	*x = ChangeTypeRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ChangeTypeRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ChangeTypeRequest) ProtoMessage() {}
-
-func (x *ChangeTypeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
+func (x *ManagerHealthSnapshot) GetTimeout() *durationpb.Duration {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ChangeTypeRequest.ProtoReflect.Descriptor instead.
-func (*ChangeTypeRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{31}
-}
-
-func (x *ChangeTypeRequest) GetPoolerType() clustermetadata.PoolerType {
-	if x != nil {
-		return x.PoolerType
-	}
-	return clustermetadata.PoolerType(0)
-}
-
-type ChangeTypeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ChangeTypeResponse) Reset() {
-	*x = ChangeTypeResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ChangeTypeResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ChangeTypeResponse) ProtoMessage() {}
-
-func (x *ChangeTypeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ChangeTypeResponse.ProtoReflect.Descriptor instead.
-func (*ChangeTypeResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{32}
-}
-
-// Promote promotes a replica to leader (Multigres-level operation)
-// This is called during the Propagate stage of generalized consensus
-// to safely transition a standby to primary and reconfigure replication.
-type PromoteRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Consensus term for this promotion operation
-	// Used to ensure this promotion corresponds to the correct term
-	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Expected LSN position before promotion (optional, for validation)
-	// By the Propagate stage, replication should already be stopped and the LSN frozen.
-	// This is an assertion to verify the pooler has the expected durable state.
-	// If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
-	// If empty, skip LSN validation.
-	ExpectedLsn string `protobuf:"bytes,2,opt,name=expected_lsn,json=expectedLsn,proto3" json:"expected_lsn,omitempty"`
-	// Synchronous replication configuration to apply after promotion
-	// This rewires the cohort for the new topology
-	SyncReplicationConfig *ConfigureSynchronousReplicationRequest `protobuf:"bytes,3,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
-	// Force the operation even if term validation fails
-	// Should only be used in recovery scenarios
-	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
-	// Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
-	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
-	// Coordinator ID that ran this election
-	CoordinatorId string `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
-	// List of pooler names that were in the cohort
-	CohortMembers []string `protobuf:"bytes,7,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
-	// List of pooler names that accepted the term during BeginTerm
-	AcceptedMembers []string `protobuf:"bytes,8,rep,name=accepted_members,json=acceptedMembers,proto3" json:"accepted_members,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *PromoteRequest) Reset() {
-	*x = PromoteRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PromoteRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PromoteRequest) ProtoMessage() {}
-
-func (x *PromoteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PromoteRequest.ProtoReflect.Descriptor instead.
-func (*PromoteRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{33}
-}
-
-func (x *PromoteRequest) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-func (x *PromoteRequest) GetExpectedLsn() string {
-	if x != nil {
-		return x.ExpectedLsn
-	}
-	return ""
-}
-
-func (x *PromoteRequest) GetSyncReplicationConfig() *ConfigureSynchronousReplicationRequest {
-	if x != nil {
-		return x.SyncReplicationConfig
+		return x.Timeout
 	}
 	return nil
 }
 
-func (x *PromoteRequest) GetForce() bool {
+func (x *ManagerHealthSnapshot) GetTrigger() SnapshotTrigger {
 	if x != nil {
-		return x.Force
+		return x.Trigger
 	}
-	return false
+	return SnapshotTrigger_SNAPSHOT_TRIGGER_UNSPECIFIED
 }
 
-func (x *PromoteRequest) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *PromoteRequest) GetCoordinatorId() string {
-	if x != nil {
-		return x.CoordinatorId
-	}
-	return ""
-}
-
-func (x *PromoteRequest) GetCohortMembers() []string {
-	if x != nil {
-		return x.CohortMembers
-	}
-	return nil
-}
-
-func (x *PromoteRequest) GetAcceptedMembers() []string {
-	if x != nil {
-		return x.AcceptedMembers
-	}
-	return nil
-}
-
-type PromoteResponse struct {
+// UpdateConsensusRule applies a cohort-membership change on the primary.
+// Internally this updates synchronous_standby_names and records the cohort
+// change in rule_history.
+type UpdateConsensusRuleRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// LSN position after promotion
-	LsnPosition string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
-	// Whether the pooler was already promoted (idempotent check)
-	WasAlreadyPrimary bool `protobuf:"varint,2,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
-	// Consensus term at the time of promotion
-	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PromoteResponse) Reset() {
-	*x = PromoteResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PromoteResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PromoteResponse) ProtoMessage() {}
-
-func (x *PromoteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PromoteResponse.ProtoReflect.Descriptor instead.
-func (*PromoteResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{34}
-}
-
-func (x *PromoteResponse) GetLsnPosition() string {
-	if x != nil {
-		return x.LsnPosition
-	}
-	return ""
-}
-
-func (x *PromoteResponse) GetWasAlreadyPrimary() bool {
-	if x != nil {
-		return x.WasAlreadyPrimary
-	}
-	return false
-}
-
-func (x *PromoteResponse) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-// ResetReplication resets the standby's connection to its primary
-type ResetReplicationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResetReplicationRequest) Reset() {
-	*x = ResetReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResetReplicationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResetReplicationRequest) ProtoMessage() {}
-
-func (x *ResetReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResetReplicationRequest.ProtoReflect.Descriptor instead.
-func (*ResetReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{35}
-}
-
-type ResetReplicationResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Replication status when replication was reset
-	Status        *StandbyReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResetReplicationResponse) Reset() {
-	*x = ResetReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResetReplicationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResetReplicationResponse) ProtoMessage() {}
-
-func (x *ResetReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResetReplicationResponse.ProtoReflect.Descriptor instead.
-func (*ResetReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{36}
-}
-
-func (x *ResetReplicationResponse) GetStatus() *StandbyReplicationStatus {
-	if x != nil {
-		return x.Status
-	}
-	return nil
-}
-
-// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-type ConfigureSynchronousReplicationRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Synchronous commit level (synchronous_commit setting)
-	SynchronousCommit SynchronousCommitLevel `protobuf:"varint,1,opt,name=synchronous_commit,json=synchronousCommit,proto3,enum=multipoolermanagerdata.SynchronousCommitLevel" json:"synchronous_commit,omitempty"`
-	// Synchronization method (FIRST, ANY)
-	SynchronousMethod SynchronousMethod `protobuf:"varint,2,opt,name=synchronous_method,json=synchronousMethod,proto3,enum=multipoolermanagerdata.SynchronousMethod" json:"synchronous_method,omitempty"`
-	// Number of standby servers to wait for (quorum count)
-	NumSync int32 `protobuf:"varint,3,opt,name=num_sync,json=numSync,proto3" json:"num_sync,omitempty"`
-	// List of standby multipooler IDs that can participate in synchronous replication
-	// The application names will be generated as {cell}_{name} from these IDs
-	StandbyIds []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
-	// Whether to reload configuration immediately
-	ReloadConfig  bool `protobuf:"varint,5,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConfigureSynchronousReplicationRequest) Reset() {
-	*x = ConfigureSynchronousReplicationRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConfigureSynchronousReplicationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConfigureSynchronousReplicationRequest) ProtoMessage() {}
-
-func (x *ConfigureSynchronousReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConfigureSynchronousReplicationRequest.ProtoReflect.Descriptor instead.
-func (*ConfigureSynchronousReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{37}
-}
-
-func (x *ConfigureSynchronousReplicationRequest) GetSynchronousCommit() SynchronousCommitLevel {
-	if x != nil {
-		return x.SynchronousCommit
-	}
-	return SynchronousCommitLevel_SYNCHRONOUS_COMMIT_OFF
-}
-
-func (x *ConfigureSynchronousReplicationRequest) GetSynchronousMethod() SynchronousMethod {
-	if x != nil {
-		return x.SynchronousMethod
-	}
-	return SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED
-}
-
-func (x *ConfigureSynchronousReplicationRequest) GetNumSync() int32 {
-	if x != nil {
-		return x.NumSync
-	}
-	return 0
-}
-
-func (x *ConfigureSynchronousReplicationRequest) GetStandbyIds() []*clustermetadata.ID {
-	if x != nil {
-		return x.StandbyIds
-	}
-	return nil
-}
-
-func (x *ConfigureSynchronousReplicationRequest) GetReloadConfig() bool {
-	if x != nil {
-		return x.ReloadConfig
-	}
-	return false
-}
-
-type ConfigureSynchronousReplicationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConfigureSynchronousReplicationResponse) Reset() {
-	*x = ConfigureSynchronousReplicationResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConfigureSynchronousReplicationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConfigureSynchronousReplicationResponse) ProtoMessage() {}
-
-func (x *ConfigureSynchronousReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[38]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConfigureSynchronousReplicationResponse.ProtoReflect.Descriptor instead.
-func (*ConfigureSynchronousReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{38}
-}
-
-// State gets the current status of the manager
-type StateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StateRequest) Reset() {
-	*x = StateRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StateRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StateRequest) ProtoMessage() {}
-
-func (x *StateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[39]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StateRequest.ProtoReflect.Descriptor instead.
-func (*StateRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{39}
-}
-
-type StateResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Manager state (starting, ready, error)
-	State string `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
-	// Error message if state is error
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StateResponse) Reset() {
-	*x = StateResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StateResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StateResponse) ProtoMessage() {}
-
-func (x *StateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[40]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StateResponse.ProtoReflect.Descriptor instead.
-func (*StateResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{40}
-}
-
-func (x *StateResponse) GetState() string {
-	if x != nil {
-		return x.State
-	}
-	return ""
-}
-
-func (x *StateResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
-}
-
-// SetTerm sets the consensus term information
-type SetTermRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Consensus term information to set
-	Term          *ConsensusTerm `protobuf:"bytes,1,opt,name=term,proto3" json:"term,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetTermRequest) Reset() {
-	*x = SetTermRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetTermRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetTermRequest) ProtoMessage() {}
-
-func (x *SetTermRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[41]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetTermRequest.ProtoReflect.Descriptor instead.
-func (*SetTermRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{41}
-}
-
-func (x *SetTermRequest) GetTerm() *ConsensusTerm {
-	if x != nil {
-		return x.Term
-	}
-	return nil
-}
-
-type SetTermResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetTermResponse) Reset() {
-	*x = SetTermResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetTermResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetTermResponse) ProtoMessage() {}
-
-func (x *SetTermResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[42]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetTermResponse.ProtoReflect.Descriptor instead.
-func (*SetTermResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{42}
-}
-
-// UpdateSynchronousStandbyList updates the synchronous standby list
-type UpdateSynchronousStandbyListRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Operation to perform (add, remove, or replace)
-	Operation StandbyUpdateOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=multipoolermanagerdata.StandbyUpdateOperation" json:"operation,omitempty"`
-	// List of standby multipooler IDs to add/remove/replace
-	// The application names will be generated as {cell}_{name} from these IDs
+	// Operation to perform (add, remove)
+	Operation CohortUpdateOperation `protobuf:"varint,1,opt,name=operation,proto3,enum=multipoolermanagerdata.CohortUpdateOperation" json:"operation,omitempty"`
+	// List of multipooler IDs to add to or remove from the cohort.
+	// The application names will be generated as {cell}_{name} from these IDs.
 	StandbyIds []*clustermetadata.ID `protobuf:"bytes,2,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
-	// Whether to reload configuration immediately
-	ReloadConfig bool `protobuf:"varint,3,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
-	// Consensus term (used by MultiOrch for term validation)
-	ConsensusTerm int64 `protobuf:"varint,4,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Force the operation even if the term doesn't match
-	Force         bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
+	// expected_outgoing_rule is the RuleNumber the caller observed as the
+	// primary's current rule. The primary applies the change only if its
+	// recorded rule still matches this value (compare-and-swap). It rejects
+	// with a "rule has changed" error otherwise, signaling that the caller's
+	// view is stale and it should re-read state and retry. This prevents
+	// races between concurrent coordinators making cohort decisions based on
+	// stale snapshots. Required.
+	ExpectedOutgoingRule *clustermetadata.RuleNumber `protobuf:"bytes,4,opt,name=expected_outgoing_rule,json=expectedOutgoingRule,proto3" json:"expected_outgoing_rule,omitempty"`
+	// Coordinator ID that initiated this operation (for audit trail)
+	CoordinatorId *clustermetadata.ID `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSynchronousStandbyListRequest) Reset() {
-	*x = UpdateSynchronousStandbyListRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
+func (x *UpdateConsensusRuleRequest) Reset() {
+	*x = UpdateConsensusRuleRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSynchronousStandbyListRequest) String() string {
+func (x *UpdateConsensusRuleRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSynchronousStandbyListRequest) ProtoMessage() {}
+func (*UpdateConsensusRuleRequest) ProtoMessage() {}
 
-func (x *UpdateSynchronousStandbyListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[43]
+func (x *UpdateConsensusRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2782,67 +1878,60 @@ func (x *UpdateSynchronousStandbyListRequest) ProtoReflect() protoreflect.Messag
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSynchronousStandbyListRequest.ProtoReflect.Descriptor instead.
-func (*UpdateSynchronousStandbyListRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{43}
+// Deprecated: Use UpdateConsensusRuleRequest.ProtoReflect.Descriptor instead.
+func (*UpdateConsensusRuleRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetOperation() StandbyUpdateOperation {
+func (x *UpdateConsensusRuleRequest) GetOperation() CohortUpdateOperation {
 	if x != nil {
 		return x.Operation
 	}
-	return StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED
+	return CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetStandbyIds() []*clustermetadata.ID {
+func (x *UpdateConsensusRuleRequest) GetStandbyIds() []*clustermetadata.ID {
 	if x != nil {
 		return x.StandbyIds
 	}
 	return nil
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetReloadConfig() bool {
+func (x *UpdateConsensusRuleRequest) GetExpectedOutgoingRule() *clustermetadata.RuleNumber {
 	if x != nil {
-		return x.ReloadConfig
+		return x.ExpectedOutgoingRule
 	}
-	return false
+	return nil
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetConsensusTerm() int64 {
+func (x *UpdateConsensusRuleRequest) GetCoordinatorId() *clustermetadata.ID {
 	if x != nil {
-		return x.ConsensusTerm
+		return x.CoordinatorId
 	}
-	return 0
+	return nil
 }
 
-func (x *UpdateSynchronousStandbyListRequest) GetForce() bool {
-	if x != nil {
-		return x.Force
-	}
-	return false
-}
-
-type UpdateSynchronousStandbyListResponse struct {
+type UpdateConsensusRuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSynchronousStandbyListResponse) Reset() {
-	*x = UpdateSynchronousStandbyListResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
+func (x *UpdateConsensusRuleResponse) Reset() {
+	*x = UpdateConsensusRuleResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSynchronousStandbyListResponse) String() string {
+func (x *UpdateConsensusRuleResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSynchronousStandbyListResponse) ProtoMessage() {}
+func (*UpdateConsensusRuleResponse) ProtoMessage() {}
 
-func (x *UpdateSynchronousStandbyListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[44]
+func (x *UpdateConsensusRuleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2853,358 +1942,9 @@ func (x *UpdateSynchronousStandbyListResponse) ProtoReflect() protoreflect.Messa
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSynchronousStandbyListResponse.ProtoReflect.Descriptor instead.
-func (*UpdateSynchronousStandbyListResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{44}
-}
-
-// ConsensusTerm represents the consensus term information for the pooler
-// This is persisted to disk at $PGDATA/consensus/consensus_term.json
-type ConsensusTerm struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Term number for this consensus term
-	TermNumber int64 `protobuf:"varint,1,opt,name=term_number,json=termNumber,proto3" json:"term_number,omitempty"`
-	// ID of the coordinator (multiorch) that this node accepted the term from
-	AcceptedTermFromCoordinatorId *clustermetadata.ID `protobuf:"bytes,2,opt,name=accepted_term_from_coordinator_id,json=acceptedTermFromCoordinatorId,proto3" json:"accepted_term_from_coordinator_id,omitempty"`
-	// Timestamp of the last acceptance
-	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
-	// ID of the leader of the current term
-	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConsensusTerm) Reset() {
-	*x = ConsensusTerm{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[45]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConsensusTerm) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConsensusTerm) ProtoMessage() {}
-
-func (x *ConsensusTerm) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[45]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConsensusTerm.ProtoReflect.Descriptor instead.
-func (*ConsensusTerm) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{45}
-}
-
-func (x *ConsensusTerm) GetTermNumber() int64 {
-	if x != nil {
-		return x.TermNumber
-	}
-	return 0
-}
-
-func (x *ConsensusTerm) GetAcceptedTermFromCoordinatorId() *clustermetadata.ID {
-	if x != nil {
-		return x.AcceptedTermFromCoordinatorId
-	}
-	return nil
-}
-
-func (x *ConsensusTerm) GetLastAcceptanceTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.LastAcceptanceTime
-	}
-	return nil
-}
-
-func (x *ConsensusTerm) GetLeaderId() *clustermetadata.ID {
-	if x != nil {
-		return x.LeaderId
-	}
-	return nil
-}
-
-// InitializeEmptyPrimary initializes this pooler as an empty primary
-// Used during bootstrap initialization of a new shard
-type InitializeEmptyPrimaryRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Consensus term to set for this primary
-	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Optional: Create durability policy after initialization
-	DurabilityPolicyName string                      `protobuf:"bytes,2,opt,name=durability_policy_name,json=durabilityPolicyName,proto3" json:"durability_policy_name,omitempty"`
-	DurabilityQuorumRule *clustermetadata.QuorumRule `protobuf:"bytes,3,opt,name=durability_quorum_rule,json=durabilityQuorumRule,proto3" json:"durability_quorum_rule,omitempty"`
-	// ID of the multiorch coordinator performing the bootstrap
-	CoordinatorId string `protobuf:"bytes,4,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InitializeEmptyPrimaryRequest) Reset() {
-	*x = InitializeEmptyPrimaryRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[46]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InitializeEmptyPrimaryRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InitializeEmptyPrimaryRequest) ProtoMessage() {}
-
-func (x *InitializeEmptyPrimaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[46]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use InitializeEmptyPrimaryRequest.ProtoReflect.Descriptor instead.
-func (*InitializeEmptyPrimaryRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{46}
-}
-
-func (x *InitializeEmptyPrimaryRequest) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-func (x *InitializeEmptyPrimaryRequest) GetDurabilityPolicyName() string {
-	if x != nil {
-		return x.DurabilityPolicyName
-	}
-	return ""
-}
-
-func (x *InitializeEmptyPrimaryRequest) GetDurabilityQuorumRule() *clustermetadata.QuorumRule {
-	if x != nil {
-		return x.DurabilityQuorumRule
-	}
-	return nil
-}
-
-func (x *InitializeEmptyPrimaryRequest) GetCoordinatorId() string {
-	if x != nil {
-		return x.CoordinatorId
-	}
-	return ""
-}
-
-type InitializeEmptyPrimaryResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the initialization succeeded
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Error message if initialization failed
-	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	// Backup ID of the initial backup created during initialization
-	// This can be used by standbys to restore from the same backup
-	BackupId      string `protobuf:"bytes,3,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InitializeEmptyPrimaryResponse) Reset() {
-	*x = InitializeEmptyPrimaryResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[47]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InitializeEmptyPrimaryResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InitializeEmptyPrimaryResponse) ProtoMessage() {}
-
-func (x *InitializeEmptyPrimaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[47]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use InitializeEmptyPrimaryResponse.ProtoReflect.Descriptor instead.
-func (*InitializeEmptyPrimaryResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{47}
-}
-
-func (x *InitializeEmptyPrimaryResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *InitializeEmptyPrimaryResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
-}
-
-func (x *InitializeEmptyPrimaryResponse) GetBackupId() string {
-	if x != nil {
-		return x.BackupId
-	}
-	return ""
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-type InitializeAsStandbyRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Primary pooler to replicate from
-	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
-	// Consensus term to set for this standby
-	ConsensusTerm int64 `protobuf:"varint,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
-	// Whether to force reinitialization (removes existing data directory)
-	Force bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
-	// Optional: Specific backup ID to restore from
-	// If empty, restore from the latest backup
-	BackupId      string `protobuf:"bytes,4,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InitializeAsStandbyRequest) Reset() {
-	*x = InitializeAsStandbyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[48]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InitializeAsStandbyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InitializeAsStandbyRequest) ProtoMessage() {}
-
-func (x *InitializeAsStandbyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[48]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use InitializeAsStandbyRequest.ProtoReflect.Descriptor instead.
-func (*InitializeAsStandbyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{48}
-}
-
-func (x *InitializeAsStandbyRequest) GetPrimary() *clustermetadata.MultiPooler {
-	if x != nil {
-		return x.Primary
-	}
-	return nil
-}
-
-func (x *InitializeAsStandbyRequest) GetConsensusTerm() int64 {
-	if x != nil {
-		return x.ConsensusTerm
-	}
-	return 0
-}
-
-func (x *InitializeAsStandbyRequest) GetForce() bool {
-	if x != nil {
-		return x.Force
-	}
-	return false
-}
-
-func (x *InitializeAsStandbyRequest) GetBackupId() string {
-	if x != nil {
-		return x.BackupId
-	}
-	return ""
-}
-
-type InitializeAsStandbyResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the initialization succeeded
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Error message if initialization failed
-	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	// Final LSN position after backup completed
-	FinalLsn      string `protobuf:"bytes,3,opt,name=final_lsn,json=finalLsn,proto3" json:"final_lsn,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InitializeAsStandbyResponse) Reset() {
-	*x = InitializeAsStandbyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[49]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InitializeAsStandbyResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InitializeAsStandbyResponse) ProtoMessage() {}
-
-func (x *InitializeAsStandbyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[49]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use InitializeAsStandbyResponse.ProtoReflect.Descriptor instead.
-func (*InitializeAsStandbyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{49}
-}
-
-func (x *InitializeAsStandbyResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *InitializeAsStandbyResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
-}
-
-func (x *InitializeAsStandbyResponse) GetFinalLsn() string {
-	if x != nil {
-		return x.FinalLsn
-	}
-	return ""
+// Deprecated: Use UpdateConsensusRuleResponse.ProtoReflect.Descriptor instead.
+func (*UpdateConsensusRuleResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{20}
 }
 
 // BackupRequest requests a backup
@@ -3220,14 +1960,17 @@ type BackupRequest struct {
 	// If provided, stored as annotation on the backup for status queries.
 	// If empty, multipooler generates one using the same format.
 	// Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
-	JobId         string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	JobId string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	// Runtime overrides for testing and debugging.
+	// Production should leave this empty.
+	Overrides     map[string]string `protobuf:"bytes,10,rep,name=overrides,proto3" json:"overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BackupRequest) Reset() {
 	*x = BackupRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[50]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3239,7 +1982,7 @@ func (x *BackupRequest) String() string {
 func (*BackupRequest) ProtoMessage() {}
 
 func (x *BackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[50]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3252,7 +1995,7 @@ func (x *BackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupRequest.ProtoReflect.Descriptor instead.
 func (*BackupRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{50}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BackupRequest) GetForcePrimary() bool {
@@ -3276,6 +2019,13 @@ func (x *BackupRequest) GetJobId() string {
 	return ""
 }
 
+func (x *BackupRequest) GetOverrides() map[string]string {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
+}
+
 // BackupResponse contains the result of a backup operation
 type BackupResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -3288,7 +2038,7 @@ type BackupResponse struct {
 
 func (x *BackupResponse) Reset() {
 	*x = BackupResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[51]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3300,7 +2050,7 @@ func (x *BackupResponse) String() string {
 func (*BackupResponse) ProtoMessage() {}
 
 func (x *BackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[51]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3313,7 +2063,7 @@ func (x *BackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupResponse.ProtoReflect.Descriptor instead.
 func (*BackupResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{51}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BackupResponse) GetBackupId() string {
@@ -3335,7 +2085,7 @@ type RestoreFromBackupRequest struct {
 
 func (x *RestoreFromBackupRequest) Reset() {
 	*x = RestoreFromBackupRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[52]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3347,7 +2097,7 @@ func (x *RestoreFromBackupRequest) String() string {
 func (*RestoreFromBackupRequest) ProtoMessage() {}
 
 func (x *RestoreFromBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[52]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3360,7 +2110,7 @@ func (x *RestoreFromBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreFromBackupRequest.ProtoReflect.Descriptor instead.
 func (*RestoreFromBackupRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{52}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RestoreFromBackupRequest) GetBackupId() string {
@@ -3379,7 +2129,7 @@ type RestoreFromBackupResponse struct {
 
 func (x *RestoreFromBackupResponse) Reset() {
 	*x = RestoreFromBackupResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[53]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3391,7 +2141,7 @@ func (x *RestoreFromBackupResponse) String() string {
 func (*RestoreFromBackupResponse) ProtoMessage() {}
 
 func (x *RestoreFromBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[53]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3404,7 +2154,7 @@ func (x *RestoreFromBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreFromBackupResponse.ProtoReflect.Descriptor instead.
 func (*RestoreFromBackupResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{53}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{24}
 }
 
 // GetBackupsRequest requests backup information
@@ -3417,7 +2167,7 @@ type GetBackupsRequest struct {
 
 func (x *GetBackupsRequest) Reset() {
 	*x = GetBackupsRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[54]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3429,7 +2179,7 @@ func (x *GetBackupsRequest) String() string {
 func (*GetBackupsRequest) ProtoMessage() {}
 
 func (x *GetBackupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[54]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3442,7 +2192,7 @@ func (x *GetBackupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupsRequest.ProtoReflect.Descriptor instead.
 func (*GetBackupsRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{54}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GetBackupsRequest) GetLimit() uint32 {
@@ -3462,7 +2212,7 @@ type GetBackupsResponse struct {
 
 func (x *GetBackupsResponse) Reset() {
 	*x = GetBackupsResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[55]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3474,7 +2224,7 @@ func (x *GetBackupsResponse) String() string {
 func (*GetBackupsResponse) ProtoMessage() {}
 
 func (x *GetBackupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[55]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3487,7 +2237,7 @@ func (x *GetBackupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupsResponse.ProtoReflect.Descriptor instead.
 func (*GetBackupsResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{55}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetBackupsResponse) GetBackups() []*BackupMetadata {
@@ -3508,7 +2258,7 @@ type GetBackupByJobIdRequest struct {
 
 func (x *GetBackupByJobIdRequest) Reset() {
 	*x = GetBackupByJobIdRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[56]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3520,7 +2270,7 @@ func (x *GetBackupByJobIdRequest) String() string {
 func (*GetBackupByJobIdRequest) ProtoMessage() {}
 
 func (x *GetBackupByJobIdRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[56]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3533,7 +2283,7 @@ func (x *GetBackupByJobIdRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupByJobIdRequest.ProtoReflect.Descriptor instead.
 func (*GetBackupByJobIdRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{56}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetBackupByJobIdRequest) GetJobId() string {
@@ -3555,7 +2305,7 @@ type GetBackupByJobIdResponse struct {
 
 func (x *GetBackupByJobIdResponse) Reset() {
 	*x = GetBackupByJobIdResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[57]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3567,7 +2317,7 @@ func (x *GetBackupByJobIdResponse) String() string {
 func (*GetBackupByJobIdResponse) ProtoMessage() {}
 
 func (x *GetBackupByJobIdResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[57]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3580,7 +2330,7 @@ func (x *GetBackupByJobIdResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupByJobIdResponse.ProtoReflect.Descriptor instead.
 func (*GetBackupByJobIdResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{57}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetBackupByJobIdResponse) GetBackup() *BackupMetadata {
@@ -3588,6 +2338,192 @@ func (x *GetBackupByJobIdResponse) GetBackup() *BackupMetadata {
 		return x.Backup
 	}
 	return nil
+}
+
+// ExpireBackupsRequest requests expiration of old backups according to retention policy.
+type ExpireBackupsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional overrides for pgbackrest expire command-line flags.
+	// Keys use underscores (e.g., "repo1_retention_full") and are converted to
+	// CLI flags (e.g., "--repo1-retention-full=<value>").
+	Overrides     map[string]string `protobuf:"bytes,1,rep,name=overrides,proto3" json:"overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExpireBackupsRequest) Reset() {
+	*x = ExpireBackupsRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExpireBackupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExpireBackupsRequest) ProtoMessage() {}
+
+func (x *ExpireBackupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExpireBackupsRequest.ProtoReflect.Descriptor instead.
+func (*ExpireBackupsRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ExpireBackupsRequest) GetOverrides() map[string]string {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
+}
+
+// ExpireBackupsResponse contains the result of backup expiration.
+type ExpireBackupsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// IDs of backups that were removed by the expiration.
+	ExpiredBackupIds []string `protobuf:"bytes,1,rep,name=expired_backup_ids,json=expiredBackupIds,proto3" json:"expired_backup_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExpireBackupsResponse) Reset() {
+	*x = ExpireBackupsResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExpireBackupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExpireBackupsResponse) ProtoMessage() {}
+
+func (x *ExpireBackupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExpireBackupsResponse.ProtoReflect.Descriptor instead.
+func (*ExpireBackupsResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ExpireBackupsResponse) GetExpiredBackupIds() []string {
+	if x != nil {
+		return x.ExpiredBackupIds
+	}
+	return nil
+}
+
+// VerifyBackupsRequest requests a full-stanza pgbackrest verify run.
+type VerifyBackupsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyBackupsRequest) Reset() {
+	*x = VerifyBackupsRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyBackupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyBackupsRequest) ProtoMessage() {}
+
+func (x *VerifyBackupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyBackupsRequest.ProtoReflect.Descriptor instead.
+func (*VerifyBackupsRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{31}
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+type VerifyBackupsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// duration is the server-side wall-clock for the verify run.
+	Duration *durationpb.Duration `protobuf:"bytes,1,opt,name=duration,proto3" json:"duration,omitempty"`
+	// raw_output is the full stdout+stderr of `pgbackrest verify`.
+	RawOutput     string `protobuf:"bytes,2,opt,name=raw_output,json=rawOutput,proto3" json:"raw_output,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyBackupsResponse) Reset() {
+	*x = VerifyBackupsResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyBackupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyBackupsResponse) ProtoMessage() {}
+
+func (x *VerifyBackupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyBackupsResponse.ProtoReflect.Descriptor instead.
+func (*VerifyBackupsResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *VerifyBackupsResponse) GetDuration() *durationpb.Duration {
+	if x != nil {
+		return x.Duration
+	}
+	return nil
+}
+
+func (x *VerifyBackupsResponse) GetRawOutput() string {
+	if x != nil {
+		return x.RawOutput
+	}
+	return ""
 }
 
 // BackupMetadata contains metadata about a backup
@@ -3614,7 +2550,7 @@ type BackupMetadata struct {
 
 func (x *BackupMetadata) Reset() {
 	*x = BackupMetadata{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[58]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3626,7 +2562,7 @@ func (x *BackupMetadata) String() string {
 func (*BackupMetadata) ProtoMessage() {}
 
 func (x *BackupMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[58]
+	mi := &file_multipoolermanagerdata_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3639,7 +2575,7 @@ func (x *BackupMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupMetadata.ProtoReflect.Descriptor instead.
 func (*BackupMetadata) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{58}
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BackupMetadata) GetTableGroup() string {
@@ -3712,67 +2648,35 @@ func (x *BackupMetadata) GetPoolerType() clustermetadata.PoolerType {
 	return clustermetadata.PoolerType(0)
 }
 
-// GetDurabilityPolicyRequest requests the active durability policy
-type GetDurabilityPolicyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetDurabilityPolicyRequest) Reset() {
-	*x = GetDurabilityPolicyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[59]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetDurabilityPolicyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetDurabilityPolicyRequest) ProtoMessage() {}
-
-func (x *GetDurabilityPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[59]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetDurabilityPolicyRequest.ProtoReflect.Descriptor instead.
-func (*GetDurabilityPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{59}
-}
-
-// GetDurabilityPolicyResponse returns the active durability policy
-type GetDurabilityPolicyResponse struct {
+// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
+type RewindToSourceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The active durability policy, or null if none is configured
-	Policy        *clustermetadata.DurabilityPolicy `protobuf:"bytes,1,opt,name=policy,proto3" json:"policy,omitempty"`
+	// Source multipooler (the primary) to rewind to
+	Source        *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetDurabilityPolicyResponse) Reset() {
-	*x = GetDurabilityPolicyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[60]
+func (x *RewindToSourceRequest) Reset() {
+	*x = RewindToSourceRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetDurabilityPolicyResponse) String() string {
+func (x *RewindToSourceRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetDurabilityPolicyResponse) ProtoMessage() {}
+func (*RewindToSourceRequest) ProtoMessage() {}
 
-func (x *GetDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[60]
+func (x *RewindToSourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3783,44 +2687,46 @@ func (x *GetDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetDurabilityPolicyResponse.ProtoReflect.Descriptor instead.
-func (*GetDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{60}
+// Deprecated: Use RewindToSourceRequest.ProtoReflect.Descriptor instead.
+func (*RewindToSourceRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{34}
 }
 
-func (x *GetDurabilityPolicyResponse) GetPolicy() *clustermetadata.DurabilityPolicy {
+func (x *RewindToSourceRequest) GetSource() *clustermetadata.MultiPooler {
 	if x != nil {
-		return x.Policy
+		return x.Source
 	}
 	return nil
 }
 
-// CreateDurabilityPolicyRequest creates a new durability policy
-type CreateDurabilityPolicyRequest struct {
+type RewindToSourceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The name of the policy (e.g., "ANY_2", "MULTI_CELL_ANY_2")
-	PolicyName string `protobuf:"bytes,1,opt,name=policy_name,json=policyName,proto3" json:"policy_name,omitempty"`
-	// The quorum rule defining the policy behavior
-	QuorumRule    *clustermetadata.QuorumRule `protobuf:"bytes,2,opt,name=quorum_rule,json=quorumRule,proto3" json:"quorum_rule,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// True if the operation completed successfully
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Error message if operation failed
+	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// True if servers had diverged and pg_rewind was performed
+	// False if timelines were compatible and no rewind was needed
+	RewindPerformed bool `protobuf:"varint,3,opt,name=rewind_performed,json=rewindPerformed,proto3" json:"rewind_performed,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
-func (x *CreateDurabilityPolicyRequest) Reset() {
-	*x = CreateDurabilityPolicyRequest{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[61]
+func (x *RewindToSourceResponse) Reset() {
+	*x = RewindToSourceResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateDurabilityPolicyRequest) String() string {
+func (x *RewindToSourceResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateDurabilityPolicyRequest) ProtoMessage() {}
+func (*RewindToSourceResponse) ProtoMessage() {}
 
-func (x *CreateDurabilityPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[61]
+func (x *RewindToSourceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3831,48 +2737,58 @@ func (x *CreateDurabilityPolicyRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateDurabilityPolicyRequest.ProtoReflect.Descriptor instead.
-func (*CreateDurabilityPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{61}
+// Deprecated: Use RewindToSourceResponse.ProtoReflect.Descriptor instead.
+func (*RewindToSourceResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{35}
 }
 
-func (x *CreateDurabilityPolicyRequest) GetPolicyName() string {
+func (x *RewindToSourceResponse) GetSuccess() bool {
 	if x != nil {
-		return x.PolicyName
+		return x.Success
+	}
+	return false
+}
+
+func (x *RewindToSourceResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
 	}
 	return ""
 }
 
-func (x *CreateDurabilityPolicyRequest) GetQuorumRule() *clustermetadata.QuorumRule {
+func (x *RewindToSourceResponse) GetRewindPerformed() bool {
 	if x != nil {
-		return x.QuorumRule
+		return x.RewindPerformed
 	}
-	return nil
+	return false
 }
 
-// CreateDurabilityPolicyResponse confirms policy creation
-// Errors are returned via gRPC status codes, not in the response body
-type CreateDurabilityPolicyResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+// SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
+// by the postgres monitor. When disabled, the monitor will still run and detect problems,
+// but will not automatically restart a stopped PostgreSQL instance.
+type SetPostgresRestartsEnabledRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether automatic restarts are enabled (true) or suppressed (false)
+	Enabled       bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateDurabilityPolicyResponse) Reset() {
-	*x = CreateDurabilityPolicyResponse{}
-	mi := &file_multipoolermanagerdata_proto_msgTypes[62]
+func (x *SetPostgresRestartsEnabledRequest) Reset() {
+	*x = SetPostgresRestartsEnabledRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateDurabilityPolicyResponse) String() string {
+func (x *SetPostgresRestartsEnabledRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateDurabilityPolicyResponse) ProtoMessage() {}
+func (*SetPostgresRestartsEnabledRequest) ProtoMessage() {}
 
-func (x *CreateDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_multipoolermanagerdata_proto_msgTypes[62]
+func (x *SetPostgresRestartsEnabledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3883,9 +2799,54 @@ func (x *CreateDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateDurabilityPolicyResponse.ProtoReflect.Descriptor instead.
-func (*CreateDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{62}
+// Deprecated: Use SetPostgresRestartsEnabledRequest.ProtoReflect.Descriptor instead.
+func (*SetPostgresRestartsEnabledRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SetPostgresRestartsEnabledRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+// SetMonitorResponse confirms monitoring was updated
+// Errors are returned via gRPC status codes, not in the response body
+type SetPostgresRestartsEnabledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPostgresRestartsEnabledResponse) Reset() {
+	*x = SetPostgresRestartsEnabledResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPostgresRestartsEnabledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPostgresRestartsEnabledResponse) ProtoMessage() {}
+
+func (x *SetPostgresRestartsEnabledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPostgresRestartsEnabledResponse.ProtoReflect.Descriptor instead.
+func (*SetPostgresRestartsEnabledResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{37}
 }
 
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
@@ -3898,7 +2859,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04user\x18\x03 \x01(\tR\x04user\x12)\n" +
 	"\x10application_name\x18\x04 \x01(\tR\x0fapplicationName\x12\x10\n" +
-	"\x03raw\x18\x05 \x01(\tR\x03raw\"\x91\x03\n" +
+	"\x03raw\x18\x05 \x01(\tR\x03raw\"\xb9\x05\n" +
 	"\x18StandbyReplicationStatus\x12&\n" +
 	"\x0flast_replay_lsn\x18\x01 \x01(\tR\rlastReplayLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12/\n" +
@@ -3906,46 +2867,37 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x16wal_replay_pause_state\x18\x04 \x01(\tR\x13walReplayPauseState\x12+\n" +
 	"\x03lag\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x03lag\x12;\n" +
 	"\x1alast_xact_replay_timestamp\x18\x06 \x01(\tR\x17lastXactReplayTimestamp\x12S\n" +
-	"\x11primary_conn_info\x18\a \x01(\v2'.multipoolermanagerdata.PrimaryConnInfoR\x0fprimaryConnInfo\"g\n" +
+	"\x11primary_conn_info\x18\a \x01(\v2'.multipoolermanagerdata.PrimaryConnInfoR\x0fprimaryConnInfo\x12.\n" +
+	"\x13wal_receiver_status\x18\b \x01(\tR\x11walReceiverStatus\x12M\n" +
+	"\x15last_msg_receive_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x12lastMsgReceiveTime\x12Z\n" +
+	"\x1cwal_receiver_status_interval\x18\n" +
+	" \x01(\v2\x19.google.protobuf.DurationR\x19walReceiverStatusInterval\x12K\n" +
+	"\x14wal_receiver_timeout\x18\v \x01(\v2\x19.google.protobuf.DurationR\x12walReceiverTimeout\"g\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
 	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x14\n" +
 	"\x12WaitForLSNResponse\"\x19\n" +
 	"\x17StartReplicationRequest\"\x1a\n" +
-	"\x18StartReplicationResponse\"\xfc\x01\n" +
-	"\x19SetPrimaryConnInfoRequest\x126\n" +
-	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x126\n" +
-	"\x17stop_replication_before\x18\x02 \x01(\bR\x15stopReplicationBefore\x126\n" +
-	"\x17start_replication_after\x18\x03 \x01(\bR\x15startReplicationAfter\x12!\n" +
-	"\fcurrent_term\x18\x04 \x01(\x03R\vcurrentTerm\x12\x14\n" +
-	"\x05force\x18\x05 \x01(\bR\x05force\"\x1c\n" +
-	"\x1aSetPrimaryConnInfoResponse\"n\n" +
+	"\x18StartReplicationResponse\"n\n" +
 	"\x16StopReplicationRequest\x12@\n" +
 	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
 	"\x04wait\x18\x02 \x01(\bR\x04wait\"c\n" +
 	"\x17StopReplicationResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"!\n" +
-	"\x1fStandbyReplicationStatusRequest\"l\n" +
-	" StandbyReplicationStatusResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xaf\x02\n" +
+	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xeb\x02\n" +
 	"#SynchronousReplicationConfiguration\x12]\n" +
 	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\"\xf2\x01\n" +
+	"standbyIds\x12:\n" +
+	"\x19standby_application_names\x18\x05 \x03(\tR\x17standbyApplicationNames\"\x9a\x02\n" +
 	"\rPrimaryStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12D\n" +
 	"\x13connected_followers\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x12connectedFollowers\x12s\n" +
-	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\"\x16\n" +
-	"\x14PrimaryStatusRequest\"V\n" +
-	"\x15PrimaryStatusResponse\x12=\n" +
-	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
-	"\x16PrimaryPositionRequest\"<\n" +
-	"\x17PrimaryPositionResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xff\x03\n" +
+	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\x12&\n" +
+	"\x0fmax_wal_senders\x18\x05 \x01(\x05R\rmaxWalSenders\"\x8d\x06\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
@@ -3953,130 +2905,55 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x12replication_status\x18\x03 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12%\n" +
 	"\x0eis_initialized\x18\x04 \x01(\bR\risInitialized\x12,\n" +
 	"\x12has_data_directory\x18\x05 \x01(\bR\x10hasDataDirectory\x12)\n" +
-	"\x10postgres_running\x18\x06 \x01(\bR\x0fpostgresRunning\x12#\n" +
-	"\rpostgres_role\x18\a \x01(\tR\fpostgresRole\x12!\n" +
-	"\fwal_position\x18\b \x01(\tR\vwalPosition\x12%\n" +
-	"\x0econsensus_term\x18\t \x01(\x03R\rconsensusTerm\x12\x19\n" +
+	"\x10postgres_running\x18\x06 \x01(\bR\x0fpostgresRunning\x12O\n" +
+	"\x0fpostgres_status\x18\a \x01(\x0e2&.multipoolermanagerdata.PostgresStatusR\x0epostgresStatus\x12!\n" +
+	"\fwal_position\x18\b \x01(\tR\vwalPosition\x12\x19\n" +
 	"\bshard_id\x18\n" +
-	" \x01(\tR\ashardId\"\x0f\n" +
-	"\rStatusRequest\"H\n" +
+	" \x01(\tR\ashardId\x12O\n" +
+	"\x0fpostgres_action\x18\v \x01(\x0e2&.multipoolermanagerdata.PostgresActionR\x0epostgresAction\x12S\n" +
+	"\x18postgres_action_duration\x18\f \x01(\v2\x19.google.protobuf.DurationR\x16postgresActionDuration\x12:\n" +
+	"\x0ecohort_members\x18\r \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\x12%\n" +
+	"\x0epostgres_ready\x18\x0e \x01(\bR\rpostgresReady\"\x0f\n" +
+	"\rStatusRequest\"\xeb\x01\n" +
 	"\x0eStatusResponse\x126\n" +
-	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\"\x98\x03\n" +
-	"\x10ReplicationStats\x12\x10\n" +
-	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x1f\n" +
-	"\vclient_addr\x18\x02 \x01(\tR\n" +
-	"clientAddr\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\x12\x1d\n" +
-	"\n" +
-	"sync_state\x18\x04 \x01(\tR\tsyncState\x12\x19\n" +
-	"\bsent_lsn\x18\x05 \x01(\tR\asentLsn\x12\x1b\n" +
-	"\twrite_lsn\x18\x06 \x01(\tR\bwriteLsn\x12\x1b\n" +
-	"\tflush_lsn\x18\a \x01(\tR\bflushLsn\x12\x1d\n" +
-	"\n" +
-	"replay_lsn\x18\b \x01(\tR\treplayLsn\x126\n" +
-	"\twrite_lag\x18\t \x01(\v2\x19.google.protobuf.DurationR\bwriteLag\x126\n" +
-	"\tflush_lag\x18\n" +
-	" \x01(\v2\x19.google.protobuf.DurationR\bflushLag\x128\n" +
-	"\n" +
-	"replay_lag\x18\v \x01(\v2\x19.google.protobuf.DurationR\treplayLag\"\xe9\x01\n" +
-	"\fFollowerInfo\x124\n" +
-	"\vfollower_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
-	"followerId\x12)\n" +
-	"\x10application_name\x18\x02 \x01(\tR\x0fapplicationName\x12!\n" +
-	"\fis_connected\x18\x03 \x01(\bR\visConnected\x12U\n" +
-	"\x11replication_stats\x18\x04 \x01(\v2(.multipoolermanagerdata.ReplicationStatsR\x10replicationStats\"\x15\n" +
-	"\x13GetFollowersRequest\"\xb8\x01\n" +
-	"\x14GetFollowersResponse\x12B\n" +
-	"\tfollowers\x18\x01 \x03(\v2$.multipoolermanagerdata.FollowerInfoR\tfollowers\x12\\\n" +
-	"\vsync_config\x18\x02 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\n" +
-	"syncConfig\"\x8c\x01\n" +
-	"\rDemoteRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12>\n" +
-	"\rdrain_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12\x14\n" +
-	"\x05force\x18\x03 \x01(\bR\x05force\"\xc1\x01\n" +
-	"\x0eDemoteResponse\x12.\n" +
-	"\x13was_already_demoted\x18\x01 \x01(\bR\x11wasAlreadyDemoted\x12%\n" +
-	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12!\n" +
-	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
-	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x13\n" +
-	"\x11UndoDemoteRequest\"\x14\n" +
-	"\x12UndoDemoteResponse\"z\n" +
-	"\"StopReplicationAndGetStatusRequest\x12@\n" +
-	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
-	"\x04wait\x18\x02 \x01(\bR\x04wait\"o\n" +
-	"#StopReplicationAndGetStatusResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"Q\n" +
-	"\x11ChangeTypeRequest\x12<\n" +
-	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerType\"\x14\n" +
-	"\x12ChangeTypeResponse\"\xf9\x02\n" +
-	"\x0ePromoteRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12!\n" +
-	"\fexpected_lsn\x18\x02 \x01(\tR\vexpectedLsn\x12v\n" +
-	"\x17sync_replication_config\x18\x03 \x01(\v2>.multipoolermanagerdata.ConfigureSynchronousReplicationRequestR\x15syncReplicationConfig\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\x12\x16\n" +
-	"\x06reason\x18\x05 \x01(\tR\x06reason\x12%\n" +
-	"\x0ecoordinator_id\x18\x06 \x01(\tR\rcoordinatorId\x12%\n" +
-	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\x12)\n" +
-	"\x10accepted_members\x18\b \x03(\tR\x0facceptedMembers\"\x8b\x01\n" +
-	"\x0fPromoteResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\x12.\n" +
-	"\x13was_already_primary\x18\x02 \x01(\bR\x11wasAlreadyPrimary\x12%\n" +
-	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\"\x19\n" +
-	"\x17ResetReplicationRequest\"d\n" +
-	"\x18ResetReplicationResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xd7\x02\n" +
-	"&ConfigureSynchronousReplicationRequest\x12]\n" +
-	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
-	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
-	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
-	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\x12#\n" +
-	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\")\n" +
-	"'ConfigureSynchronousReplicationResponse\"\x0e\n" +
-	"\fStateRequest\"J\n" +
-	"\rStateResponse\x12\x14\n" +
-	"\x05state\x18\x01 \x01(\tR\x05state\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"K\n" +
-	"\x0eSetTermRequest\x129\n" +
-	"\x04term\x18\x01 \x01(\v2%.multipoolermanagerdata.ConsensusTermR\x04term\"\x11\n" +
-	"\x0fSetTermResponse\"\x8b\x02\n" +
-	"#UpdateSynchronousStandbyListRequest\x12L\n" +
-	"\toperation\x18\x01 \x01(\x0e2..multipoolermanagerdata.StandbyUpdateOperationR\toperation\x124\n" +
+	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12T\n" +
+	"\x13availability_status\x18\x03 \x01(\v2#.clustermetadata.AvailabilityStatusR\x12availabilityStatus\x12K\n" +
+	"\x10consensus_status\x18\x04 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"\xcc\x01\n" +
+	" ManagerHealthStreamClientMessage\x12O\n" +
+	"\x05start\x18\x01 \x01(\v27.multipoolermanagerdata.ManagerHealthStreamStartRequestH\x00R\x05start\x12L\n" +
+	"\x04poll\x18\x02 \x01(\v26.multipoolermanagerdata.ManagerHealthStreamPollRequestH\x00R\x04pollB\t\n" +
+	"\amessage\"\xb1\x01\n" +
+	"\x1fManagerHealthStreamStartRequest\x12F\n" +
+	"\x11snapshot_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x10snapshotInterval\x12F\n" +
+	"\x11staleness_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10stalenessTimeout\" \n" +
+	"\x1eManagerHealthStreamPollRequest\"\xb2\x01\n" +
+	" ManagerHealthStreamStartResponse\x12F\n" +
+	"\x11snapshot_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x10snapshotInterval\x12F\n" +
+	"\x11staleness_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10stalenessTimeout\"\xc7\x01\n" +
+	"\x1bManagerHealthStreamResponse\x12P\n" +
+	"\x05start\x18\x01 \x01(\v28.multipoolermanagerdata.ManagerHealthStreamStartResponseH\x00R\x05start\x12K\n" +
+	"\bsnapshot\x18\x02 \x01(\v2-.multipoolermanagerdata.ManagerHealthSnapshotH\x00R\bsnapshotB\t\n" +
+	"\amessage\"\xcf\x01\n" +
+	"\x15ManagerHealthSnapshot\x12>\n" +
+	"\x06status\x18\x01 \x01(\v2&.multipoolermanagerdata.StatusResponseR\x06status\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12A\n" +
+	"\atrigger\x18\x03 \x01(\x0e2'.multipoolermanagerdata.SnapshotTriggerR\atrigger\"\xae\x02\n" +
+	"\x1aUpdateConsensusRuleRequest\x12K\n" +
+	"\toperation\x18\x01 \x01(\x0e2-.multipoolermanagerdata.CohortUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\x12#\n" +
-	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
-	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
-	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\x8f\x02\n" +
-	"\rConsensusTerm\x12\x1f\n" +
-	"\vterm_number\x18\x01 \x01(\x03R\n" +
-	"termNumber\x12]\n" +
-	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
-	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xf6\x01\n" +
-	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
-	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x124\n" +
-	"\x16durability_policy_name\x18\x02 \x01(\tR\x14durabilityPolicyName\x12Q\n" +
-	"\x16durability_quorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\x14durabilityQuorumRule\x12%\n" +
-	"\x0ecoordinator_id\x18\x04 \x01(\tR\rcoordinatorId\"|\n" +
-	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
-	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"\xae\x01\n" +
-	"\x1aInitializeAsStandbyRequest\x126\n" +
-	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x12%\n" +
-	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12\x14\n" +
-	"\x05force\x18\x03 \x01(\bR\x05force\x12\x1b\n" +
-	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\"y\n" +
-	"\x1bInitializeAsStandbyResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
-	"\tfinal_lsn\x18\x03 \x01(\tR\bfinalLsn\"_\n" +
+	"standbyIds\x12Q\n" +
+	"\x16expected_outgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\x14expectedOutgoingRule\x12:\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"\x1d\n" +
+	"\x1bUpdateConsensusRuleResponse\"\xf1\x01\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
-	"\x06job_id\x18\x03 \x01(\tR\x05jobId\"-\n" +
+	"\x06job_id\x18\x03 \x01(\tR\x05jobId\x12R\n" +
+	"\toverrides\x18\n" +
+	" \x03(\v24.multipoolermanagerdata.BackupRequest.OverridesEntryR\toverrides\x1a<\n" +
+	"\x0eOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"-\n" +
 	"\x0eBackupResponse\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
 	"\x18RestoreFromBackupRequest\x12\x1b\n" +
@@ -4089,7 +2966,19 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x17GetBackupByJobIdRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\"Z\n" +
 	"\x18GetBackupByJobIdResponse\x12>\n" +
-	"\x06backup\x18\x01 \x01(\v2&.multipoolermanagerdata.BackupMetadataR\x06backup\"\xb9\x03\n" +
+	"\x06backup\x18\x01 \x01(\v2&.multipoolermanagerdata.BackupMetadataR\x06backup\"\xaf\x01\n" +
+	"\x14ExpireBackupsRequest\x12Y\n" +
+	"\toverrides\x18\x01 \x03(\v2;.multipoolermanagerdata.ExpireBackupsRequest.OverridesEntryR\toverrides\x1a<\n" +
+	"\x0eOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"E\n" +
+	"\x15ExpireBackupsResponse\x12,\n" +
+	"\x12expired_backup_ids\x18\x01 \x03(\tR\x10expiredBackupIds\"\x16\n" +
+	"\x14VerifyBackupsRequest\"m\n" +
+	"\x15VerifyBackupsResponse\x125\n" +
+	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
+	"\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xb9\x03\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -4108,16 +2997,33 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
 	"INCOMPLETE\x10\x01\x12\f\n" +
-	"\bCOMPLETE\x10\x02\"\x1c\n" +
-	"\x1aGetDurabilityPolicyRequest\"X\n" +
-	"\x1bGetDurabilityPolicyResponse\x129\n" +
-	"\x06policy\x18\x01 \x01(\v2!.clustermetadata.DurabilityPolicyR\x06policy\"~\n" +
-	"\x1dCreateDurabilityPolicyRequest\x12\x1f\n" +
-	"\vpolicy_name\x18\x01 \x01(\tR\n" +
-	"policyName\x12<\n" +
-	"\vquorum_rule\x18\x02 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
-	"quorumRule\" \n" +
-	"\x1eCreateDurabilityPolicyResponse*\x98\x01\n" +
+	"\bCOMPLETE\x10\x02\"M\n" +
+	"\x15RewindToSourceRequest\x124\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\"\x82\x01\n" +
+	"\x16RewindToSourceResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12)\n" +
+	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed\"=\n" +
+	"!SetPostgresRestartsEnabledRequest\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\"$\n" +
+	"\"SetPostgresRestartsEnabledResponse*\xa4\x01\n" +
+	"\x0ePostgresStatus\x12\x1b\n" +
+	"\x17POSTGRES_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
+	"\x18POSTGRES_STATUS_STARTING\x10\x01\x12\x1b\n" +
+	"\x17POSTGRES_STATUS_STANDBY\x10\x02\x12\x1d\n" +
+	"\x19POSTGRES_STATUS_PROMOTING\x10\x03\x12\x1b\n" +
+	"\x17POSTGRES_STATUS_PRIMARY\x10\x04*\xa5\x01\n" +
+	"\x0ePostgresAction\x12\x1f\n" +
+	"\x1bPOSTGRES_ACTION_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18POSTGRES_ACTION_STARTING\x10\x01\x12)\n" +
+	"%POSTGRES_ACTION_RESTORING_FROM_BACKUP\x10\x02\x12)\n" +
+	"%POSTGRES_ACTION_CREATING_FIRST_BACKUP\x10\x03*\xac\x01\n" +
+	"\x0fSnapshotTrigger\x12 \n" +
+	"\x1cSNAPSHOT_TRIGGER_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18SNAPSHOT_TRIGGER_INITIAL\x10\x01\x12\x1e\n" +
+	"\x1aSNAPSHOT_TRIGGER_BROADCAST\x10\x02\x12\x19\n" +
+	"\x15SNAPSHOT_TRIGGER_POLL\x10\x03\x12\x1e\n" +
+	"\x1aSNAPSHOT_TRIGGER_HEARTBEAT\x10\x04*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
@@ -4125,12 +3031,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_METHOD_FIRST\x10\x01\x12\x1a\n" +
-	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\xaf\x01\n" +
-	"\x16StandbyUpdateOperation\x12(\n" +
-	"$STANDBY_UPDATE_OPERATION_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cSTANDBY_UPDATE_OPERATION_ADD\x10\x01\x12#\n" +
-	"\x1fSTANDBY_UPDATE_OPERATION_REMOVE\x10\x02\x12$\n" +
-	" STANDBY_UPDATE_OPERATION_REPLACE\x10\x03*\xb7\x01\n" +
+	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\x85\x01\n" +
+	"\x15CohortUpdateOperation\x12'\n" +
+	"#COHORT_UPDATE_OPERATION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bCOHORT_UPDATE_OPERATION_ADD\x10\x01\x12\"\n" +
+	"\x1eCOHORT_UPDATE_OPERATION_REMOVE\x10\x02*\xb7\x01\n" +
 	"\x16SynchronousCommitLevel\x12\x1a\n" +
 	"\x16SYNCHRONOUS_COMMIT_OFF\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_COMMIT_LOCAL\x10\x01\x12#\n" +
@@ -4150,138 +3055,118 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 	return file_multipoolermanagerdata_proto_rawDescData
 }
 
-var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 63)
+var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_multipoolermanagerdata_proto_goTypes = []any{
-	(ReplicationPauseMode)(0),                       // 0: multipoolermanagerdata.ReplicationPauseMode
-	(SynchronousMethod)(0),                          // 1: multipoolermanagerdata.SynchronousMethod
-	(StandbyUpdateOperation)(0),                     // 2: multipoolermanagerdata.StandbyUpdateOperation
-	(SynchronousCommitLevel)(0),                     // 3: multipoolermanagerdata.SynchronousCommitLevel
-	(BackupMetadata_Status)(0),                      // 4: multipoolermanagerdata.BackupMetadata.Status
-	(*PrimaryConnInfo)(nil),                         // 5: multipoolermanagerdata.PrimaryConnInfo
-	(*StandbyReplicationStatus)(nil),                // 6: multipoolermanagerdata.StandbyReplicationStatus
-	(*WaitForLSNRequest)(nil),                       // 7: multipoolermanagerdata.WaitForLSNRequest
-	(*WaitForLSNResponse)(nil),                      // 8: multipoolermanagerdata.WaitForLSNResponse
-	(*StartReplicationRequest)(nil),                 // 9: multipoolermanagerdata.StartReplicationRequest
-	(*StartReplicationResponse)(nil),                // 10: multipoolermanagerdata.StartReplicationResponse
-	(*SetPrimaryConnInfoRequest)(nil),               // 11: multipoolermanagerdata.SetPrimaryConnInfoRequest
-	(*SetPrimaryConnInfoResponse)(nil),              // 12: multipoolermanagerdata.SetPrimaryConnInfoResponse
-	(*StopReplicationRequest)(nil),                  // 13: multipoolermanagerdata.StopReplicationRequest
-	(*StopReplicationResponse)(nil),                 // 14: multipoolermanagerdata.StopReplicationResponse
-	(*StandbyReplicationStatusRequest)(nil),         // 15: multipoolermanagerdata.StandbyReplicationStatusRequest
-	(*StandbyReplicationStatusResponse)(nil),        // 16: multipoolermanagerdata.StandbyReplicationStatusResponse
-	(*SynchronousReplicationConfiguration)(nil),     // 17: multipoolermanagerdata.SynchronousReplicationConfiguration
-	(*PrimaryStatus)(nil),                           // 18: multipoolermanagerdata.PrimaryStatus
-	(*PrimaryStatusRequest)(nil),                    // 19: multipoolermanagerdata.PrimaryStatusRequest
-	(*PrimaryStatusResponse)(nil),                   // 20: multipoolermanagerdata.PrimaryStatusResponse
-	(*PrimaryPositionRequest)(nil),                  // 21: multipoolermanagerdata.PrimaryPositionRequest
-	(*PrimaryPositionResponse)(nil),                 // 22: multipoolermanagerdata.PrimaryPositionResponse
-	(*Status)(nil),                                  // 23: multipoolermanagerdata.Status
-	(*StatusRequest)(nil),                           // 24: multipoolermanagerdata.StatusRequest
-	(*StatusResponse)(nil),                          // 25: multipoolermanagerdata.StatusResponse
-	(*ReplicationStats)(nil),                        // 26: multipoolermanagerdata.ReplicationStats
-	(*FollowerInfo)(nil),                            // 27: multipoolermanagerdata.FollowerInfo
-	(*GetFollowersRequest)(nil),                     // 28: multipoolermanagerdata.GetFollowersRequest
-	(*GetFollowersResponse)(nil),                    // 29: multipoolermanagerdata.GetFollowersResponse
-	(*DemoteRequest)(nil),                           // 30: multipoolermanagerdata.DemoteRequest
-	(*DemoteResponse)(nil),                          // 31: multipoolermanagerdata.DemoteResponse
-	(*UndoDemoteRequest)(nil),                       // 32: multipoolermanagerdata.UndoDemoteRequest
-	(*UndoDemoteResponse)(nil),                      // 33: multipoolermanagerdata.UndoDemoteResponse
-	(*StopReplicationAndGetStatusRequest)(nil),      // 34: multipoolermanagerdata.StopReplicationAndGetStatusRequest
-	(*StopReplicationAndGetStatusResponse)(nil),     // 35: multipoolermanagerdata.StopReplicationAndGetStatusResponse
-	(*ChangeTypeRequest)(nil),                       // 36: multipoolermanagerdata.ChangeTypeRequest
-	(*ChangeTypeResponse)(nil),                      // 37: multipoolermanagerdata.ChangeTypeResponse
-	(*PromoteRequest)(nil),                          // 38: multipoolermanagerdata.PromoteRequest
-	(*PromoteResponse)(nil),                         // 39: multipoolermanagerdata.PromoteResponse
-	(*ResetReplicationRequest)(nil),                 // 40: multipoolermanagerdata.ResetReplicationRequest
-	(*ResetReplicationResponse)(nil),                // 41: multipoolermanagerdata.ResetReplicationResponse
-	(*ConfigureSynchronousReplicationRequest)(nil),  // 42: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	(*ConfigureSynchronousReplicationResponse)(nil), // 43: multipoolermanagerdata.ConfigureSynchronousReplicationResponse
-	(*StateRequest)(nil),                            // 44: multipoolermanagerdata.StateRequest
-	(*StateResponse)(nil),                           // 45: multipoolermanagerdata.StateResponse
-	(*SetTermRequest)(nil),                          // 46: multipoolermanagerdata.SetTermRequest
-	(*SetTermResponse)(nil),                         // 47: multipoolermanagerdata.SetTermResponse
-	(*UpdateSynchronousStandbyListRequest)(nil),     // 48: multipoolermanagerdata.UpdateSynchronousStandbyListRequest
-	(*UpdateSynchronousStandbyListResponse)(nil),    // 49: multipoolermanagerdata.UpdateSynchronousStandbyListResponse
-	(*ConsensusTerm)(nil),                           // 50: multipoolermanagerdata.ConsensusTerm
-	(*InitializeEmptyPrimaryRequest)(nil),           // 51: multipoolermanagerdata.InitializeEmptyPrimaryRequest
-	(*InitializeEmptyPrimaryResponse)(nil),          // 52: multipoolermanagerdata.InitializeEmptyPrimaryResponse
-	(*InitializeAsStandbyRequest)(nil),              // 53: multipoolermanagerdata.InitializeAsStandbyRequest
-	(*InitializeAsStandbyResponse)(nil),             // 54: multipoolermanagerdata.InitializeAsStandbyResponse
-	(*BackupRequest)(nil),                           // 55: multipoolermanagerdata.BackupRequest
-	(*BackupResponse)(nil),                          // 56: multipoolermanagerdata.BackupResponse
-	(*RestoreFromBackupRequest)(nil),                // 57: multipoolermanagerdata.RestoreFromBackupRequest
-	(*RestoreFromBackupResponse)(nil),               // 58: multipoolermanagerdata.RestoreFromBackupResponse
-	(*GetBackupsRequest)(nil),                       // 59: multipoolermanagerdata.GetBackupsRequest
-	(*GetBackupsResponse)(nil),                      // 60: multipoolermanagerdata.GetBackupsResponse
-	(*GetBackupByJobIdRequest)(nil),                 // 61: multipoolermanagerdata.GetBackupByJobIdRequest
-	(*GetBackupByJobIdResponse)(nil),                // 62: multipoolermanagerdata.GetBackupByJobIdResponse
-	(*BackupMetadata)(nil),                          // 63: multipoolermanagerdata.BackupMetadata
-	(*GetDurabilityPolicyRequest)(nil),              // 64: multipoolermanagerdata.GetDurabilityPolicyRequest
-	(*GetDurabilityPolicyResponse)(nil),             // 65: multipoolermanagerdata.GetDurabilityPolicyResponse
-	(*CreateDurabilityPolicyRequest)(nil),           // 66: multipoolermanagerdata.CreateDurabilityPolicyRequest
-	(*CreateDurabilityPolicyResponse)(nil),          // 67: multipoolermanagerdata.CreateDurabilityPolicyResponse
-	(*durationpb.Duration)(nil),                     // 68: google.protobuf.Duration
-	(*clustermetadata.MultiPooler)(nil),             // 69: clustermetadata.MultiPooler
-	(*clustermetadata.ID)(nil),                      // 70: clustermetadata.ID
-	(clustermetadata.PoolerType)(0),                 // 71: clustermetadata.PoolerType
-	(*timestamppb.Timestamp)(nil),                   // 72: google.protobuf.Timestamp
-	(*clustermetadata.QuorumRule)(nil),              // 73: clustermetadata.QuorumRule
-	(*clustermetadata.DurabilityPolicy)(nil),        // 74: clustermetadata.DurabilityPolicy
+	(PostgresStatus)(0),                         // 0: multipoolermanagerdata.PostgresStatus
+	(PostgresAction)(0),                         // 1: multipoolermanagerdata.PostgresAction
+	(SnapshotTrigger)(0),                        // 2: multipoolermanagerdata.SnapshotTrigger
+	(ReplicationPauseMode)(0),                   // 3: multipoolermanagerdata.ReplicationPauseMode
+	(SynchronousMethod)(0),                      // 4: multipoolermanagerdata.SynchronousMethod
+	(CohortUpdateOperation)(0),                  // 5: multipoolermanagerdata.CohortUpdateOperation
+	(SynchronousCommitLevel)(0),                 // 6: multipoolermanagerdata.SynchronousCommitLevel
+	(BackupMetadata_Status)(0),                  // 7: multipoolermanagerdata.BackupMetadata.Status
+	(*PrimaryConnInfo)(nil),                     // 8: multipoolermanagerdata.PrimaryConnInfo
+	(*StandbyReplicationStatus)(nil),            // 9: multipoolermanagerdata.StandbyReplicationStatus
+	(*WaitForLSNRequest)(nil),                   // 10: multipoolermanagerdata.WaitForLSNRequest
+	(*WaitForLSNResponse)(nil),                  // 11: multipoolermanagerdata.WaitForLSNResponse
+	(*StartReplicationRequest)(nil),             // 12: multipoolermanagerdata.StartReplicationRequest
+	(*StartReplicationResponse)(nil),            // 13: multipoolermanagerdata.StartReplicationResponse
+	(*StopReplicationRequest)(nil),              // 14: multipoolermanagerdata.StopReplicationRequest
+	(*StopReplicationResponse)(nil),             // 15: multipoolermanagerdata.StopReplicationResponse
+	(*SynchronousReplicationConfiguration)(nil), // 16: multipoolermanagerdata.SynchronousReplicationConfiguration
+	(*PrimaryStatus)(nil),                       // 17: multipoolermanagerdata.PrimaryStatus
+	(*Status)(nil),                              // 18: multipoolermanagerdata.Status
+	(*StatusRequest)(nil),                       // 19: multipoolermanagerdata.StatusRequest
+	(*StatusResponse)(nil),                      // 20: multipoolermanagerdata.StatusResponse
+	(*ManagerHealthStreamClientMessage)(nil),    // 21: multipoolermanagerdata.ManagerHealthStreamClientMessage
+	(*ManagerHealthStreamStartRequest)(nil),     // 22: multipoolermanagerdata.ManagerHealthStreamStartRequest
+	(*ManagerHealthStreamPollRequest)(nil),      // 23: multipoolermanagerdata.ManagerHealthStreamPollRequest
+	(*ManagerHealthStreamStartResponse)(nil),    // 24: multipoolermanagerdata.ManagerHealthStreamStartResponse
+	(*ManagerHealthStreamResponse)(nil),         // 25: multipoolermanagerdata.ManagerHealthStreamResponse
+	(*ManagerHealthSnapshot)(nil),               // 26: multipoolermanagerdata.ManagerHealthSnapshot
+	(*UpdateConsensusRuleRequest)(nil),          // 27: multipoolermanagerdata.UpdateConsensusRuleRequest
+	(*UpdateConsensusRuleResponse)(nil),         // 28: multipoolermanagerdata.UpdateConsensusRuleResponse
+	(*BackupRequest)(nil),                       // 29: multipoolermanagerdata.BackupRequest
+	(*BackupResponse)(nil),                      // 30: multipoolermanagerdata.BackupResponse
+	(*RestoreFromBackupRequest)(nil),            // 31: multipoolermanagerdata.RestoreFromBackupRequest
+	(*RestoreFromBackupResponse)(nil),           // 32: multipoolermanagerdata.RestoreFromBackupResponse
+	(*GetBackupsRequest)(nil),                   // 33: multipoolermanagerdata.GetBackupsRequest
+	(*GetBackupsResponse)(nil),                  // 34: multipoolermanagerdata.GetBackupsResponse
+	(*GetBackupByJobIdRequest)(nil),             // 35: multipoolermanagerdata.GetBackupByJobIdRequest
+	(*GetBackupByJobIdResponse)(nil),            // 36: multipoolermanagerdata.GetBackupByJobIdResponse
+	(*ExpireBackupsRequest)(nil),                // 37: multipoolermanagerdata.ExpireBackupsRequest
+	(*ExpireBackupsResponse)(nil),               // 38: multipoolermanagerdata.ExpireBackupsResponse
+	(*VerifyBackupsRequest)(nil),                // 39: multipoolermanagerdata.VerifyBackupsRequest
+	(*VerifyBackupsResponse)(nil),               // 40: multipoolermanagerdata.VerifyBackupsResponse
+	(*BackupMetadata)(nil),                      // 41: multipoolermanagerdata.BackupMetadata
+	(*RewindToSourceRequest)(nil),               // 42: multipoolermanagerdata.RewindToSourceRequest
+	(*RewindToSourceResponse)(nil),              // 43: multipoolermanagerdata.RewindToSourceResponse
+	(*SetPostgresRestartsEnabledRequest)(nil),   // 44: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
+	(*SetPostgresRestartsEnabledResponse)(nil),  // 45: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	nil,                             // 46: multipoolermanagerdata.BackupRequest.OverridesEntry
+	nil,                             // 47: multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	(*durationpb.Duration)(nil),     // 48: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),   // 49: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),      // 50: clustermetadata.ID
+	(clustermetadata.PoolerType)(0), // 51: clustermetadata.PoolerType
+	(*clustermetadata.AvailabilityStatus)(nil), // 52: clustermetadata.AvailabilityStatus
+	(*clustermetadata.ConsensusStatus)(nil),    // 53: clustermetadata.ConsensusStatus
+	(*clustermetadata.RuleNumber)(nil),         // 54: clustermetadata.RuleNumber
+	(*clustermetadata.MultiPooler)(nil),        // 55: clustermetadata.MultiPooler
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	68, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
-	5,  // 1: multipoolermanagerdata.StandbyReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
-	68, // 2: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
-	69, // 3: multipoolermanagerdata.SetPrimaryConnInfoRequest.primary:type_name -> clustermetadata.MultiPooler
-	0,  // 4: multipoolermanagerdata.StopReplicationRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
-	6,  // 5: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	6,  // 6: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	3,  // 7: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	1,  // 8: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	70, // 9: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
-	70, // 10: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
-	17, // 11: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	18, // 12: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	71, // 13: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
-	18, // 14: multipoolermanagerdata.Status.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	6,  // 15: multipoolermanagerdata.Status.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	23, // 16: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
-	68, // 17: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
-	68, // 18: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
-	68, // 19: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
-	70, // 20: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
-	26, // 21: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
-	27, // 22: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
-	17, // 23: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	68, // 24: multipoolermanagerdata.DemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
-	0,  // 25: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
-	6,  // 26: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	71, // 27: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
-	42, // 28: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
-	6,  // 29: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	3,  // 30: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
-	1,  // 31: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	70, // 32: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
-	50, // 33: multipoolermanagerdata.SetTermRequest.term:type_name -> multipoolermanagerdata.ConsensusTerm
-	2,  // 34: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	70, // 35: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	70, // 36: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
-	72, // 37: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	70, // 38: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	73, // 39: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
-	69, // 40: multipoolermanagerdata.InitializeAsStandbyRequest.primary:type_name -> clustermetadata.MultiPooler
-	63, // 41: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	63, // 42: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	71, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	74, // 45: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	73, // 46: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	47, // [47:47] is the sub-list for method output_type
-	47, // [47:47] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	48, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
+	8,  // 1: multipoolermanagerdata.StandbyReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
+	49, // 2: multipoolermanagerdata.StandbyReplicationStatus.last_msg_receive_time:type_name -> google.protobuf.Timestamp
+	48, // 3: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_status_interval:type_name -> google.protobuf.Duration
+	48, // 4: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_timeout:type_name -> google.protobuf.Duration
+	48, // 5: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	3,  // 6: multipoolermanagerdata.StopReplicationRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
+	9,  // 7: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	6,  // 8: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
+	4,  // 9: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
+	50, // 10: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
+	50, // 11: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
+	16, // 12: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
+	51, // 13: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
+	17, // 14: multipoolermanagerdata.Status.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	9,  // 15: multipoolermanagerdata.Status.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	0,  // 16: multipoolermanagerdata.Status.postgres_status:type_name -> multipoolermanagerdata.PostgresStatus
+	1,  // 17: multipoolermanagerdata.Status.postgres_action:type_name -> multipoolermanagerdata.PostgresAction
+	48, // 18: multipoolermanagerdata.Status.postgres_action_duration:type_name -> google.protobuf.Duration
+	50, // 19: multipoolermanagerdata.Status.cohort_members:type_name -> clustermetadata.ID
+	18, // 20: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
+	52, // 21: multipoolermanagerdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	53, // 22: multipoolermanagerdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	22, // 23: multipoolermanagerdata.ManagerHealthStreamClientMessage.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartRequest
+	23, // 24: multipoolermanagerdata.ManagerHealthStreamClientMessage.poll:type_name -> multipoolermanagerdata.ManagerHealthStreamPollRequest
+	48, // 25: multipoolermanagerdata.ManagerHealthStreamStartRequest.snapshot_interval:type_name -> google.protobuf.Duration
+	48, // 26: multipoolermanagerdata.ManagerHealthStreamStartRequest.staleness_timeout:type_name -> google.protobuf.Duration
+	48, // 27: multipoolermanagerdata.ManagerHealthStreamStartResponse.snapshot_interval:type_name -> google.protobuf.Duration
+	48, // 28: multipoolermanagerdata.ManagerHealthStreamStartResponse.staleness_timeout:type_name -> google.protobuf.Duration
+	24, // 29: multipoolermanagerdata.ManagerHealthStreamResponse.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartResponse
+	26, // 30: multipoolermanagerdata.ManagerHealthStreamResponse.snapshot:type_name -> multipoolermanagerdata.ManagerHealthSnapshot
+	20, // 31: multipoolermanagerdata.ManagerHealthSnapshot.status:type_name -> multipoolermanagerdata.StatusResponse
+	48, // 32: multipoolermanagerdata.ManagerHealthSnapshot.timeout:type_name -> google.protobuf.Duration
+	2,  // 33: multipoolermanagerdata.ManagerHealthSnapshot.trigger:type_name -> multipoolermanagerdata.SnapshotTrigger
+	5,  // 34: multipoolermanagerdata.UpdateConsensusRuleRequest.operation:type_name -> multipoolermanagerdata.CohortUpdateOperation
+	50, // 35: multipoolermanagerdata.UpdateConsensusRuleRequest.standby_ids:type_name -> clustermetadata.ID
+	54, // 36: multipoolermanagerdata.UpdateConsensusRuleRequest.expected_outgoing_rule:type_name -> clustermetadata.RuleNumber
+	50, // 37: multipoolermanagerdata.UpdateConsensusRuleRequest.coordinator_id:type_name -> clustermetadata.ID
+	46, // 38: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
+	41, // 39: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	41, // 40: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	47, // 41: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	48, // 42: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
+	7,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	51, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	55, // 45: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	46, // [46:46] is the sub-list for method output_type
+	46, // [46:46] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
@@ -4289,13 +3174,21 @@ func file_multipoolermanagerdata_proto_init() {
 	if File_multipoolermanagerdata_proto != nil {
 		return
 	}
+	file_multipoolermanagerdata_proto_msgTypes[13].OneofWrappers = []any{
+		(*ManagerHealthStreamClientMessage_Start)(nil),
+		(*ManagerHealthStreamClientMessage_Poll)(nil),
+	}
+	file_multipoolermanagerdata_proto_msgTypes[17].OneofWrappers = []any{
+		(*ManagerHealthStreamResponse_Start)(nil),
+		(*ManagerHealthStreamResponse_Snapshot)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   63,
+			NumEnums:      8,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

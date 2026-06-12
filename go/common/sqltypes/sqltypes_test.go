@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -258,4 +259,612 @@ func TestMakeRow(t *testing.T) {
 	assert.NotNil(t, row.Values[1])
 	assert.Equal(t, "", string(row.Values[1]))
 	assert.Equal(t, "hello", string(row.Values[2]))
+}
+
+func TestPgDiagnosticToProtoAndBack(t *testing.T) {
+	tests := []struct {
+		name       string
+		diagnostic *mterrors.PgDiagnostic
+	}{
+		{
+			name: "all fields populated",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType:      'N',
+				Severity:         "WARNING",
+				Code:             "01000",
+				Message:          "This is a test notice",
+				Detail:           "Additional detail about the notice",
+				Hint:             "Consider doing something",
+				Position:         42,
+				InternalPosition: 10,
+				InternalQuery:    "SELECT internal_func()",
+				Where:            "PL/pgSQL function test_func() line 5",
+				Schema:           "public",
+				Table:            "users",
+				Column:           "email",
+				DataType:         "character varying",
+				Constraint:       "users_email_key",
+			},
+		},
+		{
+			name: "only required fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "NOTICE",
+				Code:        "00000",
+				Message:     "Simple notice",
+				Detail:      "",
+				Hint:        "",
+			},
+		},
+		{
+			name: "empty strings for optional fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "INFO",
+				Code:        "00000",
+				Message:     "Notice with empty optional fields",
+				Detail:      "",
+				Hint:        "",
+			},
+		},
+		{
+			name: "unicode characters in message",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "WARNING",
+				Code:        "01000",
+				Message:     "Unicode test: 日本語 🎉 émoji café",
+				Detail:      "详细信息 with unicode",
+				Hint:        "Подсказка на русском",
+			},
+		},
+		{
+			name: "error with special characters",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "42P01",
+				Message:     "relation \"users\" does not exist",
+				Detail:      "Line 1: SELECT * FROM \"users\"\n        ^",
+				Hint:        "Check if table name is quoted correctly",
+			},
+		},
+		{
+			name: "empty message",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "NOTICE",
+				Code:        "00000",
+				Message:     "",
+				Detail:      "",
+				Hint:        "",
+			},
+		},
+		{
+			name: "context fields only",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType:      'N',
+				Severity:         "NOTICE",
+				Code:             "00000",
+				Message:          "Notice with context",
+				Position:         100,
+				InternalPosition: 50,
+				InternalQuery:    "SELECT * FROM internal_table",
+				Where:            "SQL function \"my_func\"",
+			},
+		},
+		{
+			name: "position fields only",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "WARNING",
+				Code:        "01000",
+				Message:     "Position test",
+				Position:    1,
+			},
+		},
+		{
+			name: "where field with newlines",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "NOTICE",
+				Code:        "00000",
+				Message:     "Call stack test",
+				Where:       "PL/pgSQL function outer_func() line 3\nPL/pgSQL function inner_func() line 1",
+			},
+		},
+		{
+			name: "error with schema object fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "23505",
+				Message:     "duplicate key value violates unique constraint",
+				Schema:      "myschema",
+				Table:       "mytable",
+				Column:      "mycolumn",
+				DataType:    "integer",
+				Constraint:  "mytable_pkey",
+			},
+		},
+		{
+			name: "partial schema object fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "WARNING",
+				Code:        "01000",
+				Message:     "Partial schema info",
+				Schema:      "public",
+				Table:       "orders",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Convert to proto
+			protoDiag := mterrors.PgDiagnosticToProto(tc.diagnostic)
+			require.NotNil(t, protoDiag)
+
+			// Verify proto has correct values
+			assert.Equal(t, int32(tc.diagnostic.MessageType), protoDiag.MessageType)
+			assert.Equal(t, tc.diagnostic.Severity, protoDiag.Severity)
+			assert.Equal(t, tc.diagnostic.Code, protoDiag.Code)
+			assert.Equal(t, tc.diagnostic.Message, protoDiag.Message)
+			assert.Equal(t, tc.diagnostic.Detail, protoDiag.Detail)
+			assert.Equal(t, tc.diagnostic.Hint, protoDiag.Hint)
+			assert.Equal(t, tc.diagnostic.Position, protoDiag.Position)
+			assert.Equal(t, tc.diagnostic.InternalPosition, protoDiag.InternalPosition)
+			assert.Equal(t, tc.diagnostic.InternalQuery, protoDiag.InternalQuery)
+			assert.Equal(t, tc.diagnostic.Where, protoDiag.Where)
+			assert.Equal(t, tc.diagnostic.Schema, protoDiag.SchemaName)
+			assert.Equal(t, tc.diagnostic.Table, protoDiag.TableName)
+			assert.Equal(t, tc.diagnostic.Column, protoDiag.ColumnName)
+			assert.Equal(t, tc.diagnostic.DataType, protoDiag.DataTypeName)
+			assert.Equal(t, tc.diagnostic.Constraint, protoDiag.ConstraintName)
+
+			// Convert back
+			recovered := mterrors.PgDiagnosticFromProto(protoDiag)
+			require.NotNil(t, recovered)
+
+			// Verify roundtrip preserves all fields
+			assert.Equal(t, tc.diagnostic.MessageType, recovered.MessageType)
+			assert.Equal(t, tc.diagnostic.Severity, recovered.Severity)
+			assert.Equal(t, tc.diagnostic.Code, recovered.Code)
+			assert.Equal(t, tc.diagnostic.Message, recovered.Message)
+			assert.Equal(t, tc.diagnostic.Detail, recovered.Detail)
+			assert.Equal(t, tc.diagnostic.Hint, recovered.Hint)
+			assert.Equal(t, tc.diagnostic.Position, recovered.Position)
+			assert.Equal(t, tc.diagnostic.InternalPosition, recovered.InternalPosition)
+			assert.Equal(t, tc.diagnostic.InternalQuery, recovered.InternalQuery)
+			assert.Equal(t, tc.diagnostic.Where, recovered.Where)
+			assert.Equal(t, tc.diagnostic.Schema, recovered.Schema)
+			assert.Equal(t, tc.diagnostic.Table, recovered.Table)
+			assert.Equal(t, tc.diagnostic.Column, recovered.Column)
+			assert.Equal(t, tc.diagnostic.DataType, recovered.DataType)
+			assert.Equal(t, tc.diagnostic.Constraint, recovered.Constraint)
+		})
+	}
+}
+
+func TestPgDiagnosticFromProtoNil(t *testing.T) {
+	assert.Nil(t, mterrors.PgDiagnosticFromProto(nil))
+}
+
+func TestPgDiagnosticToProtoNil(t *testing.T) {
+	assert.Nil(t, mterrors.PgDiagnosticToProto(nil))
+}
+
+func TestPgDiagnosticIsError(t *testing.T) {
+	errDiag := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "ERROR"}
+	noticeDiag := &mterrors.PgDiagnostic{MessageType: 'N', Severity: "NOTICE"}
+
+	assert.True(t, errDiag.IsError())
+	assert.False(t, errDiag.IsNotice())
+	assert.False(t, noticeDiag.IsError())
+	assert.True(t, noticeDiag.IsNotice())
+}
+
+func TestPgDiagnosticValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		diagnostic  *mterrors.PgDiagnostic
+		expectError bool
+		errorSubstr string
+	}{
+		{
+			name: "valid error diagnostic",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "42P01",
+				Message:     "relation does not exist",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid notice diagnostic",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'N',
+				Severity:    "NOTICE",
+				Code:        "00000",
+				Message:     "this is a notice",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid error with all fields",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType:      'E',
+				Severity:         "ERROR",
+				Code:             "23505",
+				Message:          "duplicate key value",
+				Detail:           "Key already exists",
+				Hint:             "Use ON CONFLICT",
+				Position:         10,
+				InternalPosition: 5,
+				InternalQuery:    "SELECT ...",
+				Where:            "trigger",
+				Schema:           "public",
+				Table:            "users",
+				Column:           "id",
+				DataType:         "integer",
+				Constraint:       "users_pkey",
+			},
+			expectError: false,
+		},
+		{
+			name:        "nil diagnostic",
+			diagnostic:  nil,
+			expectError: true,
+			errorSubstr: "diagnostic is nil",
+		},
+		{
+			name: "invalid MessageType",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'X',
+				Severity:    "ERROR",
+				Code:        "42P01",
+				Message:     "test error",
+			},
+			expectError: true,
+			errorSubstr: "invalid MessageType 'X' (0x58)",
+		},
+		{
+			name: "zero MessageType",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 0,
+				Severity:    "ERROR",
+				Code:        "42P01",
+				Message:     "test error",
+			},
+			expectError: true,
+			errorSubstr: "MessageType is unset (0x00)",
+		},
+		{
+			name: "empty Severity",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "",
+				Code:        "42P01",
+				Message:     "test error",
+			},
+			expectError: true,
+			errorSubstr: "Severity is empty",
+		},
+		{
+			name: "empty Code",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "",
+				Message:     "test error",
+			},
+			expectError: true,
+			errorSubstr: "Code (SQLSTATE) is empty",
+		},
+		{
+			name: "empty Message",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "42P01",
+				Message:     "",
+			},
+			expectError: true,
+			errorSubstr: "Message is empty",
+		},
+		{
+			name: "multiple validation failures",
+			diagnostic: &mterrors.PgDiagnostic{
+				MessageType: 'X',
+				Severity:    "",
+				Code:        "",
+				Message:     "",
+			},
+			expectError: true,
+			errorSubstr: "invalid MessageType",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.diagnostic.Validate()
+			if tc.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorSubstr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPgDiagnosticValidateMultipleFailures(t *testing.T) {
+	// Test that multiple failures are all reported
+	diag := &mterrors.PgDiagnostic{
+		MessageType: 'X',
+		Severity:    "",
+		Code:        "",
+		Message:     "",
+	}
+
+	err := diag.Validate()
+	require.Error(t, err)
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "invalid MessageType")
+	assert.Contains(t, errStr, "Severity is empty")
+	assert.Contains(t, errStr, "Code (SQLSTATE) is empty")
+	assert.Contains(t, errStr, "Message is empty")
+}
+
+func TestPgDiagnosticSQLSTATE(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		expected string
+	}{
+		{
+			name:     "syntax error",
+			code:     "42601",
+			expected: "42601",
+		},
+		{
+			name:     "undefined table",
+			code:     "42P01",
+			expected: "42P01",
+		},
+		{
+			name:     "successful completion",
+			code:     "00000",
+			expected: "00000",
+		},
+		{
+			name:     "data exception",
+			code:     "22P02",
+			expected: "22P02",
+		},
+		{
+			name:     "internal error",
+			code:     "XX000",
+			expected: "XX000",
+		},
+		{
+			name:     "empty code",
+			code:     "",
+			expected: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diag := &mterrors.PgDiagnostic{Code: tc.code}
+			assert.Equal(t, tc.expected, diag.SQLSTATE())
+		})
+	}
+}
+
+func TestPgDiagnosticSQLSTATEClass(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		expected string
+	}{
+		{
+			name:     "syntax error class",
+			code:     "42601",
+			expected: "42",
+		},
+		{
+			name:     "undefined table",
+			code:     "42P01",
+			expected: "42",
+		},
+		{
+			name:     "successful completion",
+			code:     "00000",
+			expected: "00",
+		},
+		{
+			name:     "data exception",
+			code:     "22P02",
+			expected: "22",
+		},
+		{
+			name:     "integrity constraint violation",
+			code:     "23505",
+			expected: "23",
+		},
+		{
+			name:     "internal error",
+			code:     "XX000",
+			expected: "XX",
+		},
+		{
+			name:     "empty code",
+			code:     "",
+			expected: "",
+		},
+		{
+			name:     "single character code",
+			code:     "X",
+			expected: "",
+		},
+		{
+			name:     "two character code",
+			code:     "42",
+			expected: "42",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diag := &mterrors.PgDiagnostic{Code: tc.code}
+			assert.Equal(t, tc.expected, diag.SQLSTATEClass())
+		})
+	}
+}
+
+func TestPgDiagnosticIsClass(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		class    string
+		expected bool
+	}{
+		{
+			name:     "syntax error in class 42",
+			code:     "42601",
+			class:    "42",
+			expected: true,
+		},
+		{
+			name:     "syntax error not in class 22",
+			code:     "42601",
+			class:    "22",
+			expected: false,
+		},
+		{
+			name:     "undefined table in class 42",
+			code:     "42P01",
+			class:    "42",
+			expected: true,
+		},
+		{
+			name:     "data exception in class 22",
+			code:     "22P02",
+			class:    "22",
+			expected: true,
+		},
+		{
+			name:     "integrity constraint in class 23",
+			code:     "23505",
+			class:    "23",
+			expected: true,
+		},
+		{
+			name:     "internal error in class XX",
+			code:     "XX000",
+			class:    "XX",
+			expected: true,
+		},
+		{
+			name:     "empty code is not in any class",
+			code:     "",
+			class:    "42",
+			expected: false,
+		},
+		{
+			name:     "short code is not in any class",
+			code:     "X",
+			class:    "XX",
+			expected: false,
+		},
+		{
+			name:     "empty class comparison",
+			code:     "42601",
+			class:    "",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diag := &mterrors.PgDiagnostic{Code: tc.code}
+			assert.Equal(t, tc.expected, diag.IsClass(tc.class))
+		})
+	}
+}
+
+func TestPgDiagnosticIsFatal(t *testing.T) {
+	tests := []struct {
+		name     string
+		severity string
+		expected bool
+	}{
+		{
+			name:     "ERROR is not fatal",
+			severity: "ERROR",
+			expected: false,
+		},
+		{
+			name:     "FATAL is fatal",
+			severity: "FATAL",
+			expected: true,
+		},
+		{
+			name:     "PANIC is fatal",
+			severity: "PANIC",
+			expected: true,
+		},
+		{
+			name:     "WARNING is not fatal",
+			severity: "WARNING",
+			expected: false,
+		},
+		{
+			name:     "NOTICE is not fatal",
+			severity: "NOTICE",
+			expected: false,
+		},
+		{
+			name:     "INFO is not fatal",
+			severity: "INFO",
+			expected: false,
+		},
+		{
+			name:     "LOG is not fatal",
+			severity: "LOG",
+			expected: false,
+		},
+		{
+			name:     "DEBUG is not fatal",
+			severity: "DEBUG",
+			expected: false,
+		},
+		{
+			name:     "empty severity is not fatal",
+			severity: "",
+			expected: false,
+		},
+		{
+			name:     "lowercase fatal is not fatal (strict matching)",
+			severity: "fatal",
+			expected: false,
+		},
+		{
+			name:     "lowercase panic is not fatal (strict matching)",
+			severity: "panic",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diag := &mterrors.PgDiagnostic{Severity: tc.severity}
+			assert.Equal(t, tc.expected, diag.IsFatal())
+		})
+	}
 }

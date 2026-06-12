@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,10 +37,9 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/pathutil"
-	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
-	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -70,57 +70,23 @@ func (p *localProvisioner) Name() string {
 	return "local"
 }
 
-// createPoolerDirectoryWithPassword creates the pooler directory structure and password file
-// at the conventional location (poolerDir/pgpassword.txt).
-// If sourcePasswordFile is provided and exists, its content is copied; otherwise "postgres" is used.
-func createPoolerDirectoryWithPassword(poolerDir, sourcePasswordFile string) error {
-	// Create the pooler directory structure
-	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
-	}
-
-	// Conventional password file location
-	conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
-
-	// Determine password content
-	password := []byte("postgres")
-	if sourcePasswordFile != "" {
-		if content, err := os.ReadFile(sourcePasswordFile); err == nil {
-			password = content
-		}
-		// If source file doesn't exist, fall back to default "postgres"
-	}
-
-	// Create the password file at the conventional location
-	if err := os.WriteFile(conventionalPwfile, password, 0o600); err != nil {
-		return fmt.Errorf("failed to create password file %s: %w", conventionalPwfile, err)
-	}
-
-	return nil
-}
-
-// initializePgctldDirectories initializes all pgctld directories and password files based on the config
+// initializePgctldDirectories creates all pgctld pooler directories based on the config.
 func (p *localProvisioner) initializePgctldDirectories() error {
-	// Get the typed configuration
 	config := p.config
 
-	// Initialize directories for each cell's pgctld configuration
 	for cellName, cellConfig := range config.Cells {
 		fmt.Printf("Setting up pgctld directory for cell %s...\n", cellName)
 
 		poolerDir := cellConfig.Pgctld.PoolerDir
-
 		if poolerDir == "" {
 			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
 		}
 
-		if err := createPoolerDirectoryWithPassword(poolerDir, cellConfig.Pgctld.PgPwfile); err != nil {
-			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
+		if err := os.MkdirAll(poolerDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create pooler directory %s for cell %s: %w", poolerDir, cellName, err)
 		}
 
-		conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
 		fmt.Printf("✓ Created pooler directory: %s\n", poolerDir)
-		fmt.Printf("✓ Created password file: %s\n", conventionalPwfile)
 	}
 
 	return nil
@@ -166,6 +132,13 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		peerPort = pp
 	}
 
+	// Get metrics port from config, or default to port + 2.
+	// The metrics listener is required for /readyz health checks.
+	metricsPort := port + 2
+	if mp, ok := etcdConfig["metrics-port"].(int); ok && mp > 0 {
+		metricsPort = mp
+	}
+
 	// Find etcd binary (PATH or configured path)
 	etcdBinary, err := p.findBinary("etcd", etcdConfig)
 	if err != nil {
@@ -182,7 +155,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	dir, ok := etcdConfig["data-dir"].(string)
 	if !ok {
-		return nil, fmt.Errorf("etcd data directory not found in config")
+		return nil, errors.New("etcd data directory not found in config")
 	}
 
 	dataDir := dir
@@ -205,20 +178,21 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		"--name", "default",
 		"--data-dir", dataDir,
 		"--listen-client-urls", fmt.Sprintf("http://0.0.0.0:%d", port),
-		"--advertise-client-urls", fmt.Sprintf("http://localhost:%d", port),
+		"--advertise-client-urls", fmt.Sprintf("http://127.0.0.1:%d", port),
 		"--listen-peer-urls", fmt.Sprintf("http://0.0.0.0:%d", peerPort),
-		"--initial-advertise-peer-urls", fmt.Sprintf("http://localhost:%d", peerPort),
-		"--initial-cluster", fmt.Sprintf("default=http://localhost:%d", peerPort),
+		"--initial-advertise-peer-urls", fmt.Sprintf("http://127.0.0.1:%d", peerPort),
+		"--initial-cluster", fmt.Sprintf("default=http://127.0.0.1:%d", peerPort),
 		"--initial-cluster-state", "new",
+		"--listen-metrics-urls", fmt.Sprintf("http://0.0.0.0:%d", metricsPort),
 		"--log-outputs", logFile,
 	}
 
 	// Start etcd process
-	etcdCmd := exec.CommandContext(ctx, etcdBinary, args...)
+	etcdCmd := executil.Command(ctx, etcdBinary, args...)
 
 	fmt.Printf("▶️  - Launching etcd on port %d...", port)
 
-	if err := telemetry.StartCmd(ctx, etcdCmd); err != nil {
+	if err := etcdCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
@@ -228,7 +202,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	}
 
 	// Wait for etcd to be ready
-	servicePorts := map[string]int{"etcd_port": port}
+	servicePorts := map[string]int{"etcd_port": port, "etcd_metrics_port": metricsPort}
 	if err := p.waitForServiceReady(ctx, "etcd", "localhost", servicePorts, 10*time.Second); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)
@@ -336,6 +310,98 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 	return nil
 }
 
+// pgbackrestVersionRe extracts the version from `pgbackrest --version` output,
+// e.g. "pgBackRest 2.57.0".
+var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+(\d+\.\d+(?:\.\d+)?)`)
+
+// minPgBackrestVersionDisplay returns constants.MinPgBackrestVersion without
+// the semver "v" prefix, for use in user-facing messages.
+func minPgBackrestVersionDisplay() string {
+	return strings.TrimPrefix(constants.MinPgBackrestVersion, "v")
+}
+
+// checkPgBackrestVersion verifies that the pgbackrest binary is >= constants.MinPgBackrestVersion.
+func (p *localProvisioner) checkPgBackrestVersion(binaryPath string) error {
+	cmd := exec.Command(binaryPath, "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get pgbackrest version: %w", err)
+	}
+	return p.checkPgBackrestVersionFromOutput(string(output))
+}
+
+// checkPgBackrestVersionFromOutput is the pure parsing/comparison core of
+// checkPgBackrestVersion, split out so tests do not need a real binary.
+func (p *localProvisioner) checkPgBackrestVersionFromOutput(versionStr string) error {
+	matches := pgbackrestVersionRe.FindStringSubmatch(versionStr)
+	if len(matches) < 2 {
+		return fmt.Errorf("could not parse pgbackrest version from output: %q", strings.TrimSpace(versionStr))
+	}
+	actual := semver.Canonical("v" + matches[1])
+	if semver.Compare(actual, constants.MinPgBackrestVersion) < 0 {
+		return fmt.Errorf("pgbackrest %s is too old; need >= %s",
+			matches[1], minPgBackrestVersionDisplay())
+	}
+	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n", matches[1])
+	return nil
+}
+
+// postgresVersionRe extracts the major (and optional minor) version from
+// `postgres --version` output, e.g. "postgres (PostgreSQL) 17.2".
+var postgresVersionRe = regexp.MustCompile(`(?m)^postgres\s+\(PostgreSQL\)\s+(\d+)(?:\.(\d+))?`)
+
+// checkPostgresVersion verifies that the postgres binary is major version constants.RequiredPostgresMajor.
+func (p *localProvisioner) checkPostgresVersion(binaryPath string) error {
+	cmd := exec.Command(binaryPath, "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get postgres version: %w", err)
+	}
+	return p.checkPostgresVersionFromOutput(string(output))
+}
+
+// checkPostgresVersionFromOutput is the pure parsing/comparison core of
+// checkPostgresVersion.
+func (p *localProvisioner) checkPostgresVersionFromOutput(versionStr string) error {
+	matches := postgresVersionRe.FindStringSubmatch(versionStr)
+	if len(matches) < 2 {
+		return fmt.Errorf("could not parse postgres version from output: %q", strings.TrimSpace(versionStr))
+	}
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return fmt.Errorf("could not parse postgres major version %q: %w", matches[1], err)
+	}
+	if major != constants.RequiredPostgresMajor {
+		return fmt.Errorf("postgres major version %d is unsupported; need %d.x", major, constants.RequiredPostgresMajor)
+	}
+	display := matches[1]
+	if len(matches) > 2 && matches[2] != "" {
+		display = display + "." + matches[2]
+	}
+	fmt.Printf("🔍 - postgres %s found — version compatible ✓\n", display)
+	return nil
+}
+
+// checkRequiredBinaryVersions resolves the version-sensitive binaries on PATH
+// and verifies each is at a supported version. It is invoked from Bootstrap
+// after validateSystemBinaries has confirmed every required binary is present.
+// LookPath errors are not expected here, but are propagated defensively in case
+// PATH changes between the two calls.
+func (p *localProvisioner) checkRequiredBinaryVersions() error {
+	pgbackrestPath, err := exec.LookPath("pgbackrest")
+	if err != nil {
+		return fmt.Errorf("pgbackrest lookup failed after binary validation: %w", err)
+	}
+	if err := p.checkPgBackrestVersion(pgbackrestPath); err != nil {
+		return err
+	}
+	postgresPath, err := exec.LookPath("postgres")
+	if err != nil {
+		return fmt.Errorf("postgres lookup failed after binary validation: %w", err)
+	}
+	return p.checkPostgresVersion(postgresPath)
+}
+
 // readServiceLogs reads the last few lines from a service's log file for debugging
 func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 	if logFile == "" {
@@ -344,7 +410,7 @@ func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 
 	// Check if log file exists
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
-		return fmt.Sprintf("Log file not found: %s", logFile)
+		return "Log file not found: " + logFile
 	}
 
 	// Read the file
@@ -381,7 +447,7 @@ func (p *localProvisioner) getRootWorkingDir() string {
 
 // GeneratePoolerDir generates a pooler directory path for a given base directory and service ID
 func GeneratePoolerDir(baseDir, serviceID string) string {
-	return filepath.Join(baseDir, "data", fmt.Sprintf("pooler_%s", serviceID))
+	return filepath.Join(baseDir, "data", "pooler_"+serviceID)
 }
 
 // provisionMultigateway provisions multigateway using either binaries or Docker containers
@@ -464,9 +530,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -476,11 +542,11 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Start multigateway process
-	multigatewayCmd := exec.CommandContext(ctx, multigatewayBinary, args...)
+	multigatewayCmd := executil.Command(ctx, multigatewayBinary, args...)
 
 	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
-	if err := telemetry.StartCmd(ctx, multigatewayCmd); err != nil {
+	if err := multigatewayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
 
@@ -598,8 +664,8 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--log-level", logLevel,
@@ -609,11 +675,11 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	}
 
 	// Start multiadmin process
-	multiadminCmd := exec.CommandContext(ctx, multiadminBinary, args...)
+	multiadminCmd := executil.Command(ctx, multiadminBinary, args...)
 
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multiadminCmd); err != nil {
+	if err := multiadminCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 
@@ -789,8 +855,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Build command arguments with pgctld-addr
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -802,9 +868,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
 
@@ -816,13 +881,13 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// Get pgbackrest port from config
-	pgbackrestConfig, err := p.getCellServiceConfig(cell, constants.ServicePgbackrest)
+	// Get pgbackrest port from pgctld config (pgbackrest is now managed by pgctld)
+	pgctldConfig, err := p.getCellServiceConfig(cell, constants.ServicePgctld)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pgbackrest config for cell %s: %w", cell, err)
+		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
 	}
 	pgbackrestPort := ports.DefaultPgbackRestPort
-	if port, ok := pgbackrestConfig["port"].(int); ok && port > 0 {
+	if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
 		pgbackrestPort = port
 	}
 
@@ -831,15 +896,24 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
 		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
 		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
-		"--pgbackrest-port", fmt.Sprintf("%d", pgbackrestPort),
+		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 	)
 
 	// Start multipooler process
-	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
+	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
+
+	// Point multipooler at the password file pgctld already wrote (and is
+	// using itself). Both services agree on the credential because they
+	// resolve it from the same file. Required: multipooler refuses to start
+	// without it (pg_hba.conf uses scram-sha-256 for every connection).
+	multipoolerCmd.Env = append(os.Environ(),
+		constants.PgPasswordFileEnvVar+"="+pgctldResult.PasswordFile,
+		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+	)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multipoolerCmd); err != nil {
+	if err := multipoolerCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multipooler: %w", err)
 	}
 
@@ -893,6 +967,10 @@ type PgctldProvisionResult struct {
 	Address string
 	Port    int
 	LogFile string
+	// PasswordFile is the path to the postgres password file written under the
+	// pooler directory. Both pgctld (already running with POSTGRES_PASSWORD_FILE
+	// pointing here) and the multipooler in the same cell read from it.
+	PasswordFile string
 }
 
 // provisionMultiOrch provisions multi-orchestrator using local binary
@@ -969,8 +1047,8 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -981,9 +1059,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Add optional interval configs if specified
-	if interval, ok := multiorchConfig["cluster_metadata_refresh_interval"].(string); ok && interval != "" {
-		args = append(args, "--cluster-metadata-refresh-interval", interval)
-	}
 	if interval, ok := multiorchConfig["pooler_health_check_interval"].(string); ok && interval != "" {
 		args = append(args, "--pooler-health-check-interval", interval)
 	}
@@ -992,11 +1067,11 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Start multiorch process
-	multiorchCmd := exec.CommandContext(ctx, multiorchBinary, args...)
+	multiorchCmd := executil.Command(ctx, multiorchBinary, args...)
 
 	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multiorchCmd); err != nil {
+	if err := multiorchCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multiorch: %w", err)
 	}
 
@@ -1115,8 +1190,6 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case constants.ServiceMultiadmin:
 		return p.deprovisionService(ctx, req)
-	case constants.ServicePgbackrest:
-		return p.deprovisionPgbackRestServer(ctx, req)
 	case constants.ServicePgctld:
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1124,7 +1197,7 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 			return err
 		}
 		if service == nil {
-			return fmt.Errorf("pgctld service not found")
+			return errors.New("pgctld service not found")
 		}
 		return p.deprovisionPgctld(ctx, service)
 	default:
@@ -1141,7 +1214,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 	}
 
 	if service == nil {
-		return fmt.Errorf("service not found")
+		return errors.New("service not found")
 	}
 
 	// Stop the process if it's running
@@ -1180,94 +1253,20 @@ func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pi
 	span.SetAttributes(attribute.String("service", name))
 	defer span.End()
 
-	// Check if process exists
-	process, err := os.FindProcess(pid)
+	// Use executil.StopPID for graceful termination with 2s grace period
+	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	err, stopped := executil.StopPID(stopCtx, pid)
+	if !stopped {
+		return fmt.Errorf("failed to stop process %d within timeout", pid)
+	}
 	if err != nil {
-		// Process not found, assume already cleaned up
-		fmt.Printf("Process %d not found, assuming already stopped\n", pid)
-		return nil
+		// Process exited with error, but it's stopped - that's ok for cleanup
+		fmt.Printf("Process %d stopped with error: %v\n", pid, err)
 	}
-
-	// Send SIGTERM to gracefully stop the process
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		// Process might already be dead, check errno
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-			fmt.Printf("Process %d already stopped\n", pid)
-			return nil
-		}
-
-		// If SIGTERM fails for other reasons, try SIGKILL
-		if err := process.Kill(); err != nil {
-			// If kill also fails and it's because process doesn't exist, that's ok
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-				fmt.Printf("Process %d already stopped\n", pid)
-				return nil
-			}
-			return fmt.Errorf("failed to kill process %d: %w", pid, err)
-		}
-	}
-
-	// Wait for the process to actually exit
-	p.waitForProcessExit(ctx, process, 2*time.Second)
 
 	return nil
-}
-
-// waitForProcessExit waits for a process to exit by polling with Signal(0).
-// If the process doesn't exit within the timeout, it sends SIGKILL and waits again.
-func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.Process, timeout time.Duration) {
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	r := retry.New(10*time.Millisecond, 1*time.Second)
-	for _, err := range r.Attempts(waitCtx) {
-		if err != nil {
-			// Timeout reached, escalate to SIGKILL
-			fmt.Printf("Process %d still running after SIGTERM, sending SIGKILL\n", process.Pid)
-			if killErr := process.Kill(); killErr != nil {
-				errMsg := killErr.Error()
-				if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-					fmt.Printf("Process %d already stopped\n", process.Pid)
-					return
-				}
-				fmt.Printf("Failed to kill process %d: %v\n", process.Pid, killErr)
-				return
-			}
-			// Wait a bit more for SIGKILL to take effect
-			p.waitForProcessExitAfterKill(ctx, process, 5*time.Second)
-			return
-		}
-
-		// Send null signal to test if process exists
-		err := process.Signal(syscall.Signal(0))
-		if err != nil {
-			fmt.Printf("Process %d stopped successfully\n", process.Pid)
-			// Process has exited or doesn't exist
-			return
-		}
-	}
-}
-
-// waitForProcessExitAfterKill waits for a process to exit after SIGKILL.
-func (p *localProvisioner) waitForProcessExitAfterKill(ctx context.Context, process *os.Process, timeout time.Duration) {
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	r := retry.New(50*time.Millisecond, 1*time.Second)
-	for _, err := range r.Attempts(waitCtx) {
-		if err != nil {
-			fmt.Printf("Process %d still running after SIGKILL (timeout)\n", process.Pid)
-			return
-		}
-
-		err := process.Signal(syscall.Signal(0))
-		if err != nil {
-			fmt.Printf("Process %d stopped after SIGKILL\n", process.Pid)
-			return
-		}
-	}
 }
 
 // Bootstrap sets up etcd and creates the default database
@@ -1279,6 +1278,11 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 
 	// Validate required system binaries before starting
 	if err := p.validateSystemBinaries(); err != nil {
+		return nil, err
+	}
+
+	// Validate critical binary versions before starting any services.
+	if err := p.checkRequiredBinaryVersions(); err != nil {
 		return nil, err
 	}
 
@@ -1561,11 +1565,11 @@ func getGRPCSocketFile(serviceConfig map[string]any) (string, error) {
 // getDefaultDatabaseName returns the default database name from config
 func (p *localProvisioner) getDefaultDatabaseName() (string, error) {
 	if p.config == nil {
-		return "", fmt.Errorf("provisioner config not set")
+		return "", errors.New("provisioner config not set")
 	}
 
 	if p.config.DefaultDbName == "" {
-		return "", fmt.Errorf("default-dbname not specified in configuration")
+		return "", errors.New("default-dbname not specified in configuration")
 	}
 
 	return p.config.DefaultDbName, nil
@@ -1576,15 +1580,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
-	// Set default backup repository path if not specified
-	if p.config.BackupRepoPath == "" {
-		p.config.BackupRepoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	// Create backup directory if using local backups
+	if p.config.Backup.Local != nil {
+		if p.config.Backup.Local.Path == "" {
+			p.config.Backup.Local.Path = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+		}
+		if err := os.MkdirAll(p.config.Backup.Local.Path, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create backup directory %s: %w", p.config.Backup.Local.Path, err)
+		}
 	}
-
-	// Create the backup repository directory if it doesn't exist
-	if err := os.MkdirAll(p.config.BackupRepoPath, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create backup repository directory %s: %w", p.config.BackupRepoPath, err)
-	}
+	// S3 backups don't need local directory creation
 
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
@@ -1613,11 +1618,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		// Create the database if it doesn't exist
 		fmt.Printf("⚙️  - Creating database \"%s\" with cells: [%s]...\n", databaseName, strings.Join(cellNames, ", "))
 
+		backupLocation, err := p.buildBackupLocation()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build backup location: %w", err)
+		}
+
 		databaseConfig := &clustermetadatapb.Database{
-			Name:             databaseName,
-			BackupLocation:   p.config.BackupRepoPath,
-			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
-			Cells:            cellNames, // Register with all cells
+			Name:                      databaseName,
+			BackupLocation:            backupLocation,
+			Cells:                     cellNames,
+			BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {
@@ -1647,7 +1657,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 
 	// Calculate total number of services to provision
-	numServices := len(cellNames) * 4 // multigateway + multipooler + multiorch + pgbackrest per cell
+	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell (pgbackrest now managed by pgctld)
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
@@ -1710,18 +1720,6 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			}
 			resultsChan <- provisionResult{result: result}
 		}()
-
-		// Start pgbackrest
-		go func() {
-			// Provision pgbackrest server for this cell
-			_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
-			if err != nil {
-				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
-				return
-			}
-			// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
-			resultsChan <- provisionResult{result: nil}
-		}()
 	}
 
 	// Collect all results
@@ -1747,6 +1745,64 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil
+}
+
+// buildBackupLocation creates a BackupLocation proto from config
+func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocation, error) {
+	switch p.config.Backup.Type {
+	case "":
+		// No backup type configured - use default filesystem backup location
+		defaultPath := filepath.Join(p.config.RootWorkingDir, "data", "backups")
+		if err := os.MkdirAll(defaultPath, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create default backup directory %s: %w", defaultPath, err)
+		}
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_Filesystem{
+				Filesystem: &clustermetadatapb.FilesystemBackup{
+					Path: defaultPath,
+				},
+			},
+		}, nil
+
+	case "local":
+		if p.config.Backup.Local == nil || p.config.Backup.Local.Path == "" {
+			return nil, errors.New("backup path not configured")
+		}
+
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_Filesystem{
+				Filesystem: &clustermetadatapb.FilesystemBackup{
+					Path: p.config.Backup.Local.Path,
+				},
+			},
+		}, nil
+
+	case "s3":
+		if p.config.Backup.S3 == nil {
+			return nil, errors.New("S3 backup not configured")
+		}
+		if p.config.Backup.S3.Bucket == "" {
+			return nil, errors.New("S3 bucket not configured")
+		}
+		if p.config.Backup.S3.Region == "" {
+			return nil, errors.New("S3 region not configured")
+		}
+
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_S3{
+				S3: &clustermetadatapb.S3Backup{
+					Bucket:            p.config.Backup.S3.Bucket,
+					Region:            p.config.Backup.S3.Region,
+					Endpoint:          p.config.Backup.S3.Endpoint,
+					KeyPrefix:         p.config.Backup.S3.KeyPrefix,
+					UseEnvCredentials: p.config.Backup.S3.UseEnvCredentials,
+				},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown backup type: %s", p.config.Backup.Type)
+	}
 }
 
 // generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells
@@ -1857,7 +1913,7 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 // getTopologyConfig extracts topology configuration from provisioner config
 func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	return &p.config.Topology, nil
@@ -1866,11 +1922,11 @@ func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 // getAllCells returns all configured cells
 func (p *localProvisioner) getAllCells() ([]CellConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	if len(p.config.Topology.Cells) == 0 {
-		return nil, fmt.Errorf("no cells configured")
+		return nil, errors.New("no cells configured")
 	}
 
 	return p.config.Topology.Cells, nil
@@ -1893,11 +1949,11 @@ func (p *localProvisioner) getCellNames() ([]string, error) {
 // getCellByName returns the cell configuration for a specific cell name
 func (p *localProvisioner) getCellByName(cellName string) (*CellConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	if len(p.config.Topology.Cells) == 0 {
-		return nil, fmt.Errorf("no cells configured")
+		return nil, errors.New("no cells configured")
 	}
 
 	// Find the specific cell by name
@@ -1924,10 +1980,10 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 
 	// Validate required topology fields
 	if typedConfig.Topology.GlobalRootPath == "" {
-		return fmt.Errorf("topology global-root-path is required")
+		return errors.New("topology global-root-path is required")
 	}
 	if len(typedConfig.Topology.Cells) == 0 {
-		return fmt.Errorf("topology must have at least one cell configured")
+		return errors.New("topology must have at least one cell configured")
 	}
 	// Validate each cell
 	for i, cell := range typedConfig.Topology.Cells {
@@ -1969,7 +2025,7 @@ func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisioner
 	maxServiceIDLength := 8
 	worstCasePoolerSocketPath := []string{
 		"data",
-		fmt.Sprintf("pooler_%s", strings.Repeat("x", maxServiceIDLength)),
+		"pooler_" + strings.Repeat("x", maxServiceIDLength),
 		"pg_sockets",
 		".s.PGSQL.5432",
 	}
@@ -2061,6 +2117,7 @@ func (p *localProvisioner) validateSystemBinaries() error {
 		"pg_ctl",
 		"postgres",
 		"pg_isready",
+		"pgbackrest",
 	}
 
 	var missingBinaries []string
@@ -2073,10 +2130,11 @@ func (p *localProvisioner) validateSystemBinaries() error {
 
 	if len(missingBinaries) > 0 {
 		return fmt.Errorf("required system binaries not found in PATH: %s\n\n"+
-			"Please ensure PostgreSQL and etcd are installed and available in your PATH.\n"+
-			"For PostgreSQL: Install PostgreSQL client tools (pg_ctl, postgres, pg_isready)\n"+
-			"For etcd: Install etcd client binary",
-			strings.Join(missingBinaries, ", "))
+			"Please ensure PostgreSQL, etcd, and pgBackRest are installed and available in your PATH.\n"+
+			"For PostgreSQL: Install PostgreSQL %d.x client tools (pg_ctl, postgres, pg_isready)\n"+
+			"For etcd: Install etcd client binary\n"+
+			"For pgBackRest: Install pgBackRest >= %s",
+			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, minPgBackrestVersionDisplay())
 	}
 
 	return nil

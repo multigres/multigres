@@ -21,6 +21,7 @@ syntax = "proto3";
 package multipoolerservice;
 
 import "clustermetadata.proto";
+import "google/protobuf/duration.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -51,6 +52,48 @@ service MultiPoolerService {
   // an up-to-date cache of all password hashes and by real-time updates from multipooler
   // when any credentials change.
   rpc GetAuthCredentials(GetAuthCredentialsRequest) returns (GetAuthCredentialsResponse);
+
+  // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
+  // The gateway sends the initial command and then streams data/messages.
+  // The pooler responds with protocol-specific messages and final result.
+  rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
+
+  // ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
+  // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+  // Returns the reserved state - if non-empty, the connection is still reserved.
+  rpc ConcludeTransaction(ConcludeTransactionRequest) returns (ConcludeTransactionResponse);
+
+  // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+  // The connection may remain reserved if there are other reasons to keep it (e.g., active transaction).
+  // Returns the reserved state - if non-empty, the connection is still reserved.
+  rpc DiscardTempTables(DiscardTempTablesRequest) returns (DiscardTempTablesResponse);
+
+  // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+  // Used during client disconnect to clean up all reserved connections on the multipooler.
+  // If the connection has a transaction, ROLLBACK is executed.
+  // If the connection has an active COPY, CopyFail is sent.
+  // If the connection has portals, they are released.
+  // If any cleanup step fails, the connection is tainted and closed.
+  rpc ReleaseReservedConnection(ReleaseReservedConnectionRequest) returns (ReleaseReservedConnectionResponse);
+
+  // StreamPoolerHealth streams health updates from the multipooler.
+  //
+  // The server sends an initial health response immediately upon connection,
+  // then pushes updates whenever the health state changes. If no state change
+  // occurs within the heartbeat interval, the server sends a heartbeat to
+  // confirm the stream is alive.
+  //
+  // Clients MUST implement a staleness timeout. The recommended timeout is provided
+  // in recommended_staleness_timeout in each response. If no message is
+  // received within this timeout, the pooler should be marked unhealthy.
+  //
+  // Each response contains the full health state (not incremental updates).
+  rpc StreamPoolerHealth(StreamPoolerHealthRequest) returns (stream StreamPoolerHealthResponse);
+
+  // StreamNotifications opens a server-streaming RPC for async PG notifications.
+  // The gateway subscribes to notification channels on behalf of a client session.
+  // The pooler fans out notifications from its shared listener connection.
+  rpc StreamNotifications(StreamNotificationsRequest) returns (stream StreamNotificationsResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -73,6 +116,9 @@ message ExecuteQueryRequest {
 // ExecuteQueryResponse represents the response from executing a SQL query
 message ExecuteQueryResponse {
   query.QueryResult result = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  query.ReservedState reserved_state = 5;
 }
 
 // StreamExecuteRequest represents a request to execute a SQL query with streaming results
@@ -89,12 +135,21 @@ message StreamExecuteRequest {
 
   // options contains execution options including session state needed for query execution.
   query.ExecuteOptions options = 4;
+
+  // reservation_options controls connection reservation behavior.
+  // When set with non-zero reasons, StreamExecute creates a new reserved connection
+  // (or extends the reasons on an existing one if options.reserved_connection_id is set).
+  query.ReservationOptions reservation_options = 5;
 }
 
 // StreamExecuteResponse represents a single response in the stream of query results
 message StreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
+  // result contains the query result data (rows, fields, etc.) or diagnostics (notices)
+  query.QueryResultPayload result = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // Sent in a final message after query execution completes.
+  query.ReservedState reserved_state = 5;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results
@@ -113,19 +168,41 @@ message PortalStreamExecuteRequest {
 
   // options contains execution options including max rows and reserved connection ID
   query.ExecuteOptions options = 5;
+
+  // portal_options contains portal-specific knobs that don't apply to plain
+  // StreamExecute. Kept on PortalStreamExecuteRequest (rather than
+  // ExecuteOptions) so the portal-only fields don't leak into every other
+  // request type that carries ExecuteOptions.
+  PortalExecuteOptions portal_options = 6;
+
+  // reservation_options controls connection reservation behavior, mirroring
+  // StreamExecuteRequest.reservation_options. When set with non-zero reasons
+  // and no options.reserved_connection_id, the multipooler reserves a new
+  // backend with these reasons (running BeginQuery first if ReasonTransaction
+  // is set) and runs the portal on it atomically. When the connection is
+  // already reserved, the reasons are OR'd onto it before the portal runs.
+  query.ReservationOptions reservation_options = 7;
+}
+
+// PortalExecuteOptions carries knobs that only make sense on the portal
+// (extended-protocol) execution path.
+message PortalExecuteOptions {
+  // include_describe asks the multipooler to fuse a portal Describe('P')
+  // into the same backend round trip as Execute, so the gateway can resolve
+  // libpq-style Bind+Describe(P)+Execute+Sync batches without two RPCs.
+  // The portal RowDescription rides back on the streaming response Fields
+  // of the first chunk; for DML (NoData) the Fields stay nil.
+  bool include_describe = 1;
 }
 
 // PortalStreamExecuteResponse represents a response in the portal execution stream
 message PortalStreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
+  // result contains the query result data (rows, fields, etc.) or diagnostics
+  query.QueryResultPayload result = 1;
 
-  // reserved_connection_id is the ID of the reserved connection
-  // This is returned in the first response and should be used for subsequent queries
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 3;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // This is returned in the first response and should be used for subsequent queries.
+  query.ReservedState reserved_state = 5;
 }
 
 // DescribeRequest represents a request to describe a prepared statement or portal
@@ -168,4 +245,285 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
+}
+
+// CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
+// Used for commands that require bidirectional streaming (e.g., COPY FROM STDIN, COPY TO STDOUT).
+message CopyBidiExecuteRequest {
+  // Phase indicates which phase of the operation this message represents
+  enum Phase {
+    INITIATE = 0;  // Initial command
+    DATA = 1;      // Data chunk (for COPY FROM STDIN)
+    DONE = 2;      // Finalize operation (all data sent for COPY FROM, or ready to receive for COPY TO)
+    FAIL = 3;      // Abort operation
+  }
+
+  // Direction indicates whether the COPY operation streams data into the
+  // server (FROM STDIN) or out from the server (TO STDOUT). Set on INITIATE.
+  enum Direction {
+    FROM_STDIN = 0; // Default for back-compat: clients without this field set get FROM STDIN.
+    TO_STDOUT = 1;
+  }
+
+  // phase indicates the current phase
+  Phase phase = 1;
+
+  // direction indicates COPY ... FROM STDIN vs COPY ... TO STDOUT (INITIATE only).
+  Direction direction = 9;
+
+  // query is the SQL command to execute (only for INITIATE phase)
+  string query = 2;
+
+  // target specifies the routing destination (only for INITIATE phase)
+  query.Target target = 3;
+
+  // caller_id identifies the caller (only for INITIATE phase)
+  mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options (only for INITIATE phase)
+  query.ExecuteOptions options = 5;
+
+  // data contains the data chunk (for DATA and DONE phases in COPY FROM STDIN)
+  bytes data = 6;
+
+  // error_message contains the error message (for FAIL phase)
+  string error_message = 7;
+
+  // reservation_options controls connection reservation behavior (only for INITIATE phase).
+  // When set with a transaction reason and begin_query, the executor will start a
+  // transaction on the new connection before initiating COPY.
+  query.ReservationOptions reservation_options = 8;
+}
+
+// CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
+// Used for responses to commands that require bidirectional streaming.
+message CopyBidiExecuteResponse {
+  // Phase indicates which phase of the response this represents
+  enum Phase {
+    READY = 0;    // Command initiated successfully, ready for data streaming
+    // For COPY FROM STDIN: PostgreSQL sent CopyInResponse
+    // For COPY TO STDOUT: PostgreSQL sent CopyOutResponse
+    DATA = 1;     // Data chunk (for COPY TO STDOUT)
+    RESULT = 2;   // Final result (CommandComplete)
+    ERROR = 3;    // Error occurred
+  }
+
+  // phase indicates the current phase
+  Phase phase = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // Used in READY phase (connection info) and RESULT/ERROR phases (remaining reasons).
+  query.ReservedState reserved_state = 10;
+
+  // format indicates the COPY format (for READY phase with COPY commands)
+  // 0 = text, 1 = binary
+  int32 format = 4;
+
+  // column_formats contains the format code for each column (for READY phase with COPY commands)
+  // Each value is 0 (text) or 1 (binary)
+  repeated int32 column_formats = 8;
+
+  // data contains the data chunk (for DATA phase in COPY TO STDOUT)
+  bytes data = 5;
+
+  // result contains the final query result (for RESULT phase)
+  query.QueryResult result = 6;
+
+  // error contains the error message (for ERROR phase)
+  string error = 7;
+
+  // notices carries PostgreSQL NoticeResponse/InfoResponse diagnostics
+  // collected during this phase. Trigger RAISE NOTICE output, INFO progress
+  // messages, and other backend notices appear here so the gateway can
+  // forward them to the client as NoticeResponse frames between CopyData and
+  // CommandComplete. Populated on READY (notices seen before CopyInResponse /
+  // CopyOutResponse), DATA (notices interleaved with CopyData on COPY TO
+  // STDOUT), and RESULT (notices read between CopyDone and CommandComplete).
+  repeated query.PgDiagnostic notices = 11;
+
+  // error_diagnostic carries the structured PostgreSQL ErrorResponse for
+  // ERROR phase responses. When the error originates from PG (e.g.
+  // constraint violation, "column does not exist"), this preserves SQLSTATE,
+  // severity, DETAIL, HINT, position, etc., so the gateway can re-emit a
+  // verbatim ErrorResponse instead of a wrapped Go-formatted string.
+  // The `error` field above remains populated as a fallback for callers /
+  // log paths that only need the message text.
+  query.PgDiagnostic error_diagnostic = 12;
+}
+
+// ReservationReason indicates why a connection needs to be reserved.
+// Values are powers of 2 to allow combining multiple reasons via bitwise OR.
+// A connection can be reserved for multiple reasons simultaneously (e.g., transaction + temp table).
+// The connection is only released when all reasons are cleared.
+enum ReservationReason {
+  RESERVATION_REASON_UNSPECIFIED = 0;
+  // Connection is reserved for a transaction - execute BEGIN before the query
+  RESERVATION_REASON_TRANSACTION = 1;  // 0b001
+  // Connection is reserved due to temporary tables - no BEGIN needed
+  RESERVATION_REASON_TEMP_TABLE = 2;   // 0b010
+  // Connection is reserved for portal/cursor operations
+  RESERVATION_REASON_PORTAL = 4;       // 0b0100
+  // Connection is reserved for an active COPY operation
+  RESERVATION_REASON_COPY = 8;         // 0b1000
+  // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
+  RESERVATION_REASON_LISTEN = 16;      // 0b10000
+  // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+  // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+  RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
+  // Connection is reserved because the session holds one or more session-level
+  // advisory locks (pg_advisory_lock / pg_advisory_lock_shared). These locks
+  // live on a specific backend and survive transaction boundaries, so the
+  // backend must stay pinned until every such lock is released. Transaction-level
+  // advisory locks (pg_advisory_xact_lock) do NOT set this reason.
+  RESERVATION_REASON_SESSION_ADVISORY_LOCK = 64;  // 0b1000000
+}
+
+// TransactionConclusion specifies how to conclude a transaction.
+enum TransactionConclusion {
+  TRANSACTION_CONCLUSION_UNSPECIFIED = 0;
+  // Execute COMMIT to commit the transaction
+  TRANSACTION_CONCLUSION_COMMIT = 1;
+  // Execute ROLLBACK to rollback the transaction
+  TRANSACTION_CONCLUSION_ROLLBACK = 2;
+}
+
+// ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.
+// The connection may or may not be released back to the pool depending on whether there are
+// other reasons to keep it reserved (e.g., temporary tables).
+message ConcludeTransactionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+
+  // conclusion specifies whether to COMMIT or ROLLBACK the transaction
+  TransactionConclusion conclusion = 4;
+
+  // release_portal_names lists `DECLARE … WITH HOLD` cursor names that
+  // PostgreSQL would close as part of this ROLLBACK — typically the
+  // cursors declared inside the explicit transaction block. Used so the
+  // multipooler unpins exactly those portals (matching PG's behavior)
+  // instead of dropping every pin via ReleaseAllPortals.
+  //
+  // Honored only when conclusion == ROLLBACK and release_all_portals is
+  // false. Ignored on COMMIT (PG keeps every WITH HOLD cursor across
+  // COMMIT, so no pin should be released).
+  repeated string release_portal_names = 5;
+
+  // release_all_portals, when true on a ROLLBACK conclusion, asks the
+  // multipooler to drop every portal pin on the reserved connection
+  // (`ReleaseAllPortals` semantics). When false, only the names listed
+  // in release_portal_names are released. Default true preserves the
+  // historical behavior so old gateway clients that do not yet compute
+  // the per-txn diff keep working.
+  bool release_all_portals = 6;
+}
+
+// ConcludeTransactionResponse represents the response from concluding a transaction.
+message ConcludeTransactionResponse {
+  // result contains the result of the COMMIT or ROLLBACK command
+  query.QueryResult result = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // If reserved_connection_id is zero, the connection was released and ScatterConn should clear its state.
+  query.ReservedState reserved_state = 5;
+}
+
+// DiscardTempTablesRequest represents a request to discard temp tables on a reserved connection.
+// The connection may or may not be released back to the pool depending on whether there are
+// other reasons to keep it reserved (e.g., active transaction).
+message DiscardTempTablesRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+}
+
+// DiscardTempTablesResponse represents the response from discarding temp tables.
+message DiscardTempTablesResponse {
+  // result contains the result of the DISCARD TEMP command
+  query.QueryResult result = 1;
+
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // If reserved_connection_id is zero, the connection was released and ScatterConn should clear its state.
+  query.ReservedState reserved_state = 5;
+}
+
+// ReleaseReservedConnectionRequest requests forceful release of a reserved connection.
+// The multipooler will handle all cleanup internally (rollback, COPY abort, portal release).
+// If any cleanup step fails, the connection is tainted and closed so the pool creates a fresh one.
+message ReleaseReservedConnectionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+}
+
+// ReleaseReservedConnectionResponse is the response from releasing a reserved connection.
+// Intentionally minimal since this is a forceful cleanup operation.
+message ReleaseReservedConnectionResponse {
+}
+
+// StreamPoolerHealthRequest initiates a health stream from the multipooler.
+// Currently empty; future versions may add fields for client-requested intervals.
+message StreamPoolerHealthRequest {
+}
+
+// StreamPoolerHealthResponse contains the current health state of the multipooler.
+// Sent immediately on connection, on state changes, and periodically as heartbeats.
+message StreamPoolerHealthResponse {
+  // target identifies the tablegroup, shard, and pooler type this pooler serves.
+  query.Target target = 1;
+
+  // pooler_id identifies this multipooler instance.
+  clustermetadata.ID pooler_id = 2;
+
+  // serving_status is the current serving state of the pooler.
+  clustermetadata.PoolerServingStatus serving_status = 3;
+
+  // leader_observation contains this pooler's view of who the consensus leader is.
+  // Used by clients to identify the true leader when multiple poolers exist.
+  clustermetadata.LeaderObservation leader_observation = 4;
+
+  // recommended_staleness_timeout is the duration clients should use
+  // to detect a stale/dead health stream. If no message is received within
+  // this duration, clients should mark the pooler as unhealthy.
+  google.protobuf.Duration recommended_staleness_timeout = 5;
+
+  // replication_lag_ns is the current replication lag in nanoseconds,
+  // measured via heartbeat timestamps. Zero on a leader or when unknown.
+  int64 replication_lag_ns = 6;
+}
+
+// StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
+message StreamNotificationsRequest {
+  // target identifies the shard to listen on.
+  query.Target target = 1;
+
+  // channels is the list of channels to subscribe to initially.
+  repeated string channels = 2;
+}
+
+// StreamNotificationsResponse delivers a notification from the shared listener.
+message StreamNotificationsResponse {
+  // notification contains the PG notification data.
+  query.PgNotification notification = 1;
 }

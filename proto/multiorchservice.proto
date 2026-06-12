@@ -1,0 +1,177 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package multiorch;
+
+import "clustermetadata.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multiorch";
+
+// MultiOrchService provides APIs for controlling multiorch behavior.
+// This includes recovery control for testing and future operational features
+// like forced failovers and chaos testing.
+service MultiOrchService {
+  // GetShardStatus returns diagnostic information for a specific shard
+  rpc GetShardStatus(ShardStatusRequest) returns (ShardStatusResponse) {}
+
+  // DisableRecovery stops the recovery engine from automatically repairing issues.
+  // This is intended for testing scenarios where manual control over recovery is needed.
+  // When this returns, no recovery actions are in-flight (strong synchronization guarantee).
+  rpc DisableRecovery(DisableRecoveryRequest) returns (DisableRecoveryResponse) {}
+
+  // EnableRecovery resumes the recovery engine's automatic repair operations.
+  rpc EnableRecovery(EnableRecoveryRequest) returns (EnableRecoveryResponse) {}
+
+  // GetRecoveryStatus returns whether recovery is currently enabled or disabled.
+  rpc GetRecoveryStatus(GetRecoveryStatusRequest) returns (GetRecoveryStatusResponse) {}
+
+  // TriggerRecoveryNow immediately executes recovery operations and blocks until
+  // either no problems remain or the request context times out.
+  // This is intended for testing scenarios requiring deterministic recovery execution.
+  //
+  // Behavior:
+  // - Re-polls all poolers to get fresh health state
+  // - Runs recovery cycles repeatedly until no problems are detected
+  // - Returns when either: (1) no problems remain, or (2) context times out
+  // - If recovery is disabled, this temporarily enables it during this operation
+  rpc TriggerRecoveryNow(TriggerRecoveryNowRequest) returns (TriggerRecoveryNowResponse) {}
+
+  // ApplyCertifiedRuleChange installs a new shard rule using an externally
+  // certified revocation. Handles both initial leader appointment (term 0)
+  // and stuck-quorum recovery (term > 0): the caller supplies the proposed
+  // leader, cohort, and durability policy, plus a cert that attests to which
+  // outgoing rule and WAL position the absent cohort members are frozen at.
+  rpc ApplyCertifiedRuleChange(ApplyCertifiedRuleChangeRequest) returns (ApplyCertifiedRuleChangeResponse) {}
+}
+
+message ShardStatusRequest {
+  // Shard to get status for
+  clustermetadata.ShardKey shard_key = 1;
+}
+
+message ShardStatusResponse {
+  // Currently detected problems for this shard
+  repeated DetectedProblem problems = 1;
+
+  // Per-pooler health details for this shard
+  repeated PoolerHealth pooler_healths = 2;
+}
+
+message DetectedProblem {
+  string code = 1; // e.g., "PrimaryIsDead"
+  string check_name = 2; // Analyzer name
+  clustermetadata.ID pooler_id = 3; // Affected pooler
+  clustermetadata.ShardKey shard_key = 4;
+  string description = 5;
+  int32 priority = 6;
+  string scope = 7; // "Shard" or "Pooler"
+  google.protobuf.Timestamp detected_at = 8;
+}
+
+message PoolerHealth {
+  clustermetadata.ID pooler_id = 1;
+  bool reachable = 2;
+  bool postgres_running = 3;
+  string pooler_type = 4; // PRIMARY, REPLICA, UNKNOWN
+  google.protobuf.Timestamp last_check = 5;
+  bool postgres_ready = 6;
+}
+
+message DisableRecoveryRequest {
+  // Empty - no parameters needed
+}
+
+message DisableRecoveryResponse {
+  // success indicates whether recovery was disabled
+  bool success = 1;
+  // message provides additional context
+  string message = 2;
+}
+
+message EnableRecoveryRequest {
+  // Empty - no parameters needed
+}
+
+message EnableRecoveryResponse {
+  // success indicates whether recovery was enabled
+  bool success = 1;
+  // message provides additional context
+  string message = 2;
+}
+
+message GetRecoveryStatusRequest {
+  // Empty - no parameters needed
+}
+
+message GetRecoveryStatusResponse {
+  // enabled indicates whether recovery is currently active
+  bool enabled = 1;
+}
+
+message TriggerRecoveryNowRequest {
+  // max_cycles limits the number of recovery cycles to run.
+  // If 0 (default), cycles continue until all problems are resolved or the deadline expires.
+  // If 1, exactly one cycle is run and the call returns immediately with any remaining problem codes.
+  // Values greater than 1 are rejected with INVALID_ARGUMENT.
+  uint32 max_cycles = 1;
+}
+
+message TriggerRecoveryNowResponse {
+  // remaining_problem_codes lists problem codes still detected (e.g., "REPLICA_NOT_REPLICATING")
+  repeated string remaining_problem_codes = 4;
+}
+
+// ApplyCertifiedRuleChangeRequest installs a new shard rule using an externally
+// certified revocation. Multiorch acts as a pure executor: it validates the
+// inputs, runs the Recruit + Propose flow against the proposed cohort, and
+// returns success or failure. The caller is responsible for populating every
+// identity and timing field; multiorch never invents one.
+//
+// The cert is the caller's load-bearing safety attestation: by submitting it,
+// the caller asserts that no member of the outgoing cohort will commit further
+// writes past cert.outgoing_rule_number, and that any candidate leader has
+// reached at least cert.frozen_lsn under that rule. Pooler-side
+// ValidateRevocation enforces this at the WAL level (a node that resumes with
+// progress past the certified rule will refuse the new rule), but callers
+// should not rely on that floor for correctness — the cert is the primary
+// safety contract.
+message ApplyCertifiedRuleChangeRequest {
+  // Shard to apply the rule change to.
+  clustermetadata.ShardKey shard_key = 1;
+
+  // The rule to install. All fields must be populated, including rule_number,
+  // coordinator_id, and creation_time. rule_number.coordinator_term must
+  // equal cert.term_revocation.revoked_below_term.
+  clustermetadata.ShardRule proposed_rule = 2;
+
+  // Externally certified revocation of the outgoing cohort. All fields must
+  // be populated, including term_revocation. The cert's term_revocation is
+  // what each pooler will record on disk via Recruit.
+  //
+  // For initial leader appointment (no prior rule), set
+  // outgoing_rule_number to a zero RuleNumber (coordinator_term=0,
+  // leader_subterm=0) and frozen_lsn to "0/0".
+  clustermetadata.ExternallyCertifiedRevocation cert = 3;
+
+  // Free-text, recorded in rule_history for audit.
+  string reason = 4;
+}
+
+message ApplyCertifiedRuleChangeResponse {
+  // Empty. The applied rule and cert exactly match what the caller sent;
+  // failure is reported via gRPC status.
+}

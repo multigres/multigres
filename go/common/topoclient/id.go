@@ -41,3 +41,22 @@ func ClusterIDString(id *clustermetadatapb.ID) string {
 	}
 	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }
+
+// SplitClusterID is the inverse of ClusterIDString. It splits the cell_name
+// encoding into its two parts. The encoding assumes cell names cannot contain
+// underscores, which matches the cluster's naming convention. Returns an error
+// for malformed input (missing separator, empty cell, or empty name).
+func SplitClusterID(s string) (cell, name string, err error) {
+	parts := strings.SplitN(s, "_", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid cell_name format: %q (expected cell_name)", s)
+	}
+	cell, name = parts[0], parts[1]
+	if cell == "" {
+		return "", "", fmt.Errorf("invalid cell_name: cell cannot be empty in %q", s)
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("invalid cell_name: name cannot be empty in %q", s)
+	}
+	return cell, name, nil
+}

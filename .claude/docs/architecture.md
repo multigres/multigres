@@ -33,6 +33,32 @@ The system uses etcd for service discovery and topology storage. The topology is
 - **go/tools/**: Generic helpers (timers, retry, etc.) that aren't multigres-specific
 - **go/common/**: Shared multigres code (error codes, gRPC clients, protocol code, etc.)
 
+## Shared utilities
+
+Before defining new constants, helpers, or type wrappers for PG/SQL concepts, check whether they already exist in `go/common/`. Common spots worth grepping first:
+
+- **`go/common/parser/ast/oids.go`** — PostgreSQL type OIDs (`BOOLOID`, `TEXTOID`, `VARCHAROID`, `INT4OID`, etc.) and the `Oid` type alias. Don't redefine `uint32 = 25` for TEXT — use `ast.TEXTOID`.
+- **`go/common/parser/ast/`** — AST node types, clone helpers (`CloneRefOfSelectStmt`, etc.), tree walker (`Rewrite`), constructors (`NewA_Const`, `NewString`, `NewBoolean`, `NewParamRef`).
+- **`go/common/sqltypes/params.go`** — wire-format Bind param packing (`ParamsToProto` / `ParamsFromProto`).
+- **`go/common/preparedstatement/`** — `PortalInfo`, `PreparedStatementInfo`, `Consolidator`, bind value decoders (`DecodeBindAsText`, `DecodeBindAsBool`).
+- **`go/common/mterrors/`** — PostgreSQL SQLSTATE codes and `PgDiagnostic` builders (`NewFeatureNotSupported`, `NewPgError`, etc.). Don't construct error strings ad-hoc.
+- **`go/common/protoutil/`** — proto message constructors (`NewPreparedStatement`, `NewPortal`).
+- **`go/common/pgprotocol/`** — wire protocol (`server/`, `client/`, `scram/`, `protocol/` codes).
+
+When in doubt, `grep -r '<concept>' go/common/` before adding a new definition. Reuse keeps wire-protocol constants and PG semantics consistent across the codebase.
+
+## Terminology: Leader vs. Primary
+
+"Primary" is overloaded in distributed databases. Use these terms consistently:
+
+| Term                             | Meaning                                                                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **leader / follower**            | Consensus-elected coordinator and the nodes that follow it. Use in orchestration, failover, and HA code.                      |
+| **primary / standby / replica**  | PostgreSQL recovery-mode state (`pg_is_in_recovery()`). Use only when directly observing or configuring postgres replication. |
+| **PoolerType PRIMARY / REPLICA** | Topology routing labels (writes vs. reads). Intentionally kept as-is.                                                         |
+
+Quick check: if the code is about _the shard, consensus, or high-availability leader_, use leader/follower/observer. If it's about _postgres replication mode_, use primary/standby/replica.
+
 ## Generated Files
 
 Files with `// Code generated` comments should not be edited directly. Regenerate with `make proto` (protobufs) or `make parser` (SQL parser/AST). When debugging, trace to source files instead of analyzing generated code.

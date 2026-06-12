@@ -17,6 +17,7 @@
 package servenv
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,7 +46,7 @@ const (
 )
 
 func (p profmode) filename() string {
-	return fmt.Sprintf("%s.pprof", string(p))
+	return string(p) + ".pprof"
 }
 
 type profile struct {
@@ -95,7 +96,7 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 		switch fields[0] {
 		case "rate":
 			if len(fields) == 1 {
-				return nil, fmt.Errorf("missing value for 'rate'")
+				return nil, errors.New("missing value for 'rate'")
 			}
 			p.rate, err = strconv.Atoi(fields[1])
 			if err != nil {
@@ -104,7 +105,7 @@ func (sv *ServEnv) parseProfileFlag(pf []string) (*profile, error) {
 
 		case "path":
 			if len(fields) == 1 {
-				return nil, fmt.Errorf("missing value for 'path'")
+				return nil, errors.New("missing value for 'path'")
 			}
 			p.path = fields[1]
 
@@ -148,7 +149,7 @@ func startCallback(start func() error) func() error {
 		if atomic.CompareAndSwapUint32(&profileStarted, 0, 1) {
 			return start()
 		}
-		return fmt.Errorf("profile: Start() already called")
+		return errors.New("profile: Start() already called")
 	}
 }
 

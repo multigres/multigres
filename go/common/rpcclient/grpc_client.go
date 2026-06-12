@@ -16,6 +16,9 @@ package rpcclient
 
 import (
 	"context"
+	"sync"
+
+	"google.golang.org/grpc"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -41,9 +44,10 @@ type Client struct {
 // The capacity parameter determines the maximum number of simultaneous connections
 // to distinct multipoolers. When the cache is full, least-recently-used unreferenced
 // connections are evicted to make room for new connections.
-func NewClient(capacity int) *Client {
+// The transportCreds dial option configures TLS or insecure transport.
+func NewClient(capacity int, transportCreds grpc.DialOption) *Client {
 	return &Client{
-		cache: newConnCacheWithCapacity(capacity),
+		cache: newConnCacheWithCapacity(capacity, transportCreds),
 	}
 }
 
@@ -53,7 +57,7 @@ func NewClient(capacity int) *Client {
 // The closer should be called even if the RPC fails.
 func (c *Client) dialPersistent(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (*cachedConn, closeFunc, error) {
 	addr := getPoolerAddr(pooler)
-	return c.cache.getOrDial(ctx, addr)
+	return c.cache.getOrDial(ctx, addr, pooler.Id)
 }
 
 // getPoolerAddr returns the gRPC address for a pooler.
@@ -65,8 +69,8 @@ func getPoolerAddr(pooler *clustermetadatapb.MultiPooler) string {
 // Consensus Service Methods
 //
 
-// BeginTerm sends a BeginTerm request for leader appointment.
-func (c *Client) BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
+// Recruit asks a pooler to stop replication participation and record a TermRevocation.
+func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -75,11 +79,11 @@ func (c *Client) BeginTerm(ctx context.Context, pooler *clustermetadatapb.MultiP
 		_ = closer()
 	}()
 
-	return conn.consensusClient.BeginTerm(ctx, request)
+	return conn.consensusClient.Recruit(ctx, request)
 }
 
-// ConsensusStatus gets the consensus status of the multipooler.
-func (c *Client) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.StatusRequest) (*consensusdatapb.StatusResponse, error) {
+// Promote sends a role assignment to a recruited pooler.
+func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -88,11 +92,11 @@ func (c *Client) ConsensusStatus(ctx context.Context, pooler *clustermetadatapb.
 		_ = closer()
 	}()
 
-	return conn.consensusClient.Status(ctx, request)
+	return conn.consensusClient.Promote(ctx, request)
 }
 
-// GetLeadershipView gets the leadership view from the multipooler's perspective.
-func (c *Client) GetLeadershipView(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.LeadershipViewRequest) (*consensusdatapb.LeadershipViewResponse, error) {
+// UpdateConsensusRule updates the synchronous standby list (quorum membership).
+func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -101,11 +105,11 @@ func (c *Client) GetLeadershipView(ctx context.Context, pooler *clustermetadatap
 		_ = closer()
 	}()
 
-	return conn.consensusClient.GetLeadershipView(ctx, request)
+	return conn.consensusClient.UpdateConsensusRule(ctx, request)
 }
 
-// CanReachPrimary checks if the multipooler can reach the primary.
-func (c *Client) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
+// SetPrimary tells a pooler about the current primary, gated on position comparison.
+func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -114,15 +118,11 @@ func (c *Client) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.
 		_ = closer()
 	}()
 
-	return conn.consensusClient.CanReachPrimary(ctx, request)
+	return conn.consensusClient.SetPrimary(ctx, request)
 }
 
-//
-// Manager Service Methods - Initialization
-//
-
-// InitializeEmptyPrimary initializes the multipooler as an empty primary.
-func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+// RewindToSource performs pg_rewind to synchronize a replica with its source.
+func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -131,29 +131,15 @@ func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermeta
 		_ = closer()
 	}()
 
-	return conn.managerClient.InitializeEmptyPrimary(ctx, request)
-}
-
-// InitializeAsStandby initializes the multipooler as a standby from a primary.
-func (c *Client) InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializeAsStandby(ctx, request)
+	return conn.consensusClient.RewindToSource(ctx, request)
 }
 
 //
 // Manager Service Methods - Status and Monitoring
 //
 
-// State gets the current status of the multipooler manager.
-// This is called very frequently by the recovery engine health checks.
-func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StateRequest) (*multipoolermanagerdatapb.StateResponse, error) {
+// Status gets unified status that works for both PRIMARY and REPLICA poolers.
+func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -162,7 +148,7 @@ func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPoole
 		_ = closer()
 	}()
 
-	return conn.managerClient.State(ctx, request)
+	return conn.managerClient.Status(ctx, request)
 }
 
 //
@@ -180,19 +166,6 @@ func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.Multi
 	}()
 
 	return conn.managerClient.WaitForLSN(ctx, request)
-}
-
-// SetPrimaryConnInfo configures the standby's connection to a primary.
-func (c *Client) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.SetPrimaryConnInfo(ctx, request)
 }
 
 // StartReplication starts WAL replay on standby.
@@ -219,234 +192,6 @@ func (c *Client) StopReplication(ctx context.Context, pooler *clustermetadatapb.
 	}()
 
 	return conn.managerClient.StopReplication(ctx, request)
-}
-
-// StandbyReplicationStatus gets the current replication status of the standby.
-func (c *Client) StandbyReplicationStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StandbyReplicationStatusRequest) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.StandbyReplicationStatus(ctx, request)
-}
-
-// Status gets unified status that works for both PRIMARY and REPLICA poolers.
-func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.Status(ctx, request)
-}
-
-// ResetReplication resets the standby's connection to its primary.
-func (c *Client) ResetReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResetReplicationRequest) (*multipoolermanagerdatapb.ResetReplicationResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.ResetReplication(ctx, request)
-}
-
-// StopReplicationAndGetStatus stops replication and returns the current status.
-func (c *Client) StopReplicationAndGetStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationAndGetStatusRequest) (*multipoolermanagerdatapb.StopReplicationAndGetStatusResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.StopReplicationAndGetStatus(ctx, request)
-}
-
-//
-// Manager Service Methods - Synchronous Replication
-//
-
-// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings.
-func (c *Client) ConfigureSynchronousReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.ConfigureSynchronousReplication(ctx, request)
-}
-
-// UpdateSynchronousStandbyList updates the synchronous standby list.
-func (c *Client) UpdateSynchronousStandbyList(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest) (*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.UpdateSynchronousStandbyList(ctx, request)
-}
-
-//
-// Manager Service Methods - Primary Status
-//
-
-// PrimaryStatus gets the status of the primary server.
-func (c *Client) PrimaryStatus(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryStatusRequest) (*multipoolermanagerdatapb.PrimaryStatusResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.PrimaryStatus(ctx, request)
-}
-
-// PrimaryPosition gets the current LSN position of the primary.
-func (c *Client) PrimaryPosition(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PrimaryPositionRequest) (*multipoolermanagerdatapb.PrimaryPositionResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.PrimaryPosition(ctx, request)
-}
-
-// GetFollowers gets the list of follower servers with detailed replication status.
-func (c *Client) GetFollowers(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetFollowersRequest) (*multipoolermanagerdatapb.GetFollowersResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.GetFollowers(ctx, request)
-}
-
-//
-// Manager Service Methods - Promotion and Demotion
-//
-
-// Promote promotes the multipooler to primary.
-func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.Promote(ctx, request)
-}
-
-// Demote demotes the multipooler from primary.
-func (c *Client) Demote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteRequest) (*multipoolermanagerdatapb.DemoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.Demote(ctx, request)
-}
-
-// UndoDemote undoes a demotion.
-func (c *Client) UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.UndoDemote(ctx, request)
-}
-
-//
-// Manager Service Methods - Type and Term Management
-//
-
-// ChangeType changes the pooler type (PRIMARY/REPLICA).
-func (c *Client) ChangeType(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ChangeTypeRequest) (*multipoolermanagerdatapb.ChangeTypeResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.ChangeType(ctx, request)
-}
-
-// SetTerm sets the consensus term information.
-func (c *Client) SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.SetTerm(ctx, request)
-}
-
-//
-// Manager Service Methods - Durability Policy
-//
-
-// GetDurabilityPolicy retrieves the active durability policy from the local database.
-func (c *Client) GetDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetDurabilityPolicyRequest) (*multipoolermanagerdatapb.GetDurabilityPolicyResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.GetDurabilityPolicy(ctx, request)
-}
-
-// CreateDurabilityPolicy creates a new durability policy in the local database.
-func (c *Client) CreateDurabilityPolicy(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.CreateDurabilityPolicyRequest) (*multipoolermanagerdatapb.CreateDurabilityPolicyResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.CreateDurabilityPolicy(ctx, request)
 }
 
 //
@@ -503,6 +248,102 @@ func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb
 	}()
 
 	return conn.managerClient.GetBackupByJobId(ctx, request)
+}
+
+// ExpireBackups removes old backups according to retention policy.
+func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ExpireBackups(ctx, request)
+}
+
+// VerifyBackups runs pgbackrest verify against the full stanza.
+func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.VerifyBackups(ctx, request)
+}
+
+//
+// Manager Service Methods - PostgreSQL Restart Control
+//
+
+// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
+func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.SetPostgresRestartsEnabled(ctx, request)
+}
+
+//
+// Manager Service Methods - Health Streaming
+//
+
+// managerHealthStream wraps the gRPC bidirectional stream and releases the
+// connection reference when the stream ends.
+type managerHealthStream struct {
+	stream grpc.BidiStreamingClient[multipoolermanagerdatapb.ManagerHealthStreamClientMessage, multipoolermanagerdatapb.ManagerHealthStreamResponse]
+	closer closeFunc
+	once   sync.Once
+}
+
+// ManagerHealthStream opens a bidirectional health stream to a pooler.
+//
+// The caller must send an init message via stream.Send before reading snapshots.
+// The connection reference is held for the stream's lifetime and released
+// automatically when Recv or Send returns a non-nil error.
+func (c *Client) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+
+	stream, err := conn.managerClient.ManagerHealthStream(ctx)
+	if err != nil {
+		_ = closer()
+		return nil, err
+	}
+
+	return &managerHealthStream{stream: stream, closer: closer}, nil
+}
+
+// Recv receives the next health snapshot from the stream.
+// Returns a non-nil error on stream end or network failure, and releases the
+// connection reference.
+func (s *managerHealthStream) Recv() (*multipoolermanagerdatapb.ManagerHealthStreamResponse, error) {
+	resp, err := s.stream.Recv()
+	if err != nil {
+		s.once.Do(func() { _ = s.closer() })
+	}
+	return resp, err
+}
+
+// Send sends a message to the pooler (init or poll request).
+// Returns a non-nil error on failure and releases the connection reference.
+func (s *managerHealthStream) Send(msg *multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error {
+	err := s.stream.Send(msg)
+	if err != nil {
+		s.once.Do(func() { _ = s.closer() })
+	}
+	return err
 }
 
 //

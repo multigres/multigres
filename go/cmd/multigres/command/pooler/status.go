@@ -16,11 +16,11 @@ package pooler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -40,7 +40,8 @@ PostgreSQL process status, replication position, and consensus term.
 Key fields returned:
   - pooler_type: Whether this is a PRIMARY or REPLICA pooler
   - postgres_running: Whether the PostgreSQL process is running
-  - postgres_role: Actual database role (primary/standby/unknown)
+  - postgres_ready: Whether the PostgreSQL process is running and accepting connections
+  - postgres_status: Observed server state (PRIMARY, STANDBY, PROMOTING, STARTING, UNKNOWN)
   - is_initialized: Whether the pooler has been fully initialized
   - wal_position: Current WAL position (for replication tracking)
   - consensus_term: Current consensus term for failover coordination
@@ -87,8 +88,13 @@ func runGetPoolerStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("GetPoolerStatus RPC failed: %w", err)
 	}
 
-	// Output the response in JSON format
-	jsonData, err := json.MarshalIndent(response, "", "  ")
+	// Output the response in JSON format using protojson to properly render enums as strings
+	marshaler := protojson.MarshalOptions{
+		Indent:          "  ",
+		EmitUnpopulated: false,
+		UseProtoNames:   true, // Use snake_case field names from proto instead of camelCase
+	}
+	jsonData, err := marshaler.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response to JSON: %w", err)
 	}

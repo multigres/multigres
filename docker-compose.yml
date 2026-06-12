@@ -1,0 +1,47 @@
+# All-in-one Multigres cluster for local development and CI compatibility
+# testing. Brings up a single container that bootstraps a full Multigres
+# cluster (etcd + multiadmin + per-cell pgctld/postgres, multipooler,
+# multiorch, multigateway) via the "local" provisioner and exposes the zone1
+# multigateway on the PostgreSQL wire protocol.
+#
+#   docker compose up --build       # start the cluster
+#   PGPASSWORD=postgres psql -h 127.0.0.1 -p 15432 -U postgres -d postgres
+#   docker compose down             # stop and remove the container
+#
+# The cluster is ephemeral by default (no volume) so every run starts clean.
+# See docker/README.md for adding a persistent volume.
+services:
+  multigres:
+    build:
+      context: .
+      dockerfile: Dockerfile.cluster
+    image: multigres-cluster:local
+    # Run a real init (tini) as PID 1 to reap the cluster's orphaned child
+    # processes and forward signals to the entrypoint.
+    init: true
+    environment:
+      # Number of cells (full stacks: PostgreSQL + pgctld, multipooler,
+      # multiorch, multigateway). Minimum is 2 — the shard bootstraps with an
+      # AtLeastN(2) durability policy, so a single pooler can never elect a
+      # leader. Supported range is 2-3 (3 tolerates losing a node). Cells beyond
+      # the first use offset ports (gateway PG 15433, 15434) which you would
+      # need to publish below to reach them from the host.
+      MULTIGRES_NUM_CELLS: "2"
+      # Port the zone1 multigateway serves PostgreSQL on. Set to 5432 to use the
+      # container as a drop-in PostgreSQL on the default port (e.g. as Supabase
+      # Storage's tenant_db). Keep ports/healthcheck below in sync.
+      MULTIGRES_GATEWAY_PG_PORT: "15432"
+    ports:
+      - "15432:15432" # zone1 multigateway — PostgreSQL wire protocol
+      - "15100:15100" # multigateway HTTP (status/metrics)
+      - "15000:15000" # multiadmin HTTP (status/metrics)
+    healthcheck:
+      # Uses ${MULTIGRES_GATEWAY_PG_PORT} (defaulted to 15432 if unset) so the
+      # probe follows the gateway whenever the port is reconfigured above.
+      test:
+        - "CMD-SHELL"
+        - 'PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc ''SELECT 1'' || exit 1'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s

@@ -16,6 +16,7 @@
 package pathutil
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func findModuleRoot() (string, error) {
 		dir = parent
 	}
 
-	return "", fmt.Errorf("go.mod not found in any parent directory")
+	return "", errors.New("go.mod not found in any parent directory")
 }
 
 // prependModuleSubdirsToPath finds the module root and prepends multiple

@@ -17,6 +17,7 @@
 package servenv
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -31,19 +32,11 @@ import (
 // and blocks until it the process gets a signal.
 func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) error {
 	sv.PopulateListeningURL(int32(port))
-	if err := grpcServer.Create(); err != nil {
-		return fmt.Errorf("grpc server create: %w", err)
-	}
-	if err := sv.FireRunHooks(); err != nil {
-		return fmt.Errorf("run hooks: %w", err)
-	}
-	if err := grpcServer.Serve(sv); err != nil {
-		return fmt.Errorf("grpc server serve: %w", err)
-	}
-	if err := grpcServer.serveSocketFile(); err != nil {
-		return fmt.Errorf("grpc socket file: %w", err)
-	}
 
+	// Start the HTTP server early so liveness/startup probes respond
+	// before potentially-blocking run hooks (e.g., waiting for topology
+	// or manager readiness). This prevents a deadlock on K8s 1.33+ where
+	// native sidecar startup probes must pass before main containers start.
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("failed to listen on HTTP port %d: %w", port, err)
@@ -65,6 +58,19 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 		}
 	}()
 
+	if err := grpcServer.Create(); err != nil {
+		return fmt.Errorf("grpc server create: %w", err)
+	}
+	if err := sv.FireRunHooks(); err != nil {
+		return fmt.Errorf("run hooks: %w", err)
+	}
+	if err := grpcServer.Serve(sv); err != nil {
+		return fmt.Errorf("grpc server serve: %w", err)
+	}
+	if err := grpcServer.serveSocketFile(); err != nil {
+		return fmt.Errorf("grpc socket file: %w", err)
+	}
+
 	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)
 	slog.Info("service successfully started", "port", port)
 	// Wait for signal
@@ -84,6 +90,16 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 
 	slog.Info("shutting down gracefully")
 	sv.fireOnCloseHooks(sv.onCloseTimeout.Get())
+
+	// Shutdown telemetry last to ensure all spans from cleanup are captured.
+	// TODO(dweitzman): Propagate the cobra.Command() context into ServEnv instead of using context.Background()
+	//nolint:gocritic // shutdown requires fresh context; see TODO above
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sv.telemetry.ShutdownTelemetry(ctx); err != nil {
+		slog.Error("failed to shutdown telemetry", "error", err)
+	}
+
 	sv.SetListeningURL(url.URL{})
 	return nil
 }

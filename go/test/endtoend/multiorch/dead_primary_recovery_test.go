@@ -20,21 +20,28 @@
 package multiorch
 
 import (
-	"context"
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
+
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // TestDeadPrimaryRecovery tests multiorch's ability to detect a primary failure
@@ -50,13 +57,16 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
+		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
+	setup.WaitForMultigatewayQueryServing(t)
 
 	// Get the primary
 	primary := setup.GetPrimary(t)
@@ -84,59 +94,250 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
 
-	// Start continuous writes to the primary before failover
-	primaryClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	// Connect to multigateway for continuous writes (automatically routes to current primary)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	gatewayDB, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
-	defer primaryClient.Close()
+	defer gatewayDB.Close()
 
-	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, primaryClient.Pooler,
+	err = gatewayDB.Ping()
+	require.NoError(t, err, "failed to ping multigateway")
+
+	// Create write validator pointing to multigateway (automatically routes through failovers)
+	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, gatewayDB,
 		shardsetup.WithWorkerCount(4),
 		shardsetup.WithWriteInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
 
-	t.Logf("Starting continuous writes to primary...")
+	t.Logf("Starting continuous writes via multigateway (table: %s)...", validator.TableName())
 	validator.Start(t)
 
-	// Let writes accumulate before failover
+	// Let writes accumulate before first failover
 	time.Sleep(200 * time.Millisecond)
 	preFailoverSuccess, preFailoverFailed := validator.Stats()
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
-	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
-	t.Logf("Killing postgres on primary node %s to simulate database crash", oldPrimaryName)
-	setup.KillPostgres(t, oldPrimaryName)
+	// Stop etcd before any failover: consensus runs via gRPC between multipoolers
+	// and multigateway learns the new primary via LeaderObservation health streams,
+	// so neither component requires etcd during or after failover.
+	t.Log("Stopping etcd to verify etcd-independent failover...")
+	setup.StopEtcd(t)
+	t.Log("etcd stopped; all failovers will proceed without etcd")
 
-	// Wait for multiorch to detect failure and elect new primary
-	t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
+	// Perform 3 consecutive failovers
+	for i := range 3 {
+		t.Logf("=== Failover iteration %d ===", i+1)
 
-	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 10*time.Second)
-	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
-	t.Logf("New primary elected: %s", newPrimaryName)
+		// Refresh and get current primary (queries cluster to find actual primary)
+		currentPrimary := setup.RefreshPrimary(t)
+		require.NotNil(t, currentPrimary, "current primary should exist")
+		currentPrimaryName := currentPrimary.Name
 
-	// Stop writes after failover
+		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
+		// between the kill and when emergencyDemoteLocked sets rewindPending.
+		primaryManagerClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+
+		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
+		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
+		setup.KillPostgres(t, currentPrimaryName)
+
+		// Wait for multiorch to detect failure and elect new primary.
+		// Allow 30s: up to 5s for stream to report postgres death (polling interval),
+		// 8–12s grace period (configured via WithLeaderFailoverGracePeriod), plus
+		// several seconds for failover execution (Recruit + Promote).
+		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
+		newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, currentPrimaryName, 30*time.Second)
+		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
+		t.Logf("New primary elected: %s", newPrimaryName)
+
+		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
+		// so the monitor will not restart postgres before stale-primary demotion runs.
+		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+		require.NoError(t, err)
+		primaryManagerClient.Close()
+
+		// Force multiorch to resolve all pending problems immediately (bypasses grace periods).
+		// This ensures StalePrimary for the killed node is fully resolved (pg_rewind + rejoin)
+		// before the next iteration begins — otherwise the grace period would carry over.
+		// 45s budget: stale-primary demotion (via SetPrimary) is synchronous and
+		// includes a 5s drain + up to ~15s pg_rewind + ~5s postgres restart on slow CI.
+		setup.RequireRecovery(t, "multiorch", 45*time.Second)
+
+		// Get the new primary's consensus term to verify rejoining nodes are on correct term
+		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimary, "new primary instance should exist")
+		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "should be able to get status from new primary")
+		newPrimaryClient.Close()
+		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
+		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
+		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
+
+		// Verify primary_term is set and matches the consensus term
+		require.NotZero(t, newPrimaryTermActual, "Primary term must be non-zero for new primary %s", newPrimaryName)
+		assert.Equal(t, newPrimaryTerm, newPrimaryTermActual,
+			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
+
+		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
+
+		// Verify multigateway has rerouted to the new primary by confirming a write succeeds.
+		require.Eventually(t, func() bool {
+			return validator.WriteNow(t.Context()) == nil
+		}, 10*time.Second, 200*time.Millisecond,
+			"multigateway should route writes to new primary %s after failover", newPrimaryName)
+		t.Logf("Iteration %d: multigateway confirmed routing writes to %s", i+1, newPrimaryName)
+
+		successWrites, failedWrites := validator.Stats()
+		t.Logf("Iteration %d: %d successful, %d failed writes so far",
+			i+1, successWrites, failedWrites)
+		time.Sleep(200 * time.Millisecond) // Let writes accumulate before next failover
+	}
+
+	// Perform one more failover using Recruit to trigger emergency demotion.
+	// Recruit is the same mechanism multiorch's coordinator uses; calling it
+	// directly with a higher term simulates the coordinator-initiated failover
+	// path without killing postgres.
+	t.Logf("=== Failover iteration 4 (via Recruit emergency demotion) ===")
+
+	currentPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, currentPrimary, "current primary should exist")
+	currentPrimaryName := currentPrimary.Name
+
+	primaryClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	oldPrimaryTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
+	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
+
+	recruitTerm := oldPrimaryTerm + 1
+	t.Logf("Calling Recruit on primary %s with term %d to trigger emergency demotion", currentPrimaryName, recruitTerm)
+
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
+	recruitReq := &consensusdatapb.RecruitRequest{
+		TermRevocation: &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: recruitTerm,
+			AcceptedCoordinatorId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIORCH,
+				Cell:      setup.CellName,
+				Name:      "test-coordinator",
+			},
+			CoordinatorInitiatedAt: timestamppb.Now(),
+			OutgoingRule:           outgoingRule,
+		},
+	}
+	recruitResp, err := primaryClient.Consensus.Recruit(utils.WithTimeout(t, 10*time.Second), recruitReq)
+	primaryClient.Close()
+
+	require.NoError(t, err, "Recruit should succeed")
+	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
+	t.Logf("Recruit accepted by primary, emergency demotion triggered")
+
+	// The demoted primary stays in the recruit cohort and may either
+	// re-promote (it had the most advanced WAL) or be replaced by a different
+	// pooler — both are valid post-demotion outcomes. We require that some
+	// primary advances to a higher term with at least 2 standbys streaming
+	// (cluster is 3 poolers, so the primary + 2 standbys = full topology),
+	// then wait for full recovery so multiorch's StaleLeader demote updates
+	// the old primary's topology entry from PRIMARY to REPLICA.
+	t.Logf("Waiting for multiorch to recover from emergency demotion (primary at term > %d with >= 2 standbys)...", oldPrimaryTerm)
+	newPrimaryName := shardsetup.WaitForHigherTermPrimary(t, setup, oldPrimaryTerm, 2, 45*time.Second)
+	t.Logf("Primary after emergency demotion: %s (was %s)", newPrimaryName, currentPrimaryName)
+	setup.RequireRecovery(t, "multiorch", 45*time.Second)
+
+	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
+	require.NotNil(t, newPrimary, "new primary instance should exist")
+	newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	newPrimaryClient.Close()
+	require.NoError(t, err, "should be able to get status from primary")
+	newPrimaryTerm := newStatusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
+	t.Logf("Primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "Primary's term should be strictly greater than the demoted primary's original term")
+
+	successWrites, failedWrites := validator.Stats()
+	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
+		successWrites, failedWrites, newPrimaryName)
+	time.Sleep(200 * time.Millisecond) // Let writes accumulate
+
+	// Stop writes after all failovers
 	validator.Stop()
 	successfulWrites, failedWrites := validator.Stats()
 	t.Logf("Post-failover writes: %d successful, %d failed", successfulWrites, failedWrites)
 
-	// Verify new primary is functional
-	t.Run("verify new primary is functional", func(t *testing.T) {
-		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
-		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
+	// Refresh primary one final time to ensure we have the correct final primary for verification
+	finalPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, finalPrimary, "final primary should exist")
+	t.Logf("Final primary after all failovers: %s", finalPrimary.Name)
 
-		client, err := shardsetup.NewMultipoolerClient(newPrimaryInst.Multipooler.GrpcPort)
+	// Wait for all multipoolers to be healthy before verification
+	t.Logf("Waiting for all multipoolers to be healthy before verification...")
+	var allInstances []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		allInstances = append(allInstances, inst)
+	}
+	shardsetup.EventuallyPoolerCondition(t, allInstances, 10*time.Second, 500*time.Millisecond,
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			if !r.Status.PostgresReady {
+				return false, "postgres not running"
+			}
+			if r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+				if r.Status.ReplicationStatus == nil || r.Status.ReplicationStatus.PrimaryConnInfo == nil {
+					return false, "replication not configured"
+				}
+			}
+			return true, ""
+		},
+		"all multipoolers should be healthy",
+	)
+
+	// Verify replicas have primary_term = 0 (never been primary)
+	t.Logf("Verifying replicas have primary_term = 0...")
+	for name, inst := range setup.Multipoolers {
+		if name == setup.PrimaryName {
+			continue // Skip primary
+		}
+
+		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+
+		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err)
+		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+			assert.Zero(t, commonconsensus.LeaderTerm(status.ConsensusStatus),
+				"Replica %s should have primary_term=0 (never been primary)", name)
+		}
+		client.Close()
+	}
+
+	// Verify final primary is functional
+	t.Run("verify final primary is functional", func(t *testing.T) {
+		finalPrimaryName := setup.PrimaryName
+		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
+		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
+
+		client, err := shardsetup.NewMultipoolerClient(finalPrimaryInst.Multipooler.GrpcPort)
 		require.NoError(t, err)
 		defer client.Close()
 
 		resp, err := client.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
-		require.True(t, resp.Status.IsInitialized, "New primary should be initialized")
-		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType, "New leader should have PRIMARY pooler type")
+		require.True(t, resp.Status.IsInitialized, "Final primary should be initialized")
+		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType, "Final leader should have PRIMARY pooler type")
 
 		// Verify we can connect and query
-		socketDir := filepath.Join(newPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, newPrimaryInst.Pgctld.PgPort)
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
 		var result int
@@ -145,20 +346,45 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Equal(t, 1, result)
 	})
 
-	// Verify leadership_history records the failover
-	t.Run("verify leadership_history after failover", func(t *testing.T) {
-		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
-		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
+	// Verify sync replication is configured on the final primary
+	t.Run("verify sync replication configured on final primary", func(t *testing.T) {
+		finalPrimaryName := setup.PrimaryName
+		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
+		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
 
-		socketDir := filepath.Join(newPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, newPrimaryInst.Pgctld.PgPort)
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
-		// Query the leadership_history table for the latest record
-		query := `SELECT term_number, leader_id, coordinator_id, wal_position, reason,
-				  cohort_members, accepted_members, created_at
-				  FROM multigres.leadership_history
-				  ORDER BY term_number DESC
+		var syncStandbyNames string
+		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
+		require.NoError(t, err, "Should be able to query synchronous_standby_names")
+		require.NotEmpty(t, syncStandbyNames, "Final primary should have synchronous_standby_names configured after failovers")
+
+		var syncCommit string
+		err = db.QueryRow("SHOW synchronous_commit").Scan(&syncCommit)
+		require.NoError(t, err, "Should be able to query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on' after failover")
+	})
+
+	// Verify rule_history records all failovers.
+	// TODO: Switch to requesting consensus status from the multipooler RPC once
+	// ConsensusStatus is hooked up to RPCs; that will avoid the direct SQL query.
+	t.Run("verify rule_history after failovers", func(t *testing.T) {
+		finalPrimaryName := setup.PrimaryName
+		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
+		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
+
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
+		defer db.Close()
+
+		// Query the rule_history table for the latest promotion record
+		query := `SELECT coordinator_term, leader_id, coordinator_id, wal_position, reason,
+				  array_to_json(cohort_members)::text, array_to_json(accepted_members)::text, created_at
+				  FROM multigres.rule_history
+				  WHERE event_type = 'promotion'
+				  ORDER BY coordinator_term DESC, leader_subterm DESC
 				  LIMIT 1`
 
 		var termNumber int64
@@ -168,17 +394,21 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		err := db.QueryRow(query).Scan(&termNumber, &leaderID, &coordinatorID, &walPosition,
 			&reason, &cohortMembersJSON, &acceptedMembersJSON, &createdAt)
-		require.NoError(t, err, "Should be able to query leadership_history")
+		require.NoError(t, err, "Should be able to query rule_history")
 
-		// Assertions
-		assert.Greater(t, termNumber, int64(1), "term_number should be greater than 1 (this is a re-election)")
-		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
-		// Verify coordinator_id matches the multiorch's cell_name format
-		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_multiorch", setup.CellName)
-		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
+		// Assertions - after 3 failovers, coordinator_term should be >= 3
+		assert.GreaterOrEqual(t, termNumber, int64(3), "coordinator_term should be >= 3 after 3 failovers")
+		assert.Contains(t, leaderID, finalPrimaryName, "leader_id should contain final primary name")
+		// Verify coordinator_id matches the multiorch's cell_name format (with multiple multiorchs, any could be coordinator)
+		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
+		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+		// The final failover in this test is triggered via Recruit on the
+		// primary (emergency demote), which sets resignedLeaderAtTerm and is
+		// detected by LeaderResignedAnalyzer. Earlier iterations use SIGKILL
+		// and fire LeaderIsDeadAnalyzer. Either reason indicates leader failure.
+		assert.Regexp(t, "LeaderIsDead|LeaderResigned", reason,
+			"reason should indicate leader failure (LeaderIsDead) or resignation (LeaderResigned)")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string
@@ -192,95 +422,231 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.LessOrEqual(t, len(acceptedMembers), len(cohortMembers),
 			"accepted_members should not exceed cohort_members")
 
-		t.Logf("Leadership history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
+		t.Logf("Rule history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
-	// Verify all successful writes are present on surviving nodes
-	t.Run("verify writes durability after failover", func(t *testing.T) {
-		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
-		require.NotNil(t, newPrimaryInst)
+	// Verify the leader appointments themselves were fast. The coordinator stamps
+	// each successful promotion with recruit_ms (Run start → leader selected) and
+	// promote_ms (leader selected → commit), measuring the appointment itself —
+	// independent of the (much larger) detection + grace-period cost that precedes
+	// it. Tracking the two phases separately matters because they can slow down
+	// for different reasons: a laggy node during recruit vs. a slow postgres
+	// promotion during promote. Any of the multiorchs may have been coordinator
+	// for a given failover, so we aggregate promotion events across all logs.
+	t.Run("verify appointment timing", func(t *testing.T) {
+		var events []map[string]any
+		for name, mo := range setup.MultiOrchInstances {
+			data, err := os.ReadFile(mo.LogFile)
+			require.NoError(t, err, "should be able to read multiorch %s log", name)
+			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
+		}
 
-		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimaryInst.Multipooler.GrpcPort)
+		promotions := shardsetup.FindEvents(events, "primary.promotion", "success")
+		require.GreaterOrEqual(t, len(promotions), 3,
+			"expected at least 3 successful promotions across multiorch logs after the failovers")
+
+		// Per-phase regression guards, separate because the phases have very
+		// different baselines and failure modes. Both exclude the failure-
+		// detection grace period that dominates the test's overall 30s budget.
+		//
+		// Recruit needs a few round trips + WAL replay stabilizing.
+		// Promote needs pg_promote() to succeed and the rule entry to replicate.
+		// The test bounds are deliberately tight to catch regressions that would
+		// make a simpler failover slow.
+		const (
+			maxRecruit = 500 * time.Millisecond
+			maxPromote = 3 * time.Second
+		)
+		for _, p := range promotions {
+			recruitMs, ok := p["recruit_ms"].(float64)
+			require.True(t, ok, "successful promotion must record recruit_ms: %v", p)
+			promoteMs, ok := p["promote_ms"].(float64)
+			require.True(t, ok, "successful promotion must record promote_ms: %v", p)
+			recruit := time.Duration(recruitMs) * time.Millisecond
+			promote := time.Duration(promoteMs) * time.Millisecond
+			t.Logf("Leader appointment (new_primary=%v, proposed_term=%v): recruit=%v, promote=%v",
+				p["new_primary"], p["proposed_term"], recruit, promote)
+			assert.Less(t, recruit, maxRecruit,
+				"recruit phase for %v should be fast (took %v)", p["new_primary"], recruit)
+			assert.Less(t, promote, maxPromote,
+				"promote phase for %v should be fast (took %v)", p["new_primary"], promote)
+			testtiming.Record(t, "appointment: recruit", recruit, maxRecruit)
+			testtiming.Record(t, "appointment: promote", promote, maxPromote)
+		}
+	})
+
+	// Verify all successful writes are present on all multipoolers (all should be healthy now)
+	t.Run("verify writes durability after failovers", func(t *testing.T) {
+		finalPrimaryName := setup.PrimaryName
+		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
+		require.NotNil(t, finalPrimaryInst)
+
+		finalPrimaryClient, err := shardsetup.NewMultipoolerClient(finalPrimaryInst.Multipooler.GrpcPort)
 		require.NoError(t, err)
-		defer newPrimaryClient.Close()
+		defer finalPrimaryClient.Close()
 
-		// Get the new primary's LSN position
-		primaryPosResp, err := newPrimaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
-		require.NoError(t, err, "Should be able to get new primary position")
-		primaryLSN := primaryPosResp.LsnPosition
-		t.Logf("New primary LSN: %s", primaryLSN)
+		// Get the final primary's LSN position
+		statusResp, err := finalPrimaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Should be able to get final primary position")
+		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 
-		// Collect pooler clients for the surviving nodes and wait for replica to catch up
-		var poolers []*endtoend.MultiPoolerTestClient
-		poolers = append(poolers, newPrimaryClient.Pooler)
+		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
+		var poolerClients []*shardsetup.MultiPoolerTestClient
+
+		// Add primary's pooler client
+		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
+		require.NoError(t, err)
+		poolerClients = append(poolerClients, primaryPoolerClient)
 
 		for name, inst := range setup.Multipoolers {
-			if name == oldPrimaryName || name == newPrimaryName {
-				continue // Skip dead primary and already-added new primary
+			if name == finalPrimaryName {
+				continue // Already added
 			}
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			require.NoError(t, err)
-			defer client.Close()
 
-			// Wait for replica to catch up to the new primary's LSN
+			// Wait for replica to catch up to the final primary's LSN
 			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
 				TargetLsn: primaryLSN,
 			})
-			require.NoError(t, err, "Replica %s should catch up to new primary LSN", name)
-			t.Logf("Replica %s caught up to LSN %s", name, primaryLSN)
-
-			poolers = append(poolers, client.Pooler)
+			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)
+			poolerClients = append(poolerClients, client.Pooler)
 		}
 
-		require.Len(t, poolers, 2, "should have 2 surviving poolers")
+		// Defer cleanup of all pooler clients after collection
+		defer func() {
+			for _, client := range poolerClients {
+				client.Close()
+			}
+		}()
+
+		require.Len(t, poolerClients, 3, "should have 3 multipooler clients (all multipoolers rejoined)")
 
 		// Verify writes - deterministic now that replication has caught up
-		err = validator.Verify(t, poolers)
-		require.NoError(t, err, "all successful writes should be present on surviving nodes")
+		err = validator.Verify(t, poolerClients)
+		require.NoError(t, err, "all successful writes should be present on all multipoolers")
+		t.Logf("Write durability verified: %d successful writes present on all multipoolers", successfulWrites)
+	})
 
-		t.Logf("Write durability verified: %d successful writes present on surviving nodes", successfulWrites)
+	validatorTableName := validator.TableName()
+	t.Logf("Validator table for consistency check: %s", validatorTableName)
+
+	// Verify data consistency across all multipoolers
+	t.Run("verify data consistency across all multipoolers", func(t *testing.T) {
+		finalPrimaryName := setup.PrimaryName
+		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
+		require.NotNil(t, finalPrimaryInst)
+
+		// Connect to primary and get row count and checksum
+		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
+		primaryDB := connectToPostgres(t, primarySocketDir, finalPrimaryInst.Pgctld.PgPort)
+		defer primaryDB.Close()
+
+		var primaryRowCount int
+		countQuery := "SELECT COUNT(*) FROM " + validatorTableName
+		err := primaryDB.QueryRow(countQuery).Scan(&primaryRowCount)
+		require.NoError(t, err, "Should be able to count rows on primary")
+
+		// Get a checksum of all data on primary for consistency verification
+		var primaryChecksum string
+		checksumQuery := "SELECT md5(string_agg(id::text, '' ORDER BY id)) FROM " + validatorTableName
+		err = primaryDB.QueryRow(checksumQuery).Scan(&primaryChecksum)
+		require.NoError(t, err, "Should be able to compute checksum on primary")
+
+		// Verify all standbys have identical data
+		for name, inst := range setup.Multipoolers {
+			if name == finalPrimaryName {
+				continue // Already checked primary
+			}
+			verifyStandbyDataConsistency(t, name, inst, countQuery, checksumQuery, primaryRowCount, primaryChecksum)
+		}
+
+		t.Logf("Data consistency verified: all %d multipoolers have identical data (%d rows, checksum %s)",
+			len(setup.Multipoolers), primaryRowCount, primaryChecksum)
 	})
 }
 
-// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
+// verifyStandbyDataConsistency checks that a standby has the same data as the primary.
+func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, countQuery, checksumQuery string, expectedRowCount int, expectedChecksum string) {
 	t.Helper()
+	standbySocketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
+	standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort)
+	defer standbyDB.Close()
 
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
+	// Check row count matches
+	var standbyRowCount int
+	err := standbyDB.QueryRow(countQuery).Scan(&standbyRowCount)
+	require.NoError(t, err, "Should be able to count rows on standby %s", name)
+	assert.Equal(t, expectedRowCount, standbyRowCount, "Standby %s should have same row count as primary", name)
 
-	for time.Now().Before(deadline) {
-		for name, inst := range setup.Multipoolers {
-			if name == oldPrimaryName {
-				continue
+	// Check data checksum matches
+	var standbyChecksum string
+	err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
+	require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
+	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
+}
+
+// waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
+// and rejoin the cluster as a standby replica. It verifies the node is REPLICA,
+// streaming replication, and that the primary has added it back to its standby list.
+//
+// Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
+// Recruit/Promote/SetPrimary model that field is a per-pooler revocation promise
+// (set by Recruit on cohort members). A pooler that was momentarily unavailable
+// when the coordinator ran Recruit at the new term legitimately has the older
+// term but is otherwise healthy. expectedPrimaryName/expectedTerm are kept in
+// the signature for log readability.
+func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, expectedPrimaryName string, expectedTerm int64, timeout time.Duration) {
+	t.Helper()
+	t.Logf("Waiting for multiorch to restart %s and rejoin as standby (expected primary: %s, term: %d)...",
+		multipoolerName, expectedPrimaryName, expectedTerm)
+
+	inst := setup.GetMultipoolerInstance(multipoolerName)
+	require.NotNil(t, inst, "multipooler %s should exist", multipoolerName)
+	primaryInst := setup.GetMultipoolerInstance(expectedPrimaryName)
+	require.NotNil(t, primaryInst, "primary %s should exist", expectedPrimaryName)
+
+	shardsetup.EventuallyPoolerCondition(t,
+		[]*shardsetup.MultipoolerInstance{inst, primaryInst},
+		timeout, 1*time.Second,
+		func(r shardsetup.PoolerStatusResult) (bool, string) {
+			s := r.Status
+			if r.Name == multipoolerName {
+				// Check replica health and replication state.
+				if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+					return false, fmt.Sprintf("not yet REPLICA (is %v)", s.PoolerType)
+				}
+				if !s.PostgresReady {
+					return false, "postgres not running"
+				}
+				if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
+					return false, "replication not configured"
+				}
+				if s.ReplicationStatus.WalReceiverStatus != "streaming" {
+					return false, fmt.Sprintf("not streaming (wal_receiver=%s)", s.ReplicationStatus.WalReceiverStatus)
+				}
+			} else {
+				// Check that the primary has added the replica to its standby list.
+				if s.PrimaryStatus == nil || s.PrimaryStatus.SyncReplicationConfig == nil {
+					return false, fmt.Sprintf("waiting for %s in standby list: no sync replication config yet", multipoolerName)
+				}
+				found := false
+				for _, standby := range s.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+					if standby.Name == multipoolerName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return false, multipoolerName + " not yet in standby list"
+				}
 			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
-			}
-
-			if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
-				return name
-			}
-		}
-		t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
-		time.Sleep(checkInterval)
-	}
-
-	t.Fatalf("Timeout: new primary not elected within %v", timeout)
-	return ""
+			return true, ""
+		},
+		"multipooler %s did not rejoin as standby within %v", multipoolerName, timeout,
+	)
+	t.Logf("%s successfully rejoined as standby of %s", multipoolerName, expectedPrimaryName)
 }
 
 // TestPoolerDownNoFailover verifies that multiorch does NOT trigger a failover when the
@@ -303,14 +669,14 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")
 	t.Logf("Initial primary: %s", setup.PrimaryName)
 
 	// Kill the multipooler process on the primary (but leave Postgres running)
-	t.Logf("Killing multipooler on primary node %s (postgres stays running)", setup.PrimaryName)
+	t.Logf("Killing multipooler on primary %s (postgres stays running)", setup.PrimaryName)
 	killMultipooler(t, primary)
 
 	// Wait for multiorch to detect the pooler is down and run several recovery cycles.
@@ -323,28 +689,13 @@ func TestPoolerDownNoFailover(t *testing.T) {
 			if name == setup.PrimaryName {
 				continue // Skip the primary (its pooler is down)
 			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
-			defer client.Close()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-
-			require.NoError(t, err)
-			require.True(t, resp.Status.IsInitialized, "Node %s should be initialized", name)
-			require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
-				"Node %s should still be REPLICA (no failover should have occurred)", name)
-			require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)
-			require.NotNil(t, resp.Status.ReplicationStatus.PrimaryConnInfo, "Standby %s should have PrimaryConnInfo", name)
-			t.Logf("Standby %s is still replicating (type=%s), no failover triggered", name, resp.Status.PoolerType)
+			verifyStandbyIsStillReplica(t, name, inst)
 		}
 	})
 
 	// Verify we can still query postgres on the primary directly (it's still running)
 	t.Run("verify primary postgres is still running", func(t *testing.T) {
-		socketDir := filepath.Join(primary.Pgctld.DataDir, "pg_sockets")
+		socketDir := filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets")
 		db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
 		defer db.Close()
 
@@ -361,35 +712,55 @@ func TestPoolerDownNoFailover(t *testing.T) {
 			if name == setup.PrimaryName {
 				continue
 			}
-			socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
-			db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
-			defer db.Close()
-
-			var result int
-			err := db.QueryRow("SELECT 1").Scan(&result)
-			require.NoError(t, err, "Should be able to query standby %s", name)
-			assert.Equal(t, 1, result)
+			verifyStandbyIsQueryable(t, name, inst)
 		}
 		t.Logf("All standbys are still queryable")
 	})
 }
 
-// killMultipooler terminates the multipooler process for a node (simulates pooler crash)
-func killMultipooler(t *testing.T, node *shardsetup.MultipoolerInstance) {
+// verifyStandbyIsQueryable checks that a standby postgres is queryable.
+func verifyStandbyIsQueryable(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
+	t.Helper()
+	socketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
+	db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
+	defer db.Close()
+
+	var result int
+	err := db.QueryRow("SELECT 1").Scan(&result)
+	require.NoError(t, err, "Should be able to query standby %s", name)
+	assert.Equal(t, 1, result)
+}
+
+// verifyStandbyIsStillReplica checks that a standby is still a replica (no failover occurred).
+func verifyStandbyIsStillReplica(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
+	t.Helper()
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer client.Close()
+
+	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	require.True(t, resp.Status.IsInitialized, "Multipooler %s should be initialized", name)
+	require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
+		"Multipooler %s should still be REPLICA (no failover should have occurred)", name)
+	require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)
+	require.NotNil(t, resp.Status.ReplicationStatus.PrimaryConnInfo, "Standby %s should have PrimaryConnInfo", name)
+	t.Logf("Standby %s is still replicating (type=%s), no failover triggered", name, resp.Status.PoolerType)
+}
+
+// killMultipooler terminates the multipooler process (simulates pooler crash)
+func killMultipooler(t *testing.T, multipooler *shardsetup.MultipoolerInstance) {
 	t.Helper()
 
-	if node.Multipooler == nil || node.Multipooler.Process == nil || node.Multipooler.Process.Process == nil {
-		t.Fatalf("Multipooler process not found for node %s", node.Name)
+	if multipooler.Multipooler == nil || multipooler.Multipooler.Process == nil || multipooler.Multipooler.Process.Process == nil {
+		t.Fatalf("Multipooler process not found for %s", multipooler.Name)
 	}
 
-	pid := node.Multipooler.Process.Process.Pid
-	t.Logf("Killing multipooler (PID %d) on node %s", pid, node.Name)
+	pid := multipooler.Multipooler.Process.Process.Pid
+	t.Logf("Killing multipooler (PID %d) on %s", pid, multipooler.Name)
 
-	err := node.Multipooler.Process.Process.Kill()
-	require.NoError(t, err, "Failed to kill multipooler process")
+	_, killed := multipooler.Multipooler.Process.Kill(utils.WithShortDeadline(t))
+	require.True(t, killed, "Failed to kill multipooler process within deadline")
 
-	// Wait for the process to actually terminate
-	_ = node.Multipooler.Process.Wait()
-
-	t.Logf("Multipooler killed on %s - postgres should still be running", node.Name)
+	t.Logf("Multipooler killed on %s - postgres should still be running", multipooler.Name)
 }

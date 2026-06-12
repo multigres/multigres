@@ -18,45 +18,14 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
-	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensuspb "github.com/multigres/multigres/go/pb/consensus"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// ResetTerm resets the consensus term to 1 with all fields cleared.
-// This is used during initialization and cleanup to ensure a clean state.
-// Follows the pattern from multipooler/setup_test.go:resetTerm.
-func ResetTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
-	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:                    1,
-		AcceptedTermFromCoordinatorId: nil,
-		LastAcceptanceTime:            nil,
-		LeaderId:                      nil,
-	}
-
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
-	if err != nil {
-		return fmt.Errorf("failed to set term: %w", err)
-	}
-	return nil
-}
-
-// SetPoolerType sets the pooler type using the provided manager client.
-// Follows the pattern from multipooler/setup_test.go:setPoolerType.
-func SetPoolerType(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, poolerType clustermetadatapb.PoolerType) error {
-	_, err := client.ChangeType(ctx, &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: poolerType,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set pooler type: %w", err)
-	}
-	return nil
-}
 
 // ValidatePoolerType checks that the pooler type in topology matches the expected value.
 // Follows the pattern from multipooler/setup_test.go:validatePoolerType.
@@ -77,64 +46,12 @@ func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPo
 	return nil
 }
 
-// ValidateTerm checks that the consensus term matches the expected value.
-// Follows the pattern from multipooler/setup_test.go:validateTerm.
-func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient, expectedTerm int64, nodeName string) error {
-	status, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("%s failed to get consensus status: %w", nodeName, err)
-	}
-
-	if status.CurrentTerm != expectedTerm {
-		return fmt.Errorf("%s term=%d (expected %d)", nodeName, status.CurrentTerm, expectedTerm)
-	}
-
-	return nil
-}
-
-// RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
-// Uses Force=true and resets term to 1 for simplicity in test cleanup.
-// Follows the pattern from multipooler/setup_test.go:restorePrimaryAfterDemotion.
-func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
-	// Set term back to 1
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{
-		Term: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set term on primary: %w", err)
-	}
-
-	// Stop replication on primary
-	_, err = client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to stop replication on primary: %w", err)
-	}
-
-	// Get current LSN
-	statusResp, err := client.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to get primary replication status: %w", err)
-	}
-
-	// Force promote primary back
-	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm: 1,
-		ExpectedLsn:   statusResp.Status.LastReplayLsn,
-		Force:         true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to promote primary: %w", err)
-	}
-
-	return nil
-}
-
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
-func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
+func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []string) map[string]string {
 	saved := make(map[string]string)
 	for _, gucName := range gucNames {
-		value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
+		value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 		if err == nil {
 			saved[gucName] = value
 		}
@@ -142,14 +59,59 @@ func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNa
 	return saved
 }
 
-// RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM.
-// Empty values are treated as RESET (restore to default).
-func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+// ReloadConfig calls pg_reload_conf() and waits for the reload to complete
+// using pg_conf_load_time() as an event-based completion signal.
+//
+// pg_reload_conf() sends SIGHUP and returns immediately, before postgres has
+// processed the signal. This function waits until pg_conf_load_time() advances
+// past the pre-reload value, which happens atomically when postgres finishes
+// processing the SIGHUP — at which point all GUC values are guaranteed to
+// reflect the latest postgresql.auto.conf.
+//
+// ctx is used only for the pg_reload_conf() call. The reload-completion wait
+// uses its own internal context so that a short caller deadline does not cut
+// off the wait on a loaded system.
+func ReloadConfig(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, instanceName string) {
 	t.Helper()
+
+	loadTimeBefore, err := QueryStringValue(ctx, client, "SELECT pg_conf_load_time()")
+	// pg_conf_load_tim() should not normally fail, but if it does, log the
+	// error so that we can debug the issue.
+	require.NoError(t, err, "Failed to get pg_conf_load_time on %s: %v", instanceName, err)
+
+	_, err = client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
+	require.NoError(t, err, "Failed to reload config on %s: %v", instanceName, err)
+
+	// Use a fresh context for polling so a short caller ctx does not cut off the wait.
+	pollCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var funcCallError error
+	require.Eventually(t, func() bool {
+		loadTimeAfter, err := QueryStringValue(pollCtx, client, "SELECT pg_conf_load_time()")
+		// pg_conf_load_tim() should not normally fail, but if it does, stop
+		// polling and report it, instead of polling until timeout.
+		if err != nil {
+			funcCallError = err
+			return true
+		}
+		return loadTimeAfter != loadTimeBefore
+	}, 30*time.Second, 10*time.Millisecond,
+		"%s: pg_conf_load_time did not advance after pg_reload_conf()", instanceName)
+
+	require.NoError(t, funcCallError, "Error calling pg_conf_load_time on %s: %v", instanceName, funcCallError)
+}
+
+// RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM, then
+// calls ReloadConfig to apply the changes and wait for the reload to complete.
+// Empty values are treated as RESET (restore to default).
+func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+	t.Helper()
+
 	for gucName, gucValue := range savedGucs {
 		var query string
 		if gucValue == "" {
-			query = fmt.Sprintf("ALTER SYSTEM RESET %s", gucName)
+			query = "ALTER SYSTEM RESET " + gucName
 		} else {
 			query = fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", gucName, gucValue)
 		}
@@ -159,17 +121,13 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPooler
 		}
 	}
 
-	// Reload configuration to apply changes
-	_, err := client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
-	if err != nil {
-		t.Logf("Warning: Failed to reload config on %s in cleanup: %v", instanceName, err)
-	}
+	ReloadConfig(ctx, t, client, instanceName)
 }
 
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateGUCValue.
-func ValidateGUCValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
-	value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
+func ValidateGUCValue(ctx context.Context, client *MultiPoolerTestClient, gucName, expected, instanceName string) error {
+	value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 	if err != nil {
 		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
 	}

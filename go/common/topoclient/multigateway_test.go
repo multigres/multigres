@@ -18,9 +18,9 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -49,7 +49,7 @@ func getMultiGateway(cell string, uid uint32) *clustermetadatapb.MultiGateway {
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIGATEWAY,
 			Cell:      cell,
-			Name:      fmt.Sprintf("%d", uid),
+			Name:      strconv.FormatUint(uint64(uid), 10),
 		},
 		Hostname: "host1",
 		PortMap: map[string]int32{
@@ -739,8 +739,8 @@ func TestNewMultiGateway(t *testing.T) {
 		})
 	}
 
-	// Test random name generation when name is empty
-	t.Run("empty name generates random name", func(t *testing.T) {
+	// Test that empty name is passed through as-is (caller is responsible for generating IDs)
+	t.Run("empty name is passed through", func(t *testing.T) {
 		result := topoclient.NewMultiGateway("", "zone2", "host2.example.com")
 
 		// Verify basic properties
@@ -748,19 +748,8 @@ func TestNewMultiGateway(t *testing.T) {
 		require.Equal(t, "host2.example.com", result.Hostname)
 		require.NotNil(t, result.PortMap)
 
-		// Verify random name was generated
-		require.NotEmpty(t, result.Id.Name, "expected random name to be generated for empty name")
-		require.Len(t, result.Id.Name, 8, "expected random name to be 8 characters long")
-
-		// Verify the generated name only contains valid characters
-		validChars := "bcdfghjklmnpqrstvwxz2456789"
-		for _, char := range result.Id.Name {
-			require.Contains(t, validChars, string(char), "generated name should only contain valid characters")
-		}
-
-		// Test that multiple calls generate different names
-		result2 := topoclient.NewMultiGateway("", "zone2", "host2.example.com")
-		require.NotEqual(t, result.Id.Name, result2.Id.Name, "multiple calls should generate different random names")
+		// Verify empty name is preserved (caller should use servenv.GenerateRandomServiceID if needed)
+		require.Empty(t, result.Id.Name, "empty name should be passed through as-is")
 	})
 }
 

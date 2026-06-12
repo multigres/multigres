@@ -26,12 +26,12 @@
 //
 // What should stay (test-specific helpers):
 //   - getPrimaryStatusFromClient, waitForSyncConfigConvergenceWithClient, containsStandbyIDInConfig
+//     (these access sync replication config via the unified Status RPC)
 
 package multipooler
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -193,7 +193,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			defer primaryClient.Close()
 
 			for _, table := range config.tablesToDrop {
-				_, err := primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 0)
+				_, err := primaryClient.Pooler.ExecuteQuery(ctx, "DROP TABLE IF EXISTS "+table, 0)
 				if err != nil {
 					t.Logf("Warning: Failed to drop table %s in cleanup: %v", table, err)
 				}
@@ -214,15 +214,31 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 	}
 }
 
-// Helper function to get PrimaryStatus from a manager client.
+// Helper function to get PrimaryStatus from a manager client via the unified Status RPC.
 func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	statusResp, err := client.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
-	require.NoError(t, err, "PrimaryStatus should succeed")
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
 	require.NotNil(t, statusResp.Status, "Status should not be nil")
-	return statusResp.Status
+	require.NotNil(t, statusResp.Status.PrimaryStatus, "PrimaryStatus should not be nil (must be called on a primary)")
+	return statusResp.Status.PrimaryStatus
+}
+
+// currentRuleNumberFromClient reads the pooler's current ShardRule number via
+// Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
+// Pass ctxutil.Detach(t.Context()) when calling from t.Cleanup (t.Context() is
+// already cancelled at that point).
+func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, rn, "primary must have a current rule number")
+	return rn
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value.
