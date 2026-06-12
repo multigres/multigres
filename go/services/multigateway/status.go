@@ -74,11 +74,7 @@ type Status struct {
 // handleIndex serves the index page
 func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ts := mg.ts.Status()
-	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
-	// Leadership is the load balancer's live consensus view; discovery supplies
-	// the full pooler list (including poolers we are not connected to). Join the
-	// two on serialized pooler ID.
-	leadership := mg.poolerGateway.LeadershipByID()
+	cells := mg.collectCellStatuses()
 
 	mg.serverStatus.mu.Lock()
 	defer mg.serverStatus.mu.Unlock()
@@ -86,7 +82,24 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 	mg.serverStatus.TopoStatus = ts
-	mg.serverStatus.Cells = make([]CellStatus, 0, len(cellStatuses))
+	mg.serverStatus.Cells = cells
+
+	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// collectCellStatuses joins the two sources behind the status page: discovery
+// supplies the full per-cell pooler list (including poolers the gateway is not
+// connected to), and the load balancer supplies each connected pooler's live
+// consensus leadership. They are merged on serialized pooler ID.
+func (mg *MultiGateway) collectCellStatuses() []CellStatus {
+	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
+	leadership := mg.poolerGateway.LeadershipByID()
+
+	cells := make([]CellStatus, 0, len(cellStatuses))
 	for _, cs := range cellStatuses {
 		cellStatus := CellStatus{
 			Cell:        cs.Cell,
@@ -101,12 +114,7 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 				Lifecycle:  pooler.Lifecycle,
 			})
 		}
-		mg.serverStatus.Cells = append(mg.serverStatus.Cells, cellStatus)
+		cells = append(cells, cellStatus)
 	}
-
-	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
+	return cells
 }
