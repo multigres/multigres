@@ -274,3 +274,107 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }
+
+// TestAppointLeader_TiebreaksByLeadershipAvailability verifies that leadershipLess
+// breaks tied-LSN elections in favour of READY nodes over STARTING nodes.
+//
+// Under synchronous replication both standbys ACK every write, so they routinely
+// reach the same WAL position. When the primary fails the two standbys are tied
+// candidates. A freshly restarted standby whose postgres is still in crash
+// recovery reports STARTING; leadershipLess must put the READY standby first in
+// the eligible-leaders list so it is proposed as the new leader.
+//
+// UNKNOWN (the proto zero-value, emitted by older poolers) is treated as READY
+// for backward compatibility — only an explicit STARTING signal demotes a node.
+func TestAppointLeader_TiebreaksByLeadershipAvailability(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	cohortIDs := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "ready"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "starting"},
+	}
+	// AT_LEAST_3 forces tryBuildProposal to wait for all three Recruit responses
+	// before forming a proposal, so the tie between "ready" and "starting" is
+	// always observed — the outcome cannot depend on which Recruit completes first.
+	outgoingRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:         cohortIDs[0],
+		CohortMembers:    cohortIDs,
+		DurabilityPolicy: topoclient.AtLeastN(3),
+	}
+
+	// "primary" has the lower LSN; "ready" and "starting" are tied at the higher
+	// position — the common outcome after sync-replicated writes.
+	walPositions := map[string]string{
+		"primary":  "0/1000000",
+		"ready":    "0/2000000",
+		"starting": "0/2000000",
+	}
+
+	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortIDs))
+	for _, id := range cohortIDs {
+		lsn := walPositions[id.Name]
+		mp := createMockNode(fakeClient, id.Name, 5, lsn, true, outgoingRule)
+		mp.ConsensusStatus.Id = id
+		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+			Lsn:  lsn,
+			Rule: outgoingRule,
+		}
+		if id.Name == "starting" {
+			// leadershipLess reads AvailabilityStatus from the cohort health
+			// snapshot (not the Recruit response) — this is the health stream
+			// value that multiorch's applySnapshot cached before the election.
+			mp.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING,
+					Reason: "postgres not ready for promotion",
+				},
+			}
+		}
+		key := topoclient.MultiPoolerIDString(id)
+		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Lsn:  lsn,
+					Rule: outgoingRule,
+				},
+			},
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		cohort = append(cohort, mp)
+	}
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "tiebreak_test"))
+
+	// "ready" must be elected: both standbys are tied on LSN, but leadershipLess
+	// sorts READY before STARTING in the eligible-leaders slice.
+	readyKey := topoclient.MultiPoolerIDString(cohortIDs[1])
+	propReq, ok := fakeClient.PromoteRequests[readyKey]
+	require.True(t, ok, "Promote must be sent to the READY standby")
+	require.Equal(t, "ready", propReq.GetProposal().GetProposalLeader().GetId().GetName(),
+		"leadershipLess must prefer READY over STARTING when LSNs are tied")
+
+	// "starting" must receive SetPrimary as a follower, not Promote.
+	startingKey := topoclient.MultiPoolerIDString(cohortIDs[2])
+	_, isPromoted := fakeClient.PromoteRequests[startingKey]
+	require.False(t, isPromoted, "STARTING node must not be elected when a READY node is tied on LSN")
+	stp, ok := fakeClient.SetPrimaryRequests[startingKey]
+	require.True(t, ok, "SetPrimary must be sent to the STARTING node as a follower")
+	require.Equal(t, "ready", stp.GetLeader().GetId().GetName(),
+		"STARTING follower must be directed toward the READY leader")
+}

@@ -778,7 +778,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 	record, err := newPoolerRecord(slog.Default(), ts, multipooler)
 	require.NoError(t, err)
-	return &MultiPoolerManager{
+	pm := &MultiPoolerManager{
 		logger:            slog.Default(),
 		actionLock:        actionlock.NewActionLock(),
 		record:            record,
@@ -787,6 +787,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		servingState:      NewStateManager(slog.Default(), record),
 		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 	}
+	return pm
 }
 
 func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
@@ -811,6 +812,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
+				},
 			},
 		},
 		{
@@ -821,6 +825,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
 				},
 			},
 		},
@@ -836,6 +843,9 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				},
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+				},
+				LeadershipAvailability: &clustermetadatapb.LeadershipAvailability{
+					Signal: clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
 				},
 			},
 		},
@@ -881,7 +891,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 
 			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})
 
-			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
+			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus(true))
 		})
 	}
 }
