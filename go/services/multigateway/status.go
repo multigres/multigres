@@ -30,7 +30,14 @@ import (
 type PoolerStatus struct {
 	Name     string `json:"name"`
 	Database string `json:"database"`
-	Type     string `json:"type"`
+	// Leadership is the gateway's merged consensus view of the pooler's role
+	// (leader/stale-leader/follower), empty when the gateway is not connected to
+	// it. Distinct from Lifecycle: a pooler's consensus role and its process
+	// lifecycle state are orthogonal.
+	Leadership string `json:"leadership"`
+	// Lifecycle is the pooler's process lifecycle state (e.g. active, shutdown),
+	// from its topology record.
+	Lifecycle string `json:"lifecycle"`
 }
 
 // CellStatus represents the status of pooler discovery for a single cell.
@@ -66,7 +73,7 @@ type Status struct {
 // handleIndex serves the index page
 func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ts := mg.ts.Status()
-	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
+	cells := mg.collectCellStatuses()
 
 	mg.serverStatus.mu.Lock()
 	defer mg.serverStatus.mu.Unlock()
@@ -74,7 +81,24 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 	mg.serverStatus.TopoStatus = ts
-	mg.serverStatus.Cells = make([]CellStatus, 0, len(cellStatuses))
+	mg.serverStatus.Cells = cells
+
+	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// collectCellStatuses joins the two sources behind the status page: discovery
+// supplies the full per-cell pooler list (including poolers the gateway is not
+// connected to), and the load balancer supplies each connected pooler's live
+// consensus leadership. They are merged on serialized pooler ID.
+func (mg *MultiGateway) collectCellStatuses() []CellStatus {
+	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
+	leadership := mg.poolerGateway.LeadershipByID()
+
+	cells := make([]CellStatus, 0, len(cellStatuses))
 	for _, cs := range cellStatuses {
 		cellStatus := CellStatus{
 			Cell:        cs.Cell,
@@ -83,17 +107,13 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, pooler := range cs.Poolers {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
-				Name:     pooler.Id.GetName(),
-				Database: pooler.GetShardKey().GetDatabase(),
-				Type:     pooler.GetType().String(),
+				Name:       pooler.Name,
+				Database:   pooler.Database,
+				Leadership: leadership[pooler.ID],
+				Lifecycle:  pooler.Lifecycle,
 			})
 		}
-		mg.serverStatus.Cells = append(mg.serverStatus.Cells, cellStatus)
+		cells = append(cells, cellStatus)
 	}
-
-	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
+	return cells
 }

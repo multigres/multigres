@@ -58,7 +58,8 @@
           <tr>
             <th>Name</th>
             <th>Database</th>
-            <th>Type</th>
+            <th>Leadership</th>
+            <th>Lifecycle</th>
           </tr>
         </thead>
         <tbody>
@@ -66,7 +67,8 @@
           <tr>
             <th>{{.Name}}</th>
             <td>{{.Database}}</td>
-            <td>{{.Type}}</td>
+            <td>{{if .Leadership}}{{.Leadership}}{{else}}&mdash;{{end}}</td>
+            <td>{{.Lifecycle}}</td>
           </tr>
           {{end}}
         </tbody>
