@@ -81,6 +81,18 @@ service MultiPoolerManager {
   // PostgreSQL Monitoring Control
   //
 
+  // ResignLeadership gracefully resigns this pooler from leadership.
+  // Transitions the pooler to NOT_SERVING (rejecting new queries with MTF01),
+  // drains write connections, publishes REQUESTING_DEMOTION, and returns the
+  // WAL flush LSN at the moment writes were quiesced. The caller can then wait
+  // for standbys to reach that LSN before triggering a new election.
+  //
+  // Only valid on a pooler that is currently the consensus leader (PRIMARY).
+  // Does NOT restart postgres as standby — that happens later via the normal
+  // Recruit path when multiorch picks up REQUESTING_DEMOTION.
+  rpc ResignLeadership(multipoolermanagerdata.ResignLeadershipRequest)
+      returns (multipoolermanagerdata.ResignLeadershipResponse);
+
   // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts.
   // When disabled, the monitor continues to run but will not auto-restart a stopped
   // PostgreSQL instance. Used by tests and demos to prevent premature restarts during

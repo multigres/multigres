@@ -163,6 +163,21 @@ service MultiAdminService {
       body: "*"
     };
   }
+
+  // SwitchPrimary performs a graceful switchover for a shard. It stops writes
+  // and freezes the WAL position on the current primary, waits for the chosen
+  // standby to catch up, then promotes it as the new leader via
+  // ApplyCertifiedRuleChange. The old leader is demoted to standby by the
+  // subsequent Recruit round.
+  //
+  // If target_leader_id is not set, multiadmin picks the standby with the
+  // highest current WAL position.
+  rpc SwitchPrimary(SwitchPrimaryRequest) returns (SwitchPrimaryResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -571,4 +586,26 @@ message ApplyCertifiedRuleChangeResponse {
   // used or term_revocation was filled in by multiadmin, this exposes the
   // values that multiadmin chose.
   clustermetadata.ExternallyCertifiedRevocation cert_used = 2;
+}
+
+// SwitchPrimary operation messages
+
+message SwitchPrimaryRequest {
+  // Shard to perform the switchover on (required).
+  clustermetadata.ShardKey shard_key = 1;
+
+  // Free-text reason recorded in rule_history for audit.
+  string reason = 3;
+
+  // How long to poll for a new leader to be elected after the old primary
+  // resigns. Defaults to 30s if unset.
+  google.protobuf.Duration catchup_timeout = 4;
+}
+
+message SwitchPrimaryResponse {
+  // The pooler that was promoted to leader.
+  clustermetadata.ID new_leader_id = 1;
+
+  // The pooler that was demoted.
+  clustermetadata.ID old_leader_id = 2;
 }

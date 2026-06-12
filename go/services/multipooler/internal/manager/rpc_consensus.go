@@ -286,6 +286,90 @@ func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) err
 	return nil
 }
 
+// ResignLeadership gracefully resigns this pooler from leadership for use in a
+// planned failover. It quiesces writes, terminates remaining connections,
+// restarts PostgreSQL as a standby, then publishes REQUESTING_DEMOTION so
+// multiorch's LeaderResignedAnalyzer drives the election.
+//
+// By restarting postgres here, before Recruit runs on any node, we prevent the
+// "proposed leader not eligible" error: the Recruit fan-out in
+// ApplyCertifiedRuleChange calls emergencyDemoteLocked on the old primary, which
+// runs a shutdown checkpoint and advances the LSN beyond what the target standby
+// has. When this node is already in standby mode at Recruit time, Recruit runs
+// pauseReplication instead (no new checkpoint), so all nodes end up at the same
+// post-shutdown LSN and the most-advanced standby is eligible.
+//
+// Multiorch's LeaderIsDeadAnalyzer is suppressed for the brief restart window
+// because postgres was ready very recently (within LeaderPostgresResponseThreshold).
+func (pm *MultiPoolerManager) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
+	defer span.End()
+
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "ResignLeadership")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Guard: only a PRIMARY may resign.
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+
+	state, err := pm.checkDemotionState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: transition to NOT_SERVING so new queries are rejected with MTF01.
+	if err := pm.setNotServing(ctx, state); err != nil {
+		return nil, mterrors.Wrap(err, "failed to transition to NOT_SERVING")
+	}
+
+	// Step 2: drain in-flight write connections.
+	if err := pm.drainWriteActivity(ctx, recruitDrainTimeout); err != nil {
+		return nil, mterrors.Wrap(err, "failed to drain write activity")
+	}
+
+	// Step 3: terminate any remaining write connections.
+	if _, err := pm.terminateWriteConnections(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "ResignLeadership: failed to terminate write connections (non-fatal)", "error", err)
+	}
+
+	// Step 4: restart PostgreSQL as standby. This triggers a graceful shutdown
+	// (SIGTERM → smart shutdown → checkpoint → WAL sent to standbys → exit),
+	// so connected standbys receive the shutdown checkpoint WAL before postgres
+	// exits.
+	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+		return nil, mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	}
+
+	// Step 5: mark rewind as not needed — this is a planned failover so there is
+	// no WAL divergence between the old primary and the new timeline.
+	pm.rewindPending.Store(false)
+	pm.healthStreamer.UpdateLeaderObservation(nil)
+
+	// Step 6: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
+	// drives the election. Best-effort: if this fails the caller can still poll
+	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
+	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
+		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
+			pm.logger.WarnContext(ctx, "ResignLeadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
+		}
+	}
+
+	// Step 7: capture the post-shutdown WAL replay position. Callers can use
+	// this to poll for a new leader at or beyond this LSN.
+	flushLSN, err := pm.getStandbyReplayLSN(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to capture post-shutdown replay LSN")
+	}
+
+	pm.logger.InfoContext(ctx, "ResignLeadership complete", "flush_lsn", flushLSN)
+	return &multipoolermanagerdatapb.ResignLeadershipResponse{FlushLsn: flushLSN}, nil
+}
+
 // Recruit handles a coordinator's request to stop replication participation and
 // record a TermRevocation, returning the node's stable position afterward.
 //

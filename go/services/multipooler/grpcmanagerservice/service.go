@@ -155,6 +155,15 @@ func (s *managerService) VerifyBackups(ctx context.Context, req *multipoolermana
 	}, nil
 }
 
+// ResignLeadership gracefully resigns the pooler from leadership for use in a planned failover.
+func (s *managerService) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	resp, err := s.manager.ResignLeadership(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
 func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)

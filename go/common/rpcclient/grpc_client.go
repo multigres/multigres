@@ -280,6 +280,19 @@ func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.Mu
 // Manager Service Methods - PostgreSQL Restart Control
 //
 
+// ResignLeadership gracefully resigns the pooler from leadership for a planned failover.
+func (c *Client) ResignLeadership(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ResignLeadership(ctx, request)
+}
+
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
