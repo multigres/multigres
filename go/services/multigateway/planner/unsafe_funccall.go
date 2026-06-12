@@ -77,19 +77,23 @@ var funcBlocklist = map[string]string{
 //
 // Two shapes:
 //   - all-literal: Name and Value carry the parsed strings, *Bind fields
-//     are nil. is_local was literal false (literal true short-circuits
-//     below and never produces a setConfigCall).
+//     are nil. is_local was either literal false or — for a gateway-managed
+//     variable only — literal true (see IsLocalLiteralTrue).
 //   - any-bound: at least one of NameBind/ValueBind/IsLocalBind is non-nil
-//     and points at the parser-produced ParamRef for that slot. Name/Value
-//     hold the parsed string for any slot that was NOT bound. The planner
-//     emits the deferred-resolution primitive that decodes the bound slots
-//     from the portal at execute time.
+//     and points at the ParamRef for that slot (parser-produced for the
+//     extended protocol, normalizer-produced for cacheable simple queries).
+//     Name/Value hold the parsed string for any slot that was NOT bound.
+//     The planner emits the deferred-resolution primitive that resolves the
+//     bound slots at execute time — from the portal's wire Bind values or
+//     from the normalizer-extracted bindVars, depending on the path.
 //
-// `is_local=true` literals never produce a setConfigCall — validation
-// returns (nil, nil) early so the call goes to PG via Route only, with no
-// SessionSettings write. That's also why we don't need to carry a literal
-// is_local: any returned setConfigCall implies is_local was literal false
-// or bound, and the executor defaults to false when IsLocalBind is nil.
+// `is_local=true` literals produce a setConfigCall only for gateway-managed
+// variables, tracked as a transaction-local override so SHOW matches the
+// `SET LOCAL <gmv>` statement form. For ordinary variables validation
+// returns (nil, nil) early and the call goes to PG via Route only, with no
+// SessionSettings write. A literal is_local therefore travels as
+// IsLocalLiteralTrue; the executor treats is_local as false when both
+// IsLocalBind is nil and IsLocalLiteralTrue is false.
 type setConfigCall struct {
 	Name  string
 	Value string
@@ -244,9 +248,10 @@ func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 // Runs BEFORE statement-type dispatch but AFTER normalization — by the time
 // we see stmt, non-set_config literals have become ParamRefs. The
 // normalizer skips inside set_config's args when is_local is literal false
-// (so the validator can extract the name/value), but allows recursion when
-// is_local is literal true (those calls are accepted but not tracked, and
-// parameterizing them keeps the plan cache stable for hot patterns).
+// (so the validator can extract the name/value), but parameterizes the
+// value when is_local is literal true: name and is_local stay literal, so
+// the gateway-managed check below still works; ordinary calls go untracked,
+// and the collapsed value keeps the plan cache stable for hot patterns.
 func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	if stmt == nil {
 		return &statementAnalysis{}, nil
@@ -332,8 +337,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		if setCfg != nil {
 			result.SetConfigs = append(result.SetConfigs, *setCfg)
 		}
-		// else is_local=true: leave it alone; PG executes it as a normal
-		// transaction-scoped call and the pooler does not track it.
+		// else is_local=true on an ordinary variable: leave it alone; PG
+		// executes it as a normal transaction-scoped call and the pooler
+		// does not track it. (Gateway-managed names DO produce a setCfg —
+		// see validateAcceptedSetConfig.)
 	}
 	return result, nil
 }
@@ -452,13 +459,16 @@ func isStaticSetConfigArg(n ast.Node) bool {
 // for execute-time resolution from the portal's wire-protocol Bind values.
 // Anything else (non-const non-ParamRef expression) errors out.
 //
-// is_local is inspected first because a literal `true` short-circuits:
-// transaction-scoped calls are not tracked at all (PG executes them via
-// Route, the gateway holds no state for them), so name/value need not be
-// validated and the normalizer is allowed to parameterize their args (see
-// isPlannerLiteralFunc / normalizer.go) — keeps the plan-cache fingerprint
-// stable for hot patterns like PostgREST's set_config('request.jwt.claims',
-// '<dynamic JSON>', true).
+// is_local is inspected first because a literal `true` usually
+// short-circuits: transaction-scoped calls on ordinary variables are not
+// tracked at all (PG executes them via Route, the gateway holds no state
+// for them), so name/value need not be validated and the normalizer is
+// allowed to parameterize their value (see isPlannerLiteralFunc /
+// normalizer.go) — keeps the plan-cache fingerprint stable for hot patterns
+// like PostgREST's set_config('request.jwt.claims', '<dynamic JSON>', true).
+// Gateway-managed variables are the exception: literal-true IS tracked
+// (IsLocalLiteralTrue) so SHOW matches SET LOCAL, and the parameterized
+// value is resolved from the execution's bindVars at execute time.
 //
 // A bound is_local cannot be short-circuited at plan time — the decision
 // to track is deferred to executeSetWithBinds.

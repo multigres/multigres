@@ -62,15 +62,20 @@ type ApplySessionState struct {
 	SilentTracking bool
 
 	// BindRefs, when non-nil, marks this primitive as a deferred-resolution
-	// set_config(): name, value, and/or is_local are decoded from the
-	// portal's wire-protocol Bind values at execute time before
-	// SessionSettings is updated. Nil-valued fields use the literal already
-	// in VariableStmt.Name / Args[0] / LiteralIsLocal.
+	// set_config(): name, value, and/or is_local are resolved at execute
+	// time before SessionSettings is updated. Nil-valued fields use the
+	// literal already in VariableStmt.Name / Args[0] / VariableStmt.IsLocal.
 	//
-	// Reachable only via PortalStreamExecute — StreamExecute is the simple
-	// protocol path, which has no binds and therefore never sets BindRefs.
-	// Set automatically by NewApplySessionStateFromBind for the
-	// extended-protocol `SELECT set_config($1, ...)` shape.
+	// Two resolution sources, one per protocol path:
+	//   - PortalStreamExecute decodes the portal's wire-protocol Bind values
+	//     (extended-protocol `SELECT set_config($1, ...)`).
+	//   - StreamExecute resolves against the normalizer-extracted bindVars
+	//     (simple protocol: ast.Normalize parameterizes the value of a
+	//     set_config(..., true) call, so the cached plan for a gateway-managed
+	//     variable carries a ValueParam that must be re-resolved from each
+	//     execution's literals — never baked into the plan).
+	//
+	// Set automatically by NewApplySessionStateFromBind.
 	BindRefs *BoundSetConfigRefs
 }
 
@@ -80,11 +85,12 @@ type ApplySessionState struct {
 // produced ParamRef for the corresponding set_config slot, or nil when
 // that slot was already a literal in the AST.
 //
-// is_local literals don't need to be carried here: the validator short-
-// circuits literal-true (no tracking, no setConfigCall produced), so any
-// setConfigCall that reaches the execute path with IsLocalParam == nil
-// implies is_local was literal false. executeSetWithBinds defaults to
-// false in that branch.
+// is_local literals don't need to be carried here: they are baked into the
+// synthetic VariableStmt at plan time, so IsLocalParam == nil means "use
+// VariableStmt.IsLocal" — false for a literal-false call, true only for a
+// gateway-managed set_config(..., true), which the planner tracks as a
+// transaction-local override (an ordinary literal-true call produces no
+// setConfigCall at all). Both execute paths fall back to that field.
 type BoundSetConfigRefs struct {
 	NameParam    *ast.ParamRef
 	ValueParam   *ast.ParamRef
@@ -217,17 +223,115 @@ func (s *ApplySessionState) executeSetWithBinds(
 	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
 }
 
+// executeSetWithNormalizedBinds is StreamExecute's counterpart to
+// executeSetWithBinds: it resolves the bound set_config slots from the
+// normalizer-extracted bindVars instead of a portal's wire-protocol Bind
+// values. Reached on the simple-protocol cacheable path, where ast.Normalize
+// parameterizes the value of a gateway-managed set_config(..., true) call —
+// the plan is cached by its normalized SQL, so every execution must
+// re-resolve the value from that execution's literals.
+//
+// Mirrors executeSetWithBinds' resolution order: is_local first (it decides
+// whether tracking happens at all), then name, then value only if the
+// tracker write will fire. Errors propagate up through the Sequence, which
+// aborts before the trailing Route fires.
+func (s *ApplySessionState) executeSetWithNormalizedBinds(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	bindVars []*ast.A_Const,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// is_local resolves from the normalized literal when bound; otherwise it
+	// falls back to the literal baked into the synthetic VariableStmt (true
+	// only for a gateway-managed set_config(..., true)).
+	isLocal := s.VariableStmt.IsLocal
+	if s.BindRefs.IsLocalParam != nil {
+		c, err := normalizedBindConst(bindVars, s.BindRefs.IsLocalParam, "set_config is_local argument")
+		if err != nil {
+			return err
+		}
+		b, ok := c.Val.(*ast.Boolean)
+		if !ok {
+			return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config is_local argument ($%d) must be a boolean literal", s.BindRefs.IsLocalParam.Number))
+		}
+		isLocal = b.BoolVal
+	}
+
+	name := s.VariableStmt.Name
+	if s.BindRefs.NameParam != nil {
+		c, err := normalizedBindConst(bindVars, s.BindRefs.NameParam, "set_config name argument")
+		if err != nil {
+			return err
+		}
+		name = extractConstValue(c)
+	}
+
+	// A transaction-scoped set_config of an ordinary (non-gateway-managed)
+	// variable is owned by PostgreSQL via the trailing Route — the gateway
+	// tracks nothing and can skip resolving the value. Gateway-managed
+	// variables fall through so the transaction-local override is applied to
+	// gateway state (parity with executeSetWithBinds).
+	if isLocal && !handler.IsGatewayManagedVariable(name) {
+		return nil
+	}
+
+	value := extractVariableValue(s.VariableStmt.Args)
+	if s.BindRefs.ValueParam != nil {
+		c, err := normalizedBindConst(bindVars, s.BindRefs.ValueParam, "set_config value argument")
+		if err != nil {
+			return err
+		}
+		value = extractConstValue(c)
+	}
+
+	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
+}
+
+// normalizedBindConst returns the normalizer-extracted literal that ref
+// points at. ParamRef numbers are 1-based positions into bindVars (the
+// normalizer mints them from a single counter; ast.ReconstructSQL uses the
+// same mapping for the Route's SQL reconstruction). An out-of-range
+// reference means the statement carried a user-typed $N the normalizer
+// never extracted a literal for — invalid in the simple protocol, so fail
+// here, before any gateway state is written (the trailing Route would
+// reject it anyway with "there is no parameter $N").
+func normalizedBindConst(bindVars []*ast.A_Const, ref *ast.ParamRef, what string) (*ast.A_Const, error) {
+	idx := ref.Number - 1 // ParamRef is 1-based
+	if idx < 0 || idx >= len(bindVars) {
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+			"%s references parameter $%d but the statement carries %d normalized literal(s)",
+			what, ref.Number, len(bindVars)))
+	}
+	c := bindVars[idx]
+	if c == nil || c.Isnull {
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s ($%d) cannot be NULL", what, ref.Number))
+	}
+	return c, nil
+}
+
 // StreamExecute handles the SET/RESET command.
+//
+// bindVars are the literals the normalizer extracted on the simple-protocol
+// cacheable path. A BindRefs primitive must resolve its bound slots from
+// them: the cached plan was minted from the normalized AST, so its synthetic
+// VariableStmt carries `__bind_$N__` placeholders — applying those (or any
+// first-seen literal) would corrupt gateway state on every cache hit that
+// carries different literals.
 func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
-	_ []*ast.A_Const,
+	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
+		if s.BindRefs != nil {
+			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
+		}
 		return s.executeSet(ctx, conn, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return s.executeReset(ctx, state, callback)

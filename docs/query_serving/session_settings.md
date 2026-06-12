@@ -21,18 +21,11 @@ When a variable is `RESET`, its entry is removed from `SessionSettings`, and the
 
 ## Gateway-Managed Variables
 
-A small set of session variables is intercepted by the planner (see `isGatewayManagedVariable` in `planner/variable_set_stmt.go`) and handled entirely by the gateway. These variables are **not** stored in `SessionSettings` and **not** forwarded to PostgreSQL. Instead, the planner emits a `GatewaySessionState` primitive that updates a typed `GatewayManagedVariable[T]` on the connection state.
-
-Today the set is:
-
-- **`statement_timeout`** — enforced by the gateway via context deadlines (see `statement_timeout_design.md`).
-
-Behaviour:
-
-- `SET var = value` parses and validates the value at SET time. Invalid values are rejected immediately with a PostgreSQL-compatible error (unlike regular session settings, which defer validation to the next query).
-- `RESET var` and `SET var TO DEFAULT` revert to the startup-param value (if any) or the flag default.
-- `SHOW var` reports the current gateway-managed value in PostgreSQL-compatible form.
-- `RESET ALL` clears gateway-managed variables alongside `SessionSettings`.
+Some variables are owned by multigateway rather than stored in `SessionSettings`
+or forwarded to PostgreSQL. See
+[`gateway_managed_variables.md`](./gateway_managed_variables.md) for the GMV
+contract and [`statement_timeout_design.md`](./statement_timeout_design.md) for
+the concrete `statement_timeout` behavior.
 
 ## Behaviour Deviations from PostgreSQL
 

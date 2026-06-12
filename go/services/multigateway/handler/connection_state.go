@@ -200,20 +200,6 @@ type savepointFrame struct {
 	openHoldCursors map[string]bool
 }
 
-type gmvLifecycle interface {
-	Snapshot()
-	RestoreFromDepth(int)
-	PopFrom(int)
-	ClearSnapshots()
-	// ResetLocal clears the transaction-local override at COMMIT/ROLLBACK.
-	// Part of the interface so the lifecycle methods can iterate generically
-	// rather than naming each variable (which is easy to forget for a new GMV).
-	ResetLocal()
-	// Reset clears both the session-level override and any transaction-local
-	// override, reverting to the startup/default value (RESET ALL semantics).
-	Reset()
-}
-
 type ShardState struct {
 	// Target stores the information about the shard
 	Target *query.Target
