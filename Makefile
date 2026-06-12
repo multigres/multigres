@@ -35,7 +35,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
 
 ##@ General
 
@@ -82,7 +82,14 @@ parser: ## Generate PostgreSQL parser from grammar.
 	go generate ./go/common/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser ## Alias for parser.
+generate: parser metrics ## Alias for parser and metrics catalog.
+
+# Generate the metric catalog (go/observability/metriccatalog) from OpenTelemetry
+# instrument definitions across the codebase.
+metrics: ## Generate the Prometheus metric catalog/keep-list.
+	@echo "$$(date): Generating metric catalog"
+	go run ./go/tools/metricsgen/main
+	@echo "Metric catalog generation completed"
 
 ##@ Build
 
@@ -111,7 +118,7 @@ build-release: ## Build Go binaries (release, static, stripped).
 	done
 
 # Build everything (proto + parser + binaries)
-build-all: proto parser build ## Build everything (proto + parser + binaries).
+build-all: proto parser metrics build ## Build everything (proto + parser + metrics + binaries).
 
 # TODO(sougou): images is a temporary convenience target for a demo.
 # To run it, you need to have Docker installed.
