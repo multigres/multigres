@@ -29,6 +29,20 @@ The catalog row for the table _is_ WAL-logged, so `CREATE UNLOGGED TABLE`,
 `CREATE VIEW`, and other DDL replicate normally. After a failover the new primary
 therefore knows the table exists; it just has no rows.
 
+## Create-Time Warning
+
+Because the failover behaviour is surprising, the multigateway emits a `WARNING`
+NoticeResponse (SQLSTATE `01000`) every time a client creates an unlogged table —
+`CREATE UNLOGGED TABLE`, `CREATE UNLOGGED TABLE ... AS`, and `SELECT ... INTO
+UNLOGGED`. The statement still succeeds; the warning just rides alongside the
+`CommandComplete` and points the user at this document:
+
+```text
+WARNING:  unlogged table data is not replicated and is lost on failover
+HINT:  On failover the table is dropped, or left empty if other objects depend
+on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+```
+
 ## Behaviour on Failover
 
 When a standby is promoted to primary, the multipooler runs a best-effort sweep
@@ -76,6 +90,10 @@ table falls back to the silent-empty behaviour.
 
 ## Code Map
 
+- **Create-time warning** — `UnloggedTableWarning` primitive in
+  `go/services/multigateway/engine/unlogged_table_warning.go`, attached ahead of
+  the CREATE route by `isUnloggedCreate` in
+  `go/services/multigateway/planner/planner.go`.
 - **Sweep logic** — `dropUnloggedTablesAfterPromotion` in
   `go/services/multipooler/internal/manager/manager.go`, invoked from
   `promoteStandbyToPrimary` after the node becomes a writable primary and before

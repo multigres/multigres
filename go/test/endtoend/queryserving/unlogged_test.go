@@ -17,6 +17,7 @@ package queryserving
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,6 +30,59 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
+
+// TestUnloggedTableCreateWarning verifies that the multigateway emits a WARNING
+// NoticeResponse (pointing at the failover doc) when a client creates an unlogged
+// table, that the CREATE still succeeds, and that a permanent table is silent.
+//
+// It runs over both the simple and extended query protocols, since the warning is
+// attached on two distinct planner paths (Plan and PlanPortal respectively).
+func TestUnloggedTableCreateWarning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping unlogged-warning test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping unlogged-warning test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	// default_query_exec_mode selects pgx's wire protocol: simple_protocol hits the
+	// planner's Plan path, exec (unnamed extended) hits PlanPortal.
+	for _, mode := range []string{"simple_protocol", "exec"} {
+		t.Run(mode, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+				"sslmode=disable", "default_query_exec_mode="+mode)
+			conn, collector := connectWithNotices(ctx, t, connStr)
+			defer conn.Close(ctx)
+
+			unlogged := fmt.Sprintf("ul_warn_%s_%d", mode, time.Now().UnixNano())
+			defer func() { _, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+unlogged) }()
+
+			collector.reset()
+			_, err := conn.Exec(ctx, fmt.Sprintf("CREATE UNLOGGED TABLE %s (id int)", unlogged))
+			require.NoError(t, err, "CREATE UNLOGGED TABLE must still succeed")
+
+			warn := findWarning(collector.collect(), "01000")
+			require.NotNil(t, warn, "expected a WARNING/01000 notice for CREATE UNLOGGED TABLE")
+			assert.Equal(t, "WARNING", warn.Severity)
+			assert.Contains(t, warn.Message, "failover")
+			assert.Contains(t, warn.Hint, "docs/query_serving/unlogged_tables.md")
+			t.Logf("Received WARNING: Code=%s Message=%q Hint=%q", warn.Code, warn.Message, warn.Hint)
+
+			// A permanent table must not trigger the warning.
+			perm := fmt.Sprintf("perm_%s_%d", mode, time.Now().UnixNano())
+			defer func() { _, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+perm) }()
+			collector.reset()
+			_, err = conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id int)", perm))
+			require.NoError(t, err)
+			assert.Nil(t, findWarning(collector.collect(), "01000"),
+				"permanent table must not emit the unlogged warning")
+		})
+	}
+}
 
 // TestUnloggedTablesAfterFailover exercises the post-promotion unlogged-table
 // sweep end to end. Unlogged table data is never replicated to standbys, so on
@@ -120,6 +174,16 @@ func TestUnloggedTablesAfterFailover(t *testing.T) {
 
 	// The dependent view is intact (the sweep never uses CASCADE).
 	assertRowCount(t, ctx, conn, "v_kept", 0)
+}
+
+// findWarning returns the first notice with the given SQLSTATE code, or nil.
+func findWarning(notices []*pgconn.Notice, code string) *pgconn.Notice {
+	for _, n := range notices {
+		if n.Code == code {
+			return n
+		}
+	}
+	return nil
 }
 
 // disablePostgresRestarts turns off the postgres monitor's automatic restarts on

@@ -221,10 +221,34 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
+	// CREATE UNLOGGED TABLE (and its CREATE TABLE AS / SELECT INTO forms) routes
+	// normally, but unlogged data is never replicated and is lost on failover, so
+	// prepend a WARNING notice that points the user at the failover behaviour doc.
+	if isUnloggedCreate(stmt) {
+		plan.Primitive = engine.NewSequence([]engine.Primitive{
+			engine.NewUnloggedTableWarning(sql),
+			plan.Primitive,
+		})
+	}
+
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
 
 	return plan, nil
+}
+
+// isUnloggedCreate reports whether stmt creates an UNLOGGED relation, across the
+// plain CREATE TABLE, CREATE TABLE AS, and SELECT INTO forms.
+func isUnloggedCreate(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.CreateStmt:
+		return s.Relation != nil && s.Relation.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.CreateTableAsStmt:
+		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.SelectStmt:
+		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	}
+	return false
 }
 
 // planTempTableCreation creates a plan that routes through a reserved
@@ -368,19 +392,24 @@ func (p *Planner) PlanPortal(
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
 	case ast.T_CreateStmt:
-		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		// UNLOGGED creations route normally but must carry the failover warning,
+		// so delegate to Plan (which attaches it) rather than plain portal execute.
+		if cs := stmt.(*ast.CreateStmt); isUnloggedCreate(stmt) ||
+			(cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
 
 	case ast.T_CreateTableAsStmt:
-		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if cs := stmt.(*ast.CreateTableAsStmt); isUnloggedCreate(stmt) ||
+			(cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
 
 	case ast.T_SelectStmt:
-		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if ss := stmt.(*ast.SelectStmt); isUnloggedCreate(stmt) ||
+			(ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
