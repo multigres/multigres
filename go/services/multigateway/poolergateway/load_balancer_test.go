@@ -820,3 +820,49 @@ func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
 			"reads must avoid both the leader and the stale leader")
 	}
 }
+
+// TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica
+// documents the inverse of the stale-leader case: a pooler the central leaders
+// map knows to be the leader — populated by a peer's health-stream observation
+// — is still eligible for replica reads when its own view does not yet name it
+// the leader (etcd self_leadership absent and its own health stream not yet
+// reported). matchesReplicaTarget consults only the per-connection
+// believesSelfLeader, never the central map, so the leader is not excluded here.
+//
+// This is benign: a read served by the actual current leader sees the most
+// up-to-date data, so it cannot violate read consistency. The window is also
+// narrow — it closes the moment the leader's own health stream reports or its
+// etcd record gains self_leadership. The dangerous direction (serving from a
+// stale leader on an older rule) is covered by the test above.
+func TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	// leader's etcd record lags: discovered without self_leadership, and its own
+	// health stream has not reported, so believesSelfLeader(leader) is false.
+	leader := createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(leader))
+
+	// A peer's health stream has already named `leader` the shard leader at rule
+	// 2, recorded in the central map. Set it directly rather than wiring a second
+	// connection, mirroring how onPoolerHealthUpdate would populate it.
+	key := shardKey{tableGroup: constants.DefaultTableGroup, shard: "0"}
+	lb.mu.Lock()
+	lb.leaders[key] = &clustermetadatapb.LeaderObservation{
+		LeaderId:         leader.Id,
+		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+	}
+	lb.mu.Unlock()
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	// `leader` is the only connection and is eligible despite the central map
+	// naming it the leader, so it is returned rather than erroring as no-candidate.
+	conn, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(leader), conn.ID(),
+		"a centrally-known leader unaware of its own leadership is eligible for replica reads")
+}
