@@ -9,6 +9,11 @@ ignore:
   - "go/tools/asthelpergen/**"
   - "go/tools/flakyaggregator/**"
   - "go/tools/ruleguard/**"
+  # Build-time metric-catalog generator and its generated output. The tool
+  # runs from `make metrics`, not the coverage-collecting test CI, and the
+  # catalog is pure generated data — same treatment as asthelpergen above.
+  - "go/tools/metricsgen/**"
+  - "go/observability/metriccatalog/catalog_generated.go"
   # PostgreSQL regression / isolation harness lives behind opt-in env
   # gates (RUN_PGREGRESS, RUN_PGISOLATION, RUN_EXTENDED_QUERY_SERVING_TESTS),
   # so coverage-collecting CI never executes any of it — every new line
