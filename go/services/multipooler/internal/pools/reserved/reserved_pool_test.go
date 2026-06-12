@@ -82,7 +82,7 @@ func TestPool_NewConn(t *testing.T) {
 	assert.Equal(t, 1, stats.Active)
 	assert.Equal(t, int64(1), stats.ReserveCount)
 
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 }
 
 func TestPool_Get(t *testing.T) {
@@ -109,7 +109,7 @@ func TestPool_Get(t *testing.T) {
 	_, ok = pool.Get(999999)
 	assert.False(t, ok)
 
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 }
 
 func TestPool_Close(t *testing.T) {
@@ -164,7 +164,7 @@ func TestPool_Stats(t *testing.T) {
 	assert.Equal(t, int64(1), stats.ReserveCount)
 
 	// Release connection.
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	stats = pool.Stats()
 	assert.Equal(t, 0, stats.Active)
@@ -189,7 +189,7 @@ func TestConn_Transaction(t *testing.T) {
 	t.Run("begin and commit", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseCommit)
+		defer conn.Release(ReleaseCommit)
 
 		// Initially not in transaction.
 		assert.False(t, conn.IsInTransaction())
@@ -208,7 +208,7 @@ func TestConn_Transaction(t *testing.T) {
 	t.Run("begin and rollback", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseRollback)
+		defer conn.Release(ReleaseRollback)
 
 		err = conn.Begin(ctx)
 		require.NoError(t, err)
@@ -222,7 +222,7 @@ func TestConn_Transaction(t *testing.T) {
 	t.Run("double begin should fail", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseRollback)
+		defer conn.Release(ReleaseRollback)
 
 		err = conn.Begin(ctx)
 		require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestConn_Transaction(t *testing.T) {
 	t.Run("commit without begin should fail", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseCommit)
+		defer conn.Release(ReleaseCommit)
 
 		err = conn.Commit(ctx)
 		require.Error(t, err)
@@ -255,7 +255,7 @@ func TestConn_PortalReservation(t *testing.T) {
 
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer conn.ReleaseClean(CleanReleasePortalComplete)
+	defer conn.Release(ReleasePortalComplete)
 
 	t.Run("reserve portal", func(t *testing.T) {
 		assert.False(t, conn.IsReservedForPortal())
@@ -308,7 +308,7 @@ func TestConn_MultipleReasons(t *testing.T) {
 	t.Run("transaction and portal concurrent reservation", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseDirty(DirtyReleaseError) // Safety net
+		defer conn.Release(ReleaseError) // Safety net
 
 		// Begin a transaction.
 		err = conn.Begin(ctx)
@@ -339,7 +339,7 @@ func TestConn_MultipleReasons(t *testing.T) {
 	t.Run("remove reservation reason directly", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseDirty(DirtyReleaseError) // Safety net
+		defer conn.Release(ReleaseError) // Safety net
 
 		// Add multiple reasons.
 		conn.AddReservationReason(protoutil.ReasonTransaction)
@@ -389,7 +389,7 @@ func TestConn_Timeout(t *testing.T) {
 	// Now should be timed out.
 	assert.True(t, conn.IsTimedOut())
 
-	conn.ReleaseDirty(DirtyReleaseTimeout)
+	conn.Release(ReleaseTimeout)
 }
 
 func TestConn_ResetExpiryTime(t *testing.T) {
@@ -413,7 +413,7 @@ func TestConn_ResetExpiryTime(t *testing.T) {
 
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer conn.ReleaseClean(CleanReleaseCommit)
+	defer conn.Release(ReleaseCommit)
 
 	// Wait halfway to timeout.
 	time.Sleep(18 * time.Millisecond)
@@ -446,7 +446,7 @@ func TestConn_Release(t *testing.T) {
 	assert.False(t, conn.IsReleased())
 
 	// Release the connection.
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	assert.True(t, conn.IsReleased())
 
@@ -455,7 +455,7 @@ func TestConn_Release(t *testing.T) {
 	assert.False(t, ok)
 
 	// Double release should be no-op.
-	conn.ReleaseClean(CleanReleaseCommit) // Should not panic
+	conn.Release(ReleaseCommit) // Should not panic
 }
 
 func TestPool_ForEachActive(t *testing.T) {
@@ -471,11 +471,11 @@ func TestPool_ForEachActive(t *testing.T) {
 	// Create multiple connections.
 	conn1, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer conn1.ReleaseClean(CleanReleaseCommit)
+	defer conn1.Release(ReleaseCommit)
 
 	conn2, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer conn2.ReleaseClean(CleanReleaseCommit)
+	defer conn2.Release(ReleaseCommit)
 
 	// Count active connections.
 	var count int
@@ -552,7 +552,7 @@ func TestPool_TimestampBasedConnectionIDs(t *testing.T) {
 
 	// Clean up.
 	for _, conn := range conns {
-		conn.ReleaseClean(CleanReleaseCommit)
+		conn.Release(ReleaseCommit)
 	}
 }
 
@@ -575,7 +575,7 @@ func TestConn_ReleaseError(t *testing.T) {
 	assert.Equal(t, 1, stats.Active)
 
 	// Release with error.
-	conn.ReleaseDirty(DirtyReleaseError)
+	conn.Release(ReleaseError)
 
 	// Connection should be marked as released.
 	assert.True(t, conn.IsReleased())
@@ -607,11 +607,11 @@ func TestConn_ReleaseError_DoubleRelease(t *testing.T) {
 	require.NoError(t, err)
 
 	// Release with error.
-	conn.ReleaseDirty(DirtyReleaseError)
+	conn.Release(ReleaseError)
 	assert.True(t, conn.IsReleased())
 
 	// Double release should be a no-op (should not panic).
-	conn.ReleaseDirty(DirtyReleaseError)
+	conn.Release(ReleaseError)
 
 	// Release count should still be 1 (not 2).
 	stats := pool.Stats()
@@ -632,7 +632,7 @@ func TestConn_ReleaseError_TaintsConnection(t *testing.T) {
 	// Create and release a connection with error (taints it).
 	conn1, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	conn1.ReleaseDirty(DirtyReleaseError)
+	conn1.Release(ReleaseError)
 
 	// The tainted connection should be closed.
 	assert.True(t, conn1.IsClosed())
@@ -651,7 +651,7 @@ func TestConn_ReleaseError_TaintsConnection(t *testing.T) {
 	assert.Equal(t, 4, stats.Active)
 
 	for _, c := range conns {
-		c.ReleaseClean(CleanReleaseCommit)
+		c.Release(ReleaseCommit)
 	}
 }
 
@@ -680,7 +680,7 @@ func TestPool_NewConn_ValidateRetriesOnConnectionError(t *testing.T) {
 	conn, err := pool.NewConn(ctx, nil, WithValidate(validate))
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	defer conn.ReleaseClean(CleanReleaseCommit)
+	defer conn.Release(ReleaseCommit)
 
 	// Validate should have been invoked once per attempt, and the registered
 	// reserved connection should wrap the second (replacement) socket.
@@ -782,13 +782,13 @@ func TestPool_NewConn_NilValidateUnchanged(t *testing.T) {
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	defer conn.ReleaseClean(CleanReleaseCommit)
+	defer conn.Release(ReleaseCommit)
 
 	// Passing WithValidate(nil) should also behave like no validate at all.
 	conn2, err := pool.NewConn(ctx, nil, WithValidate(nil))
 	require.NoError(t, err)
 	require.NotNil(t, conn2)
-	defer conn2.ReleaseClean(CleanReleaseCommit)
+	defer conn2.Release(ReleaseCommit)
 
 	stats := pool.Stats()
 	assert.Equal(t, 2, stats.Active)
@@ -816,7 +816,7 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		if conn.ConnID() > maxPool1ID {
 			maxPool1ID = conn.ConnID()
 		}
-		conn.ReleaseClean(CleanReleaseCommit)
+		conn.Release(ReleaseCommit)
 	}
 	pool1.Close()
 
@@ -834,7 +834,7 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		// New pool's IDs should all be greater than the max from the old pool
 		// because they're based on a later timestamp.
 		assert.Greater(t, conn.ConnID(), maxPool1ID, "new pool IDs should be greater than old pool IDs")
-		conn.ReleaseClean(CleanReleaseCommit)
+		conn.Release(ReleaseCommit)
 	}
 }
 
@@ -851,7 +851,7 @@ func TestConn_SetApplicationName(t *testing.T) {
 	t.Run("issues SET with quoted literal", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseCommit)
+		defer conn.Release(ReleaseCommit)
 
 		server.ResetQueryLog()
 		require.NoError(t, conn.SetApplicationName(ctx, "multigres_vpid:7"))
@@ -861,7 +861,7 @@ func TestConn_SetApplicationName(t *testing.T) {
 	t.Run("escapes embedded single quotes", func(t *testing.T) {
 		conn, err := pool.NewConn(ctx, nil)
 		require.NoError(t, err)
-		defer conn.ReleaseClean(CleanReleaseCommit)
+		defer conn.Release(ReleaseCommit)
 
 		server.ResetQueryLog()
 		require.NoError(t, conn.SetApplicationName(ctx, "weird'name"))
@@ -883,7 +883,7 @@ func TestConn_SetApplicationName_PropagatesError(t *testing.T) {
 	// when reservationOptions is nil and validate is nil).
 	conn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer conn.ReleaseDirty(DirtyReleaseError)
+	defer conn.Release(ReleaseError)
 
 	require.Error(t, conn.SetApplicationName(ctx, "vpid:1"))
 }

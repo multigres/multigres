@@ -48,10 +48,10 @@ func newFinalizerTestPool(t *testing.T, server *fakepgserver.Server, onRelease f
 	})
 }
 
-// TestReleaseClean_TrustedMatching_NoReconcileSQL verifies that a clean release
-// of a connection whose connstate already matches its authoritative settings
-// recycles the backend without issuing any reconciliation SQL.
-func TestReleaseClean_TrustedMatching_NoReconcileSQL(t *testing.T) {
+// TestReleaseClean_Trusted_NoReconcileSQL verifies that a clean release of a
+// trusted connection (connstate matches the backend) recycles the backend
+// without issuing any reconciliation SQL.
+func TestReleaseClean_Trusted_NoReconcileSQL(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -66,17 +66,18 @@ func TestReleaseClean_TrustedMatching_NoReconcileSQL(t *testing.T) {
 	require.NoError(t, err)
 
 	server.ResetQueryLog()
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	log := server.QueryLog()
-	assert.NotContains(t, log, "reset all", "trusted matching release must not reconcile")
-	assert.NotContains(t, log, "set_config", "trusted matching release must not reconcile")
+	assert.NotContains(t, log, "reset all", "trusted release must not reconcile")
+	assert.NotContains(t, log, "set_config", "trusted release must not reconcile")
 	assert.False(t, conn.IsClosed(), "trusted clean release must recycle, not close")
 }
 
 // TestReleaseClean_Untrusted_ForceReconciles verifies that when the connection
-// is marked untrusted (e.g. after ROLLBACK TO SAVEPOINT), clean release forces
-// reconciliation even though connstate pointer-equals the authoritative value.
+// is marked untrusted (e.g. after ROLLBACK TO SAVEPOINT), clean release
+// force-asserts the cached connstate settings back onto the backend so the
+// recycled connection's cache is truthful again.
 func TestReleaseClean_Untrusted_ForceReconciles(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -96,18 +97,19 @@ func TestReleaseClean_Untrusted_ForceReconciles(t *testing.T) {
 	require.True(t, conn.SessionStateUntrusted())
 
 	server.ResetQueryLog()
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	log := server.QueryLog()
 	assert.Contains(t, log, "reset all", "untrusted release must force a reset")
-	assert.Contains(t, log, "set_config", "untrusted release must re-apply desired settings")
+	assert.Contains(t, log, "set_config", "untrusted release must re-assert cached settings")
 	assert.False(t, conn.IsClosed(), "successful force reconcile must recycle, not close")
 	assert.False(t, conn.SessionStateUntrusted(), "successful force reconcile must clear untrusted")
 }
 
-// TestReleaseClean_KnownEmpty_ResetsStaleBackend verifies that a known-clean
-// (empty) authoritative state resets a backend that still carries settings.
-func TestReleaseClean_KnownEmpty_ResetsStaleBackend(t *testing.T) {
+// TestReleaseClean_UntrustedNoSettings_ResetsToClean verifies that an untrusted
+// connection with no cached settings is reset to a clean baseline on release,
+// erasing whatever the backend may have diverged to.
+func TestReleaseClean_UntrustedNoSettings_ResetsToClean(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -115,20 +117,14 @@ func TestReleaseClean_KnownEmpty_ResetsStaleBackend(t *testing.T) {
 	pool := newFinalizerTestPool(t, server, nil)
 	defer pool.Close()
 
-	cache := connstate.NewSettingsCache(10)
-	settings := cache.GetOrCreate(map[string]string{"search_path": "myschema"})
-
-	conn, err := pool.NewConn(context.Background(), settings)
+	conn, err := pool.NewConn(context.Background(), nil)
 	require.NoError(t, err)
-
-	// Desired baseline is now known-clean (nil), so the stale backend settings
-	// must be reset on release.
-	conn.SetAuthoritativeSettings(nil, true)
+	conn.MarkSessionStateUntrusted()
 
 	server.ResetQueryLog()
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
-	assert.Contains(t, server.QueryLog(), "reset all", "known-clean release must reset stale settings")
+	assert.Contains(t, server.QueryLog(), "reset all", "untrusted release with no cached settings must reset to clean")
 	assert.False(t, conn.IsClosed(), "successful reset must recycle, not close")
 }
 
@@ -151,33 +147,13 @@ func TestReleaseClean_ReconcileFailure_Taints(t *testing.T) {
 	require.NoError(t, err)
 	conn.MarkSessionStateUntrusted()
 
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	assert.True(t, conn.IsClosed(), "failed finalization must taint/close the backend")
 }
 
-// TestReleaseClean_UnknownSettings_Taints verifies that a clean release with
-// unknown authoritative settings taints rather than recycling.
-func TestReleaseClean_UnknownSettings_Taints(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	pool := newFinalizerTestPool(t, server, nil)
-	defer pool.Close()
-
-	conn, err := pool.NewConn(context.Background(), nil)
-	require.NoError(t, err)
-	// Authoritative settings unknown: finalizer cannot safely reconcile.
-	conn.SetAuthoritativeSettings(nil, false)
-
-	conn.ReleaseClean(CleanReleaseCommit)
-
-	assert.True(t, conn.IsClosed(), "unknown authoritative settings must taint/close")
-}
-
-// TestReleaseDirty_AlwaysTaints verifies that a dirty release closes the backend
-// regardless of session state.
+// TestReleaseDirty_AlwaysTaints verifies that a release with a reason that
+// prevents reuse closes the backend regardless of session state.
 func TestReleaseDirty_AlwaysTaints(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -189,7 +165,7 @@ func TestReleaseDirty_AlwaysTaints(t *testing.T) {
 	conn, err := pool.NewConn(context.Background(), nil)
 	require.NoError(t, err)
 
-	conn.ReleaseDirty(DirtyReleaseError)
+	conn.Release(ReleaseError)
 
 	assert.True(t, conn.IsClosed(), "dirty release must taint/close the backend")
 }
@@ -222,7 +198,7 @@ func TestReleaseClean_OnReleaseFiresAfterFinalization(t *testing.T) {
 	require.NoError(t, err)
 	conn.MarkSessionStateUntrusted()
 
-	conn.ReleaseClean(CleanReleaseCommit)
+	conn.Release(ReleaseCommit)
 
 	assert.Equal(t, int64(1), releaseCount.Load(), "OnRelease must fire exactly once")
 	assert.True(t, resetSeenAtRelease.Load(), "reconciliation must run before OnRelease (still lent during finalization)")

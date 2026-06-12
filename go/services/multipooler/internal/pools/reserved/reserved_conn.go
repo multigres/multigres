@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -62,14 +61,6 @@ type Conn struct {
 	// nil when not in a transaction. Accessed only from the transaction-control
 	// methods, which the gateway serializes per reserved connection.
 	txnSnapshot *connstate.TxnSnapshot
-
-	// authoritativeSettings is the latest gateway-authoritative session baseline
-	// for this reserved connection, converted through the manager's SettingsCache.
-	// known=false means the release finalizer cannot safely reconcile this socket
-	// and must taint/close instead of recycling it.
-	authoritativeMu            sync.RWMutex
-	authoritativeSettings      *connstate.Settings
-	authoritativeSettingsKnown bool
 
 	// sessionStateUntrusted is set when PostgreSQL may have reverted backend
 	// session state without the pooler's connstate cache observing the exact new
@@ -325,25 +316,6 @@ func (c *Conn) InactivityTimeout() time.Duration {
 
 // --- Session-state reconciliation metadata ---
 
-// SetAuthoritativeSettings records the latest gateway-authoritative session
-// settings for this reserved connection. A nil settings pointer with known=true
-// represents a known-clean desired state; known=false means the state is
-// unknown and clean release must taint/close instead of recycling.
-func (c *Conn) SetAuthoritativeSettings(settings *connstate.Settings, known bool) {
-	c.authoritativeMu.Lock()
-	defer c.authoritativeMu.Unlock()
-	c.authoritativeSettings = settings
-	c.authoritativeSettingsKnown = known
-}
-
-// AuthoritativeSettings returns the latest authoritative desired settings and
-// whether that value is known.
-func (c *Conn) AuthoritativeSettings() (*connstate.Settings, bool) {
-	c.authoritativeMu.RLock()
-	defer c.authoritativeMu.RUnlock()
-	return c.authoritativeSettings, c.authoritativeSettingsKnown
-}
-
 // MarkSessionStateUntrusted records that connstate may not match the backend's
 // real session state, so the next reconciliation must be forced.
 func (c *Conn) MarkSessionStateUntrusted() {
@@ -363,26 +335,18 @@ func (c *Conn) ClearSessionStateUntrusted() {
 
 // --- Lifecycle ---
 
-// ReleaseClean returns this connection to the pool after release finalization
-// has reconciled it to the latest authoritative gateway session settings. If
-// finalization fails, the backend is tainted/closed instead of reused.
-func (c *Conn) ReleaseClean(reason CleanReleaseReason) {
-	c.release(reason.reason, false)
-}
-
-// ReleaseDirty releases this connection by tainting/closing the backend. Use it
-// whenever protocol/backend/session state is uncertain.
-func (c *Conn) ReleaseDirty(reason DirtyReleaseReason) {
-	c.release(reason.reason, true)
-}
-
-func (c *Conn) release(reason ReleaseReason, dirty bool) {
+// Release releases this connection back to the pool. Reasons that indicate
+// uncertain protocol/backend state (timeout, kill, error) taint/close the
+// backend; clean reasons run release finalization, which re-asserts the cached
+// session state onto the backend when it is marked untrusted, so a backend can
+// never re-enter the regular pool with connstate out of sync.
+func (c *Conn) Release(reason ReleaseReason) {
 	if !c.released.CompareAndSwap(false, true) {
 		return // Already released.
 	}
 
 	if c.pool != nil {
-		c.pool.release(c, reason, dirty)
+		c.pool.release(c, reason)
 	}
 }
 

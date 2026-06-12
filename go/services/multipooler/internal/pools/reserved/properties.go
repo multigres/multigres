@@ -121,9 +121,6 @@ func (p *ReservationProperties) HasPortal(name string) bool {
 }
 
 // ReleaseReason indicates why a reserved connection is being released.
-// It is kept as the internal telemetry/metrics representation. Public callers
-// must use CleanReleaseReason or DirtyReleaseReason so a backend cannot be
-// accidentally returned to the regular pool without release finalization.
 type ReleaseReason int
 
 const (
@@ -150,35 +147,18 @@ const (
 	ReleaseError
 )
 
-// CleanReleaseReason is a typed release reason for connections that may be
-// reused after release finalization succeeds.
-type CleanReleaseReason struct {
-	reason ReleaseReason
+// preventsReuse reports whether the release reason indicates uncertain
+// protocol/backend state, requiring the backend to be tainted/closed instead
+// of finalized and recycled into the regular pool. Unknown reasons fail safe
+// to taint.
+func (r ReleaseReason) preventsReuse() bool {
+	switch r {
+	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock:
+		return false
+	default:
+		return true
+	}
 }
-
-// DirtyReleaseReason is a typed release reason for connections that must not be
-// reused. Dirty release taints/closes the backend instead of finalizing it.
-type DirtyReleaseReason struct {
-	reason ReleaseReason
-}
-
-var (
-	// CleanReleaseCommit indicates the transaction committed successfully.
-	CleanReleaseCommit = CleanReleaseReason{reason: ReleaseCommit}
-	// CleanReleaseRollback indicates the transaction rolled back successfully.
-	CleanReleaseRollback = CleanReleaseReason{reason: ReleaseRollback}
-	// CleanReleasePortalComplete indicates the portal/COPY reservation completed.
-	CleanReleasePortalComplete = CleanReleaseReason{reason: ReleasePortalComplete}
-	// CleanReleaseAdvisoryUnlock indicates the last session advisory lock was released.
-	CleanReleaseAdvisoryUnlock = CleanReleaseReason{reason: ReleaseAdvisoryUnlock}
-
-	// DirtyReleaseTimeout indicates the reservation timed out.
-	DirtyReleaseTimeout = DirtyReleaseReason{reason: ReleaseTimeout}
-	// DirtyReleaseKill indicates the connection was killed.
-	DirtyReleaseKill = DirtyReleaseReason{reason: ReleaseKill}
-	// DirtyReleaseError indicates an error or uncertain protocol/backend state.
-	DirtyReleaseError = DirtyReleaseReason{reason: ReleaseError}
-)
 
 // String returns a string representation of the release reason.
 func (r ReleaseReason) String() string {

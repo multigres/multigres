@@ -144,7 +144,7 @@ func TestUserPool_NewReservedConn(t *testing.T) {
 	stats := pool.Stats()
 	assert.Equal(t, 1, stats.Reserved.Active)
 
-	conn.ReleaseClean(reserved.CleanReleaseCommit)
+	conn.Release(reserved.ReleaseCommit)
 }
 
 func TestUserPool_NewReservedConn_WithSettings(t *testing.T) {
@@ -168,7 +168,7 @@ func TestUserPool_NewReservedConn_WithSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
-	conn.ReleaseClean(reserved.CleanReleaseCommit)
+	conn.Release(reserved.ReleaseCommit)
 
 	// Verify SET was called.
 	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
@@ -194,7 +194,7 @@ func TestUserPool_GetReservedConn(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, connID, retrieved.ConnID())
 
-	conn.ReleaseClean(reserved.CleanReleaseCommit)
+	conn.Release(reserved.ReleaseCommit)
 }
 
 func TestUserPool_GetReservedConn_NotFound(t *testing.T) {
@@ -288,7 +288,7 @@ func TestUserPool_Stats(t *testing.T) {
 	stats = pool.Stats()
 	assert.Equal(t, 1, stats.Reserved.Active)
 
-	reservedConn.ReleaseClean(reserved.CleanReleaseCommit)
+	reservedConn.Release(reserved.ReleaseCommit)
 
 	stats = pool.Stats()
 	assert.Equal(t, 0, stats.Reserved.Active)
@@ -353,8 +353,8 @@ func TestUserPool_MultipleReservedConnections(t *testing.T) {
 	assert.Equal(t, 2, stats.Reserved.Active)
 
 	// Release all.
-	conn1.ReleaseClean(reserved.CleanReleaseCommit)
-	conn2.ReleaseClean(reserved.CleanReleaseCommit)
+	conn1.Release(reserved.ReleaseCommit)
+	conn2.Release(reserved.ReleaseCommit)
 
 	stats = pool.Stats()
 	assert.Equal(t, 0, stats.Reserved.Active)

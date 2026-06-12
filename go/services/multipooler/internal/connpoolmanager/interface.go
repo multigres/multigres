@@ -96,16 +96,10 @@ type PoolManager interface {
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
-	// UpdateReservedConnSessionState records the latest gateway-authoritative
-	// session settings on an existing reserved connection without executing SQL.
-	// Use this before transaction conclusion / release paths where housekeeping
-	// SQL must not run before the user's COMMIT/ROLLBACK.
-	UpdateReservedConnSessionState(conn *reserved.Conn, settings map[string]string)
-
-	// PrepareReservedConn records the latest authoritative settings and ensures
-	// an existing reserved connection is safe for user SQL. If the connstate cache
-	// is marked untrusted, reconciliation is forced instead of relying on pointer
-	// equality.
+	// PrepareReservedConn ensures an existing reserved connection is safe for
+	// user SQL by reconciling it to the gateway's session settings. If the
+	// connstate cache is marked untrusted, reconciliation is forced instead of
+	// relying on pointer equality.
 	PrepareReservedConn(ctx context.Context, conn *reserved.Conn, settings map[string]string) error
 
 	// ApplySettingsToConn ensures the connection's settings match the given

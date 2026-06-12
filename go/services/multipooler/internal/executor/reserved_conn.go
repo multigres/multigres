@@ -48,10 +48,9 @@ type reservedConnAPI interface {
 	// when the last pin clears AND no other reservation reasons remain —
 	// callers should then release the backend to the pool.
 	ReleasePortal(portalName string) bool
-	// ReleaseClean returns the backend to the pool after release finalization.
-	ReleaseClean(reason reserved.CleanReleaseReason)
-	// ReleaseDirty taints/closes the backend instead of returning it to the pool.
-	ReleaseDirty(reason reserved.DirtyReleaseReason)
+	// Release returns the backend to the pool (after release finalization for
+	// clean reasons) or taints/closes it (reasons indicating uncertain state).
+	Release(reason reserved.ReleaseReason)
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.

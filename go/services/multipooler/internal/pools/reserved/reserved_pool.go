@@ -195,7 +195,6 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 
 	// Create reserved connection.
 	rc := newConn(pooled, connID, p)
-	rc.SetAuthoritativeSettings(settings, true)
 	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
@@ -336,10 +335,10 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	// Taint the connection - it's dead after kill.
 	rc.pooled.Taint()
 
-	// ReleaseDirty handles OnRelease, Recycle, and metrics. The CAS inside
-	// ReleaseDirty prevents double-release if an in-flight request also calls
-	// release after Kill causes it to fail.
-	rc.ReleaseDirty(DirtyReleaseKill)
+	// Release handles OnRelease, Recycle, and metrics. The CAS inside
+	// Release prevents double-release if an in-flight request also calls
+	// Release after Kill causes it to fail.
+	rc.Release(ReleaseKill)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
@@ -350,9 +349,10 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 
 // release is called when a reserved connection is released. Clean releases run
 // the release-boundary finalizer before the backend can re-enter the regular
-// pool; dirty releases taint/close instead. OnRelease is intentionally invoked
-// after finalization/recycle so finalizing backends remain counted as lent.
-func (p *Pool) release(rc *Conn, reason ReleaseReason, dirty bool) {
+// pool; reasons that prevent reuse taint/close instead. OnRelease is
+// intentionally invoked after finalization/recycle so finalizing backends
+// remain counted as lent.
+func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
@@ -371,8 +371,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, dirty bool) {
 		p.killCount.Add(1)
 	}
 
-	// Dirty releases and replication sockets must never be reused.
-	if dirty || (rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
+	// Uncertain-state releases and replication sockets must never be reused.
+	if reason.preventsReuse() || (rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
 		rc.pooled.Taint()
 	} else if err := p.finalizeCleanRelease(rc); err != nil {
 		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
@@ -392,31 +392,30 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, dirty bool) {
 
 	p.logger.Debug("reserved connection released",
 		"conn_id", rc.ConnID(),
-		"reason", reason.String(),
-		"dirty", dirty)
+		"reason", reason.String())
 }
 
+// finalizeCleanRelease restores the truthfulness invariant the regular pool
+// relies on — connstate describes the backend's real session state — before the
+// backend is recycled. The regular pool buckets connections by their connstate
+// settings pointer and computes checkout reconciliation diffs against it, so a
+// lying cache hands later checkouts a diverged backend (leaked or missing
+// session GUCs). When the connection is marked untrusted (PostgreSQL may have
+// reverted session state invisibly, e.g. via ROLLBACK TO SAVEPOINT), the
+// finalizer force-asserts the cached settings back onto the backend; which
+// absolute values the backend holds does not matter once the reservation ends,
+// only that connstate matches them. A trusted connection is already truthful
+// and needs no SQL.
 func (p *Pool) finalizeCleanRelease(rc *Conn) error {
-	desired, known := rc.AuthoritativeSettings()
-	if !known {
-		return errors.New("authoritative session settings unknown")
-	}
-
-	conn := rc.Conn()
-	if !rc.SessionStateUntrusted() && conn.Settings() == desired {
+	if !rc.SessionStateUntrusted() {
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(p.ctx, p.config.ReleaseFinalizationTimeout)
 	defer cancel()
 
-	var err error
-	if rc.SessionStateUntrusted() {
-		err = conn.ForceApplySettings(ctx, desired)
-	} else {
-		err = conn.ApplySettings(ctx, desired)
-	}
-	if err != nil {
+	conn := rc.Conn()
+	if err := conn.ForceApplySettings(ctx, conn.Settings()); err != nil {
 		return err
 	}
 	rc.ClearSessionStateUntrusted()

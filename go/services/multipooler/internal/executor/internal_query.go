@@ -196,7 +196,7 @@ func (e *Executor) Begin(ctx context.Context) (InternalTx, error) {
 	// fails no transaction state was established; release frees the connection
 	// (tainting it if the failure closed the socket).
 	if err := reservedConn.Begin(ctx); err != nil {
-		reservedConn.ReleaseDirty(reserved.DirtyReleaseError)
+		reservedConn.Release(reserved.ReleaseError)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
@@ -265,10 +265,10 @@ func (tx *internalTx) Commit(ctx context.Context) error {
 	if err := tx.conn.Commit(ctx); err != nil {
 		// COMMIT failed: the connection's state is no longer known to be clean,
 		// so release it as an error (which taints it) rather than recycling.
-		tx.conn.ReleaseDirty(reserved.DirtyReleaseError)
+		tx.conn.Release(reserved.ReleaseError)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	tx.conn.ReleaseClean(reserved.CleanReleaseCommit)
+	tx.conn.Release(reserved.ReleaseCommit)
 	return nil
 }
 
@@ -284,9 +284,9 @@ func (tx *internalTx) Rollback(ctx context.Context) error {
 	})
 
 	if err := tx.conn.Rollback(ctx); err != nil {
-		tx.conn.ReleaseDirty(reserved.DirtyReleaseError)
+		tx.conn.Release(reserved.ReleaseError)
 		return fmt.Errorf("failed to rollback transaction: %w", err)
 	}
-	tx.conn.ReleaseClean(reserved.CleanReleaseRollback)
+	tx.conn.Release(reserved.ReleaseRollback)
 	return nil
 }
