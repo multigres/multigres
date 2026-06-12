@@ -231,10 +231,10 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 //   - For PRIMARY: consults `leaders` (most-authoritative LeaderObservation) to
 //     identify the leader, then looks up its connection. Two distinct error
 //     cases: no leader observed yet, vs. leader known but not connected.
-//   - For REPLICA: any connected pooler in the shard that is not the known
-//     leader. If no leader is known yet, falls back to topology
-//     pooler.Type == REPLICA to avoid serving reads from a pooler that may
-//     turn out to be the leader.
+//   - For REPLICA: any connected pooler in the shard that does not believe
+//     itself the leader, judged per-connection from self_leadership and
+//     health-stream observations (see matchesReplicaTarget). This excludes both
+//     the current leader and a stale leader, never consulting pooler.Type.
 func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")

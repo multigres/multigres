@@ -212,7 +212,7 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 // constructing a record with a Type (struct literal) is also unaffected — only
 // reading .Type off a discovered MultiPooler / MultiPoolerInfo is disallowed.
 //
-// Use MultiPoolerInfo.IsLeader (self_leadership set) instead.
+// Use GetSelfLeadership() != nil instead.
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
@@ -223,5 +223,5 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
 				m.File().PkgPath.Matches(`services/multigateway`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership (MultiPoolerInfo.IsLeader)")
+		Report("do not consult MultiPooler.Type for leader identity; use self_leadership (GetSelfLeadership() != nil)")
 }
