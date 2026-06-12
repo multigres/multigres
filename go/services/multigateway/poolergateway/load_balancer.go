@@ -62,7 +62,7 @@ type LoadBalancer struct {
 	mu sync.Mutex
 
 	// connections maps pooler ID to PoolerConnection
-	connections map[string]*PoolerConnection
+	connections map[topoclient.ComponentID]*PoolerConnection
 
 	// leaders maps shard key to the highest-term LeaderObservation seen for that
 	// shard. Populated only from health-stream observations; never from topology.
@@ -96,7 +96,7 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger,
 		localCell:   localCell,
 		logger:      logger,
 		ctx:         ctx,
-		connections: make(map[string]*PoolerConnection),
+		connections: make(map[topoclient.ComponentID]*PoolerConnection),
 		leaders:     make(map[shardKey]*clustermetadatapb.LeaderObservation),
 		grpcDialOpt: grpcDialOpt,
 	}
@@ -139,7 +139,7 @@ func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.D
 // etcd record (the proto would need a `last_observed_leader` field), drop
 // the synthetic seed and use that real observation instead.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
-	poolerID := poolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -201,14 +201,14 @@ func (lb *LoadBalancer) maybeSeedColdStartLeaderLocked(key shardKey, pooler *clu
 		LeaderId: pooler.Id,
 	}
 	lb.logger.Debug("cold-start leader hint from topology",
-		"pooler_id", poolerIDString(pooler.Id),
+		"pooler_id", topoclient.ComponentIDString(pooler.Id),
 		"tablegroup", key.tableGroup,
 		"shard", key.shard)
 }
 
 // RemovePooler closes and removes the PoolerConnection for the given pooler ID.
 // If no connection exists for this pooler, it is a no-op.
-func (lb *LoadBalancer) RemovePooler(poolerID string) {
+func (lb *LoadBalancer) RemovePooler(poolerID topoclient.ComponentID) {
 	lb.mu.Lock()
 	conn, exists := lb.connections[poolerID]
 	if !exists {
@@ -256,7 +256,7 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 				"no leader observed yet for tablegroup=%s, shard=%s",
 				target.TableGroup, target.Shard)
 		}
-		leaderID := poolerIDString(leaderObs.LeaderId)
+		leaderID := topoclient.ComponentIDString(leaderObs.LeaderId)
 		conn, ok := lb.connections[leaderID]
 		if !ok {
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -272,9 +272,9 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	// yet, so a pooler that has since transitioned to Type=REPLICA can still
 	// be selected. CompareRuleNumbers treats a nil/zero rule as the smallest
 	// value, so this also covers the no-leader-observed case.
-	confirmedLeaderID := ""
+	var confirmedLeaderID topoclient.ComponentID
 	if commonconsensus.CompareRuleNumbers(leaderObs.GetLeaderRuleNumber(), nil) > 0 {
-		confirmedLeaderID = poolerIDString(leaderObs.LeaderId)
+		confirmedLeaderID = topoclient.ComponentIDString(leaderObs.LeaderId)
 	}
 	var candidates []*PoolerConnection
 	for id, conn := range lb.connections {
@@ -308,7 +308,7 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 		return nil, errors.New("pooler ID cannot be nil")
 	}
 
-	idStr := topoclient.MultiPoolerIDString(poolerID)
+	idStr := topoclient.ComponentIDString(poolerID)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -461,7 +461,7 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 		lb.logger.Debug("leader observation recorded",
 			"tablegroup", key.tableGroup,
 			"shard", key.shard,
-			"leader_id", poolerIDString(obs.LeaderId),
+			"leader_id", topoclient.ComponentIDString(obs.LeaderId),
 			"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
 
 		// If the named leader is connected and serving, drain the buffer.
@@ -471,7 +471,7 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 		// UpdateLeaderObservation fires before changeTypeLocked. Draining
 		// buffered requests too early would send them to a pooler that
 		// still rejects PRIMARY traffic.)
-		if leaderConn, ok := lb.connections[poolerIDString(obs.LeaderId)]; ok {
+		if leaderConn, ok := lb.connections[topoclient.ComponentIDString(obs.LeaderId)]; ok {
 			lb.notifyIfLeaderServingLocked(key, leaderConn)
 		}
 
@@ -479,7 +479,7 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 		// Same rule — the leader is already known but may not have been
 		// SERVING when we first saw the observation. Re-check now so that
 		// StopBuffering fires once the leader transitions to SERVING.
-		if leaderConn, ok := lb.connections[poolerIDString(existing.LeaderId)]; ok {
+		if leaderConn, ok := lb.connections[topoclient.ComponentIDString(existing.LeaderId)]; ok {
 			lb.notifyIfLeaderServingLocked(key, leaderConn)
 		}
 
@@ -507,7 +507,7 @@ func (lb *LoadBalancer) notifyIfLeaderServingLocked(key shardKey, conn *PoolerCo
 		return
 	}
 	leader := lb.leaders[key]
-	if leader == nil || poolerIDString(leader.LeaderId) != conn.ID() {
+	if leader == nil || topoclient.ComponentIDString(leader.LeaderId) != conn.ID() {
 		return
 	}
 	health := conn.Health()
@@ -543,7 +543,7 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 // "in the shard and not the leader." With no confirmed leader yet (cold
 // start), fall back to topology Type==REPLICA so we don't accidentally
 // serve reads from a pooler that may turn out to be the leader.
-func matchesReplicaTarget(id string, conn *PoolerConnection, target *query.Target, confirmedLeaderID string) bool {
+func matchesReplicaTarget(id topoclient.ComponentID, conn *PoolerConnection, target *query.Target, confirmedLeaderID topoclient.ComponentID) bool {
 	if !matchesShardTarget(conn, target) {
 		return false
 	}
@@ -551,12 +551,6 @@ func matchesReplicaTarget(id string, conn *PoolerConnection, target *query.Targe
 		return id != confirmedLeaderID
 	}
 	return conn.Type() == clustermetadatapb.PoolerType_REPLICA
-}
-
-// poolerIDString returns the string ID for a pooler.
-// Uses the same format as PoolerConnection.ID() for consistency.
-func poolerIDString(id *clustermetadatapb.ID) string {
-	return topoclient.MultiPoolerIDString(id)
 }
 
 // ConnectionCount returns the number of active connections.
@@ -570,7 +564,7 @@ func (lb *LoadBalancer) ConnectionCount() int {
 func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()
 	connections := lb.connections
-	lb.connections = make(map[string]*PoolerConnection)
+	lb.connections = make(map[topoclient.ComponentID]*PoolerConnection)
 	lb.leaders = make(map[shardKey]*clustermetadatapb.LeaderObservation)
 	lb.mu.Unlock()
 
@@ -602,12 +596,12 @@ func NewLoadBalancerListener(lb *LoadBalancer) *LoadBalancerListener {
 func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
 	if err := l.lb.AddPooler(pooler); err != nil {
 		l.lb.logger.Error("failed to add pooler on change event",
-			"pooler_id", poolerIDString(pooler.Id),
+			"pooler_id", topoclient.ComponentIDString(pooler.Id),
 			"error", err)
 	}
 }
 
 // OnPoolerRemoved implements multigateway.PoolerChangeListener.
 func (l *LoadBalancerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
-	l.lb.RemovePooler(poolerIDString(pooler.Id))
+	l.lb.RemovePooler(topoclient.ComponentIDString(pooler.Id))
 }

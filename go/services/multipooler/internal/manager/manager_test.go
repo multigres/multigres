@@ -85,7 +85,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
@@ -129,7 +129,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
@@ -202,7 +202,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	// Inject 2 one-time errors to simulate transient failures
-	poolerPath := "/poolers/" + topoclient.MultiPoolerIDString(serviceID) + "/Pooler"
+	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 

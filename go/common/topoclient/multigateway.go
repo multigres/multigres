@@ -48,12 +48,7 @@ type MultiGatewayInfo struct {
 
 // String returns a string describing the multigateway.
 func (mgi *MultiGatewayInfo) String() string {
-	return fmt.Sprintf("MultiGateway{%v}", MultiGatewayIDString(mgi.Id))
-}
-
-// IDString returns the string representation of the multigateway id
-func (mgi *MultiGatewayInfo) IDString() string {
-	return MultiGatewayIDString(mgi.Id)
+	return fmt.Sprintf("MultiGateway{%v}", ComponentIDString(mgi.Id))
 }
 
 // Addr returns hostname:grpc port.
@@ -76,11 +71,6 @@ func NewMultiGatewayInfo(multigateway *clustermetadatapb.MultiGateway, version V
 	return &MultiGatewayInfo{version: version, MultiGateway: multigateway}
 }
 
-// MultiGatewayIDString returns the string representation of a MultiGateway ID
-func MultiGatewayIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
-}
-
 // GetMultiGateway is a high level function to read multigateway data.
 func (ts *store) GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) (*MultiGatewayInfo, error) {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
@@ -88,7 +78,7 @@ func (ts *store) GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) 
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get connection for cell %q", id.Cell))
 	}
 
-	gatewayPath := path.Join(GatewaysPath, MultiGatewayIDString(id), GatewayFile)
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(id)), GatewayFile)
 	data, version, err := conn.Get(ctx, gatewayPath)
 	if err != nil {
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get multigateway %q", id))
@@ -175,7 +165,7 @@ func (ts *store) UpdateMultiGateway(ctx context.Context, mgi *MultiGatewayInfo) 
 	if err != nil {
 		return err
 	}
-	gatewayPath := path.Join(GatewaysPath, MultiGatewayIDString(mgi.Id), GatewayFile)
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(mgi.Id)), GatewayFile)
 	newVersion, err := conn.Update(ctx, gatewayPath, data, mgi.version)
 	if err != nil {
 		return err
@@ -220,7 +210,7 @@ func (ts *store) CreateMultiGateway(ctx context.Context, mtgateway *clustermetad
 	if err != nil {
 		return err
 	}
-	gatewayPath := path.Join(GatewaysPath, MultiGatewayIDString(mtgateway.Id), GatewayFile)
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(mtgateway.Id)), GatewayFile)
 	if _, err := conn.Create(ctx, gatewayPath, data); err != nil {
 		return err
 	}
@@ -235,7 +225,7 @@ func (ts *store) UnregisterMultiGateway(ctx context.Context, id *clustermetadata
 		return err
 	}
 
-	gatewayPath := path.Join(GatewaysPath, MultiGatewayIDString(id), GatewayFile)
+	gatewayPath := path.Join(GatewaysPath, string(ComponentIDString(id)), GatewayFile)
 	if err := conn.Delete(ctx, gatewayPath, nil); err != nil {
 		return err
 	}
@@ -251,12 +241,12 @@ func (ts *store) RegisterMultiGateway(ctx context.Context, mtgateway *clustermet
 		// Try to update then
 		oldMtGateway, err := ts.GetMultiGateway(ctx, mtgateway.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed reading existing mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
 
 		oldMtGateway.MultiGateway = proto.Clone(mtgateway).(*clustermetadatapb.MultiGateway)
 		if err := ts.UpdateMultiGateway(ctx, oldMtGateway); err != nil {
-			return fmt.Errorf("failed updating mtgateway %v: %w", MultiGatewayIDString(mtgateway.Id), err)
+			return fmt.Errorf("failed updating mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
 		return nil
 	}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -36,7 +37,7 @@ func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 4)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 

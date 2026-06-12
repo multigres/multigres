@@ -54,7 +54,7 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 
 	tableGroup := e.id.ShardKey().GetTableGroup()
 	shard := e.id.ShardKey().GetShard()
-	multipoolerID := topoclient.MultiPoolerIDString(e.id.Id())
+	multipoolerID := string(topoclient.ComponentIDString(e.id.Id()))
 	multipoolerName := e.id.Id().Name
 
 	// Use provided job_id or generate one (same format as multiadmin)

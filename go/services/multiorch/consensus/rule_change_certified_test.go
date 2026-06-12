@@ -376,7 +376,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 	}
 
 	fc := rpcclient.NewFakeClient()
-	fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+	fc.SetStatusResponse(topoclient.ComponentIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -385,7 +385,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 			},
 		},
 	})
-	fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
+	fc.SetStatusResponse(topoclient.ComponentIDString(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
@@ -410,11 +410,11 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 
 	t.Run("unreachable pooler is absent, not an error", func(t *testing.T) {
 		fc := rpcclient.NewFakeClient()
-		fc.SetStatusResponse(topoclient.MultiPoolerIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		fc.SetStatusResponse(topoclient.ComponentIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id},
 		})
 		// mp2 errors — it should silently drop out.
-		fc.Errors[topoclient.MultiPoolerIDString(mp2.Id)] = errors.New("network down")
+		fc.Errors[topoclient.ComponentIDString(mp2.Id)] = errors.New("network down")
 
 		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1, mp2})
 		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)

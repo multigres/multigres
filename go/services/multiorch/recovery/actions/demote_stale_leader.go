@@ -109,7 +109,7 @@ func (a *DemoteStaleLeaderAction) GracePeriod() *types.GracePeriodConfig {
 // This is safer than Recruit because we use the correct leader's existing rule rather than
 // minting a new term, so both leaders end up agreeing on the same term and rule.
 func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := topoclient.ComponentIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale leader action",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
@@ -141,12 +141,12 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		"correct_leader", correctLeader.MultiPooler.Id.Name,
 		"correct_leader_rule", commonconsensus.FormatRuleNumber(correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()))
 
-	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"})
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
 	defer func() {
 		if retErr == nil {
-			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"})
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
 		} else {
-			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"}, "error", retErr)
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"}, "error", retErr)
 		}
 	}()
 
@@ -175,12 +175,12 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 
 // findCorrectLeader finds the current leader in the shard and returns it along with its term.
 // The correct leader is the one with the highest LeaderTerm.
-func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
+func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimaryIDStr topoclient.ComponentID) (*multiorchdatapb.PoolerHealthState, int64, error) {
 	var correctLeader *multiorchdatapb.PoolerHealthState
 	var maxLeaderTerm int64
 
 	// Iterate through all poolers to find the current leader
-	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	a.poolerStore.Range(func(key topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
@@ -190,7 +190,7 @@ func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.
 			return true // continue
 		}
 
-		poolerIDStr := topoclient.MultiPoolerIDString(pooler.MultiPooler.Id)
+		poolerIDStr := topoclient.ComponentIDString(pooler.MultiPooler.Id)
 
 		// Skip the stale leader
 		if poolerIDStr == stalePrimaryIDStr {

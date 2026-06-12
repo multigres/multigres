@@ -72,13 +72,13 @@ func checkMultiOrchInfosEqual(t *testing.T, expected, actual []*topoclient.Multi
 	for _, actualMO := range actual {
 		found := false
 		for _, expectedMO := range expected {
-			if topoclient.MultiOrchIDString(actualMO.Id) == topoclient.MultiOrchIDString(expectedMO.Id) {
+			if topoclient.ComponentIDString(actualMO.Id) == topoclient.ComponentIDString(expectedMO.Id) {
 				checkMultiOrchsEqual(t, expectedMO.MultiOrch, actualMO.MultiOrch)
 				found = true
 				break
 			}
 		}
-		require.True(t, found, "unexpected multiorch %v", actualMO.IDString())
+		require.True(t, found, "unexpected multiorch %v", topoclient.ComponentIDString(actualMO.Id))
 	}
 }
 
@@ -237,7 +237,7 @@ func TestMultiOrchIDString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := topoclient.MultiOrchIDString(tt.id)
+			result := string(topoclient.ComponentIDString(tt.id))
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -573,7 +573,7 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 				require.NoError(t, tsWithFactory.CreateMultiOrch(ctx, multiorch))
 
 				badVersionErr := &topoclient.TopoError{Code: topoclient.BadVersion}
-				orchPath := path.Join(topoclient.OrchsPath, topoclient.MultiOrchIDString(id), topoclient.OrchFile)
+				orchPath := path.Join(topoclient.OrchsPath, string(topoclient.ComponentIDString(id)), topoclient.OrchFile)
 				factory.AddOneTimeOperationError(memorytopo.Update, orchPath, badVersionErr)
 
 				updateCallCount := 0
@@ -777,7 +777,7 @@ func TestMultiOrchInfo(t *testing.T) {
 	})
 
 	t.Run("IDString method", func(t *testing.T) {
-		result := info.IDString()
+		result := string(topoclient.ComponentIDString(info.Id))
 		expected := "multiorch-zone1-100"
 		require.Equal(t, expected, result)
 	})

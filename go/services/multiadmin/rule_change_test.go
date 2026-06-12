@@ -346,10 +346,10 @@ func TestApplyCertifiedRuleChange_RejectsMissingCertSource(t *testing.T) {
 }
 
 // mpKey returns the key the fake client uses to look up per-pooler responses.
-// Mirrors topoclient.MultiPoolerIDString (the function the FakeClient calls
+// Mirrors topoclient.ComponentIDString (the function the FakeClient calls
 // to key its response maps).
-func mpKey(id *clustermetadatapb.ID) string {
-	return topoclient.MultiPoolerIDString(id)
+func mpKey(id *clustermetadatapb.ID) topoclient.ComponentID {
+	return topoclient.ComponentIDString(id)
 }
 
 // ---- buildCert ----

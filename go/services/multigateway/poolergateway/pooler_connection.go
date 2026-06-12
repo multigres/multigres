@@ -161,7 +161,7 @@ func NewPoolerConnection(
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
 	logger.DebugContext(ctx, "creating pooler connection",
@@ -220,8 +220,8 @@ func NewPoolerConnection(
 }
 
 // ID returns the unique identifier for this pooler connection.
-func (pc *PoolerConnection) ID() string {
-	return topoclient.MultiPoolerIDString(pc.poolerInfo.Load().Id)
+func (pc *PoolerConnection) ID() topoclient.ComponentID {
+	return topoclient.ComponentIDString(pc.poolerInfo.Load().Id)
 }
 
 // Cell returns the cell where this pooler is located.

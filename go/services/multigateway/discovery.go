@@ -51,7 +51,7 @@ type CellPoolerDiscovery struct {
 	// State (protected by mu)
 	// Lock order: acquire this AFTER GlobalPoolerDiscovery.mu (never before)
 	mu          sync.Mutex
-	poolers     map[string]*topoclient.MultiPoolerInfo // pooler ID -> pooler info
+	poolers     map[topoclient.ComponentID]*topoclient.MultiPoolerInfo // pooler ID -> pooler info
 	lastRefresh time.Time
 }
 
@@ -65,7 +65,7 @@ func NewCellPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cel
 		logger:     logger.With("cell", cell),
 		ctx:        discoveryCtx,
 		cancelFunc: cancel,
-		poolers:    make(map[string]*topoclient.MultiPoolerInfo),
+		poolers:    make(map[topoclient.ComponentID]*topoclient.MultiPoolerInfo),
 	}
 }
 
@@ -146,7 +146,7 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 
 	// Save old poolers to detect removals (for watch reconnection)
 	oldPoolers := pd.poolers
-	pd.poolers = make(map[string]*topoclient.MultiPoolerInfo)
+	pd.poolers = make(map[topoclient.ComponentID]*topoclient.MultiPoolerInfo)
 
 	// Process initial pooler data
 	for _, watchData := range initial {
@@ -163,7 +163,7 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 		}
 
 		if pooler != nil {
-			poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+			poolerID := topoclient.ComponentIDString(pooler.Id)
 			pd.poolers[poolerID] = pooler
 			pd.logger.Debug("Initial pooler discovered",
 				"id", poolerID,
@@ -242,7 +242,7 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 		return
 	}
 
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 
 	// Check if this is a new pooler
 	_, existed := pd.poolers[poolerID]
@@ -284,13 +284,13 @@ func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []*clustermetadatapb.MultiPo
 	// Collect and sort pooler IDs for consistent ordering
 	poolerIDs := make([]string, 0, len(pd.poolers))
 	for id := range pd.poolers {
-		poolerIDs = append(poolerIDs, id)
+		poolerIDs = append(poolerIDs, string(id))
 	}
 	sort.Strings(poolerIDs)
 
 	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
 	for _, id := range poolerIDs {
-		pooler := pd.poolers[id]
+		pooler := pd.poolers[topoclient.ComponentID(id)]
 		poolers = append(poolers, proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler))
 	}
 	return poolers
@@ -335,12 +335,12 @@ func (pd *CellPoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.Wa
 
 // extractPoolerIDFromPath extracts the pooler ID from a watch path.
 // The path format is: "poolers/{pooler_id}/Pooler"
-func (pd *CellPoolerDiscovery) extractPoolerIDFromPath(path string) string {
+func (pd *CellPoolerDiscovery) extractPoolerIDFromPath(path string) topoclient.ComponentID {
 	// Expected format: "poolers/{pooler_id}/Pooler"
 	parts := strings.Split(path, "/")
 	if len(parts) >= 3 && parts[0] == "poolers" && parts[len(parts)-1] == "Pooler" {
 		// The pooler ID is the middle part(s) - everything between "poolers/" and "/Pooler"
-		return strings.Join(parts[1:len(parts)-1], "/")
+		return topoclient.ComponentID(strings.Join(parts[1:len(parts)-1], "/"))
 	}
 	return ""
 }

@@ -130,7 +130,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var cohort []*multiorchdatapb.PoolerHealthState
 
-	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	a.poolerStore.Range(func(key topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}

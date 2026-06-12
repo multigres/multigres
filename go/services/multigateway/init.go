@@ -433,7 +433,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// cancel routing. The register function assigns the prefix, registers the
 	// full record, and verifies no collision. On collision, RegisterSynchronous
 	// retries with jitter until two racing gateways converge on different prefixes.
-	ownIDStr := topoclient.MultiGatewayIDString(multigateway.Id)
+	ownIDStr := topoclient.ComponentIDString(multigateway.Id)
 	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer regCancel()
 	mg.tr, err = toporeg.RegisterSynchronous(regCtx,
@@ -747,7 +747,7 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 }
 
 // hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
-func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownIDStr string) bool {
+func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownIDStr topoclient.ComponentID) bool {
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
 		return false
@@ -759,7 +759,7 @@ func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, o
 			continue
 		}
 		for _, gw := range gateways {
-			if gw.GetPidPrefix() == prefix && topoclient.MultiGatewayIDString(gw.GetId()) != ownIDStr {
+			if gw.GetPidPrefix() == prefix && topoclient.ComponentIDString(gw.GetId()) != ownIDStr {
 				return true
 			}
 		}

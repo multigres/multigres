@@ -600,7 +600,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		expectedStatus := &multipoolermanagerdatapb.Status{
 			PoolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			IsInitialized:  true,
@@ -651,7 +651,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.GetPoolerStatusRequest{
@@ -758,7 +758,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -789,7 +789,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -897,7 +897,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -928,7 +928,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
