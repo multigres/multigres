@@ -206,18 +206,19 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 }
 
 // disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
-// field in the multigateway, which must derive leader identity from consensus
-// state (self_leadership), never from the topology role label. The PoolerType
-// routing label on a query.Target is a different field and is unaffected;
-// constructing a record with a Type (struct literal) is also unaffected — only
-// reading .Type off a discovered MultiPooler / MultiPoolerInfo is disallowed.
+// in the multigateway — both the .Type field and the generated GetType()
+// getter — which must derive leader identity from consensus state
+// (self_leadership), never from the topology role label. The PoolerType routing
+// label on a query.Target is a different field and is unaffected; constructing a
+// record with a Type (struct literal) is also unaffected — only reading the Type
+// off a discovered MultiPooler / MultiPoolerInfo is disallowed.
 //
 // Use GetSelfLeadership() != nil instead.
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
 
-	m.Match(`$x.Type`).
+	m.Match(`$x.Type`, `$x.GetType()`).
 		Where(
 			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
