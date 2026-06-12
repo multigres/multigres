@@ -65,7 +65,7 @@ type LoadBalancer struct {
 	mu sync.Mutex
 
 	// connections maps pooler ID to PoolerConnection
-	connections map[string]*PoolerConnection
+	connections map[MultiPoolerID]*PoolerConnection
 
 	// leaders maps shard key to the most-authoritative LeaderObservation seen
 	// for that shard (highest rule number wins). Populated from a pooler's
@@ -101,7 +101,7 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger,
 		localCell:   localCell,
 		logger:      logger,
 		ctx:         ctx,
-		connections: make(map[string]*PoolerConnection),
+		connections: make(map[MultiPoolerID]*PoolerConnection),
 		leaders:     make(map[shardKey]*clustermetadatapb.LeaderObservation),
 		grpcDialOpt: grpcDialOpt,
 	}
@@ -204,7 +204,7 @@ func (lb *LoadBalancer) mergeTopologyLeaderLocked(key shardKey, pooler *clusterm
 
 // RemovePooler closes and removes the PoolerConnection for the given pooler ID.
 // If no connection exists for this pooler, it is a no-op.
-func (lb *LoadBalancer) RemovePooler(poolerID string) {
+func (lb *LoadBalancer) RemovePooler(poolerID MultiPoolerID) {
 	lb.mu.Lock()
 	conn, exists := lb.connections[poolerID]
 	if !exists {
@@ -297,7 +297,7 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 		return nil, errors.New("pooler ID cannot be nil")
 	}
 
-	idStr := topoclient.MultiPoolerIDString(poolerID)
+	idStr := poolerIDString(poolerID)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -550,10 +550,10 @@ func matchesReplicaTarget(conn *PoolerConnection, target *query.Target) bool {
 	return !conn.believesSelfLeader()
 }
 
-// poolerIDString returns the string ID for a pooler.
+// poolerIDString returns the serialized map-key ID for a pooler.
 // Uses the same format as PoolerConnection.ID() for consistency.
-func poolerIDString(id *clustermetadatapb.ID) string {
-	return topoclient.MultiPoolerIDString(id)
+func poolerIDString(id *clustermetadatapb.ID) MultiPoolerID {
+	return MultiPoolerID(topoclient.MultiPoolerIDString(id))
 }
 
 // ConnectionCount returns the number of active connections.
@@ -582,11 +582,11 @@ const (
 // with health-stream observations) and the pooler's own belief — never the
 // topology Type label. Poolers the gateway is not connected to are absent from
 // the map; the caller fills those in from discovery (e.g. as a lifecycle state).
-func (lb *LoadBalancer) LeadershipByID() map[string]string {
+func (lb *LoadBalancer) LeadershipByID() map[MultiPoolerID]string {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	roles := make(map[string]string, len(lb.connections))
+	roles := make(map[MultiPoolerID]string, len(lb.connections))
 	for _, conn := range lb.connections {
 		info := conn.PoolerInfo()
 		key := shardKey{
@@ -614,7 +614,7 @@ func (lb *LoadBalancer) LeadershipByID() map[string]string {
 func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()
 	connections := lb.connections
-	lb.connections = make(map[string]*PoolerConnection)
+	lb.connections = make(map[MultiPoolerID]*PoolerConnection)
 	lb.leaders = make(map[shardKey]*clustermetadatapb.LeaderObservation)
 	lb.mu.Unlock()
 

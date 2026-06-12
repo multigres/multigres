@@ -32,7 +32,7 @@ import (
 
 // poolerID returns the expected ID format for a pooler.
 // Uses the same format as LoadBalancer internally.
-func poolerID(pooler *clustermetadatapb.MultiPooler) string {
+func poolerID(pooler *clustermetadatapb.MultiPooler) MultiPoolerID {
 	return poolerIDString(pooler.Id)
 }
 

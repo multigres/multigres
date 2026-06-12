@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/web"
+	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 )
 
 // PoolerStatus represents the status of a multipooler instance.
@@ -96,7 +97,7 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
 				Name:       pooler.Name,
 				Database:   pooler.Database,
-				Leadership: leadership[pooler.ID],
+				Leadership: leadership[poolergateway.MultiPoolerID(pooler.ID)],
 				Lifecycle:  pooler.Lifecycle,
 			})
 		}
