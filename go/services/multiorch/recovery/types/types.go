@@ -132,7 +132,7 @@ func (p Problem) IsShardWide() bool {
 // problems it is the shard key string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
-		return topoclient.MultiPoolerIDString(p.PoolerID)
+		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
 	return string(commontypes.FormatShardKey(p.ShardKey))
 }

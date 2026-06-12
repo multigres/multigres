@@ -33,6 +33,6 @@ import (
 // peer.service should match the remote service's service.name resource attribute.
 func PoolerSpanAttributes(poolerID *clustermetadatapb.ID) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String("multigres.pooler.id", topoclient.MultiPoolerIDString(poolerID)),
+		attribute.String("multigres.pooler.id", string(topoclient.ComponentIDString(poolerID))),
 	}
 }

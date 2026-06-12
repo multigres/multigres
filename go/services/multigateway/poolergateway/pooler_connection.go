@@ -162,7 +162,7 @@ func NewPoolerConnection(
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
 	logger.DebugContext(ctx, "creating pooler connection",
@@ -222,19 +222,9 @@ func NewPoolerConnection(
 	return pc, nil
 }
 
-// MultiPoolerID is a serialized pooler ID, used as the key for the gateway's
-// per-pooler maps. Giving it a name keeps a pooler ID from being silently
-// interchanged with a cell name, shard, or some other identifier at compile
-// time.
-//
-// TODO(typed-pooler-id): this is localized to the gateway for now. Promote it to
-// topoclient and have MultiPoolerIDString return it so every service shares the
-// type, instead of passing serialized IDs around as bare strings.
-type MultiPoolerID string
-
 // ID returns the unique identifier for this pooler connection.
-func (pc *PoolerConnection) ID() MultiPoolerID {
-	return MultiPoolerID(topoclient.MultiPoolerIDString(pc.poolerInfo.Load().Id))
+func (pc *PoolerConnection) ID() topoclient.ComponentID {
+	return topoclient.ComponentIDString(pc.poolerInfo.Load().Id)
 }
 
 // Cell returns the cell where this pooler is located.
@@ -253,7 +243,7 @@ func (pc *PoolerConnection) believesSelfLeader() bool {
 		healthObs = h.LeaderObservation
 	}
 	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
-	return obs != nil && poolerIDString(obs.GetLeaderId()) == pc.ID()
+	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
 // UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from

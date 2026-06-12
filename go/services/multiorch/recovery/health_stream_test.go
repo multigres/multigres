@@ -74,8 +74,8 @@ func newTestHealthStream(ctx context.Context, fakeClient *rpcclient.FakeClient, 
 }
 
 // seedPooler adds a minimal pooler entry to the store and returns its key.
-func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, poolerType clustermetadata.PoolerType) string {
-	key := topoclient.MultiPoolerIDString(poolerID)
+func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, poolerType clustermetadata.PoolerType) topoclient.ComponentID {
+	key := topoclient.ComponentIDString(poolerID)
 	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: poolerID,
@@ -120,7 +120,7 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -170,7 +170,7 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -227,7 +227,7 @@ func TestHealthStream_Poll(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -274,7 +274,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 2) // buffer for reconnect
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -283,7 +283,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "failed-pooler"}
 	lastSeenTime := time.Now().Add(-1 * time.Hour)
-	key := topoclient.MultiPoolerIDString(poolerID)
+	key := topoclient.ComponentIDString(poolerID)
 	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
 			Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
@@ -330,7 +330,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -388,7 +388,7 @@ func TestHealthStream_DeletedDuringStream(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -425,7 +425,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		fakeClient := rpcclient.NewFakeClient()
 		streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-		fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+		fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 			streamCh <- s
 		}
 
@@ -458,14 +458,14 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		fakeClient := rpcclient.NewFakeClient()
 		streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-		fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+		fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 			streamCh <- s
 		}
 
 		poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 		sm := newTestHealthStream(ctx, fakeClient, poolerStore)
 		poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"}
-		key := topoclient.MultiPoolerIDString(poolerID)
+		key := topoclient.ComponentIDString(poolerID)
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
 		poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadata.MultiPooler{
@@ -507,7 +507,7 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	// Buffer 2: first stream + reconnect stream.
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 2)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -560,7 +560,7 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
@@ -610,7 +610,7 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 

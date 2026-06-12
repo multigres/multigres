@@ -75,15 +75,15 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	}
 
 	// Build a set of current cohort member ID strings for O(1) lookup.
-	cohortIDs := make(map[string]struct{}, len(sa.LeaderStandbyIDs))
+	cohortIDs := make(map[topoclient.ComponentID]struct{}, len(sa.LeaderStandbyIDs))
 	for _, id := range sa.LeaderStandbyIDs {
-		cohortIDs[topoclient.MultiPoolerIDString(id)] = struct{}{}
+		cohortIDs[topoclient.ComponentIDString(id)] = struct{}{}
 	}
 
 	var problems []types.Problem
 	for _, pa := range sa.Analyses {
 		// Removal candidates: current cohort members signaling INELIGIBLE.
-		if _, inCohort := cohortIDs[topoclient.MultiPoolerIDString(pa.PoolerID)]; inCohort {
+		if _, inCohort := cohortIDs[topoclient.ComponentIDString(pa.PoolerID)]; inCohort {
 			if types.PoolerIsCohortIneligible(pa.AvailabilityStatus) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,

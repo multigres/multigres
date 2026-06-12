@@ -72,13 +72,13 @@ func checkMultiGatewayInfosEqual(t *testing.T, expected, actual []*topoclient.Mu
 	for _, actualMG := range actual {
 		found := false
 		for _, expectedMG := range expected {
-			if topoclient.MultiGatewayIDString(actualMG.Id) == topoclient.MultiGatewayIDString(expectedMG.Id) {
+			if topoclient.ComponentIDString(actualMG.Id) == topoclient.ComponentIDString(expectedMG.Id) {
 				checkMultiGatewaysEqual(t, expectedMG.MultiGateway, actualMG.MultiGateway)
 				found = true
 				break
 			}
 		}
-		require.True(t, found, "unexpected multigateway %v", actualMG.IDString())
+		require.True(t, found, "unexpected multigateway %v", topoclient.ComponentIDString(actualMG.Id))
 	}
 }
 
@@ -237,7 +237,7 @@ func TestMultiGatewayIDString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := topoclient.MultiGatewayIDString(tt.id)
+			result := string(topoclient.ComponentIDString(tt.id))
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -573,7 +573,7 @@ func TestUpdateMultiGatewayFields(t *testing.T) {
 				require.NoError(t, tsWithFactory.CreateMultiGateway(ctx, multigateway))
 
 				badVersionErr := &topoclient.TopoError{Code: topoclient.BadVersion}
-				gatewayPath := path.Join(topoclient.GatewaysPath, topoclient.MultiGatewayIDString(id), topoclient.GatewayFile)
+				gatewayPath := path.Join(topoclient.GatewaysPath, string(topoclient.ComponentIDString(id)), topoclient.GatewayFile)
 				factory.AddOneTimeOperationError(memorytopo.Update, gatewayPath, badVersionErr)
 
 				updateCallCount := 0
@@ -777,7 +777,7 @@ func TestMultiGatewayInfo(t *testing.T) {
 	})
 
 	t.Run("IDString method", func(t *testing.T) {
-		result := info.IDString()
+		result := string(topoclient.ComponentIDString(info.Id))
 		expected := "multigateway-zone1-100"
 		require.Equal(t, expected, result)
 	})

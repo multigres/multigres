@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -47,19 +48,19 @@ func NewPoolerStore(rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) 
 	}
 }
 
-// Get retrieves a pooler's health state by its ID string.
+// Get retrieves a pooler's health state by its ID.
 // Returns a deep clone safe to mutate, and false if the key does not exist.
-func (s *PoolerStore) Get(poolerID string) (*multiorchdatapb.PoolerHealthState, bool) {
+func (s *PoolerStore) Get(poolerID topoclient.ComponentID) (*multiorchdatapb.PoolerHealthState, bool) {
 	return s.health.get(poolerID)
 }
 
 // Set stores a deep clone of the pooler health state.
-func (s *PoolerStore) Set(poolerID string, state *multiorchdatapb.PoolerHealthState) {
+func (s *PoolerStore) Set(poolerID topoclient.ComponentID, state *multiorchdatapb.PoolerHealthState) {
 	s.health.set(poolerID, state)
 }
 
 // Delete removes a pooler from the store. Returns true if the pooler existed.
-func (s *PoolerStore) Delete(poolerID string) bool {
+func (s *PoolerStore) Delete(poolerID topoclient.ComponentID) bool {
 	return s.health.delete(poolerID)
 }
 
@@ -70,7 +71,7 @@ func (s *PoolerStore) Len() int {
 
 // Range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
-func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHealthState) bool) {
+func (s *PoolerStore) Range(fn func(key topoclient.ComponentID, value *multiorchdatapb.PoolerHealthState) bool) {
 	s.health.rangeHealth(fn)
 }
 
@@ -82,7 +83,7 @@ func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHea
 //
 // Note that the function should not do any expensive or blocking calls since it
 // is executed while holding the store lock.
-func (s *PoolerStore) DoUpdate(key string, fn func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState) {
+func (s *PoolerStore) DoUpdate(key topoclient.ComponentID, fn func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState) {
 	s.health.doUpdate(key, fn)
 }
 
@@ -97,11 +98,11 @@ func (s *PoolerStore) DoUpdate(key string, fn func(*multiorchdatapb.PoolerHealth
 //
 // Example:
 //
-//	store.DoUpdateRange(func(key string, value *PoolerHealthState) (*PoolerHealthState, bool) {
+//	store.DoUpdateRange(func(key topoclient.ComponentID, value *PoolerHealthState) (*PoolerHealthState, bool) {
 //	    value.LastSeen = timestamppb.Now()
 //	    return value, true // write and continue
 //	})
-func (s *PoolerStore) DoUpdateRange(fn func(key string, value *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool)) {
+func (s *PoolerStore) DoUpdateRange(fn func(key topoclient.ComponentID, value *multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, bool)) {
 	s.health.doUpdateRange(fn)
 }
 
@@ -110,7 +111,7 @@ func (s *PoolerStore) DoUpdateRange(fn func(key string, value *multiorchdatapb.P
 func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
-	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
@@ -129,7 +130,7 @@ func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) [
 func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, error) {
 	var found *multiorchdatapb.PoolerHealthState
 
-	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}

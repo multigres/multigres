@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -398,7 +399,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
-	replicaID := "multipooler-cell1-replica"
+	replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -434,8 +435,8 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
-	primaryID := "multipooler-cell1-primary"
-	replicaID := "multipooler-cell1-replica"
+	primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+	replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 	// Primary with PostgresReady: false (postgres is down)
 	ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
@@ -732,8 +733,8 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		// Primary with pooler reachable and postgres running
 		respondedAt := time.Now().Add(-3 * time.Second)
@@ -793,8 +794,8 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		// Primary with pooler unreachable
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
@@ -852,9 +853,9 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replica1ID := "multipooler-cell1-replica1"
-		replica2ID := "multipooler-cell1-replica2"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
+		replica2ID := topoclient.ComponentID("multipooler-cell1-replica2")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -950,9 +951,9 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replica1ID := "multipooler-cell1-replica1"
-		replica2ID := "multipooler-cell1-replica2"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
+		replica2ID := topoclient.ComponentID("multipooler-cell1-replica2")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1040,8 +1041,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replica1ID := "multipooler-cell1-replica1"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1097,7 +1098,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 
 		// Only primary, no replicas
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
@@ -1133,8 +1134,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1198,8 +1199,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1254,8 +1255,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// No WalReceiverStatusInterval supplied — falls back to defaultReplicationHeartbeatStalenessThreshold.
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1314,8 +1315,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// WalReceiverStatusInterval supplied — threshold is multiplier × interval.
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1377,8 +1378,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// WAL receiver timeout the connection is effectively dead.
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1444,8 +1445,8 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// the WAL receiver is streaming.
 		ps := store.NewPoolerStore(nil, slog.Default())
 
-		primaryID := "multipooler-cell1-primary"
-		replicaID := "multipooler-cell1-replica"
+		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
+		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 
 		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1974,7 +1975,7 @@ func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []prima
 	ps := store.NewPoolerStore(nil, slog.Default())
 
 	for _, p := range primaries {
-		poolerID := "multipooler-cell1-" + p.id
+		poolerID := topoclient.ComponentID("multipooler-cell1-" + p.id)
 		id := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",

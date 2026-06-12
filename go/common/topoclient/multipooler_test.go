@@ -91,13 +91,13 @@ func checkMultiPoolerInfosEqual(t *testing.T, expected, actual []*topoclient.Mul
 	for _, actualMP := range actual {
 		found := false
 		for _, expectedMP := range expected {
-			if topoclient.MultiPoolerIDString(actualMP.Id) == topoclient.MultiPoolerIDString(expectedMP.Id) {
+			if topoclient.ComponentIDString(actualMP.Id) == topoclient.ComponentIDString(expectedMP.Id) {
 				checkMultiPoolersEqual(t, expectedMP.MultiPooler, actualMP.MultiPooler)
 				found = true
 				break
 			}
 		}
-		require.True(t, found, "unexpected multipooler %v", actualMP.IDString())
+		require.True(t, found, "unexpected multipooler %v", topoclient.ComponentIDString(actualMP.Id))
 	}
 }
 
@@ -575,7 +575,7 @@ func TestMultiPoolerIDString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := topoclient.MultiPoolerIDString(tt.id)
+			result := string(topoclient.ComponentIDString(tt.id))
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -985,7 +985,7 @@ func TestUpdateMultiPoolerFields(t *testing.T) {
 				require.NoError(t, tsWithFactory.CreateMultiPooler(ctx, multipooler))
 
 				badVersionErr := &topoclient.TopoError{Code: topoclient.BadVersion}
-				poolerPath := path.Join(topoclient.PoolersPath, topoclient.MultiPoolerIDString(id), topoclient.PoolerFile)
+				poolerPath := path.Join(topoclient.PoolersPath, string(topoclient.ComponentIDString(id)), topoclient.PoolerFile)
 				factory.AddOneTimeOperationError(memorytopo.Update, poolerPath, badVersionErr)
 
 				updateCallCount := 0
@@ -1344,7 +1344,7 @@ func TestMultiPoolerInfo(t *testing.T) {
 	})
 
 	t.Run("IDString method", func(t *testing.T) {
-		result := info.IDString()
+		result := string(topoclient.ComponentIDString(info.Id))
 		expected := "multipooler-zone1-100"
 		require.Equal(t, expected, result)
 	})

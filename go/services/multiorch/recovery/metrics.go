@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/topoclient"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -268,7 +270,7 @@ func (m StreamSnapshotsTotal) Inst() metric.Int64ObservableGauge {
 
 // StreamHealthData holds per-pooler stream health data for metric observation.
 type StreamHealthData struct {
-	PoolerID          string
+	PoolerID          topoclient.ComponentID
 	DBNamespace       string
 	Shard             string
 	Connected         bool
@@ -297,7 +299,7 @@ func (m *Metrics) RegisterStreamHealthCallback(getter func() []StreamHealthData)
 		func(ctx context.Context, observer metric.Observer) error {
 			for _, data := range getter() {
 				attrs := metric.WithAttributes(
-					attribute.String("pooler_id", data.PoolerID),
+					attribute.String("pooler_id", string(data.PoolerID)),
 					attribute.String("db.namespace", data.DBNamespace),
 					attribute.String("shard", data.Shard),
 				)

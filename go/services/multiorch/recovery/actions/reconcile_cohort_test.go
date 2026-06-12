@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -92,12 +93,12 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 	t.Run("ProblemPoolerNotInCohort issues UpdateConsensusRule with ADD", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
 				}},
 			},
-			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+			UpdateConsensusRuleResponses: map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 				"multipooler-cell1-primary": {},
 			},
 		}
@@ -125,12 +126,12 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
 				}},
 			},
-			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+			UpdateConsensusRuleResponses: map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 				"multipooler-cell1-primary": {},
 			},
 		}
@@ -153,7 +154,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 	t.Run("returns FAILED_PRECONDITION when primary has no recorded rule", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
 				}},
@@ -246,7 +247,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		// FakeClient.Errors causes Status to fail for the primary, which is
 		// what poolerStore.FindHealthyPrimary uses to verify the primary.
 		fakeClient := &rpcclient.FakeClient{
-			Errors: map[string]error{
+			Errors: map[topoclient.ComponentID]error{
 				"multipooler-cell1-primary": errors.New("simulated status failure"),
 			},
 		}
@@ -267,7 +268,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 	t.Run("rejects unsupported problem code", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
 				}},

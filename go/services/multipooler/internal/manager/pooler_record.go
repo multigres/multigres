@@ -245,8 +245,8 @@ func (r *poolerRecord) validateState(state *MutablePoolerRecordState) error {
 		return fmt.Errorf("invariant violated: Type=%s but SelfLeadership is set", state.Type)
 	case hasObs && !proto.Equal(state.SelfLeadership.LeaderId, r.Id()):
 		return fmt.Errorf("invariant violated: SelfLeadership.LeaderId=%s does not match this pooler's Id=%s",
-			topoclient.MultiPoolerIDString(state.SelfLeadership.LeaderId),
-			topoclient.MultiPoolerIDString(r.Id()))
+			topoclient.ComponentIDString(state.SelfLeadership.LeaderId),
+			topoclient.ComponentIDString(r.Id()))
 	}
 	return nil
 }
