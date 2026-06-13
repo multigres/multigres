@@ -272,3 +272,44 @@ func TestMostAuthoritativeObservation(t *testing.T) {
 		assert.Same(t, c, MostAuthoritativeObservation(c, tie))
 	})
 }
+
+func leaderID(name string) *clustermetadatapb.ID {
+	return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
+}
+
+func TestHighestKnownRule(t *testing.T) {
+	// status with a current_position rule.
+	posStatus := func(term int64, leader string) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+			},
+		}
+	}
+	// status whose replication primary holds leadership at a given rule.
+	replStatus := func(term int64, leader string) *clustermetadatapb.ConsensusStatus {
+		return &clustermetadatapb.ConsensusStatus{
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+			},
+		}
+	}
+
+	t.Run("nil when no statuses carry a rule", func(t *testing.T) {
+		assert.Nil(t, HighestKnownRule(nil))
+		assert.Nil(t, HighestKnownRule([]*clustermetadatapb.ConsensusStatus{{}}))
+	})
+
+	t.Run("highest rule number across positions wins", func(t *testing.T) {
+		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{posStatus(5, "a"), posStatus(7, "b"), posStatus(6, "c")})
+		assert.Equal(t, "b", got.GetLeaderId().GetName())
+	})
+
+	t.Run("replication primary rule is considered, not just position", func(t *testing.T) {
+		// A follower positioned at rule 5 but replicating from a leader at rule 8.
+		follower := posStatus(5, "old")
+		follower.ReplicationPrimary = replStatus(8, "new").ReplicationPrimary
+		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")})
+		assert.Equal(t, "new", got.GetLeaderId().GetName(), "newer leader via replication primary should win")
+	})
+}

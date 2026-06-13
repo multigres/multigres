@@ -53,19 +53,17 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsLeader:        true,
 			IsInitialized:   true,
+			LastCheckValid:  true,
 			ConsensusStatus: primaryRuleStatus(staleID, 5),
 			ConsensusTerm:   10,
 		}
-		newPA := &PoolerAnalysis{
-			PoolerID:        newID,
-			ConsensusStatus: primaryRuleStatus(newID, 6),
-			ConsensusTerm:   11,
-		}
 		sa := &ShardAnalysis{
-			ShardKey:                   stalePA.ShardKey,
-			Analyses:                   []*PoolerAnalysis{stalePA},
-			Leaders:                    []*PoolerAnalysis{stalePA, newPA},
-			HighestTermReachableLeader: newPA,
+			ShardKey: stalePA.ShardKey,
+			Analyses: []*PoolerAnalysis{stalePA},
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+				LeaderId:   newID,
+			},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -78,7 +76,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, types.PriorityEmergency, problem.Priority, "single stale primary should get PriorityEmergency")
 		assert.Contains(t, problem.Description, "stale-primary")
 		assert.Contains(t, problem.Description, "stale_leader_term 5")
-		assert.Contains(t, problem.Description, "most_advanced_leader_term 6")
+		assert.Contains(t, problem.Description, "leader_term 6")
 	})
 
 	t.Run("detects other primary as stale when this pooler has higher primary_term", func(t *testing.T) {
@@ -95,14 +93,18 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		}
 		stalePA := &PoolerAnalysis{
 			PoolerID:        staleID,
+			ShardKey:        newPA.ShardKey,
+			LastCheckValid:  true,
 			ConsensusStatus: primaryRuleStatus(staleID, 5),
 			ConsensusTerm:   10,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:                   newPA.ShardKey,
-			Analyses:                   []*PoolerAnalysis{newPA},
-			Leaders:                    []*PoolerAnalysis{newPA, stalePA},
-			HighestTermReachableLeader: newPA,
+			ShardKey: newPA.ShardKey,
+			Analyses: []*PoolerAnalysis{newPA, stalePA},
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+				LeaderId:   newID,
+			},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -113,39 +115,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, types.ProblemStaleLeader, problem.Code)
 		assert.Equal(t, "stale-primary", problem.PoolerID.Name, "should report the stale primary")
 		assert.Contains(t, problem.Description, "stale-primary (stale_leader_term 5) is stale")
-		assert.Contains(t, problem.Description, "new-primary (most_advanced_leader_term 6)")
-	})
-
-	t.Run("does not demote when primary_terms are equal (consensus bug)", func(t *testing.T) {
-		// When primary_terms are equal, this indicates a consensus bug (primary term should be
-		// unique per primary). We skip automatic demotion to avoid making the situation worse.
-		// See generator.go findMostAdvancedPrimary() for details and potential future solutions.
-		analyzer := &StaleLeaderAnalyzer{factory: factory}
-		primaryAID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-a"}
-		primaryBID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-b"}
-		primaryAPA := &PoolerAnalysis{
-			PoolerID:        primaryAID,
-			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:        true,
-			IsInitialized:   true,
-			ConsensusStatus: primaryRuleStatus(primaryAID, 5),
-			ConsensusTerm:   10,
-		}
-		primaryBPA := &PoolerAnalysis{
-			PoolerID:        primaryBID,
-			ConsensusStatus: primaryRuleStatus(primaryBID, 5),
-		}
-		sa := &ShardAnalysis{
-			ShardKey:                   primaryAPA.ShardKey,
-			Analyses:                   []*PoolerAnalysis{primaryAPA},
-			Leaders:                    []*PoolerAnalysis{primaryAPA, primaryBPA},
-			HighestTermReachableLeader: nil, // Tie detected, so nil
-		}
-
-		problems, err := analyzer.Analyze(sa)
-
-		require.NoError(t, err)
-		require.Empty(t, problems, "should NOT demote when primary_terms are equal to prevent double demotion")
+		assert.Contains(t, problem.Description, "new-primary (leader_term 6)")
 	})
 
 	t.Run("ignores replicas", func(t *testing.T) {
@@ -179,10 +149,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ConsensusTerm:   10,
 		}
 		sa := &ShardAnalysis{
-			ShardKey:                   pa.ShardKey,
-			Analyses:                   []*PoolerAnalysis{pa},
-			Leaders:                    []*PoolerAnalysis{pa}, // Only one primary — no stale primary to detect
-			HighestTermReachableLeader: pa,
+			ShardKey: pa.ShardKey,
+			Analyses: []*PoolerAnalysis{pa}, // Only one primary — it is the leader, no stale primary to detect
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   primaryID,
+			},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -216,17 +188,23 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		}
 		stale1PA := &PoolerAnalysis{
 			PoolerID:        stale1ID,
+			ShardKey:        newPA.ShardKey,
+			LastCheckValid:  true,
 			ConsensusStatus: primaryRuleStatus(stale1ID, 4),
 		}
 		stale2PA := &PoolerAnalysis{
 			PoolerID:        stale2ID,
+			ShardKey:        newPA.ShardKey,
+			LastCheckValid:  true,
 			ConsensusStatus: primaryRuleStatus(stale2ID, 5),
 		}
 		sa := &ShardAnalysis{
-			ShardKey:                   newPA.ShardKey,
-			Analyses:                   []*PoolerAnalysis{newPA},
-			Leaders:                    []*PoolerAnalysis{newPA, stale1PA, stale2PA},
-			HighestTermReachableLeader: newPA,
+			ShardKey: newPA.ShardKey,
+			Analyses: []*PoolerAnalysis{newPA, stale1PA, stale2PA},
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+				LeaderId:   newID,
+			},
 		}
 
 		problems, err := analyzer.Analyze(sa)

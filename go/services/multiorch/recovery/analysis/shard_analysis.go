@@ -20,6 +20,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -28,6 +29,22 @@ import (
 type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 	Analyses []*PoolerAnalysis
+
+	// HighestShardRule is the highest known consensus rule across all poolers in
+	// the shard (commonconsensus.HighestKnownRule), or nil if no leader is known.
+	// It is the single source of leader identity: GetLeaderId() names the shard
+	// leader and GetCohortMembers() is its recorded synchronous cohort. Reachability
+	// of that leader is captured separately by the LeaderReachable/LeaderPooler*
+	// fields below.
+	HighestShardRule *clustermetadatapb.ShardRule
+
+	// Leader is the health of the pooler that HighestShardRule names as leader, or
+	// nil if we have no health for it. The rule can name a leader we have never
+	// observed; in that case we don't know where to point replicas, so consumers
+	// that need the leader's host/port (e.g. ReplicaNotReplicating) gate on Leader
+	// being non-nil rather than on reachability — an unreachable-but-known leader
+	// is still the official term leader.
+	Leader *multiorchdatapb.PoolerHealthState
 
 	// NumInitialized is the count of reachable, initialized poolers in this shard.
 	// Pre-computed by the generator for use in analyzers.
@@ -39,20 +56,6 @@ type ShardAnalysis struct {
 
 	// Shard-level aggregates computed once by the generator.
 
-	// Leaders is the list of all reachable poolers in the shard that are reporting
-	// as the consensus leader. More than one entry usually indicates a stale-leader but
-	// could be a sign of split-brain if there's a consensus bug or unsafe manual override.
-	Leaders []*PoolerAnalysis
-
-	// HighestTermReachableLeader is the leader with the highest LeaderTerm among all
-	// leaders in Leaders. Nil when Leaders is empty or there is a tie.
-	HighestTermReachableLeader *PoolerAnalysis
-
-	// HighestTermDiscoveredLeaderID is the pooler ID of the highest-term leader known to exist
-	// in this shard's topology, regardless of whether it is currently reachable.
-	// Nil if no leader has been recorded in topology yet.
-	HighestTermDiscoveredLeaderID *clustermetadatapb.ID
-
 	// LeaderReachable is true if the topology leader's pooler is reachable AND
 	// its Postgres is running. False when TopologyLeaderID is nil.
 	LeaderReachable bool
@@ -61,11 +64,6 @@ type ShardAnalysis struct {
 	// succeeded, independently of whether Postgres is running.
 	// False when TopologyLeaderID is nil.
 	LeaderPoolerReachable bool
-
-	// LeaderStandbyIDs is the synchronous_standby_names list from the topology leader.
-	// Nil when TopologyLeaderID is nil or the leader has no sync replication config.
-	// Use IsInStandbyList to check membership.
-	LeaderStandbyIDs []*clustermetadatapb.ID
 
 	// HasInitializedReplica is true if at least one non-leader, reachable, initialized pooler exists
 	// in the shard. This is a postgres-layer check (is there a standby that has joined the cluster?),
@@ -110,7 +108,7 @@ type ShardAnalysis struct {
 // IsInStandbyList reports whether the given pooler ID appears in the leader's
 // synchronous standby list. Returns false when no standby list is available.
 func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
-	for _, standbyID := range sa.LeaderStandbyIDs {
+	for _, standbyID := range sa.HighestShardRule.GetCohortMembers() {
 		if standbyID.Cell == id.Cell && standbyID.Name == id.Name {
 			return true
 		}
@@ -138,8 +136,7 @@ type PoolerAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 
 	// Pooler properties
-	PoolerType clustermetadatapb.PoolerType
-	IsLeader   bool
+	IsLeader bool
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool
@@ -153,8 +150,10 @@ type PoolerAnalysis struct {
 	CohortMembers []*clustermetadatapb.ID
 	AnalyzedAt    time.Time
 
-	// Replica-specific fields
-	ReplicationStopped  bool
+	// Replica-specific fields. WalReplayNotPaused is true when the standby's WAL
+	// replay is not paused. The zero value (false) means "not running", so an
+	// unpopulated analysis errs toward repair rather than assuming health.
+	WalReplayNotPaused  bool
 	PrimaryConnInfoHost string
 
 	// This is no longer needed and can be derived from ConsensusStatus, but is

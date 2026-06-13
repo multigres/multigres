@@ -70,7 +70,7 @@ func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
 
 // NewFixReplicationAction creates a fix replication action.
 func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
-	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.logger)
 }
 
 // NewDemoteStaleLeaderAction creates an action to demote a stale primary.

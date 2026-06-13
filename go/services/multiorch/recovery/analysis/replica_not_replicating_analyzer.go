@@ -59,13 +59,17 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 		return nil, nil
 	}
 
-	// Skip if there's no usable primary yet. HighestTermReachableLeader is
-	// non-nil only when the leader is reachable AND has published its rule
-	// (findHighestTermLeader filters out unobserved-rule leaders). Without a
-	// rule the recovery action can't populate SetPrimaryRequest.Rule — firing
-	// the problem now would produce a guaranteed-fail SetPrimary on the next
-	// cycle. PrimaryIsDead handles the unreachable case separately.
-	if sa.HighestTermReachableLeader == nil {
+	// Skip unless we know where to point the replica: the shard must have a known
+	// consensus leader (HighestShardRule) whose host/port we actually have (Leader
+	// health present). A leader we have no address for is not actionable.
+	//
+	// TODO(temporary): we also require the leader to be reachable because today's
+	// FixReplication still runs pg_rewind against the leader, which needs it live.
+	// Once rewind is separated from SetPrimary (SetPrimary just delivers the
+	// leader's rule + address), leader reachability no longer matters here — an
+	// unreachable-but-known leader is still the official term leader worth telling
+	// replicas about, and only knowing where to point them matters.
+	if sa.Leader.GetMultiPooler().GetHostname() == "" || !sa.LeaderReachable {
 		return nil, nil
 	}
 
@@ -94,8 +98,8 @@ func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(analysis *PoolerAnal
 		return true
 	}
 
-	// Replication explicitly stopped
-	if analysis.ReplicationStopped {
+	// Replication not running (e.g. WAL replay paused)
+	if !analysis.WalReplayNotPaused {
 		return true
 	}
 

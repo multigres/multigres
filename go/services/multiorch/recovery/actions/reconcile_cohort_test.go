@@ -69,10 +69,12 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Rule: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+						LeaderId:   primaryID,
 					},
 				},
 			},
@@ -94,7 +96,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: selfLeaderConsensus(primaryID),
 				}},
 			},
 			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
@@ -127,7 +130,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: selfLeaderConsensus(primaryID),
 				}},
 			},
 			UpdateConsensusRuleResponses: map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
@@ -155,7 +159,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: selfLeaderConsensus(primaryID),
 				}},
 			},
 		}
@@ -172,7 +177,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{},
+			ConsensusStatus: selfLeaderConsensus(primaryID),
 		})
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -269,7 +274,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+					ConsensusStatus: selfLeaderConsensus(primaryID),
 				}},
 			},
 		}
@@ -287,4 +293,16 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, err.Error(), "unsupported problem code")
 		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
+}
+
+// selfLeaderConsensus builds a consensus status in which the pooler names itself
+// as the consensus leader (so commonconsensus.HighestKnownRule/IsLeader identify
+// it) without a recorded rule number.
+func selfLeaderConsensus(id *clustermetadatapb.ID) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{LeaderId: id},
+		},
+	}
 }

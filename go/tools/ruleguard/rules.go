@@ -206,14 +206,16 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 }
 
 // disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
-// in the multigateway — both the .Type field and the generated GetType()
-// getter — which must derive leader identity from consensus state
-// (self_leadership), never from the topology role label. The PoolerType routing
-// label on a query.Target is a different field and is unaffected; constructing a
-// record with a Type (struct literal) is also unaffected — only reading the Type
-// off a discovered MultiPooler / MultiPoolerInfo is disallowed.
+// in the multigateway and multiorch — both the .Type field and the generated
+// GetType() getter — which must derive leader identity from consensus state
+// (self_leadership / the highest known shard rule), never from the topology role
+// label. The PoolerType routing label on a query.Target is a different field and
+// is unaffected; constructing a record with a Type (struct literal) is also
+// unaffected — only reading the Type off a discovered MultiPooler /
+// MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
+// pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use GetSelfLeadership() != nil instead.
+// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.IsLeader).
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
@@ -222,7 +224,7 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 		Where(
 			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
-				m.File().PkgPath.Matches(`services/multigateway`) &&
+				m.File().PkgPath.Matches(`services/(multigateway|multiorch)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership (GetSelfLeadership() != nil)")
+		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
 }

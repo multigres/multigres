@@ -609,7 +609,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if !a.IsLeader && a.ReplicationStopped {
+		if !a.IsLeader && !a.WalReplayNotPaused {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
@@ -801,6 +801,17 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 			IsLastCheckValid: true, // Primary is healthy
 			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
+			// Consensus rule names this pooler the leader, so analysis derives
+			// leadership from consensus rather than the PoolerType label.
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: primaryID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						LeaderId:   primaryID,
+					},
+				},
+			},
 		}
 		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
 
@@ -1373,7 +1384,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.IsLeader && a.ReplicationStopped {
+			if !a.IsLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "NormalPriorityAnalyzer",
@@ -1395,7 +1406,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	emergencyAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.IsLeader && a.ReplicationStopped {
+			if !a.IsLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "EmergencyPriorityAnalyzer",
@@ -1417,7 +1428,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.IsLeader && a.ReplicationStopped {
+			if !a.IsLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "HighPriorityAnalyzer",
@@ -1534,7 +1545,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	analyzeFunc := func(a *analysis.PoolerAnalysis) *types.Problem {
 		// Detect replica with paused WAL replay
-		if !a.IsLeader && a.ReplicationStopped {
+		if !a.IsLeader && !a.WalReplayNotPaused {
 			return &types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      "TracingTestAnalyzer",

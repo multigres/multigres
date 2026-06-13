@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -31,12 +32,13 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestFixReplicationAction_Metadata(t *testing.T) {
-	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
 
 	metadata := action.Metadata()
 
@@ -47,14 +49,14 @@ func TestFixReplicationAction_Metadata(t *testing.T) {
 }
 
 func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
-	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
 
 	// FixReplication requires a healthy primary to configure replication
 	assert.True(t, action.RequiresHealthyLeader())
 }
 
 func TestFixReplicationAction_Priority(t *testing.T) {
-	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
 
 	assert.Equal(t, types.PriorityHigh, action.Priority())
 }
@@ -67,7 +69,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	fakeClient := &rpcclient.FakeClient{}
 	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -115,7 +117,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -147,7 +149,9 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 					},
 					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-						TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+						Id:              fixReplPrimaryID,
+						TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+						CurrentPosition: leaderCurrentPosition(1),
 					},
 				},
 			},
@@ -174,11 +178,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "primary",
-			},
+			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "default",
@@ -188,9 +188,13 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			Hostname: "primary.example.com",
 			PortMap:  map[string]int32{"postgres": 5432},
 		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
+			CurrentPosition: leaderCurrentPosition(1),
+		},
 	})
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaLagging, // Not yet supported
@@ -224,7 +228,9 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 					},
 					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-						TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+						Id:              fixReplPrimaryID,
+						TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+						CurrentPosition: leaderCurrentPosition(1),
 					},
 				},
 			},
@@ -264,16 +270,13 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	primaryPosition := &clustermetadatapb.PoolerPosition{
 		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			LeaderId:   fixReplPrimaryID,
 		},
 		Lsn: "0/1234",
 	}
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "primary",
-			},
+			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "default",
@@ -284,13 +287,14 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			PortMap:  map[string]int32{"postgres": 5432},
 		},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
 			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			CurrentPosition: primaryPosition,
 		},
 	})
 
 	cfg := config.NewTestConfig()
-	action := NewFixReplicationAction(cfg, fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(cfg, fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -331,6 +335,10 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 					Status: &multipoolermanagerdatapb.Status{
 						IsInitialized: true,
 						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					},
+					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+						Id:              fixReplPrimaryID,
+						CurrentPosition: leaderCurrentPosition(1),
 					},
 				},
 			},
@@ -374,11 +382,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	})
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "primary",
-			},
+			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
 				TableGroup: "default",
@@ -388,9 +392,13 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			Hostname: "primary.example.com",
 			PortMap:  map[string]int32{"postgres": 5432},
 		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
+			CurrentPosition: leaderCurrentPosition(1),
+		},
 	})
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -455,7 +463,7 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 		streamAfterCalls: streamAfterCalls,
 	}
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, nil, nil, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, nil, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	replica := &multiorchdatapb.PoolerHealthState{
@@ -588,7 +596,9 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 		},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			Id:              fixReplPrimaryID,
+			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			CurrentPosition: leaderCurrentPosition(1),
 		},
 	})
 	baseFakeClient.SetStatusResponse("multipooler-cell1-replica1", &multipoolermanagerdatapb.StatusResponse{
@@ -654,16 +664,18 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		MultiPooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:             fixReplPrimaryID,
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   fixReplPrimaryID,
 				},
 			},
 		},
 	})
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond
 	action.verifyMaxAttempts = verifyAttempts
 
@@ -707,9 +719,9 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 		},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-			TermRevocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm: 1,
-			},
+			Id:              fixReplPrimaryID,
+			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+			CurrentPosition: leaderCurrentPosition(1),
 		},
 	})
 	baseFakeClient.SetStatusResponse("multipooler-cell1-replica1", &multipoolermanagerdatapb.StatusResponse{
@@ -774,9 +786,13 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
+			CurrentPosition: leaderCurrentPosition(1),
+		},
 	})
 
-	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	problem := types.Problem{
@@ -791,17 +807,39 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	err := action.Execute(ctx, problem)
 
-	// Should succeed: pg_rewind was not feasible so the pooler is marked DRAINED
-	// and the action returns nil — the problem is resolved by draining the node.
-	require.NoError(t, err)
+	// pg_rewind was not feasible, so the action fails with FAILED_PRECONDITION.
+	// Orch no longer drains the pooler itself; surfacing the broken pooler to the
+	// provisioner via its lifecycle stage is future work (see fix_replication.go).
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
 
 	// Verify SetPrimary was called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 	// Verify pg_rewind was tried after replication failed to start
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 
-	// Verify the pooler was marked as DRAINED in topology when pg_rewind wasn't feasible
+	// The pooler's topology Type must be left untouched: orch no longer writes a
+	// pooler's record to mark it broken. Surfacing the broken pooler durably to the
+	// provisioner via its lifecycle stage is future work (see fix_replication.go).
 	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
 	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type)
+}
+
+// fixReplPrimaryID is the consensus leader used across the fix-replication tests.
+var fixReplPrimaryID = &clustermetadatapb.ID{
+	Component: clustermetadatapb.ID_MULTIPOOLER,
+	Cell:      "cell1",
+	Name:      "primary",
+}
+
+// leaderCurrentPosition builds a current position whose rule names fixReplPrimaryID
+// as the consensus leader at the given coordinator term.
+func leaderCurrentPosition(term int64) *clustermetadatapb.PoolerPosition {
+	return &clustermetadatapb.PoolerPosition{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			LeaderId:   fixReplPrimaryID,
+		},
+	}
 }

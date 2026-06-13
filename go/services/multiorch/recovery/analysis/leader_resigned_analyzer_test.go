@@ -52,9 +52,9 @@ func TestLeaderResignedAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("fires when leader has resigned", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                      shardKey,
-			HighestTermDiscoveredLeaderID: leaderID,
-			LeaderHasResigned:             true,
+			ShardKey:          shardKey,
+			HighestShardRule:  &clustermetadatapb.ShardRule{LeaderId: leaderID},
+			LeaderHasResigned: true,
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -69,9 +69,9 @@ func TestLeaderResignedAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("does not fire when leader has not resigned", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:                      shardKey,
-			HighestTermDiscoveredLeaderID: leaderID,
-			LeaderHasResigned:             false,
+			ShardKey:          shardKey,
+			HighestShardRule:  &clustermetadatapb.ShardRule{LeaderId: leaderID},
+			LeaderHasResigned: false,
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

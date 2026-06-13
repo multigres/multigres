@@ -47,8 +47,8 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// No leader known — nothing to declare dead.
-	if sa.HighestTermDiscoveredLeaderID == nil {
+	// No known leader yet (no consensus rule names one) — nothing to fail over.
+	if sa.HighestShardRule.GetLeaderId() == nil {
 		return nil, nil
 	}
 
@@ -114,7 +114,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		if (!sa.LeaderPoolerReachable || sa.LeaderPostgresRunning) && !primaryPostgresUnresponsive {
 			a.factory.Logger().Warn("leader not fully reachable but replicas still connected to postgres (within threshold)",
 				"shard_key", sa.ShardKey.String(),
-				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestShardRule.GetLeaderId()),
 				"leader_pooler_reachable", sa.LeaderPoolerReachable,
 				"leader_postgres_ready", sa.LeaderPostgresReady,
 				"leader_postgres_running", sa.LeaderPostgresRunning,
@@ -127,7 +127,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		if (!sa.LeaderPoolerReachable || sa.LeaderPostgresRunning) && primaryPostgresUnresponsive {
 			a.factory.Logger().Warn("leader not fully reachable, postgres timestamp expired or unset, allowing failover",
 				"shard_key", sa.ShardKey.String(),
-				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestShardRule.GetLeaderId()),
 				"leader_pooler_reachable", sa.LeaderPoolerReachable,
 				"leader_postgres_ready", sa.LeaderPostgresReady,
 				"leader_postgres_running", sa.LeaderPostgresRunning,
@@ -140,7 +140,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		if sa.LeaderPoolerReachable && !sa.LeaderPostgresRunning {
 			a.factory.Logger().Warn("leader pooler reachable but postgres process is dead, replicas still connected (stale connections)",
 				"shard_key", sa.ShardKey.String(),
-				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestTermDiscoveredLeaderID),
+				"leader_pooler_id", topoclient.MultiPoolerIDString(sa.HighestShardRule.GetLeaderId()),
 				"leader_postgres_ready", sa.LeaderPostgresReady,
 				"leader_postgres_running", sa.LeaderPostgresRunning,
 			)
@@ -151,7 +151,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	return []types.Problem{{
 		Code:           types.ProblemLeaderIsDead,
 		CheckName:      "LeaderIsDead",
-		PoolerID:       sa.HighestTermDiscoveredLeaderID,
+		PoolerID:       sa.HighestShardRule.GetLeaderId(),
 		ShardKey:       sa.ShardKey,
 		Description:    fmt.Sprintf("Leader for shard %s is dead/unreachable", sa.ShardKey),
 		Priority:       types.PriorityEmergency,

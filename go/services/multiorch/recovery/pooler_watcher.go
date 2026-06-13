@@ -504,7 +504,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 			"database", pooler.GetShardKey().GetDatabase(),
 			"tablegroup", pooler.GetShardKey().GetTableGroup(),
 			"shard", pooler.GetShardKey().GetShard(),
-			"type", pooler.Type.String(),
+			"leader", pooler.GetSelfLeadership().GetLeaderId() != nil,
 		)
 	}
 }

@@ -58,12 +58,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		return &PoolerAnalysis{
 			PoolerID:            id,
 			ShardKey:            shardKey,
-			PoolerType:          clustermetadatapb.PoolerType_REPLICA,
-			IsLeader:            false,
 			LastCheckValid:      true,
 			IsInitialized:       true,
 			PrimaryConnInfoHost: "primary.example.com",
-			ReplicationStopped:  false,
+			WalReplayNotPaused:  true,
 			AvailabilityStatus:  av,
 		}
 	}
@@ -71,7 +69,6 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	leaderPA := &PoolerAnalysis{
 		PoolerID:       primaryID,
 		ShardKey:       shardKey,
-		PoolerType:     clustermetadatapb.PoolerType_PRIMARY,
 		IsLeader:       true,
 		LastCheckValid: true,
 		IsInitialized:  true,
@@ -80,12 +77,15 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*PoolerAnalysis) *ShardAnalysis {
 		analyses := append([]*PoolerAnalysis{leaderPA}, replicas...)
 		return &ShardAnalysis{
-			ShardKey:                      shardKey,
-			HighestTermDiscoveredLeaderID: primaryID,
-			LeaderReachable:               true,
-			LeaderPostgresReady:           true,
-			LeaderStandbyIDs:              standbys,
-			Analyses:                      analyses,
+			ShardKey: shardKey,
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:      primaryID,
+				CohortMembers: standbys,
+			},
+			LeaderReachable:     true,
+			LeaderPostgresReady: true,
+			Analyses:            analyses,
 		}
 	}
 
@@ -141,7 +141,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica with stopped replication", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.ReplicationStopped = true
+		pa.WalReplayNotPaused = false
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
