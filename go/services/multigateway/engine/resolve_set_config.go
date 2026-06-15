@@ -251,6 +251,14 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 // SessionSettings. A NULL value resets the GUC to its default
 // (set_config(name, NULL, false) semantics); a NULL name is skipped (the apply
 // query would already have raised PostgreSQL's error).
+//
+// It calls SetSessionVariable / ResetSessionVariable directly — the same
+// methods ApplySessionState.executeSet/executeReset call — rather than
+// constructing ApplySessionState primitives per tuple. Those primitives do
+// nothing more than these calls, so wrapping each runtime-resolved tuple in a
+// synthetic VariableSetStmt + primitive would be more code for identical
+// behavior. This also matches how the literal `SELECT set_config(...)` path
+// tracks (plain ApplySessionState → SetSessionVariable, no revalidation).
 func (s *ResolveTrackSetConfig) track(state *handler.MultiGatewayConnectionState, rows []*sqltypes.Row) {
 	numCalls := len(s.Aliases)
 	for _, row := range rows {
