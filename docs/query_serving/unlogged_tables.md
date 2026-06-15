@@ -14,6 +14,27 @@ table to empty as part of promotion. To avoid silently presenting an empty table
 as if nothing happened, the freshly promoted primary **best-effort drops** every
 unlogged table so clients get an explicit error and can rebuild from scratch.
 
+## When to use one — and when not to
+
+Reach for an unlogged table only when **all** of these hold: the data is shared
+across sessions, it is large or write-heavy enough that skipping WAL is a
+meaningful win, and losing it on a crash or failover is acceptable.
+
+Prefer an alternative when you can:
+
+- **Temporary tables** (`CREATE TEMP TABLE`) are the better choice when the data
+  is scoped to a single session. They are also unlogged (fast writes), but they
+  are private to the connection and disappear at session end, so they sidestep
+  the failover problem entirely — there is no shared state to lose. Multigres
+  pins a temp table to its backend connection for the session's lifetime, so it
+  behaves as expected. Reach for an unlogged table only when the data genuinely
+  needs to be visible to other sessions.
+- **Regular (logged) tables** when the data must survive crashes/failovers. The
+  WAL overhead is the price of durability and replication.
+
+In short: if a temporary table would do, use one — it avoids everything
+described below.
+
 ## Background
 
 An `UNLOGGED` table skips WAL for its contents. This makes writes faster but has
@@ -52,6 +73,10 @@ WARNING:  unlogged sequence is reset to its start value on failover
 HINT:  Unlogged sequence state is not replicated; a failover restarts it from
 its initial value. See docs/query_serving/unlogged_tables.md.
 ```
+
+Materialized views cannot be unlogged in PostgreSQL — `CREATE UNLOGGED
+MATERIALIZED VIEW` fails with `ERROR: materialized views cannot be unlogged` — so
+there is no unlogged materialized-view state to worry about.
 
 ## Behaviour on Failover
 
@@ -100,9 +125,10 @@ table falls back to the silent-empty behaviour.
 
 ## Code Map
 
-- **Create-time warning** — `UnloggedTableWarning` primitive in
-  `go/services/multigateway/engine/unlogged_table_warning.go`, attached ahead of
-  the CREATE route by `isUnloggedCreate` in
+- **Create-time warning** — `UnloggedWarning` primitive (table/sequence/
+  materialized-view variants) in
+  `go/services/multigateway/engine/unlogged_warning.go`, attached ahead of the
+  CREATE route by `maybeWrapUnloggedWarning` in
   `go/services/multigateway/planner/planner.go`.
 - **Sweep logic** — `dropUnloggedTablesAfterPromotion` in
   `go/services/multipooler/internal/manager/manager.go`, invoked from
@@ -113,5 +139,5 @@ table falls back to the silent-empty behaviour.
   sweep issues the drops and that a dependency-blocked drop does not fail the
   promotion).
 - **End-to-end test** — `TestUnloggedTablesAfterFailover` in
-  `go/test/endtoend/queryserving/unlogged_failover_test.go` (real cluster: kills
+  `go/test/endtoend/queryserving/unlogged_test.go` (real cluster: kills
   the primary, waits for a new one, and asserts the dropped/empty outcomes).
