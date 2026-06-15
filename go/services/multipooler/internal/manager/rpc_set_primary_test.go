@@ -331,8 +331,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetPrimary.
-	rev, err := pm.consensusState.GetInconsistentRevocation()
-	require.NoError(t, err)
+	rev := pm.consensusState.GetInconsistentRevocation()
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 

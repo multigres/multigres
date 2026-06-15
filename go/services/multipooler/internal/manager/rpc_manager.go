@@ -325,8 +325,12 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		Status: poolerStatus,
 	}
 
+	// Best-effort status report: prefer a fresh read, fall back to the cached
+	// position if postgres is unreachable.
 	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
 		resp.ConsensusStatus = cs
+	} else {
+		resp.ConsensusStatus = pm.getCachedConsensusStatus()
 	}
 	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
 

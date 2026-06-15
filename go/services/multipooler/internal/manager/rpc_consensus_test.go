@@ -417,8 +417,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted, err := pm.consensusState.GetInconsistentRevocation()
-			require.NoError(t, err)
+			persisted := pm.consensusState.GetInconsistentRevocation()
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
