@@ -115,6 +115,9 @@ func (p *Planner) Plan(
 	if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
 		return nil, err
 	} else if unwrappedPlan != nil {
+		// A wrapped CREATE UNLOGGED TABLE ... AS EXECUTE returns here before the
+		// main dispatch, so attach the failover warning on this path too.
+		p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
 		unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
 		unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
 		return unwrappedPlan, nil
@@ -221,10 +224,50 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
+	p.maybeWrapUnloggedWarning(sql, stmt, plan)
+
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = primitiveName(plan.Primitive)
 
 	return plan, nil
+}
+
+// maybeWrapUnloggedWarning prepends a WARNING notice to plan when stmt creates an
+// UNLOGGED relation. Such statements route normally, but unlogged contents are
+// never replicated and are lost on failover, so the warning points the user at the
+// failover-behaviour doc. Tables and sequences get distinct messages. The caller
+// recomputes plan.Type afterwards.
+func (p *Planner) maybeWrapUnloggedWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
+	var warning engine.Primitive
+	switch {
+	case isUnloggedCreate(stmt):
+		warning = engine.NewUnloggedTableWarning(sql)
+	case isUnloggedSequenceCreate(stmt):
+		warning = engine.NewUnloggedSequenceWarning(sql)
+	default:
+		return
+	}
+	plan.Primitive = engine.NewSequence([]engine.Primitive{warning, plan.Primitive})
+}
+
+// isUnloggedCreate reports whether stmt creates an UNLOGGED table, across the
+// plain CREATE TABLE, CREATE TABLE AS, and SELECT INTO forms.
+func isUnloggedCreate(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.CreateStmt:
+		return s.Relation != nil && s.Relation.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.CreateTableAsStmt:
+		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.SelectStmt:
+		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	}
+	return false
+}
+
+// isUnloggedSequenceCreate reports whether stmt is CREATE UNLOGGED SEQUENCE.
+func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
+	s, ok := stmt.(*ast.CreateSeqStmt)
+	return ok && s.Sequence != nil && s.Sequence.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 }
 
 // planTempTableCreation creates a plan that routes through a reserved
@@ -368,19 +411,24 @@ func (p *Planner) PlanPortal(
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
 	case ast.T_CreateStmt:
-		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		// UNLOGGED creations route normally but must carry the failover warning,
+		// so delegate to Plan (which attaches it) rather than plain portal execute.
+		if cs := stmt.(*ast.CreateStmt); isUnloggedCreate(stmt) ||
+			(cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
 
 	case ast.T_CreateTableAsStmt:
-		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if cs := stmt.(*ast.CreateTableAsStmt); isUnloggedCreate(stmt) ||
+			(cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
 
 	case ast.T_SelectStmt:
-		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if ss := stmt.(*ast.SelectStmt); isUnloggedCreate(stmt) ||
+			(ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil
@@ -395,7 +443,9 @@ func (p *Planner) PlanPortal(
 		// Temp sequences are session-scoped like temp tables: nextval/currval
 		// on later statements must land on the same backend connection, so
 		// CREATE TEMP SEQUENCE over the extended protocol must reserve too.
-		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		// Unlogged sequences delegate to Plan so the failover warning is attached.
+		if cs := stmt.(*ast.CreateSeqStmt); isUnloggedSequenceCreate(stmt) ||
+			(cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP) {
 			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 		}
 		return nil, nil

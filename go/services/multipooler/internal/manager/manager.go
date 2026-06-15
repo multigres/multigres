@@ -1411,7 +1411,62 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// After a failover PostgreSQL resets unlogged tables to empty. Best-effort drop
+	// them so clients hit a clear "relation does not exist" error and rebuild from
+	// scratch, rather than silently reading an empty table. Runs here, after the node
+	// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
+	// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
+	pm.dropUnloggedTablesAfterPromotion(ctx)
+
 	return nil
+}
+
+// dropUnloggedTablesAfterPromotion best-effort drops every unlogged table on the
+// freshly promoted primary.
+//
+// Unlogged table data is never replicated to standbys, so on promotion PostgreSQL
+// resets these tables to empty. Leaving them in place would silently present an empty
+// table to clients; dropping them instead surfaces a clear "relation does not exist"
+// error that signals clients to rebuild the table (and everything derived from it)
+// from scratch.
+//
+// The drop is best effort and deliberately avoids CASCADE: a table referenced by a
+// view or function cannot be dropped without CASCADE, and we never want to destroy
+// dependent user objects. Such tables are left as-is (empty), and every failure is
+// logged but never fails the promotion.
+func (pm *MultiPoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Context) {
+	// format('%I.%I', ...) returns a properly quoted, fully qualified identifier, so
+	// the name is safe to interpolate into the DROP statement below.
+	const listSQL = `
+		SELECT format('%I.%I', n.nspname, c.relname)
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relpersistence = 'u'
+		  AND c.relkind = 'r'
+		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
+
+	result, err := pm.query(ctx, listSQL)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to list unlogged tables after promotion; skipping drop", "error", err)
+		return
+	}
+	if result == nil || len(result.Rows) == 0 {
+		return
+	}
+
+	for _, row := range result.Rows {
+		name, err := executor.GetString(row, 0)
+		if err != nil {
+			pm.logger.WarnContext(ctx, "Failed to parse unlogged table name after promotion; skipping", "error", err)
+			continue
+		}
+		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
+			pm.logger.WarnContext(ctx, "Best-effort drop of unlogged table after promotion failed; table left empty",
+				"table", name, "error", err)
+			continue
+		}
+		pm.logger.InfoContext(ctx, "Dropped unlogged table after promotion", "table", name)
+	}
 }
 
 // waitForPromotionComplete polls until the node has left recovery mode AND postgres
