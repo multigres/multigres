@@ -328,7 +328,7 @@ func TestPoolerDiscovery_InvalidDataHandling(t *testing.T) {
 	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
 
 	// Verify we can read pooler1 data directly to validate the path
-	pooler1Path := "poolers/" + topoclient.MultiPoolerIDString(pooler1.Id) + "/Pooler"
+	pooler1Path := "poolers/" + string(topoclient.ComponentIDString(pooler1.Id)) + "/Pooler"
 	pooler1Data, _, err := conn.Get(ctx, pooler1Path)
 	require.NoError(t, err, "Should be able to read valid pooler data")
 	require.NotEmpty(t, pooler1Data, "Valid pooler data should not be empty")
@@ -835,7 +835,7 @@ func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
 			result := pd.extractPoolerIDFromPath(tc.path)
-			assert.Equal(t, tc.expected, result)
+			assert.Equal(t, tc.expected, string(result))
 		})
 	}
 }
@@ -850,13 +850,13 @@ type mockPoolerListener struct {
 func (m *mockPoolerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.changedPoolers = append(m.changedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+	m.changedPoolers = append(m.changedPoolers, string(topoclient.ComponentIDString(pooler.Id)))
 }
 
 func (m *mockPoolerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.removedPoolers = append(m.removedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+	m.removedPoolers = append(m.removedPoolers, string(topoclient.ComponentIDString(pooler.Id)))
 }
 
 func (m *mockPoolerListener) getChangedPoolers() []string {
@@ -909,8 +909,8 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testin
 	require.Len(t, changedPoolers, 2, "Listener should receive replay of existing poolers")
 
 	// Verify both poolers were replayed (order may vary)
-	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler1.Id))
-	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+	assert.Contains(t, changedPoolers, string(topoclient.ComponentIDString(pooler1.Id)))
+	assert.Contains(t, changedPoolers, string(topoclient.ComponentIDString(pooler2.Id)))
 
 	// No poolers should have been removed
 	removedPoolers := listener.getRemovedPoolers()
@@ -957,5 +957,5 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *tes
 	}, "Listener should receive new pooler after registration")
 
 	changedPoolers = listener.getChangedPoolers()
-	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+	assert.Contains(t, changedPoolers, string(topoclient.ComponentIDString(pooler2.Id)))
 }

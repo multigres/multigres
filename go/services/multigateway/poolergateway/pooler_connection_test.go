@@ -103,11 +103,11 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	// Other tests in this package may also produce spans with different pooler IDs,
 	// so we only check that at least one span has our expected value.
 	var foundMatchingAttr bool
-	expectedPoolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	expectedPoolerID := topoclient.ComponentIDString(pooler.Id)
 
 	for _, span := range spans {
 		for _, attr := range span.Attributes {
-			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == expectedPoolerID {
+			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == string(expectedPoolerID) {
 				foundMatchingAttr = true
 				break
 			}

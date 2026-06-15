@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -141,7 +142,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+		StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{
@@ -220,7 +221,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+		StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{
@@ -245,7 +246,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				},
 			},
 		},
-		SetPrimaryResponses: map[string]*consensusdatapb.SetPrimaryResponse{
+		SetPrimaryResponses: map[topoclient.ComponentID]*consensusdatapb.SetPrimaryResponse{
 			"multipooler-cell1-replica1": {},
 		},
 	}
@@ -329,7 +330,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{
-		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+		StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
 					Status: &multipoolermanagerdatapb.Status{
@@ -606,12 +607,12 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		},
 	})
-	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}
 	// RewindToSource succeeds, simulating pg_rewind running and primary_conninfo
 	// being restored by the fix in rpc_manager.go.
-	baseFakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+	baseFakeClient.RewindToSourceResponses = map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse{
 		"multipooler-cell1-replica1": {
 			Success:         true,
 			RewindPerformed: true,
@@ -731,11 +732,11 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			},
 		},
 	})
-	baseFakeClient.UpdateConsensusRuleResponses = map[string]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+	baseFakeClient.UpdateConsensusRuleResponses = map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 		"multipooler-cell1-primary": {},
 	}
 	// pg_rewind dry-run fails, so it marks the pooler as DRAINED
-	baseFakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+	baseFakeClient.RewindToSourceResponses = map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse{
 		"multipooler-cell1-replica1": {
 			Success:      false,
 			ErrorMessage: "pg_rewind not feasible: source timeline diverged before target's last checkpoint",

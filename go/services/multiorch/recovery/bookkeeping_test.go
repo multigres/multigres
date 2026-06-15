@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -254,7 +255,7 @@ func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
 	}
 
 	for key, info := range cases {
-		engine.poolerStore.Set(key, info)
+		engine.poolerStore.Set(topoclient.ComponentID(key), info)
 	}
 
 	require.Equal(t, 5, engine.poolerStore.Len())

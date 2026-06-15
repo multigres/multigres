@@ -20,8 +20,9 @@ import (
 	"slices"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -65,14 +66,13 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	if leaderID == nil {
 		return nil, nil
 	}
-	leaderIDStr := topoclient.MultiPoolerIDString(leaderID)
 
 	var staleLeaders []*PoolerAnalysis
 	for _, pa := range sa.Analyses {
 		if !pa.LastCheckValid || !commonconsensus.IsLeader(pa.ConsensusStatus) {
 			continue
 		}
-		if topoclient.MultiPoolerIDString(pa.PoolerID) == leaderIDStr {
+		if proto.Equal(pa.PoolerID, leaderID) {
 			continue
 		}
 		staleLeaders = append(staleLeaders, pa)

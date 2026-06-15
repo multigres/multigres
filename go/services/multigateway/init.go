@@ -28,6 +28,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
@@ -433,7 +434,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// cancel routing. The register function assigns the prefix, registers the
 	// full record, and verifies no collision. On collision, RegisterSynchronous
 	// retries with jitter until two racing gateways converge on different prefixes.
-	ownIDStr := topoclient.MultiGatewayIDString(multigateway.Id)
 	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer regCancel()
 	mg.tr, err = toporeg.RegisterSynchronous(regCtx,
@@ -448,7 +448,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			if err := mg.ts.RegisterMultiGateway(ctx, multigateway, true); err != nil {
 				return err
 			}
-			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, ownIDStr) {
+			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, multigateway.Id) {
 				multigateway.PidPrefix = 0 // Reset for next retry.
 				return errors.New("PID prefix collision detected")
 			}
@@ -747,7 +747,7 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 }
 
 // hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
-func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownIDStr string) bool {
+func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownID *clustermetadatapb.ID) bool {
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
 		return false
@@ -759,7 +759,7 @@ func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, o
 			continue
 		}
 		for _, gw := range gateways {
-			if gw.GetPidPrefix() == prefix && topoclient.MultiGatewayIDString(gw.GetId()) != ownIDStr {
+			if gw.GetPidPrefix() == prefix && !proto.Equal(gw.GetId(), ownID) {
 				return true
 			}
 		}

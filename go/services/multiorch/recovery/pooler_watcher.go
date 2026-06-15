@@ -398,7 +398,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 		// the operator mistake.
 		if errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 			key := path.Base(path.Dir(wd.Path))
-			if entry, ok := cw.store.Get(key); ok {
+			if entry, ok := cw.store.Get(topoclient.ComponentID(key)); ok {
 				cw.logger.Warn("pooler topology entry removed; cache and stream left intact",
 					"pooler_id", key)
 				if cw.onPoolerDeleted != nil {
@@ -432,7 +432,7 @@ func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive
 		return
 	}
 
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 	newLifecycle := pooler.GetLifecycleStatus().GetStatus()
 
 	// Atomic read-modify-write: capture whether the entry already existed and

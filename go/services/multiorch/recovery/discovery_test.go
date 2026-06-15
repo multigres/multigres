@@ -33,8 +33,8 @@ import (
 )
 
 // poolerKey creates the store key for a pooler
-func poolerKey(cell, name string) string {
-	return topoclient.MultiPoolerIDString(&clustermetadata.ID{
+func poolerKey(cell, name string) topoclient.ComponentID {
+	return topoclient.ComponentIDString(&clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER,
 		Cell:      cell,
 		Name:      name,

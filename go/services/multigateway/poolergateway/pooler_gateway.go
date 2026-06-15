@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -418,7 +419,7 @@ func (pg *PoolerGateway) Stats() map[string]any {
 // LeadershipByID returns the consensus leadership role of each connected pooler,
 // keyed by serialized pooler ID, for the admin/status page.
 // See LoadBalancer.LeadershipByID.
-func (pg *PoolerGateway) LeadershipByID() map[MultiPoolerID]string {
+func (pg *PoolerGateway) LeadershipByID() map[topoclient.ComponentID]string {
 	return pg.loadBalancer.LeadershipByID()
 }
 

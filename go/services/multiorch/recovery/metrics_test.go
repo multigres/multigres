@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -322,7 +323,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	data = engine.collectStreamHealthData()
 	require.Len(t, data, 2)
 
-	byID := make(map[string]StreamHealthData, len(data))
+	byID := make(map[topoclient.ComponentID]StreamHealthData, len(data))
 	for _, d := range data {
 		byID[d.PoolerID] = d
 	}

@@ -15,35 +15,37 @@
 package store
 
 import (
+	"github.com/multigres/multigres/go/common/topoclient"
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// poolerHealthStore is a thread-safe store for pooler health state.
-// It provides clone-on-read/write semantics so callers always work with
-// isolated copies, preventing concurrent mutation of shared state.
+// poolerHealthStore is a thread-safe store for pooler health state, keyed by
+// serialized pooler ID. It provides clone-on-read/write semantics so callers
+// always work with isolated copies, preventing concurrent mutation of shared
+// state.
 type poolerHealthStore struct {
-	proto *ProtoStore[string, *multiorchdata.PoolerHealthState]
+	proto *ProtoStore[topoclient.ComponentID, *multiorchdata.PoolerHealthState]
 }
 
 // newPoolerHealthStore creates a new store for pooler health state.
 func newPoolerHealthStore() *poolerHealthStore {
 	return &poolerHealthStore{
-		proto: NewProtoStore[string, *multiorchdata.PoolerHealthState](),
+		proto: NewProtoStore[topoclient.ComponentID, *multiorchdata.PoolerHealthState](),
 	}
 }
 
-// get retrieves a pooler's health state by its ID string.
-func (s *poolerHealthStore) get(poolerID string) (*multiorchdata.PoolerHealthState, bool) {
+// get retrieves a pooler's health state by its ID.
+func (s *poolerHealthStore) get(poolerID topoclient.ComponentID) (*multiorchdata.PoolerHealthState, bool) {
 	return s.proto.Get(poolerID)
 }
 
 // set stores a deep clone of the pooler health state.
-func (s *poolerHealthStore) set(poolerID string, state *multiorchdata.PoolerHealthState) {
+func (s *poolerHealthStore) set(poolerID topoclient.ComponentID, state *multiorchdata.PoolerHealthState) {
 	s.proto.Set(poolerID, state)
 }
 
 // delete removes a pooler from the store. Returns true if the pooler existed.
-func (s *poolerHealthStore) delete(poolerID string) bool {
+func (s *poolerHealthStore) delete(poolerID topoclient.ComponentID) bool {
 	return s.proto.Delete(poolerID)
 }
 
@@ -54,19 +56,19 @@ func (s *poolerHealthStore) len() int {
 
 // range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
-func (s *poolerHealthStore) rangeHealth(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
+func (s *poolerHealthStore) rangeHealth(fn func(key topoclient.ComponentID, value *multiorchdata.PoolerHealthState) bool) {
 	s.proto.Range(fn)
 }
 
 // doUpdateRange iterates over all poolers while holding the lock and allows
 // in-place updates. See ProtoStore.DoUpdateRange for full semantics.
-func (s *poolerHealthStore) doUpdateRange(fn func(key string, value *multiorchdata.PoolerHealthState) (*multiorchdata.PoolerHealthState, bool)) {
+func (s *poolerHealthStore) doUpdateRange(fn func(key topoclient.ComponentID, value *multiorchdata.PoolerHealthState) (*multiorchdata.PoolerHealthState, bool)) {
 	s.proto.DoUpdateRange(fn)
 }
 
 // doUpdate performs an atomic read-modify-write on a pooler's health state.
 // See ProtoStore.DoUpdate for full semantics.
-func (s *poolerHealthStore) doUpdate(key string, fn func(value *multiorchdata.PoolerHealthState) *multiorchdata.PoolerHealthState) {
+func (s *poolerHealthStore) doUpdate(key topoclient.ComponentID, fn func(value *multiorchdata.PoolerHealthState) *multiorchdata.PoolerHealthState) {
 	s.proto.DoUpdate(key, fn)
 }
 

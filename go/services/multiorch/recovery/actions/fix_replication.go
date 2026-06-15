@@ -211,7 +211,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 		// pg_rewind stops the replica's postgres before contacting the source; if the
 		// primary postgres is no longer running the stop will leave two nodes down.
 		// Return an error for retry — the next cycle will detect PrimaryIsDead.
-		primaryKey := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
+		primaryKey := topoclient.ComponentIDString(primary.MultiPooler.Id)
 		if latest, ok := a.poolerStore.Get(primaryKey); !ok || !latest.GetStatus().GetPostgresReady() {
 			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"primary postgres not running, skipping pg_rewind to avoid leaving two nodes down")

@@ -49,7 +49,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		},
 	}
 
-	poolerKey := topoclient.MultiPoolerIDString(poolerID)
+	poolerKey := topoclient.ComponentIDString(poolerID)
 
 	fakeClient.SetStatusResponse(poolerKey, &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -131,7 +131,7 @@ func TestAppointLeader(t *testing.T) {
 			Lsn:  walPositions[i],
 			Rule: outgoingRule,
 		}
-		key := topoclient.MultiPoolerIDString(id)
+		key := topoclient.ComponentIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
@@ -150,7 +150,7 @@ func TestAppointLeader(t *testing.T) {
 
 	// The designated leader (mp1) should receive a Promote with the full
 	// CoordinatorProposal.
-	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	leaderKey := topoclient.ComponentIDString(cohortIDs[0])
 	propReq, ok := fakeClient.PromoteRequests[leaderKey]
 	require.True(t, ok, "Promote should be sent to designated leader %s", cohortIDs[0].Name)
 	require.NotNil(t, propReq.GetProposal())
@@ -163,7 +163,7 @@ func TestAppointLeader(t *testing.T) {
 	// Followers should receive SetPrimary carrying the same leader + rule
 	// (no Promote).
 	for _, id := range cohortIDs[1:] {
-		key := topoclient.MultiPoolerIDString(id)
+		key := topoclient.ComponentIDString(id)
 		_, isPromote := fakeClient.PromoteRequests[key]
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
@@ -227,7 +227,7 @@ func TestAppointInitialLeader(t *testing.T) {
 				Rule: sentinelRule,
 			},
 		}
-		key := topoclient.MultiPoolerIDString(id)
+		key := topoclient.ComponentIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
@@ -246,7 +246,7 @@ func TestAppointInitialLeader(t *testing.T) {
 
 	// The designated leader (mp1) should receive a Promote carrying the
 	// bootstrap proposal.
-	leaderKey := topoclient.MultiPoolerIDString(cohortIDs[0])
+	leaderKey := topoclient.ComponentIDString(cohortIDs[0])
 	propReq, ok := fakeClient.PromoteRequests[leaderKey]
 	require.True(t, ok, "Promote should be sent to designated leader %s", cohortIDs[0].Name)
 	require.NotNil(t, propReq.GetProposal())
@@ -264,7 +264,7 @@ func TestAppointInitialLeader(t *testing.T) {
 
 	// Followers should receive SetPrimary carrying the same leader + rule.
 	for _, id := range cohortIDs[1:] {
-		key := topoclient.MultiPoolerIDString(id)
+		key := topoclient.ComponentIDString(id)
 		_, isPromote := fakeClient.PromoteRequests[key]
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]

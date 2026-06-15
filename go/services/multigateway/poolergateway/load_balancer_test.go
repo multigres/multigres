@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -32,8 +33,8 @@ import (
 
 // poolerID returns the expected ID format for a pooler.
 // Uses the same format as LoadBalancer internally.
-func poolerID(pooler *clustermetadatapb.MultiPooler) MultiPoolerID {
-	return poolerIDString(pooler.Id)
+func poolerID(pooler *clustermetadatapb.MultiPooler) topoclient.ComponentID {
+	return topoclient.ComponentIDString(pooler.Id)
 }
 
 func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *clustermetadatapb.MultiPooler {

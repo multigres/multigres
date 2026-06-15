@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -185,9 +186,9 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
 
 	// Create a fake RPC client with a pre-configured response
-	// The FakeClient uses topo.MultiPoolerIDString which formats as "multipooler-cell-name"
+	// The FakeClient uses topo.ComponentIDString which formats as "multipooler-cell-name"
 	fakeClient := rpcclient.NewFakeClient()
-	poolerKey := "multipooler-cell1-replica-pooler"
+	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
 	fakeClient.GetBackupByJobIdResponses[poolerKey] = &multipoolermanagerdata.GetBackupByJobIdResponse{
 		Backup: &multipoolermanagerdata.BackupMetadata{
 			BackupId: "20251203-143045F",

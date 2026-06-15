@@ -20,6 +20,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -467,6 +468,14 @@ func expectStandbyReadyMocks(m *mock.QueryService) {
 // reload config. The WAL position is read from the rule store's cached LSN
 // (via beforeStatus.GetCurrentPosition().GetLsn()), not from a separate pg_current_wal_lsn query.
 func expectLeaderPromoteMocks(m *mock.QueryService) {
+	expectLeaderPromoteMocksWithUnlogged(m, nil)
+}
+
+// expectLeaderPromoteMocksWithUnlogged is expectLeaderPromoteMocks plus the
+// dropUnloggedTablesAfterPromotion catalog query, which returns the given fully
+// qualified unlogged table names (none when nil). Callers that pass a non-empty
+// list must also register the matching DROP TABLE patterns.
+func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables []string) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
@@ -479,6 +488,12 @@ func expectLeaderPromoteMocks(m *mock.QueryService) {
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
+	// dropUnloggedTablesAfterPromotion: list unlogged tables to drop.
+	rows := make([][]any, len(unloggedTables))
+	for i, tbl := range unloggedTables {
+		rows[i] = []any{tbl}
+	}
+	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
 }
 
 func TestPromote(t *testing.T) {
@@ -893,6 +908,67 @@ func TestPromote(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table
+// sweep: every unlogged table is dropped, and a drop blocked by a dependency is
+// logged without failing the promotion.
+func TestPromoteDropsUnloggedTables(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
+	otherPooler := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+
+	recruitedTerm := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       7,
+		AcceptedCoordinatorId:  coordinatorA,
+		CoordinatorInitiatedAt: recruitTS,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{},
+	}
+	req := &consensusdatapb.PromoteRequest{
+		Proposal: &consensusdatapb.CoordinatorProposal{
+			TermRevocation: recruitedTerm,
+			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+			ProposedRule: &clustermetadatapb.ShardRule{
+				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+				CoordinatorId: coordinatorA,
+				CreationTime:  ruleCreatedTS,
+			},
+		},
+	}
+
+	runPromote := func(t *testing.T, setupMocks func(*mock.QueryService)) (*mock.QueryService, error) {
+		m := mock.NewQueryService()
+		setupMocks(m)
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusState.Load()
+		require.NoError(t, err)
+		_, err = pm.Promote(t.Context(), req)
+		return m, err
+	}
+
+	t.Run("drops every unlogged table", func(t *testing.T) {
+		var dropped []string
+		m, err := runPromote(t, func(m *mock.QueryService) {
+			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar"})
+			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
+				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
+			})
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.NoError(t, m.ExpectationsWereMet())
+	})
+
+	t.Run("dependency-blocked drop does not fail promotion", func(t *testing.T) {
+		m, err := runPromote(t, func(m *mock.QueryService) {
+			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.has_view"})
+			m.AddQueryPatternWithError(`DROP TABLE public\.has_view`,
+				errors.New("cannot drop table public.has_view because other objects depend on it"))
+		})
+		require.NoError(t, err, "best-effort drop must not fail the promotion")
+		assert.NoError(t, m.ExpectationsWereMet())
+	})
 }
 
 func TestAvailabilityStatus(t *testing.T) {

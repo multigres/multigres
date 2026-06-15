@@ -166,7 +166,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
-	a.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	a.poolerStore.Range(func(_ topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true
 		}

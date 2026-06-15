@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -142,6 +143,23 @@ type statementAnalysis struct {
 	// the target-list positions left-to-right.
 	SetConfigs []setConfigCall
 
+	// DynamicSetConfig is true when the statement is a SELECT whose target
+	// list is entirely set_config(...) calls and at least one call has an
+	// argument that can't be resolved at plan time (a column reference or
+	// other expression rather than a literal or bound parameter) — the shape
+	// pg_dump uses on PG17+:
+	//
+	//	SELECT set_config(name, 'view, foreign-table', false)
+	//	FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'
+	//
+	// We can't mint a literal SET to track up front, so the planner emits a
+	// ResolveTrackSetConfig primitive that executes the argument projection
+	// once to learn the concrete (name, value, is_local) tuples, tracks the
+	// session-scoped ones, and applies them with literals. When this is set,
+	// SetConfigs is empty — every call in the target list is handled by the
+	// resolve path. See planResolveSetConfig.
+	DynamicSetConfig bool
+
 	// AcquiresSessionAdvisoryLock is true if any FuncCall in the statement is a
 	// session-level advisory lock acquisition (see
 	// sessionAdvisoryLockAcquireFuncs). The planner uses this to route the
@@ -229,6 +247,12 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	result := &statementAnalysis{}
 	allowedSetConfigs := collectTopLevelSetConfigs(stmt)
 
+	// accepted collects the set_config calls that sit in an allowed position,
+	// in target-list order. We validate them after the walk so we can first
+	// decide between the literal/bound fast path and the resolve-and-apply
+	// path for dynamic arguments — a decision that depends on the whole
+	// target list, not a single call.
+	var accepted []*ast.FuncCall
 	var walkErr error
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		if walkErr != nil {
@@ -265,22 +289,43 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 				"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
 			return false
 		}
+		accepted = append(accepted, fc)
+		return true
+	}, nil)
 
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	// Resolve-and-apply path: the whole target list is set_config(...) and at
+	// least one call has a non-literal, non-bound argument the literal/bound
+	// fast path can't track (pg_dump's column-reference name). Hand the
+	// statement to the planner's ResolveTrackSetConfig primitive rather than
+	// erroring in validateAcceptedSetConfig.
+	if targetListAllSetConfig(stmt, allowedSetConfigs) && slices.ContainsFunc(accepted, setConfigNeedsDynamic) {
+		// A cluster-managed GUC is still rejected when the name is a literal;
+		// a dynamic name is a documented gap (matches validateAcceptedSetConfig).
+		for _, fc := range accepted {
+			if name, ok := constStringArg(fc.Args.Items[0]); ok {
+				if err := restrictedGUCError(name); err != nil {
+					return nil, err
+				}
+			}
+		}
+		result.DynamicSetConfig = true
+		return result, nil
+	}
+
+	for _, fc := range accepted {
 		setCfg, err := validateAcceptedSetConfig(fc)
 		if err != nil {
-			walkErr = err
-			return false
+			return nil, err
 		}
 		if setCfg != nil {
 			result.SetConfigs = append(result.SetConfigs, *setCfg)
 		}
 		// else is_local=true: leave it alone; PG executes it as a normal
 		// transaction-scoped call and the pooler does not track it.
-		return true
-	}, nil)
-
-	if walkErr != nil {
-		return nil, walkErr
 	}
 	return result, nil
 }
@@ -328,6 +373,68 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 		allowed[fc] = struct{}{}
 	}
 	return allowed
+}
+
+// targetListAllSetConfig reports whether every entry in stmt's top-level
+// target list is one of the allowed set_config calls — i.e. the SELECT does
+// nothing but set_config(...). Only this shape takes the resolve-and-apply
+// path: the projection that resolves the arguments (each call's args become
+// output columns) must not have to also compute unrelated columns, and the
+// synthesized apply query reproduces exactly the original's columns.
+func targetListAllSetConfig(stmt ast.Stmt, allowed map[*ast.FuncCall]struct{}) bool {
+	ss, ok := stmt.(*ast.SelectStmt)
+	if !ok || ss.TargetList == nil || ss.TargetList.Len() == 0 {
+		return false
+	}
+	for _, item := range ss.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			return false
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok {
+			return false
+		}
+		if _, isAllowed := allowed[fc]; !isAllowed {
+			return false
+		}
+	}
+	return true
+}
+
+// setConfigNeedsDynamic reports whether fc is a set_config call the literal/
+// bound fast path cannot handle — i.e. it would otherwise error in
+// validateAcceptedSetConfig. That is: it has exactly three arguments, is_local
+// is not a literal true (those run transaction-scoped via Route and need no
+// tracking — validateAcceptedSetConfig short-circuits them), and at least one
+// argument is neither a literal constant nor a bound parameter (a column
+// reference or other expression).
+func setConfigNeedsDynamic(fc *ast.FuncCall) bool {
+	if fc.Args == nil || fc.Args.Len() != 3 {
+		// Wrong arity: let validateAcceptedSetConfig raise its specific error.
+		return false
+	}
+	if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok && isLocal {
+		return false
+	}
+	for _, arg := range fc.Args.Items {
+		if !isStaticSetConfigArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStaticSetConfigArg reports whether a set_config argument can be resolved
+// at plan time: a literal A_Const or a bound parameter (ParamRef), after
+// stripping any TypeCast. Anything else (a column reference, function call,
+// operator expression, ...) must be evaluated by PostgreSQL.
+func isStaticSetConfigArg(n ast.Node) bool {
+	switch unwrapTypeCast(n).(type) {
+	case *ast.ParamRef, *ast.A_Const:
+		return true
+	}
+	return false
 }
 
 // validateAcceptedSetConfig verifies that an allowed-position set_config

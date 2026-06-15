@@ -48,7 +48,7 @@ const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
-type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState
+type PoolersByShard map[string]map[string]map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
 type AnalysisGenerator struct {
@@ -77,7 +77,7 @@ func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(data
 func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 	type shardEntry struct {
 		key     *clustermetadatapb.ShardKey
-		poolers map[string]*multiorchdatapb.PoolerHealthState
+		poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState
 	}
 	byKey := make(map[string]*shardEntry)
 
@@ -108,7 +108,7 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.Sh
 }
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
-func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[string]*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
+func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
 	sa := &ShardAnalysis{ShardKey: shardKey}
 	for _, pooler := range poolers {
 		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
@@ -122,7 +122,7 @@ func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.Shard
 func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 	poolersByShard := make(PoolersByShard)
 
-	g.poolerStore.Range(func(poolerID string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	g.poolerStore.Range(func(poolerID topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // skip nil entries
 		}
@@ -133,13 +133,13 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 
 		// Initialize nested maps if needed
 		if poolersByShard[database] == nil {
-			poolersByShard[database] = make(map[string]map[string]map[string]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database] = make(map[string]map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
 		}
 		if poolersByShard[database][tableGroup] == nil {
-			poolersByShard[database][tableGroup] = make(map[string]map[string]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database][tableGroup] = make(map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
 		}
 		if poolersByShard[database][tableGroup][shard] == nil {
-			poolersByShard[database][tableGroup][shard] = make(map[string]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database][tableGroup][shard] = make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
 		}
 
 		// Store the pooler (already a clone from Range)
@@ -152,7 +152,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 
 // GetPoolersInShard returns all pooler IDs in the same shard as the given pooler.
 // Uses the cached poolersByShard for efficient lookup.
-func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, error) {
+func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID) ([]topoclient.ComponentID, error) {
 	// Get pooler from store to determine its shard
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
@@ -170,10 +170,10 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok {
-		return []string{}, nil
+		return []topoclient.ComponentID{}, nil
 	}
 
-	poolerIDs := make([]string, 0, len(poolers))
+	poolerIDs := make([]topoclient.ComponentID, 0, len(poolers))
 	for id := range poolers {
 		poolerIDs = append(poolerIDs, id)
 	}
@@ -184,7 +184,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr string) ([]string, err
 // GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
 // the given pooler ID. Used primarily in tests to inspect shard-level fields like
 // ReplicasConnectedToLeader without running the full analysis loop.
-func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr string) (*ShardAnalysis, error) {
+func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.ComponentID) (*ShardAnalysis, error) {
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
@@ -247,7 +247,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 // poolerByID returns the pooler with the given ID, or nil if id is nil or no
 // pooler matches.
-func poolerByID(poolers map[string]*multiorchdatapb.PoolerHealthState, id *clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
+func poolerByID(poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, id *clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
 	if id == nil {
 		return nil
 	}
@@ -269,9 +269,9 @@ func poolerByID(poolers map[string]*multiorchdatapb.PoolerHealthState, id *clust
 // Returns false if there are no replicas or any replica is disconnected.
 func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 	primary *multiorchdatapb.PoolerHealthState,
-	poolers map[string]*multiorchdatapb.PoolerHealthState,
+	poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState,
 ) bool {
-	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
+	primaryIDStr := topoclient.ComponentIDString(primary.MultiPooler.Id)
 	primaryHost := primary.MultiPooler.Hostname
 	primaryPort := primary.MultiPooler.PortMap["postgres"]
 
@@ -386,7 +386,7 @@ func (g *AnalysisGenerator) isFollowerConnectedToLeader(
 // computeShardLevelFields populates shard-level aggregates on sa after all per-pooler
 // analyses have been built. These fields describe the shard as a whole rather than
 // any individual pooler, so they are computed once here rather than per-pooler.
-func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[string]*multiorchdatapb.PoolerHealthState) {
+func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState) {
 	// Bootstrap durability policy lookup.
 	if g.policyLookup != nil {
 		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)

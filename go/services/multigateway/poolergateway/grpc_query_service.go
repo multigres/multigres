@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 
@@ -46,7 +47,7 @@ type grpcQueryService struct {
 	logger *slog.Logger
 
 	// poolerID for logging
-	poolerID string
+	poolerID topoclient.ComponentID
 
 	// copyStreamsMu protects copyStreams map
 	copyStreamsMu sync.Mutex
@@ -59,7 +60,7 @@ type grpcQueryService struct {
 // with a multipooler instance.
 func newGRPCQueryService(
 	conn *grpc.ClientConn,
-	poolerID string,
+	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
 ) queryservice.QueryService {
 	return &grpcQueryService{

@@ -455,12 +455,12 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 // for all tracked poolers. Called by the observable gauge callback.
 func (re *Engine) collectStreamHealthData() []StreamHealthData {
 	var data []StreamHealthData
-	re.poolerStore.Range(func(_ string, state *multiorchdatapb.PoolerHealthState) bool {
+	re.poolerStore.Range(func(_ topoclient.ComponentID, state *multiorchdatapb.PoolerHealthState) bool {
 		if state.MultiPooler == nil {
 			return true
 		}
 		data = append(data, StreamHealthData{
-			PoolerID:          topoclient.MultiPoolerIDString(state.MultiPooler.Id),
+			PoolerID:          topoclient.ComponentIDString(state.MultiPooler.Id),
 			DBNamespace:       state.MultiPooler.GetShardKey().GetDatabase(),
 			Shard:             state.MultiPooler.GetShardKey().GetShard(),
 			Connected:         state.StreamConnected,
@@ -624,7 +624,7 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 // tracked pooler. Requests are fire-and-forget; the resulting snapshots will
 // be applied to the store asynchronously as they arrive.
 func (re *Engine) pollAllPoolers() {
-	re.poolerStore.Range(func(_ string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
+	re.poolerStore.Range(func(_ topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
 		if poolerHealth != nil && poolerHealth.MultiPooler != nil && poolerHealth.MultiPooler.Id != nil {
 			_ = re.healthStream.Poll(poolerHealth.MultiPooler.Id)
 		}
@@ -641,13 +641,13 @@ func (re *Engine) pollAllPoolers() {
 // that predates the poll.
 func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 	type poolerBaseline struct {
-		id       string
+		id       topoclient.ComponentID
 		baseline int64
 	}
 
 	// Capture snapshot counters for poolers with active streams before polling.
 	var baselines []poolerBaseline
-	re.poolerStore.Range(func(poolerID string, ph *multiorchdatapb.PoolerHealthState) bool {
+	re.poolerStore.Range(func(poolerID topoclient.ComponentID, ph *multiorchdatapb.PoolerHealthState) bool {
 		if ph != nil && ph.StreamConnected {
 			baselines = append(baselines, poolerBaseline{poolerID, ph.StreamSnapshotsReceived})
 		}

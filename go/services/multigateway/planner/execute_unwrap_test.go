@@ -167,6 +167,40 @@ func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	assert.Equal(t, canonical, ttr.PreparedStatement.Name)
 }
 
+// TestUnwrapCreateUnloggedTableAsExecute verifies that the wrapped-execute
+// early-return path still attaches the unlogged failover warning: a
+// CREATE UNLOGGED TABLE ... AS EXECUTE is unwrapped before the main dispatch,
+// so the warning must be applied on that path too.
+func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE pu AS SELECT 1 AS a")
+	require.NoError(t, err)
+
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "pu")
+	require.NotNil(t, psi)
+	canonical := psi.Name
+
+	const sql = "CREATE UNLOGGED TABLE ut AS EXECUTE pu"
+	asts, err := parser.ParseSQL(sql)
+	require.NoError(t, err)
+	require.Len(t, asts, 1)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	require.NoError(t, err)
+
+	// Sequence[UnloggedTableWarning, Route(with prepared statement)].
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2)
+	_, ok = seq.Primitives[0].(*engine.UnloggedWarning)
+	require.True(t, ok, "expected leading UnloggedWarning, got %T", seq.Primitives[0])
+	route, ok := seq.Primitives[1].(*engine.Route)
+	require.True(t, ok, "expected trailing Route, got %T", seq.Primitives[1])
+	assert.Contains(t, route.Query, canonical)
+	require.NotNil(t, route.PreparedStatement)
+	assert.Equal(t, canonical, route.PreparedStatement.Name)
+}
+
 // TestUnwrapExplainCreateTableAsExecute verifies that doubly-nested
 // EXPLAIN ... CREATE TABLE ... AS EXECUTE p (as seen in pgregress
 // select_into.sql and write_parallel.sql) is unwrapped correctly: the

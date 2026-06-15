@@ -24,6 +24,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -60,16 +62,16 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 			}
 
 			// Observe health per-pooler: a pooler is unhealthy if it appears in pooler-scoped problems.
-			problematicPoolerIDs := make(map[string]bool, len(detectedProblems))
+			problematicPoolerIDs := make(map[topoclient.ComponentID]bool, len(detectedProblems))
 			for _, p := range detectedProblems {
 				if !p.IsShardWide() && p.PoolerID != nil {
-					problematicPoolerIDs[topoclient.MultiPoolerIDString(p.PoolerID)] = true
+					problematicPoolerIDs[topoclient.ComponentIDString(p.PoolerID)] = true
 				}
 			}
 			for _, pa := range shardAnalysis.Analyses {
-				poolerID := topoclient.MultiPoolerIDString(pa.PoolerID)
+				poolerID := topoclient.ComponentIDString(pa.PoolerID)
 				isHealthy := !problematicPoolerIDs[poolerID]
-				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
+				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(poolerID), analyzer.RecoveryAction(), isHealthy)
 			}
 
 			// Observe shard-level health. The entity key is the shard key string.
@@ -148,7 +150,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
 			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
-				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
+				"pooler_id", topoclient.ComponentIDString(problem.PoolerID),
 			)
 			continue
 		}
@@ -331,7 +333,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 				if p.Code != problem.Code {
 					continue
 				}
-				if problem.IsShardWide() || topoclient.MultiPoolerIDString(p.PoolerID) == topoclient.MultiPoolerIDString(problem.PoolerID) {
+				if problem.IsShardWide() || proto.Equal(p.PoolerID, problem.PoolerID) {
 					re.logger.DebugContext(ctx, "problem still exists after re-poll",
 						"entity_id", entityID,
 						"problem_code", problem.Code,

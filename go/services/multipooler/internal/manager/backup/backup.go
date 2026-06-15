@@ -54,13 +54,12 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 
 	tableGroup := e.id.ShardKey().GetTableGroup()
 	shard := e.id.ShardKey().GetShard()
-	multipoolerID := topoclient.MultiPoolerIDString(e.id.Id())
 	multipoolerName := e.id.Id().Name
 
 	// Use provided job_id or generate one (same format as multiadmin)
 	effectiveJobID := jobID
 	if effectiveJobID == "" {
-		effectiveJobID = commonbackup.GenerateJobID(multipoolerID)
+		effectiveJobID = commonbackup.GenerateJobID(e.id.Id())
 	}
 
 	// Emit Started now that we have a correlation ID and parameters are valid.
@@ -101,7 +100,13 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 	args = append(args, "--annotation=table_group="+tableGroup)
 	args = append(args, "--annotation=shard="+shard)
 
-	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
+	// Add multipooler_id, pooler_type, and job_id annotations for unique identification.
+	// TODO(component-id): the multipooler_id annotation records the bare pooler
+	// name, which is not unique across cells. The job_id annotation already embeds
+	// the full serialized component ID (component-cell-name); consider recording
+	// that form here too (topoclient.ComponentIDString(e.id.Id())) so the
+	// annotation is globally unique. Left as-is for now since restore matching
+	// keys off job_id, not multipooler_id.
 	args = append(args, "--annotation=multipooler_id="+multipoolerName)
 	args = append(args, "--annotation=pooler_type="+poolerType.String())
 	args = append(args, "--annotation=job_id="+effectiveJobID)

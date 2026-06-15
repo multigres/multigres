@@ -64,12 +64,7 @@ type MultiPoolerInfo struct {
 
 // String returns a string describing the multipooler.
 func (mpi *MultiPoolerInfo) String() string {
-	return fmt.Sprintf("MultiPooler{%v}", MultiPoolerIDString(mpi.Id))
-}
-
-// IDString returns the string representation of the multipooler id
-func (mpi *MultiPoolerInfo) IDString() string {
-	return MultiPoolerIDString(mpi.Id)
+	return fmt.Sprintf("MultiPooler{%v}", ComponentIDString(mpi.Id))
 }
 
 // Addr returns hostname:grpc port.
@@ -92,11 +87,6 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 	return &MultiPoolerInfo{version: version, MultiPooler: multipooler}
 }
 
-// MultiPoolerIDString returns the string representation of a MultiPooler ID
-func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
-}
-
 // PoolerAddressFor projects a MultiPooler into the contact-info subset the
 // consensus RPCs (SetPrimary, Promote) take. Returns nil if mp is nil.
 func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
@@ -117,7 +107,7 @@ func (ts *store) GetMultiPooler(ctx context.Context, id *clustermetadatapb.ID) (
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get connection for cell %q", id.Cell))
 	}
 
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile)
 	data, version, err := conn.Get(ctx, poolerPath)
 	if err != nil {
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get multipooler %q", id))
@@ -256,7 +246,7 @@ func (ts *store) UpdateMultiPooler(ctx context.Context, mpi *MultiPoolerInfo) er
 	if err != nil {
 		return err
 	}
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(mpi.Id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(mpi.Id)), PoolerFile)
 	newVersion, err := conn.Update(ctx, poolerPath, data, mpi.version)
 	if err != nil {
 		return err
@@ -301,7 +291,7 @@ func (ts *store) CreateMultiPooler(ctx context.Context, mtpooler *clustermetadat
 	if err != nil {
 		return err
 	}
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(mtpooler.Id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(mtpooler.Id)), PoolerFile)
 	if _, err := conn.Create(ctx, poolerPath, data); err != nil {
 		return err
 	}
@@ -316,7 +306,7 @@ func (ts *store) UnregisterMultiPooler(ctx context.Context, id *clustermetadatap
 		return err
 	}
 
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile)
 	if err := conn.Delete(ctx, poolerPath, nil); err != nil {
 		return err
 	}
@@ -332,11 +322,11 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		// Try to update then
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed reading existing mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {
-			return fmt.Errorf("failed updating mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed updating mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
 		}
 		return nil
 	}

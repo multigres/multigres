@@ -2062,7 +2062,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 		executeFn: func(ctx context.Context, problem types.Problem) error {
 			mu.Lock()
 			defer mu.Unlock()
-			poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+			poolerIDStr := string(topoclient.ComponentIDString(problem.PoolerID))
 			executedPoolers[poolerIDStr] = true
 			t.Logf("Action executed for pooler: %s", poolerIDStr)
 			return nil

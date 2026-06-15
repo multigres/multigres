@@ -90,7 +90,7 @@ func newTestRevocation(t *testing.T, coord *Coordinator, cohort []*multiorchdata
 // with an identity ConsensusStatus for the given pooler. The fake client
 // automatically stamps the request's TermRevocation onto the returned status.
 func setRecruitOK(fc *rpcclient.FakeClient, p *multiorchdatapb.PoolerHealthState) {
-	key := topoclient.MultiPoolerIDString(p.MultiPooler.Id)
+	key := topoclient.ComponentIDString(p.MultiPooler.Id)
 	fc.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: p.MultiPooler.Id,
@@ -314,8 +314,8 @@ func TestRun_Success(t *testing.T) {
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
 	// mp1 (leader) receives Promote; mp2 (follower) receives SetPrimary.
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
+	mp1Key := topoclient.ComponentIDString(mp1.MultiPooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.MultiPooler.Id)
 	assert.NotNil(t, fc.PromoteRequests[mp1Key], "leader should receive Promote")
 	assert.Nil(t, fc.PromoteRequests[mp2Key], "follower should not receive Promote")
 	assert.NotNil(t, fc.SetPrimaryRequests[mp2Key], "follower should receive SetPrimary")
@@ -443,7 +443,7 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 	setRecruitOK(fc, mp2)
 
 	leaderID := mp1.MultiPooler.Id
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
+	mp1Key := topoclient.ComponentIDString(mp1.MultiPooler.Id)
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		ProposalLeader: &clustermetadatapb.PoolerAddress{
@@ -503,7 +503,7 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2}
 	setRecruitOK(fc, mp1)
 
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.MultiPooler.Id)
 	fc.RecruitDelays[mp2Key] = 20 * time.Second
 
 	leaderID := mp1.MultiPooler.Id
@@ -535,7 +535,7 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 		"Run blocked waiting for slow recruit; Phase 2 should not wait for in-flight goroutines after quorum")
 	// mp2's Recruit RPC was issued (no pre-filtering on health), but its slow
 	// response did not delay Run.
-	assert.Contains(t, fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", mp2Key),
+	assert.Contains(t, fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)),
 		"Recruit should be issued to all cohort members regardless of health status")
 }
 
@@ -560,8 +560,8 @@ func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
 
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
+	mp1Key := topoclient.ComponentIDString(mp1.MultiPooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.MultiPooler.Id)
 
 	// Gate mp2: its Recruit blocks until the gate is closed.
 	mp2Gate := make(chan struct{})
@@ -654,7 +654,7 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 	// Simpler approach: set an error on mp2 before Run. Recruit will also fail,
 	// but Recruit failure just means no status from mp2, and mp1 alone satisfies
 	// minNodes=1. We promote to just mp1 (the leader), which succeeds.
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.MultiPooler.Id)
 	fc.Errors[mp2Key] = errors.New("standby promote rejected")
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
@@ -662,6 +662,6 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
 	// Leader (mp1) received Promote.
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
+	mp1Key := topoclient.ComponentIDString(mp1.MultiPooler.Id)
 	assert.NotNil(t, fc.PromoteRequests[mp1Key])
 }
