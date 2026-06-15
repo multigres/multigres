@@ -670,6 +670,58 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 	assert.False(t, sa.LeaderPoolerReachable)
 }
 
+// TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule is a regression
+// test for the post-failover window where the newly elected leader has not yet
+// reported a direct health update. A stale leader still self-claims leadership
+// at the old term, while a follower already replicates from the new leader at a
+// higher term. Leader identity must come from who the poolers say the leader is
+// (the rule's LeaderId, including via the replication primary), not from which
+// pooler claims leadership for itself — otherwise the stale leader would be
+// mistaken for the primary and failover suppressed.
+func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+
+	staleLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
+	newLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
+	followerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "follower"}
+
+	ps := store.NewPoolerStore(nil, slog.Default())
+	// Stale leader: still self-claims leadership at the old term (term 5) and is
+	// reachable and ready. Under the old self-claim-only logic this would be
+	// picked as the leader.
+	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:      &clustermetadatapb.MultiPooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		IsLastCheckValid: true,
+		ConsensusStatus:  primaryConsensusStatus(staleLeaderID, 5),
+		Status:           &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: true, PostgresRunning: true},
+	})
+	// Follower: already replicating from the new leader at the higher term (6).
+	// The new leader itself has not reported health yet (absent from the store).
+	ps.Set("multipooler-cell1-follower", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:      &clustermetadatapb.MultiPooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+		IsLastCheckValid: true,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: followerID,
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+					LeaderId:   newLeaderID,
+				},
+			},
+		},
+	})
+
+	gen := NewAnalysisGenerator(ps, nil)
+	sa, err := gen.GenerateShardAnalysis(shardKey)
+	require.NoError(t, err)
+
+	require.NotNil(t, sa.HighestShardRule.GetLeaderId())
+	assert.Equal(t, "new-leader", sa.HighestShardRule.GetLeaderId().Name,
+		"the leader named by the follower's higher-term rule must win over the stale self-claiming leader")
+	assert.Equal(t, int64(6), sa.HighestShardRule.GetRuleNumber().GetCoordinatorTerm())
+	assert.Nil(t, sa.Leader, "the new leader has no health state yet, so Leader is nil")
+}
+
 func TestIsInStandbyList(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
