@@ -41,7 +41,7 @@ import (
 )
 
 // pendingDefaultsMarker is the subset of *reserved.Conn that
-// noteConnectionDefaultsChange needs in order to defer a defaults-invalidation
+// applyConnectionDefaultsInvalidation needs in order to defer a defaults-invalidation
 // bump to COMMIT. Declared as an interface so the decision logic can be unit
 // tested with a lightweight double instead of a live reserved connection.
 type pendingDefaultsMarker interface {
@@ -175,34 +175,58 @@ func (e *Executor) buildReservedStateFromAPI(rc reservedConnAPI) *query.Reserved
 	}
 }
 
-// noteConnectionDefaultsChange handles a statement that the multigateway flagged
-// (options.InvalidatesConnectionDefaults) as changing per-database/role GUC
+// applyConnectionDefaultsInvalidation handles a statement that the multigateway
+// flagged (options.InvalidatesConnectionDefaults) as changing per-database/role GUC
 // defaults. Call it only after the statement executed successfully.
 //
-// The change is durable when the connection is no longer inside a transaction
-// block: for an autocommit statement (regular pooled connection, rc == nil) or a
-// non-transactional reserved connection the post-execution status is idle, so we
-// bump the pools' defaults generation immediately. When the connection is still
-// in a transaction block the change is durable only at COMMIT, so we mark the
-// reserved connection pending and let ConcludeTransaction bump on a successful
-// COMMIT (and discard the mark on ROLLBACK). This mirrors PostgreSQL's
-// transactional-DDL semantics for ALTER DATABASE/ROLE ... SET.
-//
-// rc is the *reserved.Conn the statement ran on, or nil for an autocommit
-// statement on a regular pooled connection. It is taken as an interface so the
-// decision logic is unit-testable without a live backend connection. Pass a
-// literal nil (not a typed-nil *reserved.Conn) for the regular-connection path.
-func (e *Executor) noteConnectionDefaultsChange(options *query.ExecuteOptions, txnStatus protocol.TransactionStatus, rc pendingDefaultsMarker) {
+// reservedConn is the *reserved.Conn the statement ran on, or nil for a regular
+// pooled connection. When non-nil and still held inside a transaction block, the
+// bump is deferred to COMMIT via MarkPendingDefaultsInvalidation. Otherwise the
+// pool generation is bumped immediately and any checked-out reserved backend is
+// reconnected inline so it re-reads pg_db_role_setting.
+func (e *Executor) applyConnectionDefaultsInvalidation(
+	ctx context.Context,
+	options *query.ExecuteOptions,
+	reservedConn *reserved.Conn,
+) {
+	if reservedConn != nil && !reservedConn.IsReleased() {
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, options, reservedConn.TxnStatus(), reservedConn, reservedConn)
+		return
+	}
+	e.applyConnectionDefaultsInvalidationWithStatus(ctx, options, protocol.TxnStatusIdle, nil, nil)
+}
+
+// applyConnectionDefaultsInvalidationWithStatus is the decision core for
+// applyConnectionDefaultsInvalidation. Exposed to unit tests in this package via
+// the marker interface so defer-to-COMMIT logic can be exercised without a live
+// reserved connection.
+func (e *Executor) applyConnectionDefaultsInvalidationWithStatus(
+	ctx context.Context,
+	options *query.ExecuteOptions,
+	txnStatus protocol.TransactionStatus,
+	marker pendingDefaultsMarker,
+	refreshConn *reserved.Conn,
+) {
 	if options == nil || !options.GetInvalidatesConnectionDefaults() {
 		return
 	}
-	if rc != nil && txnStatus != protocol.TxnStatusIdle {
+	if marker != nil && txnStatus != protocol.TxnStatusIdle {
 		// In a transaction block (or a failed block whose COMMIT will roll back):
 		// defer to COMMIT.
-		rc.MarkPendingDefaultsInvalidation()
+		marker.MarkPendingDefaultsInvalidation()
 		return
 	}
 	e.poolManager.InvalidateConnectionDefaults()
+	if refreshConn != nil && !refreshConn.IsReleased() {
+		_ = refreshConn.RefreshDefaultsIfStale(ctx)
+	}
+}
+
+// shouldBumpDefaultsAfterCommit reports whether a successful COMMIT should bump
+// the pool's defaults generation. A pending invalidation is discarded when the
+// transaction block is already aborted (COMMIT becomes PostgreSQL ROLLBACK).
+func shouldBumpDefaultsAfterCommit(pending bool, preCommitTxnStatus protocol.TransactionStatus) bool {
+	return pending && preCommitTxnStatus != protocol.TxnStatusFailed
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -250,7 +274,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			// Query failed but connection still exists — return current state
 			return nil, e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
-		e.noteConnectionDefaultsChange(options, reservedConn.TxnStatus(), reservedConn)
+		e.applyConnectionDefaultsInvalidation(ctx, options, reservedConn)
 
 		if len(results) == 0 {
 			return &sqltypes.Result{}, e.buildReservedState(reservedConn), nil
@@ -284,7 +308,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
-	e.noteConnectionDefaultsChange(options, conn.Conn.TxnStatus(), nil)
+	e.applyConnectionDefaultsInvalidation(ctx, options, nil)
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
@@ -362,14 +386,7 @@ func (e *Executor) StreamExecute(
 			}
 		}
 
-		rs, err := e.streamExecuteOnReservedConn(ctx, reservedConn, sql, reservationOptions, e.sessionSettingsFromOptions(options), callback)
-		// Only inspect the reserved connection when the statement is flagged and the
-		// connection is still held: streamExecuteOnReservedConn may have released it
-		// (e.g. a CLOSE that drained the last reservation reason), after which it can
-		// be re-borrowed by another session and must not be touched here.
-		if err == nil && options.GetInvalidatesConnectionDefaults() && !reservedConn.IsReleased() {
-			e.noteConnectionDefaultsChange(options, reservedConn.TxnStatus(), reservedConn)
-		}
+		rs, err := e.streamExecuteOnReservedConn(ctx, reservedConn, sql, options, reservationOptions, e.sessionSettingsFromOptions(options), callback)
 		return rs, err
 	}
 
@@ -408,7 +425,7 @@ func (e *Executor) StreamExecute(
 		if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
 			return nil, wrapQueryError(err)
 		}
-		e.noteConnectionDefaultsChange(options, conn.Conn.TxnStatus(), nil)
+		e.applyConnectionDefaultsInvalidation(ctx, options, nil)
 		return nil, nil
 	}
 
@@ -416,7 +433,7 @@ func (e *Executor) StreamExecute(
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.noteConnectionDefaultsChange(options, conn.Conn.TxnStatus(), nil)
+	e.applyConnectionDefaultsInvalidation(ctx, options, nil)
 
 	return nil, nil
 }
@@ -525,7 +542,7 @@ func (e *Executor) reserveAndStreamExecute(
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		reservedConn.MarkSessionStateUntrusted()
 	}
-	e.noteConnectionDefaultsChange(options, reservedConn.TxnStatus(), reservedConn)
+	e.applyConnectionDefaultsInvalidation(ctx, options, reservedConn)
 
 	// If the gateway flagged this statement as touching an advisory lock,
 	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
@@ -555,6 +572,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	ctx context.Context,
 	rc reservedConnAPI,
 	sql string,
+	options *query.ExecuteOptions,
 	reservationOptions *query.ReservationOptions,
 	gatewaySessionSettings map[string]string,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -620,6 +638,16 @@ func (e *Executor) streamExecuteOnReservedConn(
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		rc.MarkSessionStateUntrusted()
+	}
+
+	// Apply defaults invalidation before any step that may release the backend
+	// (portal drain, advisory unpin). When rc is a real *reserved.Conn the
+	// active backend is refreshed inline; when it is a test mock we still bump
+	// the pool generation.
+	if reservedConn, ok := rc.(*reserved.Conn); ok {
+		e.applyConnectionDefaultsInvalidation(ctx, options, reservedConn)
+	} else {
+		e.applyConnectionDefaultsInvalidation(ctx, options, nil)
 	}
 
 	// Apply portal releases after the query succeeds. CLOSE forwards the
@@ -918,7 +946,7 @@ func (e *Executor) portalExecuteWithReserved(
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		reservedConn.MarkSessionStateUntrusted()
 	}
-	e.noteConnectionDefaultsChange(options, reservedConn.TxnStatus(), reservedConn)
+	e.applyConnectionDefaultsInvalidation(ctx, options, reservedConn)
 
 	// If portal is suspended (not completed), keep the reserved connection for
 	// continuation. Do NOT probe advisory locks here: the extended-protocol
@@ -990,7 +1018,7 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.noteConnectionDefaultsChange(options, conn.Conn.TxnStatus(), nil)
+	e.applyConnectionDefaultsInvalidation(ctx, options, nil)
 
 	// No reserved connection for regular execution
 	return nil, nil
@@ -1817,12 +1845,16 @@ func (e *Executor) ConcludeTransaction(
 		// allowlisted CREATE EXTENSION) that ran inside this transaction becomes
 		// durable only now, so the generation bump is owed on a successful COMMIT.
 		pendingDefaultsInvalidation := reservedConn.PendingDefaultsInvalidation()
+		preCommitTxnStatus := reservedConn.TxnStatus()
 		if err := reservedConn.Commit(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}
-		if pendingDefaultsInvalidation {
+		if shouldBumpDefaultsAfterCommit(pendingDefaultsInvalidation, preCommitTxnStatus) {
 			e.poolManager.InvalidateConnectionDefaults()
+			if !reservedConn.IsReleased() {
+				_ = reservedConn.RefreshDefaultsIfStale(ctx)
+			}
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
 		commandTag = "ROLLBACK"

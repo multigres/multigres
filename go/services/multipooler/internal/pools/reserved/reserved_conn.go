@@ -230,6 +230,14 @@ func (c *Conn) PendingDefaultsInvalidation() bool {
 	return c.pendingDefaultsInvalidation
 }
 
+// RefreshDefaultsIfStale reconnects the underlying backend when the pool's
+// defaults-generation has been bumped since this connection was established.
+// Used for checked-out reserved connections that do not go through the pool's
+// borrow-time refresh path.
+func (c *Conn) RefreshDefaultsIfStale(ctx context.Context) error {
+	return c.pooled.RefreshIfStale(ctx)
+}
+
 // IsInTransaction returns true if there's an active transaction.
 func (c *Conn) IsInTransaction() bool {
 	return c.reservedProps != nil && c.reservedProps.IsForTransaction()

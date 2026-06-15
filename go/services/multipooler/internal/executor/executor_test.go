@@ -65,12 +65,14 @@ type mockReservedConn struct {
 	releaseCalls    []reserved.ReleaseReason
 	markedUntrusted bool
 	openHoldCursors map[string]bool
+	released        bool
 }
 
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool    { return m.inTxn }
+func (m *mockReservedConn) IsReleased() bool         { return m.released }
 
 func (m *mockReservedConn) BeginWithQuery(_ context.Context, q string) error {
 	m.beginCalls = append(m.beginCalls, q)
@@ -132,6 +134,7 @@ func (m *mockReservedConn) Query(_ context.Context, sql string) ([]*sqltypes.Res
 }
 
 func (m *mockReservedConn) Release(reason reserved.ReleaseReason, _ map[string]string) {
+	m.released = true
 	m.releaseCalls = append(m.releaseCalls, reason)
 }
 
@@ -222,6 +225,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
 		nil,
 		noopCallback,
@@ -247,6 +251,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
+		nil,
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
 		nil,
 		noopCallback,
@@ -259,6 +264,37 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
 	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseAdvisoryUnlock}, rc.releaseCalls,
 		"connection must be released once the last advisory lock is gone")
 	require.Nil(t, state, "released connection should report a nil (zero) reservation state")
+}
+
+// TestStreamExecuteOnReservedConn_InvalidatesBeforeRelease verifies that a
+// defaults-changing statement still bumps the pool generation when
+// streamExecuteOnReservedConn releases the backend afterward (portal drain).
+func TestStreamExecuteOnReservedConn_InvalidatesBeforeRelease(t *testing.T) {
+	pm := &stubPoolManager{}
+	e := &Executor{
+		logger:      slog.Default(),
+		poolManager: pm,
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+	}
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonPortal,
+		openHoldCursors:  map[string]bool{"c1": true},
+	}
+	opts := &query.ExecuteOptions{InvalidatesConnectionDefaults: true}
+
+	_, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "ALTER DATABASE postgres SET search_path = public",
+		opts,
+		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
+		nil,
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, pm.invalidateDefaultsCalls,
+		"pool generation must bump before the backend is released")
+	assert.True(t, rc.IsReleased(), "portal drain should have released the backend")
 }
 
 // TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn verifies that the
@@ -275,6 +311,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn(t *testing.T) {
 
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
 		nil,
 		noopCallback,
@@ -297,6 +334,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned(t *testing.T)
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
 		nil,
 		noopCallback,
@@ -321,6 +359,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryEmptyProbeKeepsPinned(t *testing.T)
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
+		nil,
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
 		nil,
 		noopCallback,
@@ -348,6 +387,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{}, // no RecheckAdvisoryLocks
 		nil,
 		noopCallback,
@@ -373,6 +413,7 @@ func TestStreamExecuteOnReservedConn_AddsTransactionViaBegin(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "INSERT INTO t VALUES (1)",
+		nil,
 		&query.ReservationOptions{
 			Reasons:    protoutil.ReasonTransaction,
 			BeginQuery: "BEGIN ISOLATION LEVEL SERIALIZABLE",
@@ -408,6 +449,7 @@ func TestStreamExecuteOnReservedConn_SkipsBeginIfAlreadyInTxn(t *testing.T) {
 
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
 		nil,
 		noopCallback,
@@ -429,6 +471,7 @@ func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CREATE TEMP TABLE t (id int)",
+		nil,
 		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
 		nil,
 		noopCallback,
@@ -454,6 +497,7 @@ func TestStreamExecuteOnReservedConn_BeginErrorPropagates(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
 		nil,
 		noopCallback,
@@ -477,6 +521,7 @@ func TestStreamExecuteOnReservedConn_DefaultBeginQueryWhenEmpty(t *testing.T) {
 
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
+		nil,
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, // BeginQuery left empty
 		nil,
 		noopCallback,
@@ -499,7 +544,7 @@ func TestStreamExecuteOnReservedConn_NoReservationOptions(t *testing.T) {
 	e := newTestExecutor()
 
 	_, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc, "SELECT 1", nil, nil, noopCallback,
+		context.Background(), rc, "SELECT 1", nil, nil, nil, noopCallback,
 	)
 
 	require.NoError(t, err)
@@ -523,6 +568,7 @@ func TestStreamExecuteOnReservedConn_PinPortalSuccess(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc,
 		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
+		nil,
 		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
 		nil,
 		noopCallback,
@@ -556,6 +602,7 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureRollsBack(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc,
 		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
+		nil,
 		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
 		nil,
 		noopCallback,
@@ -589,6 +636,7 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc,
 		"DECLARE bad CURSOR WITH HOLD FOR SELECT garbage",
+		nil,
 		&query.ReservationOptions{PinPortalNames: []string{"bad"}},
 		nil,
 		noopCallback,
@@ -619,6 +667,7 @@ func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T)
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CLOSE c1",
+		nil,
 		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
 		nil,
 		noopCallback,
@@ -646,6 +695,7 @@ func TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons(t *testing.T
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CLOSE c1",
+		nil,
 		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
 		nil,
 		noopCallback,
@@ -673,6 +723,7 @@ func TestStreamExecuteOnReservedConn_MarkSessionStateUntrusted(t *testing.T) {
 
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "ROLLBACK TO SAVEPOINT sp",
+		nil,
 		&query.ReservationOptions{MarkSessionStateUntrusted: true},
 		nil,
 		noopCallback,

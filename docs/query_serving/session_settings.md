@@ -59,21 +59,26 @@ pooled connections:
 2. **Durability-aware bump** (multipooler executor): on **successful**
    execution, if the connection is now idle (autocommit, or a
    non-transactional reserved connection) the change is durable, so the
-   executor bumps the pool's _defaults generation_ immediately. If the
-   statement ran inside an explicit transaction the change is durable only at
-   `COMMIT`, so the executor marks the reserved connection pending and bumps on
-   a successful `COMMIT`. `ROLLBACK` discards the mark (no bump). A
+   executor bumps the pool's _defaults generation_ immediately and reconnects
+   any still-held reserved backend inline. If the statement ran inside an
+   explicit transaction the change is durable only at `COMMIT`, so the executor
+   marks the reserved connection pending and bumps on a successful `COMMIT`
+   (skipping the bump when the block is already aborted — a client `COMMIT`
+   becomes PostgreSQL `ROLLBACK`). `ROLLBACK` discards the mark (no bump). A
    `ROLLBACK TO SAVEPOINT` keeps the mark — a deliberately conservative choice
    (an extra refresh is harmless; a missed one would leak stale defaults). This
    mirrors PostgreSQL's transactional-DDL semantics.
 
 3. **Lazy refresh** (`connpool.Pool`): bumping the generation does not close any
-   connection. Each pooled connection records the generation it was
-   established under; on its **next borrow**, a connection whose generation is
-   stale is transparently reconnected (`refreshIfStale`) so the fresh backend
-   re-reads `pg_db_role_setting`. The hot-path cost is one atomic load plus an
-   int compare; an actual reconnect happens at most once per connection per
-   bump, and only when that connection is next used.
+   idle connection eagerly. Each pooled connection records the generation it was
+   established under; on its **next borrow**, an idle connection whose generation
+   is stale is transparently reconnected (`refreshIfStale`) so the fresh backend
+   re-reads `pg_db_role_setting`. Checked-out reserved connections are refreshed
+   inline at invalidation time instead of waiting for release. Invalidation runs
+   before any reserved-conn release step (portal drain, advisory unpin) so a
+   defaults-changing statement cannot be followed by a backend release that skips
+   the bump. The hot-path cost is one atomic load plus an int compare on borrow;
+   an actual reconnect happens at most once per connection per bump.
 
 ### Deviations and limitations of this behaviour
 

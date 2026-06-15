@@ -14,7 +14,11 @@
 
 package connpool
 
-import "github.com/multigres/multigres/go/services/multipooler/internal/connstate"
+import (
+	"context"
+
+	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
+)
 
 // Pooled wraps a connection with metadata for pool management.
 // It tracks creation time and last used time using monotonic timestamps.
@@ -81,4 +85,11 @@ func (p *Pooled[C]) Taint() {
 // Settings returns the current settings of the connection from the underlying connection.
 func (p *Pooled[C]) Settings() *connstate.Settings {
 	return p.Conn.Settings()
+}
+
+// RefreshIfStale reconnects the underlying backend when its defaults-generation
+// predates the pool's current generation. Used for checked-out connections
+// (e.g. reserved) that bypass the pool's normal borrow-time refresh path.
+func (p *Pooled[C]) RefreshIfStale(ctx context.Context) error {
+	return p.pool.refreshIfStale(ctx, p)
 }

@@ -15,6 +15,7 @@
 package executor
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
@@ -30,7 +31,8 @@ type pendingMarkerSpy struct{ marked bool }
 
 func (s *pendingMarkerSpy) MarkPendingDefaultsInvalidation() { s.marked = true }
 
-func TestNoteConnectionDefaultsChange(t *testing.T) {
+func TestApplyConnectionDefaultsInvalidation(t *testing.T) {
+	ctx := context.Background()
 	newExec := func() (*Executor, *stubPoolManager) {
 		pm := &stubPoolManager{}
 		return &Executor{logger: slog.Default(), poolManager: pm}, pm
@@ -39,26 +41,26 @@ func TestNoteConnectionDefaultsChange(t *testing.T) {
 
 	t.Run("nil options is a no-op", func(t *testing.T) {
 		e, pm := newExec()
-		e.noteConnectionDefaultsChange(nil, protocol.TxnStatusIdle, nil)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, nil, protocol.TxnStatusIdle, nil, nil)
 		assert.Equal(t, 0, pm.invalidateDefaultsCalls)
 	})
 
 	t.Run("flag unset is a no-op", func(t *testing.T) {
 		e, pm := newExec()
-		e.noteConnectionDefaultsChange(&query.ExecuteOptions{}, protocol.TxnStatusIdle, nil)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, &query.ExecuteOptions{}, protocol.TxnStatusIdle, nil, nil)
 		assert.Equal(t, 0, pm.invalidateDefaultsCalls)
 	})
 
 	t.Run("autocommit regular connection bumps immediately", func(t *testing.T) {
 		e, pm := newExec()
-		e.noteConnectionDefaultsChange(flagged, protocol.TxnStatusIdle, nil)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, flagged, protocol.TxnStatusIdle, nil, nil)
 		assert.Equal(t, 1, pm.invalidateDefaultsCalls)
 	})
 
 	t.Run("idle reserved connection bumps immediately", func(t *testing.T) {
 		e, pm := newExec()
 		spy := &pendingMarkerSpy{}
-		e.noteConnectionDefaultsChange(flagged, protocol.TxnStatusIdle, spy)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, flagged, protocol.TxnStatusIdle, spy, nil)
 		assert.Equal(t, 1, pm.invalidateDefaultsCalls)
 		assert.False(t, spy.marked, "an idle (autocommitted) statement must not defer")
 	})
@@ -66,7 +68,7 @@ func TestNoteConnectionDefaultsChange(t *testing.T) {
 	t.Run("in-transaction defers to COMMIT", func(t *testing.T) {
 		e, pm := newExec()
 		spy := &pendingMarkerSpy{}
-		e.noteConnectionDefaultsChange(flagged, protocol.TxnStatusInBlock, spy)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, flagged, protocol.TxnStatusInBlock, spy, nil)
 		assert.Equal(t, 0, pm.invalidateDefaultsCalls, "must not bump until COMMIT")
 		assert.True(t, spy.marked, "must mark the reserved connection pending")
 	})
@@ -74,8 +76,17 @@ func TestNoteConnectionDefaultsChange(t *testing.T) {
 	t.Run("failed transaction block defers (COMMIT becomes ROLLBACK in PG)", func(t *testing.T) {
 		e, pm := newExec()
 		spy := &pendingMarkerSpy{}
-		e.noteConnectionDefaultsChange(flagged, protocol.TxnStatusFailed, spy)
+		e.applyConnectionDefaultsInvalidationWithStatus(ctx, flagged, protocol.TxnStatusFailed, spy, nil)
 		assert.Equal(t, 0, pm.invalidateDefaultsCalls)
 		assert.True(t, spy.marked)
 	})
+}
+
+func TestShouldBumpDefaultsAfterCommit(t *testing.T) {
+	assert.False(t, shouldBumpDefaultsAfterCommit(false, protocol.TxnStatusIdle))
+	assert.False(t, shouldBumpDefaultsAfterCommit(false, protocol.TxnStatusFailed))
+	assert.True(t, shouldBumpDefaultsAfterCommit(true, protocol.TxnStatusIdle))
+	assert.True(t, shouldBumpDefaultsAfterCommit(true, protocol.TxnStatusInBlock))
+	assert.False(t, shouldBumpDefaultsAfterCommit(true, protocol.TxnStatusFailed),
+		"COMMIT on an aborted block must not bump pool defaults")
 }

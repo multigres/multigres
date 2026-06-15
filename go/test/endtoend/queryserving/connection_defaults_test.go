@@ -35,14 +35,15 @@ const newSearchPath = "public, information_schema"
 // resetDatabaseSearchPath clears the per-database search_path default so the
 // shared cluster is left clean for other tests. Runs on its own connection with
 // a background context so it still fires when the test's context is done.
-func resetDatabaseSearchPath(db *sql.DB, dbName string) {
+func resetDatabaseSearchPath(db *sql.DB, dbName string) error {
 	cc, err := db.Conn(context.Background())
 	if err != nil {
-		return
+		return err
 	}
 	defer cc.Close()
-	_, _ = cc.ExecContext(context.Background(),
+	_, err = cc.ExecContext(context.Background(),
 		fmt.Sprintf("ALTER DATABASE %s RESET search_path", dbName))
+	return err
 }
 
 // TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabase verifies that
@@ -71,7 +72,7 @@ func TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabase(t *testing.T
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := utils.WithTimeout(t, 120*time.Second)
 
@@ -81,7 +82,8 @@ func TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabase(t *testing.T
 
 	var dbName string
 	require.NoError(t, c.QueryRowContext(ctx, "SELECT current_database()").Scan(&dbName))
-	t.Cleanup(func() { resetDatabaseSearchPath(db, dbName) })
+	require.NoError(t, resetDatabaseSearchPath(db, dbName))
+	t.Cleanup(func() { require.NoError(t, resetDatabaseSearchPath(db, dbName)) })
 
 	// Warm a pooled backend so at least one connection exists BEFORE the ALTER;
 	// it caches PostgreSQL's session-start search_path and is therefore stale.
@@ -125,7 +127,7 @@ func TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabaseInTransaction
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := utils.WithTimeout(t, 120*time.Second)
 
@@ -135,7 +137,8 @@ func TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabaseInTransaction
 
 	var dbName string
 	require.NoError(t, c.QueryRowContext(ctx, "SELECT current_database()").Scan(&dbName))
-	t.Cleanup(func() { resetDatabaseSearchPath(db, dbName) })
+	require.NoError(t, resetDatabaseSearchPath(db, dbName))
+	t.Cleanup(func() { require.NoError(t, resetDatabaseSearchPath(db, dbName)) })
 
 	_, err = c.ExecContext(ctx, "SELECT 1")
 	require.NoError(t, err)
@@ -151,4 +154,55 @@ func TestMultiGateway_ConnectionDefaultsRefreshedAfterAlterDatabaseInTransaction
 	require.NoError(t, c.QueryRowContext(ctx, "SHOW search_path").Scan(&after))
 	require.Equal(t, newSearchPath, after,
 		"after COMMIT, pooled backends must observe the new per-database search_path default")
+}
+
+// TestMultiGateway_ConnectionDefaultsRefreshedWithHeldReservedConn verifies that
+// a checked-out reserved backend (held for temp tables) is reconnected inline
+// after a durable defaults change, without requiring the connection to be
+// released back to the pool first.
+func TestMultiGateway_ConnectionDefaultsRefreshedWithHeldReservedConn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := utils.WithTimeout(t, 120*time.Second)
+
+	c, err := db.Conn(ctx)
+	require.NoError(t, err)
+	defer c.Close()
+
+	var dbName string
+	require.NoError(t, c.QueryRowContext(ctx, "SELECT current_database()").Scan(&dbName))
+	require.NoError(t, resetDatabaseSearchPath(db, dbName))
+	t.Cleanup(func() { require.NoError(t, resetDatabaseSearchPath(db, dbName)) })
+
+	// Reserve a backend for the session (temp table reason).
+	_, err = c.ExecContext(ctx, "CREATE TEMP TABLE connection_defaults_hold (x int)")
+	require.NoError(t, err)
+
+	_, err = c.ExecContext(ctx, "SELECT 1")
+	require.NoError(t, err)
+
+	var before string
+	require.NoError(t, c.QueryRowContext(ctx, "SHOW search_path").Scan(&before))
+	require.NotEqual(t, newSearchPath, before)
+
+	_, err = c.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s SET search_path TO %s", dbName, newSearchPath))
+	require.NoError(t, err)
+
+	var after string
+	require.NoError(t, c.QueryRowContext(ctx, "SHOW search_path").Scan(&after))
+	require.Equal(t, newSearchPath, after,
+		"held reserved backend must reconnect inline and observe the new per-database search_path default")
 }
