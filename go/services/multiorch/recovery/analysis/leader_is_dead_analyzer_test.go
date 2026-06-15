@@ -203,7 +203,31 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
 	})
 
-	t.Run("triggers failover when replicas connected but postgres timestamp expired", func(t *testing.T) {
+	t.Run("triggers failover when pooler reachable but postgres process alive and unresponsive beyond threshold", func(t *testing.T) {
+		// The pooler is reachable and reports the postgres process is alive but not
+		// accepting connections (pg_isready failing). Because we can reach the pooler,
+		// we trust its direct signal: suppress only while postgres responded recently,
+		// then allow failover once the response threshold lapses so a wedged postgres
+		// cannot block failover forever.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.LeaderPoolerReachable = true
+			sa.LeaderPostgresRunning = true                                    // process exists
+			sa.LeaderPostgresReady = false                                     // but wedged (pg_isready fails)
+			sa.ReplicasConnectedToLeader = true                                // replicas still appear connected
+			sa.LeaderLastPostgresReadyTime = time.Now().Add(-60 * time.Second) // beyond 30s default threshold
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "should fail over when a reachable postgres has been unresponsive past the threshold")
+		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+	})
+
+	t.Run("suppresses failover when pooler unreachable but replicas connected, even with an expired postgres timestamp", func(t *testing.T) {
+		// When the leader pooler is unreachable we cannot observe its postgres
+		// directly, so the leader's own LastPostgresReadyTime is irrelevant. The
+		// replicas being connected (ReplicasConnectedToLeader requires fresh WAL
+		// heartbeats) is itself proof the leader's postgres is alive.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
 			sa.LeaderPostgresReady = false
@@ -213,22 +237,24 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should trigger failover when postgres timestamp has expired")
-		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+		require.Empty(t, problems, "replicas streaming from the leader's postgres proves it is alive; do not fail over")
 	})
 
-	t.Run("triggers failover when replicas connected but postgres never responded (zero timestamp)", func(t *testing.T) {
+	t.Run("suppresses failover when pooler unreachable but replicas connected, even with a zero postgres timestamp", func(t *testing.T) {
+		// Regression: the leader's pooler died before multiorch ever recorded a
+		// PostgresReady snapshot (zero timestamp), yet replicas are still streaming.
+		// Leader identity is recovered from the replicas' consensus rules, and their
+		// fresh streaming proves postgres is alive, so failover must be suppressed.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.LeaderPoolerReachable = false
 			sa.LeaderPostgresReady = false
 			sa.ReplicasConnectedToLeader = true
-			sa.LeaderLastPostgresReadyTime = time.Time{} // Zero: postgres never seen healthy on this leader
+			sa.LeaderLastPostgresReadyTime = time.Time{} // Zero: postgres never directly seen healthy
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should trigger failover when postgres has never responded")
-		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+		require.Empty(t, problems, "a dead pooler cannot report a postgres timestamp; trust the streaming replicas")
 	})
 
 	t.Run("suppresses LeaderIsDead while pg_promote() is running", func(t *testing.T) {
