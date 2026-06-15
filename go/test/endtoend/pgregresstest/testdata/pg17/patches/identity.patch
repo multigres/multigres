@@ -1,0 +1,20 @@
+--- a
++++ b
+@@ -367,6 +367,8 @@
+ ERROR: identity column type must be smallint, integer, or bigint
+ -- check that unlogged propagates to sequence
+ CREATE UNLOGGED TABLE itest17 (a int NOT NULL, b text);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ ALTER TABLE itest17 ALTER COLUMN a ADD GENERATED ALWAYS AS IDENTITY;
+ ALTER TABLE itest17 ADD COLUMN c int GENERATED ALWAYS AS IDENTITY;
+ \d itest17
+@@ -910,6 +912,8 @@
+ CREATE TABLE identity_dump_logged (a INT GENERATED ALWAYS AS IDENTITY);
+ ALTER SEQUENCE identity_dump_logged_a_seq SET UNLOGGED;
+ CREATE UNLOGGED TABLE identity_dump_unlogged (a INT GENERATED ALWAYS AS IDENTITY);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ ALTER SEQUENCE identity_dump_unlogged_a_seq SET LOGGED;
+ SELECT relname, relpersistence FROM pg_class
+ WHERE relname ~ '^identity_dump_' ORDER BY 1;
