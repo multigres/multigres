@@ -617,6 +617,57 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 	})
 }
 
+// TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore covers the invariant
+// that justifies keeping HighestShardRule (consensus identity) and Leader (health)
+// as separate fields: a follower can carry a rule naming a leader whose own health
+// state is not in the store. The leader is then identified by consensus but has no
+// health to attach, so Leader is nil and the leader is treated as unreachable.
+func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
+	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+
+	absentLeaderID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "absent-leader",
+	}
+	followerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "follower",
+	}
+
+	ps := store.NewPoolerStore(nil, slog.Default())
+	// Only the follower is in the store. Its replication primary rule names the
+	// leader at term 5, so consensus identifies a leader the store has no health for.
+	ps.Set("multipooler-cell1-follower", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       followerID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+		},
+		IsLastCheckValid: true,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: followerID,
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					LeaderId:   absentLeaderID,
+				},
+			},
+		},
+	})
+
+	gen := NewAnalysisGenerator(ps, nil)
+	sa, err := gen.GenerateShardAnalysis(shardKey)
+	require.NoError(t, err)
+
+	require.NotNil(t, sa.HighestShardRule.GetLeaderId(), "consensus must still identify the leader")
+	assert.Equal(t, "absent-leader", sa.HighestShardRule.GetLeaderId().Name)
+	assert.Nil(t, sa.Leader, "no health state exists for the named leader")
+	assert.False(t, sa.LeaderReachable, "a leader with no health cannot be reachable")
+	assert.False(t, sa.LeaderPoolerReachable)
+}
+
 func TestIsInStandbyList(t *testing.T) {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
