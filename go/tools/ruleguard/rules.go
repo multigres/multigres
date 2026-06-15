@@ -228,3 +228,31 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
 }
+
+// disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's
+// replication primary — both the generated GetReplicationPrimary() getter and the
+// raw .ReplicationPrimary field. proto3 cannot tell an unset ReplicationPrimary
+// from one written with the zero-valued initial rule (0/0, no leader — the shape
+// of fresh cluster state, e.g. the first backup), so reading it raw lets a phantom
+// 0/0 entry masquerade as a real leader. Route reads through
+// commonconsensus.ReplicationPrimaryOrNil, which returns nil for a 0/0 entry.
+//
+// Excluded:
+//   - go/common/consensus: implements the safe accessor (reads the field itself).
+//   - rpc_consensus.go: builds a ConsensusStatus and must assign the field; the
+//     DSL can't distinguish an assignment target from a read.
+//   - test files.
+//
+// The unrelated ConsensusState.GetReplicationPrimary() (the multipooler's
+// in-memory holder) is a different receiver type and is not matched.
+func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+
+	m.Match(`$x.GetReplicationPrimary()`, `$x.ReplicationPrimary`).
+		Where(
+			m["x"].Type.Is("*clustermetadata.ConsensusStatus") &&
+				!m.File().PkgPath.Matches(`common/consensus`) &&
+				!m.File().Name.Matches(`rpc_consensus\.go$`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
+}

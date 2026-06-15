@@ -107,6 +107,28 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 	return best
 }
 
+// ReplicationPrimaryOrNil returns cs's replication primary, or nil when it
+// carries no established leader to replicate from.
+//
+// proto3 cannot distinguish an unset ReplicationPrimary from one explicitly
+// written with a zero-valued rule, and the initial cluster state is exactly
+// that zero value: rule number 0/0 with no leader (e.g. the first backup is
+// taken at rule 0/0 with an empty cohort and no leader). A 0/0 replication
+// primary therefore means "no leader has been established to replicate from"
+// and is reported as absent. The first appointed leader always advances the
+// rule number past 0/0, so a real replication primary is never dropped.
+//
+// Always use this instead of ConsensusStatus.GetReplicationPrimary() (enforced
+// by ruleguard) so a phantom 0/0 entry never gets mistaken for a real one.
+func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermetadatapb.ReplicationPrimary {
+	rp := cs.GetReplicationPrimary()
+	rn := rp.GetRule().GetRuleNumber()
+	if rn.GetCoordinatorTerm() == 0 && rn.GetLeaderSubterm() == 0 {
+		return nil
+	}
+	return rp
+}
+
 // HighestKnownRule returns the ShardRule with the greatest rule number known to
 // any of the given consensus statuses. For each status it considers both the
 // rule the pooler is currently positioned at and the rule under which its
@@ -116,8 +138,8 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 // LSN requirement), since leader identity is a function of the rule alone.
 // Returns nil when no status carries a rule.
 //
-// This is the single way leader identity is determined across the system: the
-// highest known rule names the consensus leader (GetLeaderId()).
+// A phantom 0/0 replication primary (see ReplicationPrimaryOrNil) is ignored so
+// it never shadows a real rule.
 //
 // TODO: detect equivocation. Two rules sharing the same rule number but naming
 // different leaders is a protocol-invariant violation (a rule number is assigned
@@ -129,7 +151,7 @@ func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermet
 	for _, cs := range statuses {
 		for _, rule := range []*clustermetadatapb.ShardRule{
 			cs.GetCurrentPosition().GetRule(),
-			cs.GetReplicationPrimary().GetRule(),
+			ReplicationPrimaryOrNil(cs).GetRule(),
 		} {
 			if rule == nil {
 				continue

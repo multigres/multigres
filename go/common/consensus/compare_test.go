@@ -312,4 +312,50 @@ func TestHighestKnownRule(t *testing.T) {
 		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")})
 		assert.Equal(t, "new", got.GetLeaderId().GetName(), "newer leader via replication primary should win")
 	})
+
+	t.Run("phantom 0/0 replication primary is ignored", func(t *testing.T) {
+		// A pooler positioned at a real rule (term 5) but carrying a zero-valued
+		// replication primary (rule 0/0, no leader) — the fresh/never-established
+		// shape. The phantom entry must not shadow the real position rule.
+		phantom := posStatus(5, "leader")
+		phantom.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)},
+		}
+		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{phantom})
+		assert.Equal(t, "leader", got.GetLeaderId().GetName(), "real position rule should win over phantom 0/0 replication primary")
+	})
+}
+
+func TestReplicationPrimaryOrNil(t *testing.T) {
+	t.Run("nil status", func(t *testing.T) {
+		assert.Nil(t, ReplicationPrimaryOrNil(nil))
+	})
+
+	t.Run("unset replication primary", func(t *testing.T) {
+		assert.Nil(t, ReplicationPrimaryOrNil(&clustermetadatapb.ConsensusStatus{}))
+	})
+
+	t.Run("zero-valued 0/0 rule is treated as absent", func(t *testing.T) {
+		cs := &clustermetadatapb.ConsensusStatus{
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)},
+			},
+		}
+		assert.Nil(t, ReplicationPrimaryOrNil(cs))
+	})
+
+	t.Run("empty rule (no rule number) is treated as absent", func(t *testing.T) {
+		cs := &clustermetadatapb.ConsensusStatus{
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Rule: &clustermetadatapb.ShardRule{}},
+		}
+		assert.Nil(t, ReplicationPrimaryOrNil(cs))
+	})
+
+	t.Run("established replication primary is returned", func(t *testing.T) {
+		rp := &clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(1, 0), LeaderId: leaderID("leader")},
+		}
+		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: rp}
+		assert.Same(t, rp, ReplicationPrimaryOrNil(cs))
+	})
 }
