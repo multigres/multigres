@@ -26,6 +26,23 @@ import (
 // LeaderIsDeadAnalyzer detects when a leader exists in the shard but is unhealthy/unreachable.
 // It operates at the shard level: if any initialized follower observes the leader as dead,
 // one shard-scoped problem is emitted.
+//
+// TODO: split this analyzer into distinct conditions in a future PR. Today a
+// single reachability + postgres-response heuristic conflates failure modes that
+// have different evidence and different correct responses, which is what made the
+// "pooler dead but postgres healthy" suppression bug easy to miss. The conditions:
+//
+//   - Leader unhealthy: the leader is reachable and directly reports trouble (e.g.
+//     postgres unresponsive / process down). We have a first-hand signal here.
+//   - Unreachable leader, replicas lost hope: we can't reach the leader, but if we
+//     can show that no quorum of replicas has a live connection (or hope of one)
+//     to the leader, failover may be worth attempting.
+//   - No heartbeats reaching WAL: even when replicas can still connect to a leader
+//     we can't reach directly, an absence of newly written heartbeats is suspicious
+//     — it suggests either the unreachable leader's pooler is down (so queries can't
+//     be served) or the pooler is up but writes are blocked (e.g. a read-only disk).
+//     Suppress only when the leader is reachable and the read-only/no-write state appears
+//     intentional; otherwise this warrants failover.
 type LeaderIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
