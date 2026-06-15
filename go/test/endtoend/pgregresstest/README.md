@@ -128,31 +128,33 @@ rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 `extensions.go` holds `ExtensionCatalog` — common PostgreSQL extensions, not
 the full `pg_available_extensions` list, with each one's kind (contrib /
-external) and coverage status (covered / build-only / pending / unsupported /
-external, each with a reason). `DefaultContribModules` is **derived** from it
+external) and coverage status (covered / partial / build-only / pending /
+unsupported / external, each with a reason). `DefaultContribModules` is **derived** from it
 (the `covered` entries), so enrolling a new contrib extension is a one-line
 catalog edit.
 
 Every compatibility report includes a generated **Extension Coverage** table
 (`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
-results: covered extensions expand to one row per sub-test with the live
-pass/fail, build-only extensions show their smoke-load result, and
+results: covered and partial extensions expand to one row per sub-test with the
+live pass/fail, build-only extensions show their smoke-load result, and
 pending/unsupported/external extensions show a single row with the reason. The
 table is the living coverage tracker — it updates automatically as catalog
-entries move to `covered` or `build-only` and their checks run.
+entries move to `covered`, `partial`, or `build-only` and their checks run.
 
 ## External Extension Tests
 
 The external suite verifies extensions that live **outside** the PostgreSQL
 source tree (separate repositories), executed through multigateway. Most run
-their upstream `pg_regress` or pgTAP suites; build-only entries are built,
-preloaded when needed, and smoke-loaded with `CREATE EXTENSION`. The runnable
-set lives in `externalSpecs` (`extensions.go`), each pinned to a tag (or a
-commit, for upstreams that never tag): `vector` (pgvector), `pg_cron` (Citus
-pg_cron), `pgmq` (tembo-io message queue), `pg_graphql` (Supabase GraphQL),
-`index_advisor` (Supabase), `plpgsql_check` (okbob), `pgjwt` (michelp),
-`pgsodium` (michelp), `pg_partman` (pgTAP suite), `hypopg`, `http`,
-`pg_jsonschema`, `pgtap` (its own pg_regress suite), and build-only `pgaudit`.
+their upstream `pg_regress` or pgTAP suites; partial entries also run their
+upstream suite but carry documented patches for known drop-in gaps; build-only
+entries are built, preloaded when needed, and smoke-loaded with `CREATE
+EXTENSION`. The runnable set lives in `externalSpecs` (`extensions.go`), each
+pinned to a tag (or a commit, for upstreams that never tag): `vector`
+(pgvector), `pg_cron` (Citus pg_cron), `pgmq` (tembo-io message queue),
+`pg_graphql` (Supabase GraphQL), `index_advisor` (Supabase), `plpgsql_check`
+(okbob), `pgjwt` (michelp), `pgsodium` (michelp), `pg_partman` (pgTAP suite),
+`hypopg` (partial), `http`, `pg_jsonschema`, `pgtap` (its own pg_regress suite),
+and build-only `pgaudit`.
 `externalSpecs` also holds dependency-only modules that are installed before
 dependents (see `DependsOn` below).
 
@@ -313,50 +315,12 @@ on `ExternalExtension` (`extensions.go`):
   `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
   left in pg_cron's patch). Don't use this to fake reachability of a feature
   multigres genuinely blocks — only for name/metadata references like the above.
-- **`WrapTransactions`** — materializes a transformed copy of the suite with
-  every test file wrapped in `BEGIN … COMMIT` (plus
-  `\set ON_ERROR_ROLLBACK on`), applying the same insertions to the expected
-  files so input and oracle stay in lockstep. Inside an explicit transaction
-  multigateway reserves ONE pooled backend for its duration, which makes
-  suites that assert on backend-local state across autocommit statements
-  runnable through the transaction pooler: hypopg (hypothetical indexes live
-  in backend memory), http (curl option state set via `http_set_curlopt`). The
-  wrap breaks around `\connect`, the file's own `BEGIN`/`COMMIT` blocks, and `VACUUM`
-  (which can't run inside a transaction block); statements the gateway rejects
-  before they reach a backend stay inside. See `wrap.go`.
-- **`WrapSetupSQL`** — statements the wrap injects after each transaction
-  REOPEN (post-`VACUUM` break or `\connect`), with their exact expected output
-  spliced into the materialized expected files. hypopg injects
-  `SELECT hypopg_reset();` so a backend acquired after a break starts clean
-  regardless of pool history.
-- **`WrapStopPatterns`** — line regexes where the wrap closes permanently;
-  from the first match to end of file the suite runs autocommit, like
-  upstream. http's statement_timeout cancellation tail needs this: upstream
-  runs it autocommit, where the session (pinned by the temp-table
-  reservation) survives the cancelled statement; inside a wrap transaction
-  the cancellation would abort the transaction instead.
-- **`ResultNormalizers`** — regex rewrites applied to BOTH expected and actual
-  output before comparison and patching, for output that is inherently
-  pool-history-dependent, such as per-backend counters or psql's
-  ON_ERROR_ROLLBACK savepoint chatter that a wrapped suite can introduce as a
-  harness artifact.
-- **`TextRewrites`** — literal substitutions applied to the materialized .sql
-  and expected copies (diff-neutral: echoed statement text changes identically
-  on both sides). http redirects its hard-coded `https://postgis.net` TLS
-  probes to the harness-local HTTPS server, keeping the suite hermetic while
-  exercising the same libcurl TLS verification paths.
 - **`NeedsHTTPBin`** — serves a local httpbin-compatible HTTP server on
-  `127.0.0.1:9080` (the port pgsql-http's suite hard-codes) and a self-signed
-  HTTPS server on `127.0.0.1:9443` for the suite's duration. Upstream's suite
-  probes for a local httpbin and silently falls back to live httpbin.org —
-  the in-process server makes the run deterministic with no live internet.
-  See `httpbin.go`.
-- **`PgPassUsers`** — role/password pairs the suite `\connect`s as. libpq
-  applies `PGPASSWORD` to every connection regardless of user, so a suite that
-  reconnects as multiple test users is run with a harness-written `.pgpass` file
-  (`PGPASSFILE`) instead, which resolves the password per user name. The gateway
-  authenticates any role whose SCRAM credentials resolve, so mid-test
-  `CREATE USER` works.
+  `127.0.0.1:9080` (the port pgsql-http's suite hard-codes). Upstream's suite
+  probes for a local httpbin and silently falls back to live httpbin.org — the
+  in-process server makes the HTTP portion deterministic without changing the
+  suite input. The suite's separate `https://postgis.net` TLS probes are left
+  unchanged. See `httpbin.go`.
 - **`LocalTestDir`** — an in-repo `sql/` + `expected/` suite under
   `testdata/pg17/external/<dir>` used instead of fixtures from the checkout,
   for extensions that ship no SQL suite at all. pg_jsonschema's upstream tests
@@ -367,8 +331,9 @@ on `ExternalExtension` (`extensions.go`):
 
 Enrolling another external extension is a small catalog edit: add its
 `externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
-`ExtensionCatalog` row to `StatusCovered` or `StatusBuildOnly`. The catalog and
-report update automatically. PGXS and Rust/pgrx extensions are both supported
+`ExtensionCatalog` row to `StatusCovered`, `StatusPartial`, or
+`StatusBuildOnly`. The catalog and report update automatically. PGXS and
+Rust/pgrx extensions are both supported
 (CI provisions the Rust toolchain); extensions that need other toolchains the
 harness doesn't provision (e.g. `wrappers`) or that the pooler blocks by design (outbound
 connections) stay `StatusExternal` / `StatusUnsupported`.

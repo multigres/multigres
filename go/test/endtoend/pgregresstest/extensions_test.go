@@ -81,6 +81,26 @@ func TestExternalBuildOnlySmokeSelection(t *testing.T) {
 	assert.NotContains(t, coveredNames, "pgaudit")
 }
 
+// TestExternalPartialSelection verifies partial extensions are runnable and
+// buildable, while staying out of the fully-covered upstream-suite list.
+func TestExternalPartialSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "hypopg")
+
+	modules := ExternalModules()
+	require.Len(t, modules, 1)
+	assert.Equal(t, "hypopg", modules[0].Name)
+
+	build := ExternalBuildList()
+	require.Len(t, build, 1)
+	assert.Equal(t, "hypopg", build[0].Name)
+
+	var coveredNames []string
+	for _, spec := range CoveredExternalExtensions() {
+		coveredNames = append(coveredNames, spec.Name)
+	}
+	assert.NotContains(t, coveredNames, "hypopg")
+}
+
 // TestExternalContribDeps_ResolvesThroughBuildDependencies verifies the
 // contrib-module resolution walks the full build list (selected extensions plus
 // their DependsOn chain), so a narrowed run still installs a dependency's
@@ -119,7 +139,9 @@ func TestExtensionCoverageMarkdown_BuildOnlySmokeResult(t *testing.T) {
 		}},
 	})
 
-	assert.Contains(t, report, "build-only external extensions are built")
+	assert.Contains(t, report, "partial extensions have known compatibility gaps documented by patches")
+	assert.Contains(t, report, "Build-only external extensions are built")
+	assert.Contains(t, report, "| hypopg | external | ⚠️ partial | — | — (not run) |")
 	assert.Contains(t, report, "| pgaudit | external | 🔧 build-only | load | ✅ pass |")
 }
 

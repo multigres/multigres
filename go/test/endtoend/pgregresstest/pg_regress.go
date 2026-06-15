@@ -320,36 +320,7 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 		}
 	}
 
-	// Materialize the transformed suite copy (transaction wrap and/or text
-	// rewrites; see wrap.go) and point --inputdir, --expecteddir AND
-	// --outputdir at it. The outputdir redirect is load-bearing, not cosmetic:
-	// pg_regress "vpath"-searches <outputdir>/sql/<test>.sql BEFORE
-	// <inputdir>/sql/<test>.sql (pg_regress_main.c psql_start_test), so an
-	// extension whose fixtures live at the clone root (TestSubdir ".", like
-	// http) would have its UNtransformed sql/ shadow the transformed copy if
-	// the outputdir stayed at the clone root. The patch pipeline then diffs
-	// results against the transformed expected files, so patches stay scoped
-	// to genuine multigres divergences.
 	outputDir := cloneDir
-	if ext.WrapTransactions || len(ext.TextRewrites) > 0 {
-		transformed, err := materializeTransformedSuite(ext, testDir, expectedDir,
-			tests, filepath.Join(cloneDir, "multigres_transformed"))
-		if err != nil {
-			return nil, fmt.Errorf("external/%s: materialize transformed suite: %w", ext.Name, err)
-		}
-		testDir, expectedDir, outputDir = transformed, transformed, transformed
-	}
-
-	// Suites that \connect as multiple users authenticate via a .pgpass file
-	// instead of the single-valued PGPASSWORD (see PgPassUsers).
-	pgPassFile := ""
-	if len(ext.PgPassUsers) > 0 {
-		var err error
-		pgPassFile, err = writePgPassFile(password, ext.PgPassUsers)
-		if err != nil {
-			return nil, fmt.Errorf("external/%s: write pgpass: %w", ext.Name, err)
-		}
-	}
 
 	t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
 	pgRegress := filepath.Join(pb.BuildDir, "src", "test", "regress", "pg_regress")
@@ -364,34 +335,17 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	args = append(args, tests...)
 	// Run from the clone root so psql's client-side \copy resolves the relative
 	// paths the fixtures use (e.g. pgvector's copy test does \copy t TO
-	// 'results/vector.bin'); for untransformed suites pg_regress writes its
-	// results/ dir under --outputdir=cloneDir, which is this same directory.
-	// (No transformed suite uses \copy.)
+	// 'results/vector.bin'); pg_regress writes its results/ dir under
+	// --outputdir=cloneDir, which is this same directory.
 	cmd := executil.Command(ctx, pgRegress, args...).WithProcessGroup().SetDir(cloneDir)
 
 	res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
-		suiteName:  "External/" + ext.Name,
-		outputDir:  filepath.Join(pb.OutputDir, "external", ext.Name),
-		srcOutDir:  outputDir,
-		pgPassFile: pgPassFile,
+		suiteName: "External/" + ext.Name,
+		outputDir: filepath.Join(pb.OutputDir, "external", ext.Name),
+		srcOutDir: outputDir,
 	}, multigatewayPort, password)
 	if res == nil {
 		return nil, err
-	}
-
-	// Normalize the result files the same way the materialized expected copies
-	// were normalized (ResultNormalizers), so verification and patch
-	// generation compare like with like.
-	if len(ext.ResultNormalizers) > 0 {
-		for _, name := range tests {
-			resultPath := filepath.Join(outputDir, "results", name+".out")
-			if !suiteutil.FileExists(resultPath) {
-				continue
-			}
-			if err := normalizeResultFile(ext, resultPath); err != nil {
-				t.Logf("external/%s: warning: normalize %s: %v", ext.Name, resultPath, err)
-			}
-		}
 	}
 
 	// Re-evaluate each test via the patch pipeline. pg_regress wrote results to

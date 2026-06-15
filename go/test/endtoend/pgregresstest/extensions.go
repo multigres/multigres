@@ -44,6 +44,12 @@ const (
 	// (ExtensionCatalog → CoveredContribModules); for KindExternal it is the
 	// external suite (CoveredExternalExtensions, backed by externalSpecs).
 	StatusCovered ExtStatus = "covered"
+	// StatusPartial: wired into the suite and run in its natural upstream shape,
+	// but with known, documented compatibility gaps captured by patches. Use this
+	// for extensions that build and mostly execute through multigateway while a
+	// drop-in behavior gap remains (for example backend-local extension state
+	// that needs future automatic session pinning).
+	StatusPartial ExtStatus = "partial"
 	// StatusBuildOnly: external module that the harness clones, builds,
 	// installs, preloads if needed, and verifies with a minimal CREATE EXTENSION
 	// smoke test, but whose upstream regression suite is intentionally not run
@@ -87,8 +93,8 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"earthdistance", KindContrib, StatusCovered, "depends on cube"},
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
-	{"http", KindExternal, StatusCovered, "pgsql-http (needs libcurl to build); suite runs against the harness's local httpbin-compatible server on :9080 (NeedsHTTPBin) with its live-internet TLS probes redirected to the local HTTPS server (TextRewrites); transaction-wrapped so curl option state stays on one pinned backend"},
-	{"hypopg", KindExternal, StatusCovered, "hypothetical indexes; also index_advisor's dependency. Its suite is autocommit and asserts on backend-local state, so the harness runs it transaction-wrapped (WrapTransactions) — one pinned backend per file, with hypopg_reset() injected after each VACUUM break"},
+	{"http", KindExternal, StatusCovered, "pgsql-http (needs libcurl to build); suite runs in its upstream/autocommit shape against the harness's local httpbin-compatible server on :9080 (NeedsHTTPBin); live TLS probes still hit upstream's https://postgis.net; the only patch is timeout cancellation wording"},
+	{"hypopg", KindExternal, StatusPartial, "hypothetical indexes; also index_advisor's dependency. The upstream autocommit suite exposes a known drop-in gap: hypothetical indexes live in backend-local memory, and multigateway may route later statements to another pooled backend until automatic pinning for hypopg functions exists. Narrow patches document the current failures"},
 	{"index_advisor", KindExternal, StatusCovered, "Supabase index advisor; pure-SQL PGXS module; depends on hypopg (built via DependsOn). Its tests are BEGIN/ROLLBACK-wrapped, so hypopg's backend-local hypothetical indexes stay on the pinned backend"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
@@ -337,64 +343,14 @@ type ExternalExtension struct {
 	// for extensions whose .sql files are self-contained (pgmq, pgvector).
 	FixturesFile string
 
-	// WrapTransactions, when true, materializes a transformed copy of the suite
-	// with every test file wrapped in BEGIN … COMMIT (and `\set
-	// ON_ERROR_ROLLBACK on`), with the same insertions applied to the expected
-	// files. Inside an explicit transaction multigateway reserves ONE pooled
-	// backend for the whole duration, which makes suites that assert on
-	// backend-local state across statements (hypopg's hypothetical indexes,
-	// pgTAP's session-temp plan tables, pgsql-http's curl option state) runnable
-	// through a transaction pooler — the same shape index_advisor's and
-	// pg_partman's self-wrapped tests already rely on. See wrap.go for the
-	// boundary rules (\connect, the file's own transactions, VACUUM).
-	WrapTransactions bool
-
-	// WrapSetupSQL is injected by the wrap transform right after each
-	// transaction REOPEN (after a VACUUM break or \connect — not at the top of
-	// the file). hypopg injects `SELECT hypopg_reset();` so a backend acquired
-	// after a break starts without leftover hypothetical indexes regardless of
-	// pool history. See WrapStatement.
-	WrapSetupSQL []WrapStatement
-
-	// WrapStopPatterns are line regexes where the transaction wrap CLOSES and
-	// stays closed: from the first matching line to end of file the suite runs
-	// autocommit, exactly like upstream. http uses it for its statement_timeout
-	// cancellation test: upstream runs it autocommit, where PostgreSQL keeps
-	// the session (and its temp table) across the cancelled statement — the
-	// pooled equivalent is the temp-table reservation (ReasonTempTable), which
-	// pins the backend without a transaction. Inside a wrap transaction the
-	// cancellation would instead abort the transaction, discarding psql's
-	// ON_ERROR_ROLLBACK savepoint and diverging from upstream's expected
-	// output.
-	WrapStopPatterns []string
-
-	// TextRewrites are literal substitutions applied to the materialized .sql
-	// and expected copies before wrapping (diff-neutral: the echoed statement
-	// text changes identically on both sides). pgsql-http redirects its
-	// hard-coded https://postgis.net TLS probes to the harness-local HTTPS
-	// server so the suite is hermetic. See TextRewrite.
-	TextRewrites []TextRewrite
-
 	// NeedsHTTPBin, when true, has the harness serve a local httpbin-compatible
-	// HTTP server on 127.0.0.1:9080 and a self-signed HTTPS server on
-	// 127.0.0.1:9443 for the duration of this extension's suite. pgsql-http's
-	// suite is designed to run against a local httpbin on exactly that port
-	// (its first statement is SET http.server_host = 'http://localhost:9080',
-	// falling back to live httpbin.org only when nothing answers locally — a
-	// fallback the harness must never exercise in CI). See httpbin.go.
+	// HTTP server on 127.0.0.1:9080 for the duration of this extension's suite.
+	// pgsql-http's suite is designed to run against a local httpbin on exactly
+	// that port (its first statement is SET http.server_host =
+	// 'http://localhost:9080', falling back to live httpbin.org only when nothing
+	// answers locally — a fallback the harness must never exercise in CI). See
+	// httpbin.go.
 	NeedsHTTPBin bool
-
-	// PgPassUsers lists role name/password pairs the suite \connects as.
-	// pg_regress normally authenticates through PGPASSWORD, which libpq applies
-	// to EVERY connection regardless of user — so a suite that reconnects as
-	// freshly created test users can never authenticate both the admin and the
-	// test users that way. When non-empty, the harness writes a .pgpass file
-	// holding the admin password plus these entries, runs the suite with
-	// PGPASSFILE pointing at it and WITHOUT PGPASSWORD, and libpq resolves each
-	// \connect's password by user name. The gateway itself imposes no user
-	// allowlist — it authenticates any role whose SCRAM credentials resolve (see
-	// pgprotocol/server SCRAM).
-	PgPassUsers []PgPassUser
 
 	// LocalTestDir, when non-empty, names a directory under
 	// testdata/pg<major>/external/ holding an in-repo sql/ + expected/ suite
@@ -405,41 +361,13 @@ type ExternalExtension struct {
 	// case, same inputs and expectations) and runs it through multigateway like
 	// any other suite.
 	LocalTestDir string
-
-	// ResultNormalizers are regex rewrites applied to BOTH the expected and the
-	// actual output of every test before they are compared (and before patches
-	// are generated/applied), for output that is inherently
-	// pool-history-dependent and would otherwise be unverifiable. Use it for
-	// narrow, deterministic rewrites such as normalizing per-backend counters or
-	// dropping harness-only savepoint chatter introduced by WrapTransactions.
-	//
-	// DropMatchingLines drops every full line containing a match instead of
-	// rewriting it.
-	ResultNormalizers []ResultNormalizer
-}
-
-// PgPassUser is one role/password entry for ExternalExtension.PgPassUsers.
-type PgPassUser struct {
-	Name     string
-	Password string
-}
-
-// ResultNormalizer is one regex rewrite for ExternalExtension.ResultNormalizers.
-type ResultNormalizer struct {
-	// Pattern is the regexp applied to each output line.
-	Pattern string
-	// Replacement substitutes each match (supports $1 group references).
-	// Ignored when DropMatchingLines is set.
-	Replacement string
-	// DropMatchingLines removes every line containing a match entirely.
-	DropMatchingLines bool
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
-// per-extension knobs for every external extension the harness can build. An
-// ExtensionCatalog entry with Kind==KindExternal can only be StatusCovered if it
-// also has a spec here; the pinned tag keeps the suite reproducible (and matches
-// the ABI the from-source PostgreSQL was built against). Keyed by catalog Name.
+// per-extension knobs for every external extension the harness can build. A
+// runnable ExtensionCatalog entry with Kind==KindExternal must have a spec here;
+// the pinned tag keeps the suite reproducible (and matches the ABI the
+// from-source PostgreSQL was built against). Keyed by catalog Name.
 var externalSpecs = map[string]ExternalExtension{
 	"vector": {
 		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
@@ -550,13 +478,13 @@ var externalSpecs = map[string]ExternalExtension{
 	},
 	// hypopg is both index_advisor's build dependency (its control file requires
 	// hypopg, so index_advisor's `create extension index_advisor cascade` pulls
-	// it in) and covered in its own right. Hypothetical indexes live in
+	// it in) and runnable in its own right. Hypothetical indexes live in
 	// backend-local memory and upstream's tests are autocommit, so plain pooled
 	// execution would scatter hypopg_create_index and the EXPLAINs that must see
-	// the index across different backends. The harness therefore runs the suite
-	// transaction-wrapped (WrapTransactions): inside an explicit transaction the
-	// gateway reserves ONE backend for its duration — the same shape
-	// index_advisor's self-wrapped BEGIN…ROLLBACK tests already rely on.
+	// the index across different backends. The harness runs the upstream
+	// autocommit suite as-is and carries narrow patches for the current
+	// backend-local-state gap, so the report does not overstate drop-in
+	// compatibility while automatic session pinning is still future work.
 	"hypopg": {
 		Name: "hypopg", Repo: "https://github.com/HypoPG/hypopg", Tag: "1.4.2",
 		// sql/ lives under test/, but expected/ sits at the repo root: upstream
@@ -564,9 +492,7 @@ var externalSpecs = map[string]ExternalExtension{
 		// pg_regress resolves expected/ against the CWD, not --inputdir.
 		TestSubdir: "test", ExpectedSubdir: ".",
 		// Mirror of the Makefile's REGRESS list for MAJORVERSION=17, in REGRESS
-		// order (hypopg first — it creates the do_explain() helper and the hypo
-		// table the later files use; the wrap COMMITs so they persist).
-		// hypo_index_part_10 is the PG10-only variant and must not run.
+		// order. hypo_index_part_10 is the PG10-only variant and must not run.
 		RegressTests: []string{
 			"hypopg",
 			"hypo_brin",
@@ -575,50 +501,17 @@ var externalSpecs = map[string]ExternalExtension{
 			"hypo_hash",
 			"hypo_hide_index",
 		},
-		WrapTransactions: true,
-		// hypo_include's `VACUUM ANALYZE hypo` forces a wrap break (VACUUM can't
-		// run inside a transaction block), and the transaction reopened after it
-		// may land on a different pooled backend with leftover hypothetical
-		// indexes from an earlier file. Resetting right after each reopen makes
-		// the backend state deterministic regardless of pool history.
-		WrapSetupSQL: []WrapStatement{{
-			SQL:    "SELECT hypopg_reset();",
-			Output: " hypopg_reset \n--------------\n \n(1 row)\n\n",
-		}},
 	},
 	// pgsql-http. Build needs libcurl (the Makefile locates it via curl-config;
-	// CI installs libcurl4-openssl-dev). Three pooled-path accommodations, each
-	// solving a documented upstream assumption:
-	//   - NeedsHTTPBin: upstream's suite is written against a LOCAL httpbin on
-	//     :9080 (its first statement is SET http.server_host =
-	//     'http://localhost:9080', probing and falling back to live httpbin.org
-	//     only when nothing answers). The harness serves the endpoints the suite
-	//     uses in-process — hermetic, no live internet (see httpbin.go).
-	//   - WrapTransactions: http_set_curlopt state is backend-local (C globals,
-	//     not GUCs), so the suite must stay on one pinned backend.
-	//   - TextRewrites: the two TLS probes hard-code https://postgis.net; they
-	//     are redirected to the harness's local HTTPS server, which exercises
-	//     the same libcurl TLS verification paths (bogus CAINFO fails,
-	//     VERIFYPEER=0 succeeds) without live internet.
-	// The suite's statement_timeout cancellation test additionally requires the
-	// gateway to keep the reserved connection across a timeout-cancelled
-	// statement inside an open transaction.
+	// CI installs libcurl4-openssl-dev). The harness serves the local httpbin
+	// endpoints the suite expects on :9080 so it never falls back to live
+	// httpbin.org. The suite otherwise runs in its upstream autocommit shape; its
+	// live https://postgis.net TLS probes are left unchanged.
 	"http": {
 		Name: "http", Repo: "https://github.com/pramsey/pgsql-http", Tag: "v1.7.0",
 		// sql/ and expected/ live at the repo root (like pg_cron).
-		TestSubdir:       ".",
-		WrapTransactions: true,
-		NeedsHTTPBin:     true,
-		// The statement_timeout cancellation test at the file's tail must run
-		// autocommit, the way upstream runs it: its CREATE TEMP TABLE pins the
-		// backend via the temp-table reservation, and PostgreSQL's (and, with
-		// the reservation kept, multigres's) session survives the cancelled
-		// statement. Inside the wrap transaction the cancellation would abort
-		// the whole transaction instead. See WrapStopPatterns.
-		WrapStopPatterns: []string{`^SET statement_timeout`},
-		TextRewrites: []TextRewrite{
-			{Old: "https://postgis.net", New: "https://127.0.0.1:9443"},
-		},
+		TestSubdir:   ".",
+		NeedsHTTPBin: true,
 	},
 	// pgaudit's audit hooks must be active from shared_preload_libraries before
 	// CREATE EXTENSION. Its upstream pg_regress suite is not a stable compatibility
@@ -779,12 +672,12 @@ func CoveredExternalExtensions() []ExternalExtension {
 }
 
 func isRunnableExternalStatus(s ExtStatus) bool {
-	return s == StatusCovered || s == StatusBuildOnly
+	return s == StatusCovered || s == StatusPartial || s == StatusBuildOnly
 }
 
 // RunnableExternalExtensions returns external extensions the external suite
-// should execute in some form: covered upstream suites plus build-only smoke
-// checks.
+// should execute in some form: covered/partial upstream suites plus build-only
+// smoke checks.
 func RunnableExternalExtensions() []ExternalExtension {
 	var exts []ExternalExtension
 	for _, e := range ExtensionCatalog {
@@ -890,9 +783,8 @@ func CheckExternalSpecs() []string {
 // CoveredContribModules returns the contrib module directories the suite runs,
 // derived from ExtensionCatalog (every KindContrib+StatusCovered entry). This is
 // the single source of truth; DefaultContribModules is built from it. External
-// covered extensions are intentionally excluded — they ship outside the
-// PostgreSQL source tree and run through the separate external suite
-// (CoveredExternalExtensions).
+// extensions are intentionally excluded — they ship outside the PostgreSQL
+// source tree and run through the separate external suite.
 func CoveredContribModules() []string {
 	var mods []string
 	for _, e := range ExtensionCatalog {
@@ -903,20 +795,23 @@ func CoveredContribModules() []string {
 	return mods
 }
 
-// statusRank orders statuses in the coverage table: covered first, then the
-// actionable backlog, then the out-of-scope buckets.
+// statusRank orders statuses in the coverage table: fully covered first, then
+// partial/build-only runnable entries, then the actionable backlog and
+// out-of-scope buckets.
 func statusRank(s ExtStatus) int {
 	switch s {
 	case StatusCovered:
 		return 0
-	case StatusBuildOnly:
+	case StatusPartial:
 		return 1
-	case StatusPending:
+	case StatusBuildOnly:
 		return 2
-	case StatusUnsupported:
+	case StatusPending:
 		return 3
-	case StatusExternal:
+	case StatusUnsupported:
 		return 4
+	case StatusExternal:
+		return 5
 	default:
 		return 5
 	}
@@ -926,6 +821,8 @@ func statusCell(s ExtStatus) string {
 	switch s {
 	case StatusCovered:
 		return "✅ covered"
+	case StatusPartial:
+		return "⚠️ partial"
 	case StatusBuildOnly:
 		return "🔧 build-only"
 	case StatusPending:
@@ -940,15 +837,15 @@ func statusCell(s ExtStatus) string {
 }
 
 // ExtensionCoverageMarkdown renders the catalog as a coverage table, merged
-// with a contrib run's per-test results. Covered extensions expand to one row
+// with a contrib run's per-test results. Runnable extensions expand to one row
 // per sub-test (Result filled from the run); the Extension/Kind/Coverage cells
 // are populated only on the first row of each extension and left blank on the
-// rest so the grouping reads cleanly. Non-covered extensions get a single row
+// rest so the grouping reads cleanly. Non-runnable extensions get a single row
 // with the reason in Notes.
 //
 // suites are this run's per-test result sets whose tests are named "mod/test"
 // (the contrib and external suites). Any may be nil (that suite did not run), in
-// which case its covered extensions show "—" results.
+// which case runnable extensions show "—" results.
 func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 	// Group this run's per-test results by module ("mod/test" → mod) across
 	// every suite (contrib + external share the same module-prefixed naming).
@@ -978,7 +875,7 @@ func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 	})
 
 	// Tallies for the summary line.
-	var covered, coveredContrib, coveredExternal, buildOnly int
+	var covered, coveredContrib, coveredExternal, partial, buildOnly int
 	for _, e := range ExtensionCatalog {
 		if e.Status == StatusCovered {
 			covered++
@@ -989,6 +886,9 @@ func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 				coveredExternal++
 			}
 		}
+		if e.Status == StatusPartial {
+			partial++
+		}
 		if e.Status == StatusBuildOnly {
 			buildOnly++
 		}
@@ -997,18 +897,20 @@ func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 	var sb strings.Builder
 	sb.WriteString("### Extension Coverage\n\n")
 	fmt.Fprintf(&sb, "Most-installed extensions (top ~%d by usage). %d covered "+
-		"(%d contrib, %d external); %d build-only. Covered extensions run their "+
-		"shipped suites through multigateway; build-only external extensions are "+
-		"built, preloaded when needed, and smoke-loaded without running upstream "+
-		"regression suites. The per-test result below is from this run.\n\n",
-		len(ExtensionCatalog), covered, coveredContrib, coveredExternal, buildOnly)
+		"(%d contrib, %d external); %d partial; %d build-only. Covered and "+
+		"partial extensions run their shipped suites through multigateway; partial "+
+		"extensions have known compatibility gaps documented by patches. Build-only "+
+		"external extensions are built, preloaded when needed, and smoke-loaded "+
+		"without running upstream regression suites. The per-test result below is "+
+		"from this run.\n\n",
+		len(ExtensionCatalog), covered, coveredContrib, coveredExternal, partial, buildOnly)
 	sb.WriteString("| Extension | Kind | Coverage | Test | Result | Notes |\n")
 	sb.WriteString("|-----------|------|----------|------|--------|-------|\n")
 
 	for _, e := range entries {
 		extCell, kindCell, covCell := e.Name, string(e.Kind), statusCell(e.Status)
 
-		if e.Status == StatusCovered || e.Status == StatusBuildOnly {
+		if e.Status == StatusCovered || e.Status == StatusPartial || e.Status == StatusBuildOnly {
 			tests := byModule[e.Name]
 			if len(tests) == 0 {
 				// Runnable but not exercised in this run (e.g. PGCONTRIB_TESTS or

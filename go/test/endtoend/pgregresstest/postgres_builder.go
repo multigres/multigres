@@ -110,12 +110,6 @@ type testSuiteConfig struct {
 	suiteName string // for log messages, e.g. "Regression" or "Isolation"
 	outputDir string // where to copy regression.out and regression.diffs
 	srcOutDir string // build directory containing regression.out and regression.diffs
-	// pgPassFile, when non-empty, makes the suite authenticate via this .pgpass
-	// file (PGPASSFILE) INSTEAD of PGPASSWORD. libpq applies PGPASSWORD to every
-	// connection regardless of user, which breaks suites that \connect as
-	// multiple users with different passwords; a .pgpass file resolves the
-	// password per user name. See ExternalExtension.PgPassUsers.
-	pgPassFile string
 }
 
 // runTestSuite executes a pre-built test command and handles result parsing,
@@ -144,12 +138,8 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		" -c effective_cache_size=4GB" +
 		" -c max_parallel_workers_per_gather=2"
 
-	if cfg.pgPassFile != "" {
-		cmd.AddEnv("PGPASSFILE=" + cfg.pgPassFile)
-	} else {
-		cmd.AddEnv("PGPASSWORD=" + password)
-	}
 	cmd.AddEnv(
+		"PGPASSWORD="+password,
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
 		"PGUSER=postgres",
@@ -244,7 +234,7 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 }
 
 // ExternalModules returns the external extensions to verify, defaulting to the
-// runnable set (covered upstream suites plus build-only smoke checks).
+// runnable set (covered/partial upstream suites plus build-only smoke checks).
 // PGEXTERNAL_TESTS (space-separated catalog names, e.g. "vector") selects a
 // subset for local iteration.
 func ExternalModules() []ExternalExtension {
@@ -276,8 +266,9 @@ func ExternalModules() []ExternalExtension {
 // ExternalExtension.Harness:
 //
 //   - pg_regress (default, e.g. pgvector/pg_cron): drives the pg_regress binary
-//     and diffs against expected/*.out via the patch pipeline. See
-//     runExternalRegress.
+//     and diffs against expected/*.out via the patch pipeline. Partial
+//     extensions use this same path, with known compatibility gaps documented
+//     by narrow patches. See runExternalRegress.
 //   - pgTAP (HarnessPgTAP, e.g. pg_partman): feeds each test .sql to psql and
 //     parses the TAP stream the assertions emit server-side; no expected-output
 //     files, no patch pipeline. See runExternalPgTAP.

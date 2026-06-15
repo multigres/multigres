@@ -2,9 +2,10 @@
 
 Multigres runs PostgreSQL extension compatibility coverage through the
 `pgregresstest` end-to-end harness. Covered extensions run their shipped test
-suites (`pg_regress` or pgTAP) through multigateway. Build-only extensions are
-built and smoke-loaded, but their upstream regression suites are not used as
-compatibility signals.
+suites (`pg_regress` or pgTAP) through multigateway. Partial extensions also run
+upstream suites, but known compatibility gaps are documented with patches.
+Build-only extensions are built and smoke-loaded, but their upstream regression
+suites are not used as compatibility signals.
 
 This page lists the extensions currently tracked by the harness. It is not a
 complete `pg_available_extensions` inventory.
@@ -25,14 +26,22 @@ complete `pg_available_extensions` inventory.
 | `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                  |
 | `unaccent`      | contrib  | -                                                                                              |
 | `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                              |
-| `http`          | external | pgsql-http; requires `libcurl`. Runs against a harness-local httpbin-compatible server.        |
-| `hypopg`        | external | Transaction-wrapped because hypothetical indexes are backend-local.                            |
+| `http`          | external | pgsql-http; local httpbin; upstream/autocommit suite; timeout-wording patch.                   |
 | `index_advisor` | external | Pure-SQL; depends on `hypopg` (built as a dependency).                                         |
 | `pg_jsonschema` | external | Rust extension built with cargo-pgrx; runs an in-repo SQL translation of its pgrx test corpus. |
 | `pgjwt`         | external | Pure-SQL; pgTAP suite; depends on `pgcrypto` and `pgtap`.                                      |
 | `pgsodium`      | external | Requires `libsodium`; pgTAP suite in keyless mode (server-key/TCE tests self-skip).            |
 | `pgtap`         | external | Runs its own pg_regress suite; also a test dependency of other covered suites.                 |
 | `plpgsql_check` | external | Preloaded via `shared_preload_libraries` for passive checks and the profiler.                  |
+
+## Partial external extensions
+
+These extensions are built and run through their upstream suites, but still have
+known drop-in compatibility gaps documented by narrow patches.
+
+| Extension | Notes                                                                                                                                                                                                                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hypopg`  | Hypothetical indexes are backend-local. In autocommit mode, multigateway may route `hypopg_create_index()` and later `EXPLAIN` / `hypopg()` statements to different pooled backends until automatic session pinning for hypopg functions is implemented. Narrow patches document that gap. |
 
 ## Build-only external extensions
 

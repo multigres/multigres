@@ -15,7 +15,6 @@
 package pgregresstest
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,7 +30,7 @@ import (
 // assertions extract, against the real listeners on the fixed ports.
 func TestHTTPBinServers(t *testing.T) {
 	servers, err := startHTTPBinServers()
-	require.NoError(t, err, "ports 9080/9443 must be free")
+	require.NoError(t, err, "port 9080 must be free")
 	t.Cleanup(servers.Stop)
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", httpbinPort)
@@ -106,25 +105,5 @@ func TestHTTPBinServers(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "image/png", resp.Header.Get("Content-Type"))
 		assert.Len(t, body, httpbinImageLength)
-	})
-
-	t.Run("https answers with self-signed cert", func(t *testing.T) {
-		// InsecureSkipVerify mirrors the suite's CURLOPT_SSL_VERIFYPEER=0
-		// probe — the server's cert is intentionally self-signed.
-		client := &http.Client{Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402
-		}}
-		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/", httpbinTLSPort))
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		assert.Equal(t, 200, resp.StatusCode)
-
-		// And verification must FAIL without InsecureSkipVerify — the suite's
-		// bogus-CAINFO probe depends on that.
-		respFail, err := http.Get(fmt.Sprintf("https://127.0.0.1:%d/", httpbinTLSPort))
-		if err == nil {
-			respFail.Body.Close()
-		}
-		assert.Error(t, err)
 	})
 }
