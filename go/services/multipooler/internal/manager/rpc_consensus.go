@@ -386,13 +386,6 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		acceptCtx, acceptSpan := telemetry.Tracer().Start(ctx, "consensus/accept-revocation")
 		err = pm.consensusState.AcceptRevocation(acceptCtx, stableStatus, revocation)
 		acceptSpan.End()
-		// Publish the resignation signal so the coordinator can fail over on the
-		// consensus signal rather than waiting for a heartbeat timeout. A failure
-		// here is non-fatal: the postgres monitor loop keeps retrying resignation,
-		// so log and continue rather than abandoning the revocation.
-		if resignErr := pm.setResignedLeaderAtTerm(ctx, stableStatus.GetCurrentPosition().GetRule().GetRuleNumber().GetCoordinatorTerm()); resignErr != nil {
-			pm.logger.WarnContext(ctx, "failed to publish resigned primary term; monitor loop will retry", "error", resignErr)
-		}
 	}
 	if err != nil {
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
