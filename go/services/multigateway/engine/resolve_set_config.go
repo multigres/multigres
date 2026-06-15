@@ -41,9 +41,12 @@ import (
 // reject it (or pin the connection), this primitive runs in three steps:
 //
 //  1. Resolve: execute the "unroll" projection — the original SELECT with each
-//     set_config(a, b, c) target replaced by its three arguments a, b, c — once.
-//     This is a pure read (no set_config side effect) that yields the concrete
-//     (name, value, is_local) tuple per row.
+//     set_config(a, b, c) target replaced by its three arguments a, b, c — once,
+//     reading the rows internally. This is a pure read that yields the concrete
+//     (name, value, is_local) tuple per row. It runs through ResolveRoute, an
+//     ordinary Route (or an AdvisoryLockRoute when a set_config argument
+//     acquires/releases a session advisory lock), so backend pinning and
+//     bindVar reconstruction reuse the existing routing machinery.
 //  2. Apply: synthesize a set_config(...) query from the *captured literals* and
 //     run it, forwarding PostgreSQL's authoritative result to the client. Using
 //     the captured literals — not a re-run of the original dynamic query — is
@@ -57,7 +60,7 @@ import (
 // server version) means nothing is set and the client gets an empty result,
 // matching stock PostgreSQL.
 type ResolveTrackSetConfig struct {
-	// TableGroup is the target tablegroup for the resolve and apply queries.
+	// TableGroup is the target tablegroup for the apply query.
 	TableGroup string
 
 	// Shard is the target shard (empty for unsharded).
@@ -66,12 +69,19 @@ type ResolveTrackSetConfig struct {
 	// Query is the original SQL string, kept for GetQuery/debug output.
 	Query string
 
-	// UnrollAST is the cloned SELECT with its target list replaced by the flat
-	// projection of every set_config call's (name, value, is_local) arguments.
-	// Non-set_config literals are $N ParamRefs: on the simple protocol they are
-	// resolved from the normalizer's bindVars, on the portal protocol from the
-	// portal's Bind values.
-	UnrollAST ast.Stmt
+	// ResolveRoute runs the unroll projection. It is a Route, or an
+	// AdvisoryLockRoute wrapping one when the projection acquires/releases a
+	// session-level advisory lock — so opts/advisory pinning and $N bindVar
+	// reconstruction flow through the same primitives as ordinary queries. It is
+	// executed with a capturing callback: the resolve reads the rows, the client
+	// never sees them.
+	ResolveRoute Primitive
+
+	// unrollAST is the projection's AST. ResolveRoute already holds it for
+	// execution; we keep a reference only to enumerate $N parameters on the
+	// extended-protocol path, where the portal's Bind values must be decoded
+	// before ResolveRoute can reconstruct the SQL.
+	unrollAST ast.Stmt
 
 	// Aliases holds the per-call output-column alias in target-list order
 	// (ResTarget.Name, "" when the call had no AS). len(Aliases) is the number
@@ -80,13 +90,17 @@ type ResolveTrackSetConfig struct {
 }
 
 // NewResolveTrackSetConfig creates a new ResolveTrackSetConfig primitive.
-func NewResolveTrackSetConfig(tableGroup, shard, sql string, unrollAST ast.Stmt, aliases []string) *ResolveTrackSetConfig {
+// resolveRoute runs the unroll projection (built by the planner via
+// routePrimitive so advisory-lock pinning is folded in); unrollAST is the same
+// projection AST, used to enumerate parameters on the portal path.
+func NewResolveTrackSetConfig(tableGroup, shard, sql string, resolveRoute Primitive, unrollAST ast.Stmt, aliases []string) *ResolveTrackSetConfig {
 	return &ResolveTrackSetConfig{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Query:      sql,
-		UnrollAST:  unrollAST,
-		Aliases:    aliases,
+		TableGroup:   tableGroup,
+		Shard:        shard,
+		Query:        sql,
+		ResolveRoute: resolveRoute,
+		unrollAST:    unrollAST,
+		Aliases:      aliases,
 	}
 }
 
@@ -105,8 +119,8 @@ func (s *ResolveTrackSetConfig) StreamExecute(
 
 // PortalStreamExecute runs the same flow on the extended-protocol path. The
 // unroll's $N placeholders are the user's prepared-statement parameters, so we
-// decode them from the portal's Bind values into literals before reconstructing
-// the projection SQL.
+// decode them from the portal's Bind values into literals; ResolveRoute then
+// reconstructs the projection SQL from them, exactly as on the simple path.
 func (s *ResolveTrackSetConfig) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -134,7 +148,7 @@ func (s *ResolveTrackSetConfig) execute(
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	rows, err := s.resolve(ctx, exec, conn, state, s.unrollSQL(bindVars))
+	rows, err := s.resolve(ctx, exec, conn, state, bindVars)
 	if err != nil {
 		return err
 	}
@@ -161,18 +175,21 @@ func (s *ResolveTrackSetConfig) execute(
 	return nil
 }
 
-// resolve runs the unroll projection and accumulates its rows. The result is
-// consumed internally (never forwarded to the client). Each row must have
-// three columns per set_config call.
+// resolve runs the unroll projection through ResolveRoute and accumulates its
+// rows. The result is consumed internally via the capturing callback (never
+// forwarded to the client). Running through ResolveRoute means any
+// advisory-lock pinning and $N bindVar reconstruction happen in the existing
+// Route/AdvisoryLockRoute primitives. Each row must have three columns per
+// set_config call.
 func (s *ResolveTrackSetConfig) resolve(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
-	unrollSQL string,
+	bindVars []*ast.A_Const,
 ) ([]*sqltypes.Row, error) {
 	var rows []*sqltypes.Row
-	err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, unrollSQL, nil, state,
+	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars,
 		func(_ context.Context, res *sqltypes.Result) error {
 			rows = append(rows, res.Rows...)
 			return nil
@@ -270,23 +287,14 @@ func (s *ResolveTrackSetConfig) emptyResult() *sqltypes.Result {
 	}
 }
 
-// unrollSQL reconstructs the projection SQL, substituting bindVars into any $N
-// placeholders (mirrors Route.StreamExecute).
-func (s *ResolveTrackSetConfig) unrollSQL(bindVars []*ast.A_Const) string {
-	if len(bindVars) > 0 {
-		return ast.ReconstructSQL(s.UnrollAST, bindVars)
-	}
-	return s.UnrollAST.SqlString()
-}
-
 // bindVarsFromPortal decodes the portal's Bind values for every $N referenced
 // in the unroll projection, returning them positionally (index 0 is $1) so
-// ReconstructSQL can substitute them. Returns nil when the projection has no
+// ResolveRoute can substitute them. Returns nil when the projection has no
 // parameters.
 func (s *ResolveTrackSetConfig) bindVarsFromPortal(portalInfo *preparedstatement.PortalInfo) ([]*ast.A_Const, error) {
 	maxNum := 0
 	var refs []*ast.ParamRef
-	ast.Rewrite(s.UnrollAST, func(cursor *ast.Cursor) bool {
+	ast.Rewrite(s.unrollAST, func(cursor *ast.Cursor) bool {
 		if pr, ok := cursor.Node().(*ast.ParamRef); ok {
 			refs = append(refs, pr)
 			if pr.Number > maxNum {

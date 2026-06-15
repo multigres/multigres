@@ -605,10 +605,37 @@ func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
 			prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
 			require.True(t, ok, "expected ResolveTrackSetConfig, got %T", plan.Primitive)
 			assert.Equal(t, tt.wantAliases, prim.Aliases)
-			assert.Equal(t, tt.wantUnroll, prim.UnrollAST.SqlString())
+			assert.Equal(t, tt.wantUnroll, prim.ResolveRoute.GetQuery())
 			assert.Equal(t, engine.PlanTypeResolveTrackSetConfig, plan.Type)
+			// No advisory lock: the resolve runs through a plain Route.
+			_, isPlainRoute := prim.ResolveRoute.(*engine.Route)
+			assert.True(t, isPlainRoute, "expected plain Route, got %T", prim.ResolveRoute)
 		})
 	}
+}
+
+// TestPlan_DynamicSetConfig_AdvisoryLockPins verifies that a dynamic set_config
+// whose argument acquires a session-level advisory lock still pins the backend.
+// The lock is taken when the resolve projection evaluates the arguments, so the
+// resolve must run through an AdvisoryLockRoute — built by routePrimitive from
+// the forwarded opts — rather than a plain Route.
+func TestPlan_DynamicSetConfig_AdvisoryLockPins(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	// Value argument acquires an advisory lock — both dynamic (a function call,
+	// not a literal/bound param) and advisory-lock-acquiring.
+	sql := "SELECT set_config('x', pg_try_advisory_lock(1)::text, false)"
+	stmt := parseOne(t, sql)
+	plan, err := p.Plan(sql, stmt, testConn.Conn)
+	require.NoError(t, err)
+
+	prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
+	require.True(t, ok, "expected ResolveTrackSetConfig, got %T", plan.Primitive)
+	alr, ok := prim.ResolveRoute.(*engine.AdvisoryLockRoute)
+	require.True(t, ok, "expected resolve to run through AdvisoryLockRoute, got %T", prim.ResolveRoute)
+	assert.True(t, alr.Pins(), "advisory-lock acquire must pin the backend")
 }
 
 // TestPlan_RejectsUnsafeFuncCalls verifies Plan() itself rejects blocklisted

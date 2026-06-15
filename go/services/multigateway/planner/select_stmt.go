@@ -55,7 +55,7 @@ func (p *Planner) planSelectStmt(
 	opts PlannerOptions,
 ) (*engine.Plan, error) {
 	if dynamicSetConfig {
-		return p.planResolveSetConfig(sql, stmt)
+		return p.planResolveSetConfig(sql, stmt, opts)
 	}
 	if len(setConfigs) == 0 {
 		return p.planDefault(sql, stmt, conn, opts)
@@ -100,7 +100,13 @@ func (p *Planner) planSelectStmt(
 // Running the projection once is essential: re-running the original dynamic
 // query could resolve to different rows/values (concurrent catalog change,
 // volatile FROM), so the first resolution is the source of truth.
-func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt) (*engine.Plan, error) {
+//
+// opts carries advisory-lock pinning intent. A set_config argument can itself
+// acquire a session-level advisory lock (e.g.
+// set_config('x', pg_try_advisory_lock(1)::text, false)); that call runs when
+// the resolve projection evaluates the arguments, so the primitive must pin the
+// backend the same way routePrimitive would for an ordinary query.
+func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts PlannerOptions) (*engine.Plan, error) {
 	// Clone before mutating: the AST may be a cached plan's normalized tree
 	// shared across executions.
 	unroll := ast.CloneRefOfSelectStmt(stmt)
@@ -110,7 +116,13 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt) (*engin
 		return nil, err
 	}
 
-	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, unroll, aliases)
+	// The resolve projection runs through the ordinary routing primitive, so
+	// opts (advisory-lock pinning) and bindVar reconstruction are handled by the
+	// same Route / AdvisoryLockRoute as any other query — the resolve primitive
+	// just reads the rows the route streams back.
+	resolveRoute := p.routePrimitive(unroll.SqlString(), unroll, opts)
+
+	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	return engine.NewPlan(sql, prim), nil
 }
 
