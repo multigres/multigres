@@ -33,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
@@ -872,6 +873,75 @@ func TestStampVpidOnReserved_HappyPath(t *testing.T) {
 	e.stampVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
 	assert.Equal(t, "set application_name = 'multigres_vpid:123'", server.QueryLog())
+}
+
+// TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway is a
+// regression test for the cross-client GUC leak where a sticky
+// ROLLBACK-TO-SAVEPOINT "untrusted" flag survived to session teardown under a
+// surviving session reason (e.g. a session-level advisory lock that outlives
+// COMMIT). ReleaseReservedConnection must forward the gateway's authoritative
+// session settings to the release boundary so connstate is synced to the truth,
+// not wrongly cleared — clearing it would leak the backend's real session GUCs
+// to the next client that reuses this pooled backend.
+func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Simulate the post-ROLLBACK-TO-SAVEPOINT, post-COMMIT state: connstate is
+	// stale (holds the pre-rollback value), the connection is marked untrusted,
+	// and it is no longer in a transaction (a surviving session reason kept it
+	// reserved, so the teardown's rollback step is skipped and the untrusted flag
+	// stays sticky).
+	stale := cache.GetOrCreate(map[string]string{"search_path": "myschema", "work_mem": "256MB"})
+	rconn, err := pool.NewConn(ctx, stale)
+	require.NoError(t, err)
+	rconn.MarkSessionStateUntrusted()
+	require.False(t, rconn.IsInTransaction())
+
+	e := &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}
+
+	// Gateway's authoritative settings after the savepoint rollback: work_mem
+	// reverted, the pre-savepoint search_path retained.
+	gatewaySettings := map[string]string{"search_path": "myschema"}
+	server.ResetQueryLog()
+
+	err = e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+		SessionSettings:      gatewaySettings,
+	})
+	require.NoError(t, err)
+
+	// The connstate sync is in-memory only — no backend SQL.
+	assert.NotContains(t, server.QueryLog(), "reset all")
+	assert.NotContains(t, server.QueryLog(), "set_config")
+
+	// connstate must equal the gateway truth: NOT cleared to nil (the bug) and
+	// NOT left at the stale pre-rollback value.
+	expected := cache.GetOrCreate(gatewaySettings)
+	assert.Equal(t, expected, rconn.Conn().Settings(),
+		"untrusted teardown must sync connstate to gateway settings, not clear or leave it stale")
+	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
 // --- NewExecutor smoke test ---

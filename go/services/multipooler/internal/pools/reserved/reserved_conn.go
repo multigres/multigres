@@ -65,8 +65,8 @@ type Conn struct {
 	// sessionStateUntrusted is set when PostgreSQL may have reverted backend
 	// session state without the pooler's connstate cache observing the exact new
 	// value (e.g. successful ROLLBACK TO SAVEPOINT). While set, release
-	// finalization and reserved statement preparation must force reconciliation
-	// instead of trusting connstate pointer equality.
+	// finalization syncs connstate to the gateway's authoritative session
+	// settings instead of trusting the stale cache.
 	sessionStateUntrusted atomic.Bool
 
 	// inactivityTimeout is the maximum duration the connection can be inactive

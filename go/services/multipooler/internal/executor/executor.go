@@ -1951,11 +1951,16 @@ func (e *Executor) ReleaseReservedConnection(
 	// Step 4: Release all portals (in-memory only, always succeeds).
 	reservedConn.ReleaseAllPortals()
 
-	// Step 5: Release or close the connection.
+	// Step 5: Release or close the connection. The clean path forwards the
+	// gateway's authoritative session settings so an untrusted connstate cache
+	// (e.g. a ROLLBACK TO SAVEPOINT whose untrusted flag is still sticky under a
+	// surviving session reason at teardown) is synced to the truth rather than
+	// wrongly cleared — clearing it would leak the backend's real session GUCs to
+	// the next client that reuses this pooled backend.
 	if cleanupFailed {
 		reservedConn.Release(reserved.ReleaseError, nil)
 	} else {
-		reservedConn.Release(reserved.ReleaseRollback, nil)
+		e.releaseReservedConn(reservedConn, reserved.ReleaseRollback, options)
 	}
 
 	e.logger.DebugContext(ctx, "reserved connection released",
