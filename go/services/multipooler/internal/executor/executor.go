@@ -98,8 +98,15 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 	return e.sessionSettingsForPool(options.SessionSettings)
 }
 
-func (e *Executor) prepareReservedConnForUserSQL(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
-	return e.poolManager.PrepareReservedConn(ctx, conn, e.sessionSettingsFromOptions(options))
+func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
+	if options == nil || options.SessionSettings == nil {
+		return nil
+	}
+	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), e.sessionSettingsForPool(options.SessionSettings))
+}
+
+func (e *Executor) releaseReservedConn(conn *reserved.Conn, reason reserved.ReleaseReason, options *query.ExecuteOptions) {
+	conn.Release(reason, e.sessionSettingsFromOptions(options))
 }
 
 // stampVpidOnReserved tags a reserved connection's PostgreSQL backend with
@@ -185,11 +192,10 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		}
 
 		// Existing reserved connections bypass the pool's normal settings checkout
-		// path. PrepareReservedConn records the latest authoritative gateway state
-		// and reconciles before user SQL, forcing reconciliation if connstate is
-		// marked untrusted after a savepoint rollback.
-		if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
-			return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
+		// path. Apply deferred gateway session settings before user SQL when they
+		// differ from connstate.
+		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
+			return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply session settings: %w", err)
 		}
 
 		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn. When the
@@ -294,11 +300,11 @@ func (e *Executor) StreamExecute(
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
+		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 			return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
-		// Stamp multigres_vpid:<id> AFTER PrepareReservedConn so a RESET
+		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn so a RESET
 		// ALL emitted by the empty-desired-settings path doesn't wipe it
 		// (see the matching ordering in ExecuteQuery).
 		e.stampVpidOnReserved(ctx, reservedConn, options)
@@ -315,7 +321,7 @@ func (e *Executor) StreamExecute(
 			}
 		}
 
-		return e.streamExecuteOnReservedConn(ctx, reservedConn, sql, reservationOptions, callback)
+		return e.streamExecuteOnReservedConn(ctx, reservedConn, sql, reservationOptions, e.sessionSettingsFromOptions(options), callback)
 	}
 
 	// Case 2: Create a new reserved connection
@@ -449,7 +455,7 @@ func (e *Executor) reserveAndStreamExecute(
 			beginQuery = reservationOptions.GetBeginQuery()
 		}
 		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, err
 		}
 	}
@@ -461,7 +467,7 @@ func (e *Executor) reserveAndStreamExecute(
 		if beginTx {
 			_ = reservedConn.Rollback(ctx)
 		}
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}
 
@@ -474,7 +480,7 @@ func (e *Executor) reserveAndStreamExecute(
 	// acquire, in which case unpin immediately so the gateway doesn't keep an
 	// empty reservation. Gated on the recheck signal so the probe stays off the
 	// per-statement hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, e.sessionSettingsFromOptions(options)) {
 		return nil, nil
 	}
 
@@ -498,6 +504,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	rc reservedConnAPI,
 	sql string,
 	reservationOptions *query.ReservationOptions,
+	gatewaySessionSettings map[string]string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	reasons := protoutil.GetReasons(reservationOptions)
@@ -553,7 +560,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 			}
 		}
 		if shouldRelease {
-			rc.Release(reserved.ReleaseError)
+			rc.Release(reserved.ReleaseError, nil)
 			return nil, wrapQueryError(err)
 		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
@@ -577,7 +584,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 		}
 	}
 	if shouldRelease {
-		rc.Release(reserved.ReleasePortalComplete)
+		rc.Release(reserved.ReleasePortalComplete, gatewaySessionSettings)
 		return nil, nil
 	}
 
@@ -585,7 +592,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
 	// the recheck signal so the probe runs only on advisory-touching statements,
 	// not after every query on a pinned connection.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, gatewaySessionSettings) {
 		return nil, nil
 	}
 
@@ -604,7 +611,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 // calls buried in functions or dynamic SQL — cases gateway-side counting could
 // never get right. The cost is one extra round trip per statement while the
 // session holds an advisory lock, which is a rare and already-pinned state.
-func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI) bool {
+func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reservedConnAPI, gatewaySessionSettings map[string]string) bool {
 	// Only meaningful for advisory-lock reservations, and only outside a
 	// transaction: inside one ReasonTransaction keeps the backend pinned anyway,
 	// and transaction-level advisory locks would pollute the probe.
@@ -645,7 +652,7 @@ func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reserve
 	// No advisory locks remain. Drop the reason; release the backend if nothing
 	// else keeps it reserved.
 	if rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock) {
-		rc.Release(reserved.ReleaseAdvisoryUnlock)
+		rc.Release(reserved.ReleaseAdvisoryUnlock, gatewaySessionSettings)
 		e.logger.DebugContext(ctx, "released advisory-lock reservation; no locks remain",
 			"reserved_conn_id", rc.ConnID())
 		return true
@@ -792,9 +799,9 @@ func (e *Executor) portalExecuteWithReserved(
 		newlyReserved = true
 	}
 
-	if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
+	if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 		if newlyReserved {
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, err
 		}
 		return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
@@ -819,7 +826,7 @@ func (e *Executor) portalExecuteWithReserved(
 			}
 			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 				if newlyReserved {
-					reservedConn.Release(reserved.ReleaseError)
+					reservedConn.Release(reserved.ReleaseError, nil)
 					return nil, err
 				}
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
@@ -836,7 +843,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// already parsed it; for the existing-conn branch this is the only call.
 	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
 	if err != nil {
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, err
 	}
 
@@ -852,7 +859,7 @@ func (e *Executor) portalExecuteWithReserved(
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
 	if err != nil {
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, wrapQueryError(err)
 	}
 
@@ -872,7 +879,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// Portal completed — release this portal's reservation. ReleasePortal returns
 	// true only when all reservation reasons are gone.
 	if reservedConn.ReleasePortal(portal.Name) {
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 		return nil, nil
 	}
 
@@ -880,7 +887,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// this portal as touching an advisory lock (acquire that may have failed, or
 	// a release over the extended protocol), re-probe pg_locks and unpin if none
 	// remain. Gated on the recheck signal to keep the probe off the hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, e.sessionSettingsFromOptions(options)) {
 		return nil, nil
 	}
 
@@ -973,7 +980,7 @@ func (e *Executor) Describe(
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
+		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 			return nil, fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
@@ -1121,7 +1128,7 @@ func (e *Executor) CopyReady(
 			return 0, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
+		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
@@ -1155,7 +1162,7 @@ func (e *Executor) CopyReady(
 			// verbatim ErrorResponse — see ReadCopyDoneResponse error path
 			// in CopyFinalize for the same rationale.
 			if mterrors.IsConnectionError(err) {
-				reservedConn.Release(reserved.ReleaseError)
+				reservedConn.Release(reserved.ReleaseError, nil)
 				return 0, nil, nil, err
 			}
 			return 0, nil, e.buildReservedState(reservedConn), err
@@ -1293,7 +1300,7 @@ func (e *Executor) CopyFinalize(
 		if err := conn.WriteCopyData(finalData); err != nil {
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, fmt.Errorf("failed to write final COPY data: %w", err)
 		}
 		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
@@ -1303,7 +1310,7 @@ func (e *Executor) CopyFinalize(
 	if err := conn.WriteCopyDone(); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
@@ -1330,12 +1337,12 @@ func (e *Executor) CopyFinalize(
 		// diverge from upstream PostgreSQL output.
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-				reservedConn.Release(reserved.ReleasePortalComplete)
+				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 				return nil, nil, err
 			}
 			return nil, e.buildReservedState(reservedConn), err
 		}
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil, err
 	}
 
@@ -1356,7 +1363,7 @@ func (e *Executor) CopyFinalize(
 	// Remove the COPY reason. If other reasons remain (e.g., transaction),
 	// keep the connection reserved. Otherwise, release it back to the pool.
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 		return result, nil, nil
 	}
 
@@ -1430,14 +1437,14 @@ func (e *Executor) CopyAbort(
 		// Connection is in a bad protocol state — release it.
 		// We intentionally return nil error: abort is best-effort cleanup and
 		// the caller needs a zero ReservedState to know the connection is gone.
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil //nolint:nilerr // intentional: abort is best-effort
 	}
 
 	// Clean abort — remove the COPY reason. If other reasons remain
 	// (e.g., transaction), keep the connection reserved.
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 		return nil, nil
 	}
 
@@ -1485,7 +1492,7 @@ func (e *Executor) CopyOutReady(
 		if reservedConn == nil {
 			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
-		if err := e.prepareReservedConnForUserSQL(ctx, reservedConn, options); err != nil {
+		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 			return 0, nil, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 		e.stampVpidOnReserved(ctx, reservedConn, options)
@@ -1497,7 +1504,7 @@ func (e *Executor) CopyOutReady(
 			// the socket is dead. Surface the PG error un-wrapped so the
 			// gateway can re-emit the verbatim ErrorResponse.
 			if mterrors.IsConnectionError(err) {
-				reservedConn.Release(reserved.ReleaseError)
+				reservedConn.Release(reserved.ReleaseError, nil)
 				return 0, nil, notices, nil, err
 			}
 			return 0, nil, notices, e.buildReservedState(reservedConn), err
@@ -1595,7 +1602,7 @@ func (e *Executor) CopyOutStream(
 		e.logger.DebugContext(ctx, "aborting COPY TO STDOUT via socket destroy",
 			"conn_id", options.ReservedConnectionId,
 			"reason", reason)
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 	}
 
 	// Pump CopyData / NoticeResponse to the gateway until CopyDone.
@@ -1611,12 +1618,12 @@ func (e *Executor) CopyOutStream(
 			// Mirror CopyFinalize's release semantics.
 			if !mterrors.IsConnectionError(err) {
 				if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-					reservedConn.Release(reserved.ReleasePortalComplete)
+					e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 					return nil, nil, err
 				}
 				return nil, e.buildReservedState(reservedConn), err
 			}
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}
 
@@ -1634,12 +1641,12 @@ func (e *Executor) CopyOutStream(
 	if err != nil {
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-				reservedConn.Release(reserved.ReleasePortalComplete)
+				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 				return nil, nil, err
 			}
 			return nil, e.buildReservedState(reservedConn), err
 		}
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil, err
 	}
 
@@ -1650,7 +1657,7 @@ func (e *Executor) CopyOutStream(
 	}
 
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
 		return result, nil, nil
 	}
 	return result, e.buildReservedState(reservedConn), nil
@@ -1752,14 +1759,14 @@ func (e *Executor) ConcludeTransaction(
 		commandTag = "COMMIT"
 		releaseReason = reserved.ReleaseCommit
 		if err := reservedConn.Commit(ctx); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
 		commandTag = "ROLLBACK"
 		releaseReason = reserved.ReleaseRollback
 		if err := reservedConn.Rollback(ctx); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
+			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}
 		// PostgreSQL closes the cursors created inside this transaction
@@ -1788,7 +1795,7 @@ func (e *Executor) ConcludeTransaction(
 	shouldRelease := remainingReasons == 0
 
 	if shouldRelease {
-		reservedConn.Release(releaseReason)
+		e.releaseReservedConn(reservedConn, releaseReason, options)
 		e.logger.DebugContext(ctx, "transaction concluded",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"command_tag", commandTag,
@@ -1832,7 +1839,7 @@ func (e *Executor) DiscardTempTables(
 
 	// Send DISCARD TEMP to PostgreSQL to drop all temp tables on this backend.
 	if _, err := reservedConn.Query(ctx, "DISCARD TEMP"); err != nil {
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
 	}
 
@@ -1844,7 +1851,7 @@ func (e *Executor) DiscardTempTables(
 	// If no other reasons remain, release the connection
 	remainingReasons := reservedConn.RemainingReasons()
 	if remainingReasons == 0 {
-		reservedConn.Release(reserved.ReleaseCommit)
+		e.releaseReservedConn(reservedConn, reserved.ReleaseCommit, options)
 		e.logger.DebugContext(ctx, "discard temp tables completed, connection released",
 			"reserved_conn_id", options.ReservedConnectionId)
 		return result, nil, nil
@@ -1946,9 +1953,9 @@ func (e *Executor) ReleaseReservedConnection(
 
 	// Step 5: Release or close the connection.
 	if cleanupFailed {
-		reservedConn.Release(reserved.ReleaseError)
+		reservedConn.Release(reserved.ReleaseError, nil)
 	} else {
-		reservedConn.Release(reserved.ReleaseRollback)
+		reservedConn.Release(reserved.ReleaseRollback, nil)
 	}
 
 	e.logger.DebugContext(ctx, "reserved connection released",

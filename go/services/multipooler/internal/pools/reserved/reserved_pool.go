@@ -57,6 +57,10 @@ type PoolConfig struct {
 
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
+
+	// SettingsCache interns gateway session settings for release-boundary
+	// connstate sync when a connection is marked untrusted.
+	SettingsCache *connstate.SettingsCache
 }
 
 // Pool manages reserved connections with ID-based tracking.
@@ -338,7 +342,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	// Release handles OnRelease, Recycle, and metrics. The CAS inside
 	// Release prevents double-release if an in-flight request also calls
 	// Release after Kill causes it to fail.
-	rc.Release(ReleaseKill)
+	rc.Release(ReleaseKill, nil)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
@@ -352,7 +356,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 // pool; reasons that prevent reuse taint/close instead. OnRelease is
 // intentionally invoked after finalization/recycle so finalizing backends
 // remain counted as lent.
-func (p *Pool) release(rc *Conn, reason ReleaseReason) {
+func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
@@ -374,7 +378,7 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	// Uncertain-state releases and replication sockets must never be reused.
 	if reason.preventsReuse() || (rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
 		rc.pooled.Taint()
-	} else if err := p.finalizeCleanRelease(rc); err != nil {
+	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
 		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
 			"conn_id", rc.ConnID(),
 			"reason", reason.String(),
@@ -395,29 +399,21 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		"reason", reason.String())
 }
 
-// finalizeCleanRelease restores the truthfulness invariant the regular pool
-// relies on — connstate describes the backend's real session state — before the
-// backend is recycled. The regular pool buckets connections by their connstate
-// settings pointer and computes checkout reconciliation diffs against it, so a
-// lying cache hands later checkouts a diverged backend (leaked or missing
-// session GUCs). When the connection is marked untrusted (PostgreSQL may have
-// reverted session state invisibly, e.g. via ROLLBACK TO SAVEPOINT), the
-// finalizer force-asserts the cached settings back onto the backend; which
-// absolute values the backend holds does not matter once the reservation ends,
-// only that connstate matches them. A trusted connection is already truthful
-// and needs no SQL.
-func (p *Pool) finalizeCleanRelease(rc *Conn) error {
+// finalizeCleanRelease syncs connstate to the gateway's authoritative session
+// settings when the connection was marked untrusted (e.g. after ROLLBACK TO
+// SAVEPOINT). Gateway and backend are already aligned; only the pooler's cache
+// may lie. A trusted connection needs no work.
+func (p *Pool) finalizeCleanRelease(rc *Conn, gatewaySessionSettings map[string]string) error {
 	if !rc.SessionStateUntrusted() {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(p.ctx, p.config.ReleaseFinalizationTimeout)
-	defer cancel()
-
-	conn := rc.Conn()
-	if err := conn.ForceApplySettings(ctx, conn.Settings()); err != nil {
-		return err
+	if p.config.SettingsCache == nil {
+		return errors.New("settings cache is required for untrusted release finalization")
 	}
+
+	desired := p.config.SettingsCache.GetOrCreate(gatewaySessionSettings)
+	rc.Conn().State().SetSettings(desired)
 	rc.ClearSessionStateUntrusted()
 	return nil
 }

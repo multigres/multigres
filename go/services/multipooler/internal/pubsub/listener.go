@@ -212,7 +212,7 @@ func (l *Listener) run(ctx context.Context) {
 	// old readLoop after the connection is released.
 	releaseConn := func() {
 		if conn != nil {
-			conn.Release(reserved.ReleaseError)
+			conn.Release(reserved.ReleaseError, nil)
 			conn = nil
 			readerCh = nil
 			// Track disconnect time for reconnect gap duration metric.
@@ -461,7 +461,7 @@ func (l *Listener) drainCommands(
 				l.logger.ErrorContext(ctx, "pubsub: reader error during command wait, will reconnect",
 					"error", msg.err)
 				if *conn != nil {
-					(*conn).Release(reserved.ReleaseError)
+					(*conn).Release(reserved.ReleaseError, nil)
 					*conn = nil
 				}
 				*disconnectedAt = time.Now()

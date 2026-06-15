@@ -104,6 +104,43 @@ func runGUCNoticeLeakRounds(ctx context.Context, t *testing.T, port int, poison 
 	return leaks, mismatches
 }
 
+// TestDeferredSETOnReservedConn verifies tracked SET inside a transaction is
+// applied to the reserved backend on the next query (deferred apply), not at
+// release.
+func TestDeferredSETOnReservedConn(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 5*time.Minute)
+	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+	gatewayPgPort := setup.MultigatewayPgPort
+	createLeakNoticeFn(t, directPgPort)
+	m := pgx.QueryExecModeSimpleProtocol
+
+	run := func(t *testing.T, port int) {
+		t.Helper()
+		conn, getNotices, close := openGUCNoticeConn(ctx, t, port)
+		defer close()
+
+		_, err := conn.Exec(ctx, "BEGIN", m)
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "SET client_min_messages TO error", m)
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "SELECT public.leak_notice(1)", m)
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "COMMIT", m)
+		require.NoError(t, err)
+
+		require.NotContains(t, getNotices(), "leak-1",
+			"deferred SET must apply before the next query on the reserved connection")
+	}
+
+	t.Run("direct_primary", func(t *testing.T) { run(t, directPgPort) })
+	t.Run("multigateway", func(t *testing.T) { run(t, gatewayPgPort) })
+}
+
 // TestGUCDivergenceRepro covers the plain BEGIN -> SET -> ROLLBACK case: a session
 // GUC set inside a transaction is reverted on the backend by ROLLBACK, and the
 // pool must revert its cached connstate in lock-step so the recycled connection

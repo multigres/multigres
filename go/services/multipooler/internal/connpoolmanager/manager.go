@@ -422,6 +422,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		OnRecycle:                 onRecycle,
 		OnReserve:                 onReserve,
 		OnRelease:                 onRelease,
+		SettingsCache:             m.settingsCache,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
@@ -819,31 +820,6 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 	}
 
 	return pool.GetReservedConn(connID)
-}
-
-// PrepareReservedConn reconciles an existing reserved connection to the
-// gateway's session settings before user-visible backend work. If the
-// connection is marked untrusted, force reconciliation avoids stale connstate
-// pointer-equality no-ops.
-func (m *Manager) PrepareReservedConn(ctx context.Context, conn *reserved.Conn, settings map[string]string) error {
-	if conn == nil {
-		return nil
-	}
-	desired := m.settingsCache.GetOrCreate(settings)
-
-	if conn.SessionStateUntrusted() {
-		if err := conn.Conn().ForceApplySettings(ctx, desired); err != nil {
-			return err
-		}
-		conn.ClearSessionStateUntrusted()
-		return nil
-	}
-
-	current := conn.Conn().Settings()
-	if desired == current {
-		return nil
-	}
-	return conn.Conn().ApplySettings(ctx, desired)
 }
 
 // ApplySettingsToConn ensures the connection's settings match the given session

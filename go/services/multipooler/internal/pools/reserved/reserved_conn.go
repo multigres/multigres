@@ -335,18 +335,17 @@ func (c *Conn) ClearSessionStateUntrusted() {
 
 // --- Lifecycle ---
 
-// Release releases this connection back to the pool. Reasons that indicate
-// uncertain protocol/backend state (timeout, kill, error) taint/close the
-// backend; clean reasons run release finalization, which re-asserts the cached
-// session state onto the backend when it is marked untrusted, so a backend can
-// never re-enter the regular pool with connstate out of sync.
-func (c *Conn) Release(reason ReleaseReason) {
+// Release releases this connection back to the pool. gatewaySessionSettings is
+// the gateway's authoritative session settings at release time; it is used to
+// sync connstate in-memory when the connection is marked untrusted. Pass nil
+// for dirty releases or when gateway settings are unavailable.
+func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]string) {
 	if !c.released.CompareAndSwap(false, true) {
 		return // Already released.
 	}
 
 	if c.pool != nil {
-		c.pool.release(c, reason)
+		c.pool.release(c, reason, gatewaySessionSettings)
 	}
 }
 

@@ -50,7 +50,9 @@ type reservedConnAPI interface {
 	ReleasePortal(portalName string) bool
 	// Release returns the backend to the pool (after release finalization for
 	// clean reasons) or taints/closes it (reasons indicating uncertain state).
-	Release(reason reserved.ReleaseReason)
+	// gatewaySessionSettings is the gateway's authoritative session settings at
+	// release time; pass nil when unavailable.
+	Release(reason reserved.ReleaseReason, gatewaySessionSettings map[string]string)
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.
