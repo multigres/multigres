@@ -81,16 +81,8 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	}
 
 	// Check if a primary already exists and is healthy (problem resolved).
-	// Leadership is judged from consensus (commonconsensus.IsLeader), never the
-	// PoolerType label: a pooler is the existing primary when its own consensus
-	// status names it leader. We also require it to be reachable (IsLastCheckValid)
-	// and PostgreSQL ready; if the pooler is up but Postgres is not ready, or it
-	// has signalled it needs replacement, we still need to trigger failover.
 	for _, pooler := range cohort {
-		if pooler.MultiPooler == nil ||
-			!commonconsensus.IsLeader(pooler.GetConsensusStatus()) ||
-			!pooler.IsLastCheckValid ||
-			!pooler.GetStatus().GetPostgresReady() {
+		if !isReachableConsensusLeader(pooler) {
 			continue
 		}
 		if types.LeaderNeedsReplacement(pooler) {
@@ -120,6 +112,23 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
 	return nil
+}
+
+// isReachableConsensusLeader reports whether pooler is currently serving as the
+// shard's consensus leader: its own consensus status names it leader, it is
+// reachable (IsLastCheckValid), and PostgreSQL is ready. When a cohort member
+// satisfies this, the shard already has a primary and leader appointment can be
+// skipped (subject to a separate LeaderNeedsReplacement check by the caller).
+//
+// Leadership is judged from consensus (commonconsensus.IsLeader), never the
+// PoolerType health label. A node in PostgreSQL primary mode that is not the
+// consensus leader — a stale or superseded primary — must not be mistaken for
+// the existing primary, otherwise it would suppress a failover that is needed.
+func isReachableConsensusLeader(pooler *multiorchdatapb.PoolerHealthState) bool {
+	return pooler.GetMultiPooler() != nil &&
+		commonconsensus.IsLeader(pooler.GetConsensusStatus()) &&
+		pooler.IsLastCheckValid &&
+		pooler.GetStatus().GetPostgresReady()
 }
 
 // getCohort fetches all poolers in the shard from the pooler store.
