@@ -774,6 +774,13 @@ func TestSessionSettingsForPool_EnabledFiltersAppName(t *testing.T) {
 	})
 }
 
+// --- sessionSettingsFromOptions tests ---
+
+func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
+	e := &Executor{vpidStampEnabled: false}
+	require.Nil(t, e.sessionSettingsFromOptions(nil))
+}
+
 // --- stampVpid* early-return tests ---
 //
 // The happy-path SET application_name issue is covered by integration tests
