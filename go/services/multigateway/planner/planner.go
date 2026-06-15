@@ -194,7 +194,7 @@ func (p *Planner) Plan(
 		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, opts)
+		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
@@ -459,6 +459,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeCopyStatement
 	case *engine.ApplySessionState:
 		return engine.PlanTypeApplySessionState
+	case *engine.ResolveTrackSetConfig:
+		return engine.PlanTypeResolveTrackSetConfig
 	case *engine.GatewaySessionState:
 		return engine.PlanTypeGatewaySessionState
 	case *engine.GatewayShowVariable:

@@ -54,6 +54,56 @@ func TestValueIsNull(t *testing.T) {
 	}
 }
 
+func TestValueIsTrue(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    Value
+		expected bool
+	}{
+		{"nil is false", nil, false},
+		{"empty is false", Value{}, false},
+		{"t is true", Value("t"), true},
+		{"true is true", Value("true"), true},
+		{"uppercase TRUE is true", Value("TRUE"), true},
+		{"on is true", Value("on"), true},
+		{"1 is true", Value("1"), true},
+		{"y is true", Value("y"), true},
+		{"padded t is true", Value("  t  "), true},
+		{"f is false", Value("f"), false},
+		{"false is false", Value("false"), false},
+		{"0 is false", Value("0"), false},
+		{"unrecognized is false", Value("maybe"), false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.value.IsTrue())
+		})
+	}
+}
+
+func TestValueSQLLiteral(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    Value
+		expected string
+	}{
+		{"nil is NULL keyword", nil, "NULL"},
+		{"empty string", Value{}, "''"},
+		{"plain text", Value("hello"), "'hello'"},
+		{"value with comma", Value("view, foreign-table"), "'view, foreign-table'"},
+		{"single quote is doubled", Value("O'Brien"), "'O''Brien'"},
+		{"multiple single quotes", Value("a'b'c"), "'a''b''c'"},
+		{"numeric rendered as string", Value("256"), "'256'"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.value.SQLLiteral())
+		})
+	}
+}
+
 func TestRowToProtoAndBack(t *testing.T) {
 	tests := []struct {
 		name   string
