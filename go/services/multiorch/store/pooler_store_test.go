@@ -252,6 +252,65 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 		assert.Nil(t, primary)
 		assert.Contains(t, err.Error(), "no longer reports itself as the leader")
 	})
+
+	t.Run("REGRESSION: picks the leader named by a replica's rule over a stale postgres-PRIMARY", func(t *testing.T) {
+		// Failover window: the old leader (term 5) has not been demoted yet, so it
+		// is still topology- and postgres-PRIMARY and self-claims leadership. The
+		// new leader (term 6) has not yet published its own consensus snapshot — its
+		// leadership is known only from a replica that already replicates from it.
+		//
+		// The old PoolerType-based selection treated the stale node as a primary
+		// (and, with a second postgres-PRIMARY present, errored "multiple primaries
+		// found", failing both callers — fix replication / cohort reconciliation).
+		// Consensus names exactly one leader by rule number — learned here from the
+		// replica's rule, not the new leader's own health — so the new leader is
+		// selected with no ambiguity.
+		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
+		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
+		replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"}
+
+		fakeClient := rpcclient.NewFakeClient()
+		// Only the consensus-selected leader is verified via Status.
+		fakeClient.SetStatusResponse("multipooler-cell1-new-leader", &multipoolermanagerdatapb.StatusResponse{
+			ConsensusStatus: leaderConsensusStatus(newID, 6),
+		})
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+
+		poolers := []*multiorchdatapb.PoolerHealthState{
+			{
+				// Stale leader: still topology- and postgres-PRIMARY, self-claims term 5.
+				MultiPooler:     &clustermetadatapb.MultiPooler{Id: staleID, Type: clustermetadatapb.PoolerType_PRIMARY},
+				ConsensusStatus: leaderConsensusStatus(staleID, 5),
+				Status:          &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+			},
+			{
+				// New leader: present so it can be verified, but its topology label is
+				// still REPLICA and it carries no self-naming snapshot yet — its
+				// leadership is learned from the replica's rule below.
+				MultiPooler: &clustermetadatapb.MultiPooler{Id: newID, Type: clustermetadatapb.PoolerType_REPLICA},
+			},
+			{
+				// Replica already replicating from the new leader at the higher term.
+				MultiPooler: &clustermetadatapb.MultiPooler{Id: replicaID, Type: clustermetadatapb.PoolerType_REPLICA},
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					Id: replicaID,
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+							LeaderId:   newID,
+						},
+					},
+				},
+			},
+		}
+
+		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
+
+		require.NoError(t, err, "consensus names one leader; there is no multiple-primary ambiguity")
+		require.NotNil(t, primary)
+		assert.Equal(t, "new-leader", primary.MultiPooler.Id.Name,
+			"the leader named by the replica's higher-term rule must be selected, not the stale postgres-PRIMARY")
+	})
 }
 
 // leaderConsensusStatus builds a consensus status for a pooler that names
