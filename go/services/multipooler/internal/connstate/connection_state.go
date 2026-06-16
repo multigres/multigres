@@ -113,9 +113,13 @@ func (s *ConnectionState) Clone() *ConnectionState {
 // session state.
 //
 // Settings is interned and immutable (it is replaced wholesale via SetSettings,
-// never mutated in place), so it is captured by reference. Prepared statements
-// are intentionally NOT captured here — their lifecycle is owned by the
-// prepared-statement consolidator, not this cache.
+// never mutated in place), so it is captured by reference. PreparedStatements
+// are intentionally NOT captured here. Although ConnectionState tracks which
+// prepared statements have been parsed on this backend connection, PostgreSQL
+// treats prepared statements as session-level objects: PREPARE/Parse survives
+// ROLLBACK and ROLLBACK TO SAVEPOINT, and DEALLOCATE/Close is not undone by
+// rollback. Restoring them from a transaction snapshot would make the pool's
+// cache diverge from the backend.
 type TxnSnapshot struct {
 	settings *Settings
 }
