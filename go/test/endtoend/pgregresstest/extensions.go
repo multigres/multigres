@@ -44,6 +44,17 @@ const (
 	// (ExtensionCatalog → CoveredContribModules); for KindExternal it is the
 	// external suite (CoveredExternalExtensions, backed by externalSpecs).
 	StatusCovered ExtStatus = "covered"
+	// StatusPartial: wired into the suite and run in its natural upstream shape,
+	// but with known, documented compatibility gaps captured by patches. Use this
+	// for extensions that build and mostly execute through multigateway while a
+	// drop-in behavior gap remains (for example backend-local extension state
+	// that needs future automatic session pinning).
+	StatusPartial ExtStatus = "partial"
+	// StatusBuildOnly: external module that the harness clones, builds,
+	// installs, preloads if needed, and verifies with a minimal CREATE EXTENSION
+	// smoke test, but whose upstream regression suite is intentionally not run
+	// through multigateway.
+	StatusBuildOnly ExtStatus = "build-only"
 	// StatusPending: a core-contrib module with a pg_regress suite that this
 	// harness could run but has not been wired up yet.
 	StatusPending ExtStatus = "pending"
@@ -82,19 +93,19 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"earthdistance", KindContrib, StatusCovered, "depends on cube"},
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
-	{"http", KindExternal, StatusExternal, ""},
-	{"hypopg", KindExternal, StatusExternal, "built as index_advisor's dependency (externalSpecs) but not run as its own suite — see the hypopg spec for why"},
+	{"http", KindExternal, StatusCovered, "pgsql-http (needs libcurl to build); suite runs in its upstream/autocommit shape against the harness's local httpbin-compatible server on :9080 (NeedsHTTPBin); live TLS probes still hit upstream's https://postgis.net; the only patch is timeout cancellation wording"},
+	{"hypopg", KindExternal, StatusPartial, "hypothetical indexes; also index_advisor's dependency. The upstream autocommit suite exposes a known drop-in gap: hypothetical indexes live in backend-local memory, and multigateway may route later statements to another pooled backend until automatic pinning for hypopg functions exists. Narrow patches document the current failures"},
 	{"index_advisor", KindExternal, StatusCovered, "Supabase index advisor; pure-SQL PGXS module; depends on hypopg (built via DependsOn). Its tests are BEGIN/ROLLBACK-wrapped, so hypopg's backend-local hypothetical indexes stay on the pinned backend"},
 	{"ltree", KindContrib, StatusCovered, ""},
 	{"moddatetime", KindContrib, StatusUnsupported, "contrib/spi ships no pg_regress suite"},
 	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
 	{"pg_graphql", KindExternal, StatusCovered, "Supabase pg_graphql; Rust/pgrx crate built with cargo-pgrx; loads test/fixtures.sql before its pg_regress suite"},
-	{"pg_jsonschema", KindExternal, StatusExternal, "Rust"},
+	{"pg_jsonschema", KindExternal, StatusCovered, "Rust/pgrx JSON Schema validator; ships no SQL suite (upstream tests are pgrx #[pg_test] functions in a private embedded server), so the harness carries a faithful SQL translation of that corpus in-repo (LocalTestDir) and runs it through multigateway"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
 	{"pg_partman", KindExternal, StatusCovered, "pgTAP suite run via psql (not pg_regress); needs pgtap + max_locks_per_transaction>=128 (see testdata/pg17/external/pg_partman.conf). Runs the transaction-wrapped tests only (top-level + test_pg17plus/ + test_no_search_path/); autocommit/procedure subfolders can't run through a transaction pooler — see runExternalPgTAP. Also pgmq's build dependency (pgmq.create_partitioned → create_parent)."},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
-	{"pgaudit", KindExternal, StatusExternal, ""},
+	{"pgaudit", KindExternal, StatusBuildOnly, "session/object audit logging; needs shared_preload_libraries (PreloadLibraries). The harness builds, preloads, and smoke-loads it, but does not run upstream's pg_regress suite because that suite asserts an exact audit-log stream (literal SET/RESET/SET ROLE/PREPARE/EXECUTE text and database DDL) that is not a valid multigateway pass/fail signal until session-state replay around SET ROLE and pgaudit.* GUCs is fixed"},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusCovered, "pure-SQL JWT extension; pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql. Depends on pgcrypto (contrib) and pgtap; upstream never tags releases, so it is pinned to a commit"},
 	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
@@ -112,13 +123,13 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"wrappers", KindExternal, StatusExternal, "Rust"},
 }
 
-// TestHarness selects how an external extension's shipped test suite is
-// executed. The zero value (HarnessPgRegress) drives the pg_regress binary and
-// diffs each test's output against expected/*.out — the model the contrib suite
-// and pgvector/pg_cron use. HarnessPgTAP instead feeds each test .sql to psql and
-// parses the TAP stream the pgTAP assertions emit server-side; correctness is
-// decided in-database (no expected-output files, no patch pipeline). Extensions
-// like pg_partman ship pgTAP suites.
+// TestHarness selects how an external extension is verified. The zero value
+// (HarnessPgRegress) drives the pg_regress binary and diffs each test's output
+// against expected/*.out — the model the contrib suite and pgvector/pg_cron use.
+// HarnessPgTAP instead feeds each test .sql to psql and parses the TAP stream
+// the pgTAP assertions emit server-side; correctness is decided in-database (no
+// expected-output files, no patch pipeline). HarnessSmoke only verifies that the
+// extension builds, installs, preloads if needed, and can be CREATE EXTENSION'd.
 type TestHarness string
 
 const (
@@ -126,6 +137,8 @@ const (
 	HarnessPgRegress TestHarness = ""
 	// HarnessPgTAP runs the extension's pgTAP tests through psql and parses TAP.
 	HarnessPgTAP TestHarness = "pgtap"
+	// HarnessSmoke runs a minimal CREATE EXTENSION load check.
+	HarnessSmoke TestHarness = "smoke"
 )
 
 // ExtensionInstall names an extension to CREATE before a pgTAP suite, with an
@@ -161,9 +174,10 @@ type ExternalExtension struct {
 	BuildSubdir string
 
 	// Harness selects the test runner (see TestHarness). The zero value runs the
-	// pg_regress path; HarnessPgTAP runs the psql+TAP path. Fields below tagged
-	// "(pgTAP)" apply only to the HarnessPgTAP path; the patch pipeline applies only
-	// to the pg_regress path; PreCreateExtensions is used by both.
+	// pg_regress path; HarnessPgTAP runs the psql+TAP path; HarnessSmoke runs the
+	// load-only smoke path. Fields below tagged "(pgTAP)" apply only to the
+	// HarnessPgTAP path; the patch pipeline applies only to the pg_regress path;
+	// PreCreateExtensions is used by all paths.
 	Harness TestHarness
 
 	// TestGlobs (pgTAP) are the filename globs, relative to TestSubdir, selecting
@@ -201,12 +215,14 @@ type ExternalExtension struct {
 
 	// PreCreateExtensions lists extensions to CREATE EXTENSION through multigateway,
 	// in order, before the suite runs — each optionally into a specific schema. Used
-	// by both harnesses for fixtures that assume an extension already exists:
+	// by every harness path for fixtures that assume an extension already exists:
 	//   - pg_regress: pgvector's fixtures open with a bare CREATE TABLE ...
 	//     vector(3) and never CREATE EXTENSION, so it lists {Name: "vector"}.
 	//   - pgTAP: pg_partman's test files never CREATE EXTENSION; they expect pgtap
 	//     in public and pg_partman in the `partman` schema, referencing partman.*
 	//     explicitly.
+	//   - smoke: the load-only path creates this list, defaulting to ext.Name when
+	//     empty.
 	// The Schema field matters because pg_partman's control file is
 	// relocatable=false with no `schema=` default, so CREATE EXTENSION without a
 	// SCHEMA clause lands it in public (first in search_path) and every
@@ -291,11 +307,12 @@ type ExternalExtension struct {
 
 	// DependsOn names other externalSpecs the harness must clone, build, and
 	// install before this extension's suite runs, because the suite CREATEs those
-	// extensions too. They are build-only: installed so CREATE EXTENSION resolves,
-	// but not tested on their own (they need not ship a pg_regress suite). pgmq's
-	// base.sql creates partitioned queues via pg_partman's create_parent, so pgmq
-	// DependsOn pg_partman. ExternalBuildList orders dependencies before the
-	// extensions that need them. Empty for self-contained extensions (pgvector).
+	// extensions too. They are dependency-only unless independently selected:
+	// installed so CREATE EXTENSION resolves, but not necessarily tested on their
+	// own. pgmq's base.sql creates partitioned queues via pg_partman's
+	// create_parent, so pgmq DependsOn pg_partman. ExternalBuildList orders
+	// dependencies before the extensions that need them. Empty for self-contained
+	// extensions (pgvector).
 	DependsOn []string
 
 	// BuildSystem selects the build toolchain: "" (or "pgxs") builds a PGXS
@@ -325,13 +342,32 @@ type ExternalExtension struct {
 	// comment) before the suite, so the fixtures must run first here too. Empty
 	// for extensions whose .sql files are self-contained (pgmq, pgvector).
 	FixturesFile string
+
+	// NeedsHTTPBin, when true, has the harness serve a local httpbin-compatible
+	// HTTP server on 127.0.0.1:9080 for the duration of this extension's suite.
+	// pgsql-http's suite is designed to run against a local httpbin on exactly
+	// that port (its first statement is SET http.server_host =
+	// 'http://localhost:9080', falling back to live httpbin.org only when nothing
+	// answers locally — a fallback the harness must never exercise in CI). See
+	// httpbin.go.
+	NeedsHTTPBin bool
+
+	// LocalTestDir, when non-empty, names a directory under
+	// testdata/pg<major>/external/ holding an in-repo sql/ + expected/ suite
+	// used INSTEAD of fixtures from the checkout. For extensions that ship no
+	// SQL test suite at all: pg_jsonschema's upstream tests are pgrx #[pg_test]
+	// functions that run inside a private embedded server, so the harness
+	// carries a faithful SQL translation of that corpus (each upstream test
+	// case, same inputs and expectations) and runs it through multigateway like
+	// any other suite.
+	LocalTestDir string
 }
 
 // externalSpecs holds the build coordinates (git repo + pinned tag) and the
-// per-extension knobs for every external extension the harness can build. An
-// ExtensionCatalog entry with Kind==KindExternal can only be StatusCovered if it
-// also has a spec here; the pinned tag keeps the suite reproducible (and matches
-// the ABI the from-source PostgreSQL was built against). Keyed by catalog Name.
+// per-extension knobs for every external extension the harness can build. A
+// runnable ExtensionCatalog entry with Kind==KindExternal must have a spec here;
+// the pinned tag keeps the suite reproducible (and matches the ABI the
+// from-source PostgreSQL was built against). Keyed by catalog Name.
 var externalSpecs = map[string]ExternalExtension{
 	"vector": {
 		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
@@ -440,16 +476,72 @@ var externalSpecs = map[string]ExternalExtension{
 		// which DependsOn pg_partman, runs fine with this raised too.
 		ServerConfigFile: "pg_partman.conf",
 	},
-	// hypopg is a build dependency only: index_advisor's tests `create extension
-	// index_advisor cascade`, which pulls in hypopg (its control file requires
-	// it). hypopg's OWN suite cannot run through the gateway: hypothetical
-	// indexes live in backend-local memory and its tests are autocommit, so
-	// hypopg_create_index and the EXPLAINs that should see the index land on
-	// different pooled backends. index_advisor's tests dodge that by wrapping
-	// everything in BEGIN…ROLLBACK (one pinned backend), which is why it is
-	// covered and hypopg is not.
+	// hypopg is both index_advisor's build dependency (its control file requires
+	// hypopg, so index_advisor's `create extension index_advisor cascade` pulls
+	// it in) and runnable in its own right. Hypothetical indexes live in
+	// backend-local memory and upstream's tests are autocommit, so plain pooled
+	// execution would scatter hypopg_create_index and the EXPLAINs that must see
+	// the index across different backends. The harness runs the upstream
+	// autocommit suite as-is and carries narrow patches for the current
+	// backend-local-state gap, so the report does not overstate drop-in
+	// compatibility while automatic session pinning is still future work.
 	"hypopg": {
 		Name: "hypopg", Repo: "https://github.com/HypoPG/hypopg", Tag: "1.4.2",
+		// sql/ lives under test/, but expected/ sits at the repo root: upstream
+		// runs pg_regress with --inputdir=test from the module root, and
+		// pg_regress resolves expected/ against the CWD, not --inputdir.
+		TestSubdir: "test", ExpectedSubdir: ".",
+		// Mirror of the Makefile's REGRESS list for MAJORVERSION=17, in REGRESS
+		// order. hypo_index_part_10 is the PG10-only variant and must not run.
+		RegressTests: []string{
+			"hypopg",
+			"hypo_brin",
+			"hypo_index_part",
+			"hypo_include",
+			"hypo_hash",
+			"hypo_hide_index",
+		},
+	},
+	// pgsql-http. Build needs libcurl (the Makefile locates it via curl-config;
+	// CI installs libcurl4-openssl-dev). The harness serves the local httpbin
+	// endpoints the suite expects on :9080 so it never falls back to live
+	// httpbin.org. The suite otherwise runs in its upstream autocommit shape; its
+	// live https://postgis.net TLS probes are left unchanged.
+	"http": {
+		Name: "http", Repo: "https://github.com/pramsey/pgsql-http", Tag: "v1.7.0",
+		// sql/ and expected/ live at the repo root (like pg_cron).
+		TestSubdir:   ".",
+		NeedsHTTPBin: true,
+	},
+	// pgaudit's audit hooks must be active from shared_preload_libraries before
+	// CREATE EXTENSION. Its upstream pg_regress suite is not a stable compatibility
+	// signal through multigateway: it asserts the exact audit stream for session
+	// state statements the gateway absorbs/replays (SET/RESET/SET ROLE), SQL-level
+	// prepared statements the gateway owns, and database DDL the gateway rejects.
+	// Keep it build/load-smoked until the SET ROLE + pgaudit.* GUC replay gap is
+	// fixed and the remaining audit-stream expectations can be represented
+	// narrowly.
+	"pgaudit": {
+		Name: "pgaudit", Repo: "https://github.com/pgaudit/pgaudit",
+		// pgaudit versions track PostgreSQL majors: 17.x is the PG17 line.
+		Tag:                 "17.1",
+		Harness:             HarnessSmoke,
+		PreloadLibraries:    []string{"pgaudit"},
+		PreCreateExtensions: []ExtensionInstall{{Name: "pgaudit"}},
+	},
+	// pg_jsonschema is Rust/pgrx like pg_graphql (same pinned pgrx line). It
+	// ships NO SQL test suite: upstream's tests are pgrx #[pg_test] functions
+	// that run inside a private embedded server, never through a client
+	// connection. The harness instead carries a faithful SQL translation of
+	// that corpus in-repo (every upstream test case, same inputs and expected
+	// values — see testdata/pg17/external/pg_jsonschema/) and runs it through
+	// multigateway like any other suite. No wrap needed: every function is
+	// IMMUTABLE and backend-state-free.
+	"pg_jsonschema": {
+		Name: "pg_jsonschema", Repo: "https://github.com/supabase/pg_jsonschema", Tag: "v0.3.4",
+		// Cargo.toml pins pgrx = "0.16.1"; the cargo-pgrx CLI must match.
+		BuildSystem: "pgrx", PgrxVersion: "0.16.1",
+		LocalTestDir: "pg_jsonschema",
 	},
 	"index_advisor": {
 		Name: "index_advisor", Repo: "https://github.com/supabase/index_advisor", Tag: "v0.2.0",
@@ -561,11 +653,12 @@ var externalSpecs = map[string]ExternalExtension{
 	},
 }
 
-// CoveredExternalExtensions returns the external extensions the suite builds and
-// tests, derived from ExtensionCatalog (every KindExternal+StatusCovered entry)
-// joined with its build spec. An entry marked covered without a matching spec is
-// a configuration error and is skipped (CheckExternalSpecs surfaces it as a
-// hard failure so it can't silently drop coverage).
+// CoveredExternalExtensions returns the external extensions whose upstream suite
+// runs through multigateway, derived from ExtensionCatalog (every
+// KindExternal+StatusCovered entry) joined with its build spec. An entry marked
+// covered without a matching spec is a configuration error and is skipped
+// (CheckExternalSpecs surfaces it as a hard failure so it can't silently drop
+// coverage).
 func CoveredExternalExtensions() []ExternalExtension {
 	var exts []ExternalExtension
 	for _, e := range ExtensionCatalog {
@@ -578,14 +671,32 @@ func CoveredExternalExtensions() []ExternalExtension {
 	return exts
 }
 
+func isRunnableExternalStatus(s ExtStatus) bool {
+	return s == StatusCovered || s == StatusPartial || s == StatusBuildOnly
+}
+
+// RunnableExternalExtensions returns external extensions the external suite
+// should execute in some form: covered/partial upstream suites plus build-only
+// smoke checks.
+func RunnableExternalExtensions() []ExternalExtension {
+	var exts []ExternalExtension
+	for _, e := range ExtensionCatalog {
+		if e.Kind == KindExternal && isRunnableExternalStatus(e.Status) {
+			if spec, ok := externalSpecs[e.Name]; ok {
+				exts = append(exts, spec)
+			}
+		}
+	}
+	return exts
+}
+
 // ExternalBuildList returns every external extension the suite must clone, build,
 // and install: the extensions selected for this run (ExternalModules, which
-// honors PGEXTERNAL_TESTS) plus their build-only dependencies (DependsOn), with
+// honors PGEXTERNAL_TESTS) plus their dependency-only modules (DependsOn), with
 // each dependency ordered before the extension that needs it and every entry
 // deduplicated. Dependencies are resolved through externalSpecs. The build phase
 // iterates this so a narrowed run (e.g. PGEXTERNAL_TESTS="pgmq") builds only the
-// selected extensions and their deps; the test phase iterates ExternalModules
-// (dependencies ship no pg_regress suite we run).
+// selected extensions and their deps; the test phase iterates ExternalModules.
 func ExternalBuildList() []ExternalExtension {
 	var out []ExternalExtension
 	seen := map[string]bool{}
@@ -634,16 +745,16 @@ func ExternalContribDeps() []string {
 }
 
 // ExternalPreloadLibraries returns the deduplicated union of the shared
-// libraries the selected external extensions need preloaded
-// (ExternalExtension.PreloadLibraries), honoring PGEXTERNAL_TESTS via
-// ExternalModules, in selection order. shared_preload_libraries is a single
+// libraries the selected external extensions and their dependencies need
+// preloaded (ExternalExtension.PreloadLibraries), honoring PGEXTERNAL_TESTS via
+// ExternalBuildList, in selection order. shared_preload_libraries is a single
 // list-valued GUC, so the harness composes ONE generated snippet from this
 // union (see externalServerConfPaths) rather than letting per-extension conf
 // files overwrite each other.
 func ExternalPreloadLibraries() []string {
 	var libs []string
 	seen := map[string]bool{}
-	for _, e := range ExternalModules() {
+	for _, e := range ExternalBuildList() {
 		for _, l := range e.PreloadLibraries {
 			if !seen[l] {
 				seen[l] = true
@@ -654,13 +765,13 @@ func ExternalPreloadLibraries() []string {
 	return libs
 }
 
-// CheckExternalSpecs verifies every covered external extension has a build spec.
+// CheckExternalSpecs verifies every runnable external extension has a build spec.
 // Returns the names missing a spec so the caller can fail loudly rather than
 // silently testing nothing.
 func CheckExternalSpecs() []string {
 	var missing []string
 	for _, e := range ExtensionCatalog {
-		if e.Kind == KindExternal && e.Status == StatusCovered {
+		if e.Kind == KindExternal && isRunnableExternalStatus(e.Status) {
 			if _, ok := externalSpecs[e.Name]; !ok {
 				missing = append(missing, e.Name)
 			}
@@ -672,9 +783,8 @@ func CheckExternalSpecs() []string {
 // CoveredContribModules returns the contrib module directories the suite runs,
 // derived from ExtensionCatalog (every KindContrib+StatusCovered entry). This is
 // the single source of truth; DefaultContribModules is built from it. External
-// covered extensions are intentionally excluded — they ship outside the
-// PostgreSQL source tree and run through the separate external suite
-// (CoveredExternalExtensions).
+// extensions are intentionally excluded — they ship outside the PostgreSQL
+// source tree and run through the separate external suite.
 func CoveredContribModules() []string {
 	var mods []string
 	for _, e := range ExtensionCatalog {
@@ -685,20 +795,25 @@ func CoveredContribModules() []string {
 	return mods
 }
 
-// statusRank orders statuses in the coverage table: covered first, then the
-// actionable backlog, then the out-of-scope buckets.
+// statusRank orders statuses in the coverage table: fully covered first, then
+// partial/build-only runnable entries, then the actionable backlog and
+// out-of-scope buckets.
 func statusRank(s ExtStatus) int {
 	switch s {
 	case StatusCovered:
 		return 0
-	case StatusPending:
+	case StatusPartial:
 		return 1
-	case StatusUnsupported:
+	case StatusBuildOnly:
 		return 2
-	case StatusExternal:
+	case StatusPending:
 		return 3
-	default:
+	case StatusUnsupported:
 		return 4
+	case StatusExternal:
+		return 5
+	default:
+		return 5
 	}
 }
 
@@ -706,6 +821,10 @@ func statusCell(s ExtStatus) string {
 	switch s {
 	case StatusCovered:
 		return "✅ covered"
+	case StatusPartial:
+		return "⚠️ partial"
+	case StatusBuildOnly:
+		return "🔧 build-only"
 	case StatusPending:
 		return "⏳ pending"
 	case StatusUnsupported:
@@ -718,15 +837,15 @@ func statusCell(s ExtStatus) string {
 }
 
 // ExtensionCoverageMarkdown renders the catalog as a coverage table, merged
-// with a contrib run's per-test results. Covered extensions expand to one row
+// with a contrib run's per-test results. Runnable extensions expand to one row
 // per sub-test (Result filled from the run); the Extension/Kind/Coverage cells
 // are populated only on the first row of each extension and left blank on the
-// rest so the grouping reads cleanly. Non-covered extensions get a single row
+// rest so the grouping reads cleanly. Non-runnable extensions get a single row
 // with the reason in Notes.
 //
 // suites are this run's per-test result sets whose tests are named "mod/test"
 // (the contrib and external suites). Any may be nil (that suite did not run), in
-// which case its covered extensions show "—" results.
+// which case runnable extensions show "—" results.
 func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 	// Group this run's per-test results by module ("mod/test" → mod) across
 	// every suite (contrib + external share the same module-prefixed naming).
@@ -756,36 +875,46 @@ func ExtensionCoverageMarkdown(suites ...*TestResults) string {
 	})
 
 	// Tallies for the summary line.
-	var covered, contribTotal, externalTotal int
+	var covered, coveredContrib, coveredExternal, partial, buildOnly int
 	for _, e := range ExtensionCatalog {
-		switch e.Kind {
-		case KindContrib:
-			contribTotal++
-		case KindExternal:
-			externalTotal++
-		}
 		if e.Status == StatusCovered {
 			covered++
+			switch e.Kind {
+			case KindContrib:
+				coveredContrib++
+			case KindExternal:
+				coveredExternal++
+			}
+		}
+		if e.Status == StatusPartial {
+			partial++
+		}
+		if e.Status == StatusBuildOnly {
+			buildOnly++
 		}
 	}
 
 	var sb strings.Builder
 	sb.WriteString("### Extension Coverage\n\n")
 	fmt.Fprintf(&sb, "Most-installed extensions (top ~%d by usage). %d covered "+
-		"(%d contrib, %d external). Covered extensions run their shipped pg_regress "+
-		"suite through multigateway; the per-test result below is from this run.\n\n",
-		len(ExtensionCatalog), covered, contribTotal, externalTotal)
+		"(%d contrib, %d external); %d partial; %d build-only. Covered and "+
+		"partial extensions run their shipped suites through multigateway; partial "+
+		"extensions have known compatibility gaps documented by patches. Build-only "+
+		"external extensions are built, preloaded when needed, and smoke-loaded "+
+		"without running upstream regression suites. The per-test result below is "+
+		"from this run.\n\n",
+		len(ExtensionCatalog), covered, coveredContrib, coveredExternal, partial, buildOnly)
 	sb.WriteString("| Extension | Kind | Coverage | Test | Result | Notes |\n")
 	sb.WriteString("|-----------|------|----------|------|--------|-------|\n")
 
 	for _, e := range entries {
 		extCell, kindCell, covCell := e.Name, string(e.Kind), statusCell(e.Status)
 
-		if e.Status == StatusCovered {
+		if e.Status == StatusCovered || e.Status == StatusPartial || e.Status == StatusBuildOnly {
 			tests := byModule[e.Name]
 			if len(tests) == 0 {
-				// Covered but not exercised in this run (e.g. PGCONTRIB_TESTS
-				// selected a subset).
+				// Runnable but not exercised in this run (e.g. PGCONTRIB_TESTS or
+				// PGEXTERNAL_TESTS selected a subset).
 				fmt.Fprintf(&sb, "| %s | %s | %s | — | — (not run) | %s |\n",
 					extCell, kindCell, covCell, e.Note)
 				continue

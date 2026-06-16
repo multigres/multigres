@@ -139,10 +139,10 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		" -c max_parallel_workers_per_gather=2"
 
 	cmd.AddEnv(
+		"PGPASSWORD="+password,
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
 		"PGUSER=postgres",
-		"PGPASSWORD="+password,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 		"PGOPTIONS="+pgOptions,
@@ -233,11 +233,12 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	return results, nil
 }
 
-// ExternalModules returns the external extensions to test, defaulting to the
-// covered set (CoveredExternalExtensions). PGEXTERNAL_TESTS (space-separated
-// catalog names, e.g. "vector") selects a subset for local iteration.
+// ExternalModules returns the external extensions to verify, defaulting to the
+// runnable set (covered/partial upstream suites plus build-only smoke checks).
+// PGEXTERNAL_TESTS (space-separated catalog names, e.g. "vector") selects a
+// subset for local iteration.
 func ExternalModules() []ExternalExtension {
-	all := CoveredExternalExtensions()
+	all := RunnableExternalExtensions()
 	sel := strings.Fields(os.Getenv("PGEXTERNAL_TESTS"))
 	if len(sel) == 0 {
 		return all
@@ -255,21 +256,25 @@ func ExternalModules() []ExternalExtension {
 	return out
 }
 
-// RunExternalTests runs each external extension's shipped test suite against
+// RunExternalTests runs each external extension verification against
 // multigateway and returns one merged TestResults across all of them.
 //
 // External (KindExternal) extensions are PGXS modules that live outside the
 // PostgreSQL source tree (see Builder.InstallExternalExtension, which has already
 // cloned and installed each one — and any DependsOn build dependencies — before
-// this is called). Two test harnesses are supported, selected per extension by
+// this is called). Test harnesses are selected per extension by
 // ExternalExtension.Harness:
 //
 //   - pg_regress (default, e.g. pgvector/pg_cron): drives the pg_regress binary
-//     and diffs against expected/*.out via the patch pipeline. See
-//     runExternalRegress.
+//     and diffs against expected/*.out via the patch pipeline. Partial
+//     extensions use this same path, with known compatibility gaps documented
+//     by narrow patches. See runExternalRegress.
 //   - pgTAP (HarnessPgTAP, e.g. pg_partman): feeds each test .sql to psql and
 //     parses the TAP stream the assertions emit server-side; no expected-output
 //     files, no patch pipeline. See runExternalPgTAP.
+//   - smoke (HarnessSmoke, e.g. pgaudit): CREATE EXTENSION only, used when the
+//     upstream regression suite is not a valid multigateway compatibility
+//     signal.
 //
 // Per-test names are prefixed with the extension name ("vector/btree",
 // "pg_partman/test-id-10") to stay unique in the merged report.
@@ -339,6 +344,8 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		switch ext.Harness {
 		case HarnessPgTAP:
 			res, err = pb.runExternalPgTAP(t, ctx, ext, testDir, pgBinDir, multigatewayPort, directPgPort, password)
+		case HarnessSmoke:
+			res, err = pb.runExternalSmoke(t, ext, multigatewayPort, password)
 		case HarnessPgRegress:
 			res, err = pb.runExternalRegress(t, ctx, ext, cloneDir, testDir, pgBinDir, multigatewayPort, password)
 		default:
@@ -384,6 +391,43 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 
 	merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
 	return merged, nil
+}
+
+// runExternalSmoke verifies a build-only extension can be loaded through
+// multigateway. It intentionally does not run upstream regression fixtures.
+func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension, multigatewayPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	start := time.Now()
+	installs := ext.PreCreateExtensions
+	if len(installs) == 0 {
+		installs = []ExtensionInstall{{Name: ext.Name}}
+	}
+
+	for _, install := range installs {
+		if loadErr := createExtensionWithSchema(multigatewayPort, password, install.Name, install.Schema); loadErr != nil {
+			return &TestResults{
+				TotalTests:  1,
+				FailedTests: 1,
+				Duration:    time.Since(start),
+				Tests: []IndividualTestResult{{
+					Name:       "load",
+					Status:     "fail",
+					FailReason: loadErr.Error(),
+				}},
+			}, loadErr
+		}
+	}
+
+	return &TestResults{
+		TotalTests:  1,
+		PassedTests: 1,
+		Duration:    time.Since(start),
+		Tests: []IndividualTestResult{{
+			Name:   "load",
+			Status: "pass",
+		}},
+	}, nil
 }
 
 // resetContribState resets the shared postgres database to a clean baseline on

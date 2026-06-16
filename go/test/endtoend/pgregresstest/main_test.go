@@ -48,7 +48,8 @@ func regressionOverridesConfPath() string {
 // The preload list is generated rather than kept in per-extension files because
 // shared_preload_libraries is a single list-valued GUC and appended snippets are
 // last-write-wins per GUC — two extensions' files would silently clobber each
-// other's library. PGEXTERNAL_TESTS narrowing is honored via ExternalModules.
+// other's library. PGEXTERNAL_TESTS narrowing is honored via ExternalBuildList
+// so dependency-only modules get their required config too.
 //
 // These snippets are scoped to the EXTERNAL phase's cluster only:
 //   - In an external-only run (no other suite selected) the shared setup
@@ -63,7 +64,7 @@ func regressionOverridesConfPath() string {
 //     right before the ReinitializeCluster that precedes it.
 func externalServerConfPaths() []string {
 	var paths []string
-	for _, ext := range ExternalModules() {
+	for _, ext := range ExternalBuildList() {
 		if ext.ServerConfigFile == "" {
 			continue
 		}

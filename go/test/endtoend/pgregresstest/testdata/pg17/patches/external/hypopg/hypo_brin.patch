@@ -1,0 +1,19 @@
+# Known partial-coverage divergence: HypoPG's hypothetical BRIN index lives in
+# backend-local memory. In stock PostgreSQL, this autocommit pg_regress script
+# runs on one backend, so the EXPLAIN can see the hypothetical index created by
+# the prior statement. Through multigateway's transaction pool, that EXPLAIN may
+# use another pooled backend and not see it.
+#
+# This patch documents the current drop-in compatibility gap until the gateway
+# can automatically pin sessions after observing HypoPG state-creating functions.
+--- a
++++ b
+@@ -15,7 +15,7 @@
+ WHERE e ~ 'Bitmap Index Scan.*<\d+>brin_hypo_brin.*';
+ count
+ -------
+-1
++0
+ (1 row)
+
+ DROP TABLE hypo_brin;

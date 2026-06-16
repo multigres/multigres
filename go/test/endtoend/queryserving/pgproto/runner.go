@@ -167,10 +167,14 @@ func runPgproto(ctx context.Context, t suiteutil.Target, resetter *suiteutil.Sch
 // because a failed connection leaves runResult.Ran false and is handled as an
 // ExecErr instead of being diffed.
 //
-// Beyond trimming whitespace and blank lines, the one substantive rule is
-// reduceErrorLine: Error/NoticeResponse lines are compared by SQLSTATE only.
-// See that function for why the message text, position, and source-location
-// fields are intentionally dropped.
+// Beyond trimming whitespace and blank lines, two substantive rules apply:
+//
+//   - dropToolWarningLine removes pgproto's own write(2) warning that appears on
+//     some platforms when a test deliberately provokes a server-side connection
+//     close. It is a client/tool artifact, not a wire-protocol response.
+//   - reduceErrorLine compares Error/NoticeResponse lines by SQLSTATE only. See
+//     that function for why the message text, position, and source-location
+//     fields are intentionally dropped.
 func normalizeTrace(s string) string {
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, len(lines))
@@ -179,9 +183,21 @@ func normalizeTrace(s string) string {
 		if line == "" {
 			continue
 		}
+		if dropToolWarningLine(line) {
+			continue
+		}
 		out = append(out, reduceErrorLine(line))
 	}
 	return strings.Join(out, "\n")
+}
+
+// dropToolWarningLine filters pgproto client diagnostics that are not backend
+// protocol messages. Linux emits this when the gateway closes the connection
+// after rejecting an unsupported frontend message (function_call.pgproto); macOS
+// may not. The protocol trace that follows is the comparison target.
+func dropToolWarningLine(line string) bool {
+	return strings.HasPrefix(line, "write_it: warning write(") &&
+		strings.Contains(line, "Connection reset by peer")
 }
 
 // errorLineRe matches a pgproto-rendered Error/NoticeResponse trace line and
