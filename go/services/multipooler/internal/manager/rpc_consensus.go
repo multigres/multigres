@@ -141,6 +141,7 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 	return &clustermetadatapb.AvailabilityStatus{
 		LeadershipStatus:        pm.buildLeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
+		SuspectedDivergence:     pm.suspectedDivergence.Load(),
 	}
 }
 

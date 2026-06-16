@@ -1010,6 +1010,13 @@ func TestAvailabilityStatus(t *testing.T) {
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
+
+	t.Run("suspectedDivergence is published", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
+		pm.suspectedDivergence.Store(true)
+		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
+	})
 }
 
 // TestSetResignedLeaderAtTerm_BroadcastsOnChange verifies that setting the
