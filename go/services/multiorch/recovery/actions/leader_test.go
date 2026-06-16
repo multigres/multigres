@@ -48,16 +48,34 @@ func TestPollLeaderHealth(t *testing.T) {
 		},
 	}
 
-	t.Run("returns the leader when reachable and still reporting itself leader", func(t *testing.T) {
+	t.Run("returns the leader when reachable, leading, and postgres ready", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
 			ConsensusStatus: servingStatus,
+			Status:          &multipoolermanagerdatapb.Status{PostgresReady: true},
 		})
 
 		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.NoError(t, err)
 		assert.Equal(t, "primary", got.MultiPooler.Id.Name)
+	})
+
+	t.Run("errors when the leader still self-claims but its postgres is not ready", func(t *testing.T) {
+		// A primary whose postgres was killed while its multipooler stays alive keeps
+		// self-claiming the consensus rule, so the self-claim check alone would wrongly
+		// treat it as healthy and suppress the failover it needs.
+		fakeClient := rpcclient.NewFakeClient()
+		fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+			ConsensusStatus: servingStatus,
+			Status:          &multipoolermanagerdatapb.Status{PostgresReady: false},
+		})
+
+		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
+
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.Contains(t, err.Error(), "postgres is not ready")
 	})
 
 	t.Run("errors when no leader is known", func(t *testing.T) {

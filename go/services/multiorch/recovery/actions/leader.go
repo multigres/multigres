@@ -28,15 +28,20 @@ import (
 )
 
 // pollLeaderHealth confirms — via a live Status RPC issued right now, not cached
-// state — that the shard's consensus leader is reachable and still serving, and
-// returns it.
+// state — that the shard's consensus leader is reachable, still names itself as
+// the leader, and has postgres ready to serve, and returns it.
 //
 // The leader is identified from cached state by the store (sl, produced by
 // PoolerStore.FindShardMembers), keeping leader identification (a store concern)
 // separate from this live liveness check (an RPC concern). Leader identity comes
-// purely from consensus; the named leader is then polled and must still report
-// itself as the leader, so a node that has since resigned or dropped into
-// recovery — or become unreachable — is rejected.
+// purely from consensus; the named leader is then polled and rejected when:
+//   - it is unreachable (Status RPC fails),
+//   - it no longer names itself as the leader (resigned or dropped into recovery), or
+//   - its postgres is not ready — crucially, a primary whose postgres was killed
+//     while its multipooler stays alive keeps self-claiming the consensus rule
+//     (Status falls back to the cached rule position), so without the postgres-ready
+//     check appoint_leader would treat such a dead-primary as healthy and skip the
+//     failover it was dispatched to perform.
 func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, sl store.ShardMembers) (*multiorchdatapb.PoolerHealthState, error) {
 	leader := sl.Leader
 	if leader == nil {
@@ -50,6 +55,10 @@ func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient
 	if !commonconsensus.NamesSelfAsLeader(statusResp.GetConsensusStatus()) {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s no longer reports itself as the leader", leader.GetMultiPooler().GetId().GetName())
+	}
+	if !statusResp.GetStatus().GetPostgresReady() {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus leader %s postgres is not ready", leader.GetMultiPooler().GetId().GetName())
 	}
 	return leader, nil
 }
