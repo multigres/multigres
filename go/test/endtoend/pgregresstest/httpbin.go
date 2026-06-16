@@ -20,6 +20,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -129,10 +130,16 @@ func httpbinAnything(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseQueryString(s string) (map[string]string, error) {
+	vals, err := url.ParseQuery(s)
+	if err != nil {
+		return nil, err
+	}
+
 	out := map[string]string{}
-	for pair := range strings.SplitSeq(s, "&") {
-		k, v, _ := strings.Cut(pair, "=")
-		out[k] = v
+	for k, vs := range vals {
+		if len(vs) > 0 {
+			out[k] = vs[0]
+		}
 	}
 	return out, nil
 }
