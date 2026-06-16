@@ -364,8 +364,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 		p.killCount.Add(1)
 	}
 
-	// Uncertain-state releases and replication sockets must never be reused.
-	if reason.preventsReuse() || (rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons)) {
+	// Uncertain-state releases must never be reused.
+	if reason.preventsReuse() {
 		rc.pooled.Taint()
 	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
 		p.logger.Warn("reserved clean-release finalization failed; tainting backend",

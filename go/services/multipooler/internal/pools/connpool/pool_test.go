@@ -383,6 +383,38 @@ func TestPoolTaint(t *testing.T) {
 	assert.GreaterOrEqual(t, pool.Active(), initialActive)
 }
 
+func TestPoolTaintOnRecycle(t *testing.T) {
+	pool := newTestPool(1)
+	defer pool.Close()
+
+	ctx := context.Background()
+	conn, err := pool.Get(ctx)
+	require.NoError(t, err)
+	original := conn.Conn
+
+	conn.TaintOnRecycle()
+
+	stats := pool.Stats()
+	assert.Equal(t, int64(1), stats.Active)
+	assert.Equal(t, int64(1), stats.Borrowed)
+	assert.Equal(t, int64(0), stats.Idle)
+	assert.False(t, original.IsClosed(), "taint-on-recycle must not close the active connection")
+
+	shortCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	blocked, err := pool.Get(shortCtx)
+	require.ErrorIs(t, err, ErrTimeout, "taint-on-recycle must not free capacity before Recycle")
+	assert.Nil(t, blocked)
+
+	conn.Recycle()
+	assert.True(t, original.IsClosed(), "tainted connection must close on recycle")
+
+	replacement, err := pool.Get(ctx)
+	require.NoError(t, err)
+	assert.NotSame(t, original, replacement.Conn)
+	replacement.Recycle()
+}
+
 func TestPoolSetCapacity_NonBlocking(t *testing.T) {
 	pool := newTestPool(10)
 	defer pool.Close()
