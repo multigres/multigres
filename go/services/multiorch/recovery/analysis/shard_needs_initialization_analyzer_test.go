@@ -35,7 +35,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 	rpcClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore(rpcClient, slog.Default())
+	poolerStore := store.NewPoolerStore()
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
 		Cell:      "cell1",
@@ -104,7 +104,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
 		withCohortAndPrimary := initialized("pooler-1")
-		withCohortAndPrimary.IsLeader = true
+		withCohortAndPrimary.NamesSelfAsLeader = true
 		withCohortAndPrimary.CohortMembers = []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-1"},
 		}

@@ -1,6 +1,27 @@
 --- a
 +++ b
-@@ -82,9 +82,7 @@
+@@ -14,6 +14,8 @@
+ CREATE TABLE tas_case WITH ("Fillfactor" = 10) AS SELECT 1 a;
+ ERROR: unrecognized parameter "Fillfactor"
+ CREATE UNLOGGED TABLE unlogged1 (a int primary key); -- OK
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ CREATE TEMPORARY TABLE unlogged2 (a int primary key); -- OK
+ SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\d' ORDER BY relname;
+ relname | relkind | relpersistence
+@@ -38,7 +40,11 @@
+ DROP TABLE unlogged2;
+ INSERT INTO unlogged1 VALUES (42);
+ CREATE UNLOGGED TABLE public.unlogged2 (a int primary key); -- also OK
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key); -- not OK
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ ERROR: only temporary relations may be created in temporary schemas
+ LINE 1: CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key);
+ ^
+@@ -82,9 +88,7 @@
  
  -- check that tables with oids cannot be created anymore
  CREATE TABLE withoid() WITH OIDS;
@@ -11,7 +32,7 @@
  CREATE TABLE withoid() WITH (oids);
  ERROR: tables declared WITH OIDS are not supported
  CREATE TABLE withoid() WITH (oids = true);
-@@ -445,9 +443,7 @@
+@@ -445,9 +449,7 @@
  ^
  -- syntax does not allow empty list of values for list partitions
  CREATE TABLE fail_part PARTITION OF list_parted FOR VALUES IN ();

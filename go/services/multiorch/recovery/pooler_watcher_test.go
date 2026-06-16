@@ -116,7 +116,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -147,7 +147,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -202,7 +202,7 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -287,7 +287,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	// Only watch mydb/tg1
 	targets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
@@ -319,7 +319,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
@@ -393,7 +393,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	var stoppedIDs []*clustermetadata.ID
 	var stoppedMu sync.Mutex
@@ -469,7 +469,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	var stoppedIDs []*clustermetadata.ID
 	var stoppedMu sync.Mutex
@@ -558,7 +558,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnNewPooler(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -622,7 +622,7 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	var stoppedCalls, deletedCalls int

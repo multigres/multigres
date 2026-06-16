@@ -133,12 +133,10 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verifying data replication works after pg_rewind...")
 	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
 
-	// Step 8: Verify primary.demotion event was emitted in multiorch log
-	t.Log("Verifying primary.demotion event in multiorch log...")
-	mo := setup.GetMultiOrch("multiorch")
-	require.NotNil(t, mo, "multiorch instance should exist")
-	shardsetup.WaitForEvent(t, mo.LogFile, "primary.demotion", "success", 5*time.Second)
-	t.Log("Verified primary.demotion event in multiorch log")
+	// Step 8: Verify the old primary was demoted via SetPrimary.
+	t.Log("Verifying consensus.set_primary event in old primary's multipooler log...")
+	shardsetup.WaitForEvent(t, oldPrimary.Multipooler.LogFile, "consensus.set_primary", "success", 5*time.Second)
+	t.Log("Verified consensus.set_primary event in old primary's multipooler log")
 
 	// Step 9: Verify consensus.recruit event was emitted during failover.
 	// Recruit is sent by AppointLeaderAction to all nodes during failover; the new primary is selected from the recruited set.

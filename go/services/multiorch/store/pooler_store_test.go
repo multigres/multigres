@@ -15,24 +15,20 @@
 package store
 
 import (
-	"context"
-	"errors"
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 func TestPoolerStore_FindPoolersInShard(t *testing.T) {
-	poolerStore := NewPoolerStore(nil, slog.Default())
+	poolerStore := NewPoolerStore()
 
 	// Add poolers to different shards
 	poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
@@ -96,7 +92,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 }
 
 func TestPoolerStore_FindPoolerByID(t *testing.T) {
-	poolerStore := NewPoolerStore(nil, slog.Default())
+	poolerStore := NewPoolerStore()
 
 	poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -137,188 +133,127 @@ func TestPoolerStore_FindPoolerByID(t *testing.T) {
 	})
 }
 
-func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
-	ctx := context.Background()
+func TestPoolerStore_FindShardMembers(t *testing.T) {
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"}
 
-	t.Run("finds healthy primary", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
+	// set stores a pooler in shardKey with the given consensus status (cs may be nil).
+	set := func(ps *PoolerStore, id *clustermetadatapb.ID, cs *clustermetadatapb.ConsensusStatus) {
+		ps.Set(topoclient.ComponentID(id.Name), &multiorchdatapb.PoolerHealthState{
+			MultiPooler:     &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+			ConsensusStatus: cs,
 		})
-		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+	}
 
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
-			},
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-		}
+	t.Run("names the leader from its own current-position rule", func(t *testing.T) {
+		ps := NewPoolerStore()
+		set(ps, primaryID, leaderConsensusStatus(primaryID, 1))
+		set(ps, replicaID, nil)
 
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
+		shard := ps.FindShardMembers(shardKey)
 
-		require.NoError(t, err)
-		assert.Equal(t, "primary", primary.MultiPooler.Id.Name)
+		assert.Len(t, shard.Poolers, 2)
+		require.NotNil(t, shard.Leader)
+		assert.Equal(t, "primary", shard.Leader.MultiPooler.Id.Name)
+		assert.True(t, proto.Equal(primaryID, shard.HighestKnownRule.GetLeaderId()))
 	})
 
-	t.Run("returns error when no primary exists", func(t *testing.T) {
-		poolerStore := NewPoolerStore(&rpcclient.FakeClient{}, slog.Default())
+	t.Run("names the leader via a follower's replication rule when its own snapshot is absent", func(t *testing.T) {
+		// The leader carries no consensus status of its own, but a follower's
+		// replication rule still names it — leadership is found from that rule.
+		ps := NewPoolerStore()
+		set(ps, primaryID, nil)
+		set(ps, replicaID, replicationStatus(replicaID, primaryID, 1))
 
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
-			},
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica2"},
-					Type: clustermetadatapb.PoolerType_REPLICA,
-				},
-			},
-		}
+		shard := ps.FindShardMembers(shardKey)
 
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
-
-		assert.Error(t, err)
-		assert.Nil(t, primary)
-		assert.Contains(t, err.Error(), "no healthy primary found")
+		require.NotNil(t, shard.Leader)
+		assert.Equal(t, "primary", shard.Leader.MultiPooler.Id.Name)
 	})
 
-	t.Run("skips pooler where PrimaryStatus fails (e.g. standby mode)", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.Errors["multipooler-cell1-primary"] = errors.New("operation not allowed: the PostgreSQL instance is in standby mode")
-		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+	t.Run("no rule known yields a nil leader and rule", func(t *testing.T) {
+		ps := NewPoolerStore()
+		set(ps, primaryID, nil)
+		set(ps, replicaID, nil)
 
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-		}
+		shard := ps.FindShardMembers(shardKey)
 
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
-
-		assert.Error(t, err)
-		assert.Nil(t, primary)
-		assert.Contains(t, err.Error(), "no healthy primary found")
+		assert.Len(t, shard.Poolers, 2)
+		assert.Nil(t, shard.HighestKnownRule)
+		assert.Nil(t, shard.Leader)
 	})
 
-	t.Run("skips unreachable primary and finds next", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		// primary1 PrimaryStatus returns an error (unreachable)
-		fakeClient.Errors["multipooler-cell1-primary1"] = errors.New("connection refused")
-		fakeClient.SetStatusResponse("multipooler-cell2-primary2", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
-		})
-		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+	t.Run("leader named by a rule but absent from the store yields a nil leader", func(t *testing.T) {
+		// A follower names primary, but primary itself is not tracked. The rule is
+		// still reported; Leader is nil so callers can detect the gap.
+		ps := NewPoolerStore()
+		set(ps, replicaID, replicationStatus(replicaID, primaryID, 1))
 
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary1"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "primary2"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-		}
+		shard := ps.FindShardMembers(shardKey)
 
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
-
-		require.NoError(t, err)
-		assert.Equal(t, "primary2", primary.MultiPooler.Id.Name)
+		require.NotNil(t, shard.HighestKnownRule)
+		assert.True(t, proto.Equal(primaryID, shard.HighestKnownRule.GetLeaderId()))
+		assert.Nil(t, shard.Leader)
 	})
 
-	t.Run("returns error when multiple healthy primaries found", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.SetStatusResponse("multipooler-cell1-primary1", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
-		})
-		fakeClient.SetStatusResponse("multipooler-cell2-primary2", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
-		})
-		poolerStore := NewPoolerStore(fakeClient, slog.Default())
+	t.Run("REGRESSION: picks the leader named by a replica's rule over a stale self-claiming primary", func(t *testing.T) {
+		// Failover window: the old leader (term 5) has not been demoted yet, so it
+		// still self-claims leadership. The new leader (term 6) has not yet published
+		// its own snapshot — its leadership is known only from a replica that already
+		// replicates from it. Ranking by rule number names exactly one leader (the
+		// term-6 node), never the stale self-claim, with no multiple-primary
+		// ambiguity.
+		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
+		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
 
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary1"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "primary2"},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-			},
-		}
+		ps := NewPoolerStore()
+		set(ps, staleID, leaderConsensusStatus(staleID, 5)) // stale self-claim
+		set(ps, newID, nil)                                 // new leader: no snapshot yet
+		set(ps, replicaID, replicationStatus(replicaID, newID, 6))
 
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
+		shard := ps.FindShardMembers(shardKey)
 
-		assert.Error(t, err)
-		assert.Nil(t, primary)
-		assert.Contains(t, err.Error(), "multiple primaries found")
+		require.NotNil(t, shard.Leader)
+		assert.Equal(t, "new-leader", shard.Leader.MultiPooler.Id.Name,
+			"the leader named by the replica's higher-term rule must be selected, not the stale self-claim")
+		assert.Equal(t, int64(6), shard.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm())
 	})
+}
 
-	t.Run("finds primary from stale topology using health data", func(t *testing.T) {
-		// Simulates the post-failover scenario: etcd is unavailable so topology is stale.
-		// The promoted primary (promoted-replica) still has Type=REPLICA in topology but its
-		// live health snapshot reports PoolerType=PRIMARY. The stale-topology primary
-		// (stale-primary) has Type=PRIMARY in topology but PrimaryStatus fails because it
-		// is actually running as a standby after demotion.
-		fakeClient := rpcclient.NewFakeClient()
-		fakeClient.Errors["multipooler-cell1-stale-primary"] = errors.New("operation not allowed: the PostgreSQL instance is in standby mode")
-		fakeClient.SetStatusResponse("multipooler-cell1-promoted-replica", &multipoolermanagerdatapb.StatusResponse{
-			Status: &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY},
-		})
-		poolerStore := NewPoolerStore(fakeClient, slog.Default())
-
-		poolers := []*multiorchdatapb.PoolerHealthState{
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"},
-					Type: clustermetadatapb.PoolerType_PRIMARY, // stale topology
-				},
+// leaderConsensusStatus builds a consensus status for a pooler that names
+// itself as the leader at the given coordinator term.
+func leaderConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   id,
 			},
-			{
-				MultiPooler: &clustermetadatapb.MultiPooler{
-					Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "promoted-replica"},
-					Type: clustermetadatapb.PoolerType_REPLICA, // stale topology
-				},
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType: clustermetadatapb.PoolerType_PRIMARY, // health data shows it's actually primary
-				},
+		},
+	}
+}
+
+// replicationStatus builds a consensus status for a follower whose replication
+// primary names leader at the given coordinator term.
+func replicationStatus(self, leader *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: self,
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
 			},
-		}
-
-		primary, err := poolerStore.FindHealthyPrimary(ctx, poolers)
-
-		require.NoError(t, err)
-		assert.Equal(t, "promoted-replica", primary.MultiPooler.Id.Name)
-	})
+		},
+	}
 }
 
 // TestPoolerStore_DoUpdateRange verifies that DoUpdateRange atomically resets fields
 // on qualifying poolers while leaving others unchanged — mirroring the
 // queuePoolersHealthCheck use case.
 func TestPoolerStore_DoUpdateRange(t *testing.T) {
-	store := NewPoolerStore(nil, slog.Default())
+	store := NewPoolerStore()
 
 	// pooler1: IsUpToDate=true — should be reset to false
 	store.Set("pooler1", &multiorchdatapb.PoolerHealthState{

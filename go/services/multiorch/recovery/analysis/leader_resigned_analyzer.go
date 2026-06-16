@@ -50,7 +50,8 @@ func (a *LeaderResignedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
-	if sa.HighestTermDiscoveredLeaderID == nil {
+	// No known leader yet (no consensus rule names one) — nothing to resign.
+	if sa.HighestShardRule.GetLeaderId() == nil {
 		return nil, nil
 	}
 	if !sa.LeaderHasResigned {
@@ -59,7 +60,7 @@ func (a *LeaderResignedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 	return []types.Problem{{
 		Code:           types.ProblemLeaderResigned,
 		CheckName:      a.Name(),
-		PoolerID:       sa.HighestTermDiscoveredLeaderID,
+		PoolerID:       sa.HighestShardRule.GetLeaderId(),
 		ShardKey:       sa.ShardKey,
 		Description:    fmt.Sprintf("Leader for shard %s has requested demotion", sa.ShardKey),
 		Priority:       types.PriorityEmergency,

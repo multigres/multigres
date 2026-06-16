@@ -258,6 +258,14 @@ next:
 func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context, ext ExternalExtension, cloneDir, testDir, pgBinDir string, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
+	// Extensions that ship no SQL suite at all carry an in-repo one under
+	// testdata/pg<major>/external/<LocalTestDir> (pg_jsonschema: a faithful SQL
+	// translation of its pgrx #[pg_test] corpus). It replaces the checkout's
+	// fixtures entirely; the checkout is still what got built and installed.
+	if ext.LocalTestDir != "" {
+		testDir = filepath.Join(filepath.Dir(PatchesDir()), "external", ext.LocalTestDir)
+	}
+
 	if !suiteutil.FileExists(filepath.Join(testDir, "sql")) {
 		t.Logf("external/%s: no %s/sql in checkout, skipping", ext.Name, ext.TestSubdir)
 		return nil, nil
@@ -273,8 +281,20 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	// and hypopg-style layouts keep expected/ at the repo root. ExpectedSubdir
 	// mirrors that; empty means the common side-by-side layout.
 	expectedDir := testDir
-	if ext.ExpectedSubdir != "" {
+	if ext.ExpectedSubdir != "" && ext.LocalTestDir == "" {
 		expectedDir = filepath.Join(cloneDir, ext.ExpectedSubdir)
+	}
+
+	// Serve the local httpbin-compatible endpoints for the suite's duration
+	// (pgsql-http; see httpbin.go). Started before the fixtures/suite so the
+	// suite's own local-server probe finds it — otherwise it silently falls
+	// back to live httpbin.org.
+	if ext.NeedsHTTPBin {
+		servers, err := startHTTPBinServers()
+		if err != nil {
+			return nil, fmt.Errorf("external/%s: %w", ext.Name, err)
+		}
+		defer servers.Stop()
 	}
 
 	// Load the extension's fixtures through multigateway before the suite, the way
@@ -300,11 +320,13 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 		}
 	}
 
+	outputDir := cloneDir
+
 	t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
 	pgRegress := filepath.Join(pb.BuildDir, "src", "test", "regress", "pg_regress")
 	args := []string{
 		"--inputdir=" + testDir,
-		"--outputdir=" + cloneDir,
+		"--outputdir=" + outputDir,
 		"--expecteddir=" + expectedDir,
 		"--bindir=" + pgBinDir,
 		"--use-existing",
@@ -320,17 +342,17 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 		suiteName: "External/" + ext.Name,
 		outputDir: filepath.Join(pb.OutputDir, "external", ext.Name),
-		srcOutDir: cloneDir,
+		srcOutDir: outputDir,
 	}, multigatewayPort, password)
 	if res == nil {
 		return nil, err
 	}
 
 	// Re-evaluate each test via the patch pipeline. pg_regress wrote results to
-	// <cloneDir>/results (--outputdir); expected lives in <expectedDir>/expected,
-	// and patches are per-extension under patches/external/<ext>.
+	// <outputDir>/results; expected lives in <expectedDir>/expected, and
+	// patches are per-extension under patches/external/<ext>.
 	patchDir := filepath.Join(PatchesDir(), "external", ext.Name)
-	pb.verifyModuleResults(ctx, expectedDir, filepath.Join(cloneDir, "results"), patchDir, res, GetPatchMode())
+	pb.verifyModuleResults(ctx, expectedDir, filepath.Join(outputDir, "results"), patchDir, res, GetPatchMode())
 	return res, err
 }
 

@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -508,6 +509,50 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)
+}
+
+// TestStreamExecute_SetConfigGMVLocalPlanCacheReuse is the regression for
+// the simple-protocol plan-cache flow of a gateway-managed
+// set_config(..., true). The normalizer parameterizes the value (collapsing
+// different literals into one cached plan), so the silent ApplySessionState
+// carries a ValueParam BindRef that StreamExecute must resolve from the
+// normalizer-extracted bindVars on EVERY execution. Before the fix,
+// StreamExecute ignored bindVars entirely and applied the synthetic
+// `__bind_$1__` placeholder to gateway state.
+func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	state := handler.NewMultiGatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	// Cache miss: plan is minted from the normalized AST, so the value slot
+	// is a ParamRef and must be resolved from this execution's bindVars.
+	sql1 := "SELECT set_config('statement_timeout', '1s', true)"
+	res1, err := exec.StreamExecute(ctx, conn, state, sql1, parseOne(t, sql1), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	assert.Equal(t, time.Second, state.GetStatementTimeout(),
+		"first execution must apply its own literal, not a __bind placeholder")
+
+	time.Sleep(50 * time.Millisecond) // plan cache Put is async
+
+	// Cache hit with a different literal: the same cached plan must apply
+	// THIS execution's value to gateway state.
+	sql2 := "SELECT set_config('statement_timeout', '2s', true)"
+	res2, err := exec.StreamExecute(ctx, conn, state, sql2, parseOne(t, sql2), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res2.CacheHit, "same normalized shape must hit the plan cache")
+	assert.Equal(t, 2*time.Second, state.GetStatementTimeout(),
+		"cache hit must apply this execution's value, not the first-seen literal or a placeholder")
+
+	// The trailing Route must still reconstruct the literal for PG.
+	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
+	assert.Contains(t, backendSQL, "2s", "backend SQL must carry the reconstructed literal")
+	assert.NotContains(t, backendSQL, "$1", "normalized placeholder must not reach the backend")
 }
 
 func TestCrossProtocol_CasingNormalization(t *testing.T) {

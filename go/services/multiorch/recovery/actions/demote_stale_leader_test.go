@@ -127,7 +127,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore()
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
 
 	cfg := config.NewTestConfig()
@@ -165,7 +165,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore()
 
 	staleLeaderID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -195,6 +195,118 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 		PoolerID: staleLeaderID,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no current leader found")
-	assert.Empty(t, fakeClient.CallLog, "no RPC should be issued when there is no correct leader to demote toward")
+	assert.Contains(t, err.Error(), "no consensus leader known")
+	assert.Empty(t, fakeClient.CallLog, "no RPC should be issued when there is no leader to demote toward")
+}
+
+// TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader covers the
+// rewind-source selection: it must follow the highest known rule across the shard
+// (the global consensus view), not a node's local self-claim. A freshly promoted
+// leader known only via a replica's replication rule must be chosen over the
+// stale node's own (lower-term) self-claim.
+func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
+	newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"}
+
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
+	ps := store.NewPoolerStore()
+
+	// Stale leader: still self-claims term 5 and is the demote target.
+	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:     &clustermetadatapb.MultiPooler{Id: staleID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		ConsensusStatus: selfLeaderRule(staleID, 5),
+	})
+	// New leader: has not published its own snapshot yet; only its address is known.
+	ps.Set("multipooler-cell1-new-leader", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: newID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "new.example.com", PortMap: map[string]int32{"postgres": 5433},
+		},
+	})
+	// Replica replicating from the new leader at the higher term 6.
+	ps.Set("multipooler-cell1-replica", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:     &clustermetadatapb.MultiPooler{Id: replicaID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+		ConsensusStatus: replicaFollowingRule(replicaID, newID, 6),
+	})
+
+	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
+	require.NoError(t, action.Execute(ctx, types.Problem{
+		Code:     types.ProblemStaleLeader,
+		ShardKey: shardKey,
+		PoolerID: staleID,
+	}))
+
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-stale-leader)")
+	req := fakeClient.SetPrimaryRequests["multipooler-cell1-stale-leader"]
+	require.NotNil(t, req)
+	require.NotNil(t, req.Leader)
+	assert.Equal(t, "new-leader", req.Leader.Id.Name,
+		"rewind target must be the leader named by the replica's higher-term rule, not the stale self-claim")
+	assert.Equal(t, int64(6), req.Rule.GetRuleNumber().GetCoordinatorTerm())
+}
+
+// TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader verifies that a
+// spurious/already-resolved detection is a no-op: when the node flagged as stale
+// is itself the highest known consensus leader, no SetPrimary RPC is issued (it
+// would otherwise be self-targeted, which the pooler rejects).
+func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	nodeID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ps := store.NewPoolerStore()
+	// The node multiorch flagged as stale is actually the highest known leader.
+	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:     &clustermetadatapb.MultiPooler{Id: nodeID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		ConsensusStatus: selfLeaderRule(nodeID, 7),
+	})
+
+	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
+	require.NoError(t, action.Execute(ctx, types.Problem{
+		Code:     types.ProblemStaleLeader,
+		ShardKey: shardKey,
+		PoolerID: nodeID,
+	}))
+
+	assert.Empty(t, fakeClient.CallLog,
+		"no SetPrimary RPC when the flagged node is actually the current consensus leader")
+}
+
+// selfLeaderRule builds a consensus status whose current position names the
+// pooler itself as leader at the given coordinator term.
+func selfLeaderRule(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: id,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   id,
+			},
+		},
+	}
+}
+
+// replicaFollowingRule builds a follower's consensus status whose replication
+// primary names leader at the given coordinator term.
+func replicaFollowingRule(self, leader *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id: self,
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
+			},
+		},
+	}
 }
