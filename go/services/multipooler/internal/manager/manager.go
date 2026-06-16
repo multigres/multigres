@@ -163,10 +163,18 @@ type MultiPoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
-	// rewindPending marks that this node's WAL may have diverged from the cluster's
-	// chosen history, so the next restart-as-standby or SetPrimary must run pg_rewind
-	// to remove potential phantom / non-durable WAL entries.
-	rewindPending atomic.Bool
+	// suspectedDivergence marks that this node's WAL may have diverged from the
+	// cluster's chosen history, so the next restart-as-standby or SetPrimary should
+	// run pg_rewind to remove potential phantom / non-durable WAL entries.
+	//
+	// We suspect divergence when:
+	//   - a primary learns its term was ended by a failover — it may have local
+	//     WAL the new leader's history never adopted. Set by emergencyDemoteLocked,
+	//     SetPrimary's stale-primary branch, and the monitor's stale-primary demote.
+	//   - a replica cannot replicate despite successfully connecting to the leader,
+	//     implying its timeline diverged. Set via RewindToSource; today orch detects
+	//     this, but in the future a pooler could self-detect it.
+	suspectedDivergence atomic.Bool
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -1146,9 +1154,9 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 //
 // TODO: require callers to declare whether this restart is a "clean" or
 // "unexpected" demote. A clean demote (graceful failover handoff, known
-// consistent WAL) should leave rewindPending=false. An unexpected demote
+// consistent WAL) should leave suspectedDivergence=false. An unexpected demote
 // (crash, external pg_demote, monitor-driven restart after an unknown
-// shutdown) should set rewindPending=true so that the next standby-side
+// shutdown) should set suspectedDivergence=true so that the next standby-side
 // operation (SetPrimary's standby branch, remedialActionFixPrimaryConnInfo,
 // or self-rewind detection) routes through pg_rewind dry-run before
 // trusting local WAL. Today the only setter is emergencyDemoteLocked,
@@ -1403,8 +1411,8 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// the consensus protocol picked this node as the new leader at a higher
 	// term, so its WAL is by definition the rule going forward. Clear the
 	// flag so the postgres monitor and other operations resume.
-	if pm.rewindPending.Swap(false) {
-		pm.logger.InfoContext(ctx, "Cleared rewindPending before promotion")
+	if pm.suspectedDivergence.Swap(false) {
+		pm.logger.InfoContext(ctx, "Cleared suspectedDivergence before promotion")
 	}
 
 	// Clear primary_conninfo after promotion to prevent accidental replication on restart

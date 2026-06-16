@@ -765,10 +765,10 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	if isPrimary {
-		pm.rewindPending.Store(true)
+		pm.suspectedDivergence.Store(true)
 	}
 
-	if pm.rewindPending.Load() {
+	if pm.suspectedDivergence.Load() {
 		// If a rewind is pending, restartAsStandbyLocked() will take care of the rewind.
 		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby",
 			"new_leader", leader.GetId().GetName(),
