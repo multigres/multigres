@@ -117,14 +117,11 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to find affected replica")
 	}
 
-	// Get all poolers in this shard to find the primary
-	poolers := a.poolerStore.FindPoolersInShard(problem.ShardKey)
-	if len(poolers) == 0 {
+	shard := a.poolerStore.FindShardMembers(problem.ShardKey)
+	if len(shard.Poolers) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
 	}
-
-	// Find a healthy primary in the shard
-	primary, err := a.poolerStore.FindHealthyPrimary(ctx, poolers)
+	primary, err := pollLeaderHealth(ctx, a.rpcClient, shard)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find primary")
 	}

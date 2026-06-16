@@ -693,6 +693,8 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	// pooler that it is the new primary, that's a routing mistake — the leader
 	// path goes through Promote (which carries the full CoordinatorProposal and
 	// the Recruit-established term revocation needed to safely promote).
+	//
+	// TODO: maybe treat "leader is self" as a no-op rather than an error?
 	if proto.Equal(pm.serviceID, leaderID) {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"SetPrimary received on %s but leader is self; designated leaders are appointed via Promote",

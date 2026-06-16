@@ -60,7 +60,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	setupStore := func(t *testing.T, fakeClient *rpcclient.FakeClient) (*store.PoolerStore, func()) {
 		t.Helper()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-		ps := store.NewPoolerStore(fakeClient, slog.Default())
+		ps := store.NewPoolerStore()
 		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -156,55 +156,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE, req.Operation)
 	})
 
-	t.Run("returns FAILED_PRECONDITION when primary has no recorded rule", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{
-			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
-				"multipooler-cell1-primary": {Response: &multipoolermanagerdatapb.StatusResponse{
-					Status:          &multipoolermanagerdatapb.Status{IsInitialized: true, PoolerType: clustermetadatapb.PoolerType_PRIMARY},
-					ConsensusStatus: selfLeaderConsensus(primaryID),
-				}},
-			},
-		}
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-		defer ts.Close()
-		ps := store.NewPoolerStore(fakeClient, slog.Default())
-		// Primary with no CurrentPosition.Rule — e.g. fresh process before
-		// the first health snapshot populates the consensus rule.
-		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:       primaryID,
-				ShardKey: shardKey,
-				Type:     clustermetadatapb.PoolerType_PRIMARY,
-				Hostname: "primary.example.com",
-				PortMap:  map[string]int32{"postgres": 5432},
-			},
-			ConsensusStatus: selfLeaderConsensus(primaryID),
-		})
-		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
-				Id:       replicaID,
-				ShardKey: shardKey,
-				Type:     clustermetadatapb.PoolerType_REPLICA,
-			},
-		})
-
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
-		err := action.Execute(ctx, types.Problem{
-			Code:     types.ProblemPoolerNotInCohort,
-			ShardKey: shardKey,
-			PoolerID: replicaID,
-		})
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no recorded rule")
-		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
-	})
-
 	t.Run("returns error when target pooler is not in store", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{}
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
-		ps := store.NewPoolerStore(fakeClient, slog.Default())
+		ps := store.NewPoolerStore()
 		// No poolers added to the store — FindPoolerByID will fail.
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
@@ -219,14 +175,14 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
-	t.Run("returns error when no poolers exist for the shard", func(t *testing.T) {
+	t.Run("returns error when no consensus leader is known for the shard", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{}
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
-		ps := store.NewPoolerStore(fakeClient, slog.Default())
+		ps := store.NewPoolerStore()
 		// Add only the target replica; the shard search uses the
 		// (database, table_group, shard) tuple, so an unrelated shard tuple
-		// produces an empty FindPoolersInShard result.
+		// finds no poolers and therefore no leader.
 		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       replicaID,
@@ -245,15 +201,17 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no poolers found")
+		assert.Contains(t, err.Error(), "no consensus leader known")
 	})
 
-	t.Run("returns error when no healthy primary is found", func(t *testing.T) {
-		// FakeClient.Errors causes Status to fail for the primary, which is
-		// what poolerStore.FindHealthyPrimary uses to verify the primary.
+	t.Run("surfaces an UpdateConsensusRule failure (e.g. stale-leader CAS rejection)", func(t *testing.T) {
+		// The action does not pre-verify the leader's health: it issues the
+		// CAS-fenced UpdateConsensusRule against the cached leader and lets the RPC
+		// reject a stale write. A failure is surfaced so the engine retries next
+		// cycle with a fresh view.
 		fakeClient := &rpcclient.FakeClient{
 			Errors: map[topoclient.ComponentID]error{
-				"multipooler-cell1-primary": errors.New("simulated status failure"),
+				"multipooler-cell1-primary": errors.New("rule CAS rejected"),
 			},
 		}
 		ps, cleanup := setupStore(t, fakeClient)
@@ -267,8 +225,8 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "find primary")
-		assert.NotContains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
+		assert.Contains(t, err.Error(), "UpdateConsensusRule failed")
+		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
 	t.Run("rejects unsupported problem code", func(t *testing.T) {

@@ -20,10 +20,8 @@ import (
 	"log/slog"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
@@ -31,9 +29,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // Compile-time assertion that AppointLeaderAction implements types.RecoveryAction.
@@ -47,6 +42,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 type AppointLeaderAction struct {
 	config      *config.Config
 	consensus   *consensus.Coordinator
+	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -56,6 +52,7 @@ type AppointLeaderAction struct {
 func NewAppointLeaderAction(
 	cfg *config.Config,
 	consensus *consensus.Coordinator,
+	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
@@ -63,6 +60,7 @@ func NewAppointLeaderAction(
 	return &AppointLeaderAction{
 		config:      cfg,
 		consensus:   consensus,
+		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
 		logger:      logger,
@@ -74,37 +72,43 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
-	// Fetch cohort and recheck the problem
-	cohort := a.getCohort(problem.ShardKey)
-	if len(cohort) == 0 {
+	// Gather every pooler known for the shard, then recheck the problem.
+	shard := a.poolerStore.FindShardMembers(problem.ShardKey)
+	if len(shard.Poolers) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
 
-	// Check if a primary already exists and is healthy (problem resolved).
-	for _, pooler := range cohort {
-		if !isReachableConsensusLeader(pooler) {
-			continue
-		}
-		if types.LeaderNeedsReplacement(pooler) {
+	// Check if a healthy consensus leader already exists (problem resolved). The
+	// leader is named by the highest known rule across all poolers — the global
+	// consensus view, never a node's local self-claim — and is verified still
+	// leading via a live status check. An error means no healthy leader exists, so
+	// appointment proceeds.
+	//
+	// TODO: Reconsider if trying to contact a dead leader here makes sense. If it's unreachable,
+	// this may just be wasting time.
+	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if leader, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
+		if types.LeaderNeedsReplacement(leader) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
-				"primary", pooler.MultiPooler.Id.Name,
+				"primary", leader.MultiPooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
-			continue
+		} else {
+			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
+				"primary", leader.MultiPooler.Id.Name,
+				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
+			return nil
 		}
-		a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
-			"primary", pooler.MultiPooler.Id.Name,
-			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
-		return nil
 	}
 
 	a.logger.InfoContext(ctx, "verified shard still needs leader appointment, proceeding",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
-		"cohort_size", len(cohort))
+		"pooler_count", len(shard.Poolers))
 
 	// Use the coordinator's AppointLeader to handle the election.
 	// Use the problem code as the reason for the election.
 	reason := string(problem.Code)
-	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, shard.Poolers, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
@@ -112,42 +116,6 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
 	return nil
-}
-
-// isReachableConsensusLeader reports whether pooler is currently serving as the
-// shard's consensus leader: its own consensus status names it leader, it is
-// reachable (IsLastCheckValid), and PostgreSQL is ready. When a cohort member
-// satisfies this, the shard already has a primary and leader appointment can be
-// skipped (subject to a separate LeaderNeedsReplacement check by the caller).
-//
-// Leadership is judged from consensus (commonconsensus.IsLeader), never the
-// PoolerType health label. A node in PostgreSQL primary mode that is not the
-// consensus leader — a stale or superseded primary — must not be mistaken for
-// the existing primary, otherwise it would suppress a failover that is needed.
-func isReachableConsensusLeader(pooler *multiorchdatapb.PoolerHealthState) bool {
-	return pooler.GetMultiPooler() != nil &&
-		commonconsensus.IsLeader(pooler.GetConsensusStatus()) &&
-		pooler.IsLastCheckValid &&
-		pooler.GetStatus().GetPostgresReady()
-}
-
-// getCohort fetches all poolers in the shard from the pooler store.
-func (a *AppointLeaderAction) getCohort(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
-	var cohort []*multiorchdatapb.PoolerHealthState
-
-	a.poolerStore.Range(func(key topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true // continue
-		}
-
-		if proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
-			cohort = append(cohort, pooler)
-		}
-
-		return true // continue
-	})
-
-	return cohort
 }
 
 // RecoveryAction interface implementation

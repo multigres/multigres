@@ -15,37 +15,29 @@
 package store
 
 import (
-	"context"
-	"log/slog"
-
 	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// PoolerStore manages pooler health state and provides RPC-based domain queries.
+// PoolerStore manages cached pooler health state and provides in-memory domain
+// queries over it. It is a pure data store: it makes no RPCs and forms no
+// liveness judgments. Callers that must confirm a pooler is reachable or still
+// serving do so separately (see the recovery actions' leader verification).
 type PoolerStore struct {
-	health    *poolerHealthStore
-	rpcClient rpcclient.MultiPoolerClient
-	logger    *slog.Logger
+	health *poolerHealthStore
 }
 
 // NewPoolerStore creates a new PoolerStore.
-// rpcClient and logger are used by FindHealthyPrimary; they may be nil in tests
-// that do not exercise that method.
-func NewPoolerStore(rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *PoolerStore {
+func NewPoolerStore() *PoolerStore {
 	return &PoolerStore{
-		health:    newPoolerHealthStore(),
-		rpcClient: rpcClient,
-		logger:    logger,
+		health: newPoolerHealthStore(),
 	}
 }
 
@@ -107,7 +99,6 @@ func (s *PoolerStore) DoUpdateRange(fn func(key topoclient.ComponentID, value *m
 	s.health.doUpdateRange(fn)
 }
 
-// IsInitialized returns true if the pooler has been initialized.
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
@@ -153,60 +144,43 @@ func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb
 	return found, nil
 }
 
-// FindHealthyPrimary returns the shard's consensus leader from the given poolers,
-// verified to still be serving as the leader.
-//
-// Leadership comes purely from consensus: the highest known rule across the
-// poolers' consensus statuses names the leader (commonconsensus.HighestKnownRule),
-// never the PoolerType topology/health label. A follower can carry that rule via
-// its replication primary, so the leader is found even when its own snapshot is
-// stale. The named leader is then verified via a live Status RPC and must still
-// report itself as the consensus leader — a node that has since resigned or
-// dropped into recovery is rejected. Because there is exactly one highest rule,
-// there is no multiple-primary ambiguity to resolve here.
-func (s *PoolerStore) FindHealthyPrimary(
-	ctx context.Context,
-	poolers []*multiorchdatapb.PoolerHealthState,
-) (*multiorchdatapb.PoolerHealthState, error) {
-	leaderID := findConsensusLeader(poolers)
-	if leaderID == nil {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no consensus leader known")
-	}
-
-	var leader *multiorchdatapb.PoolerHealthState
-	for _, pooler := range poolers {
-		if pooler.GetMultiPooler() != nil && proto.Equal(pooler.MultiPooler.Id, leaderID) {
-			leader = pooler
-			break
-		}
-	}
-	if leader == nil {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus leader %s is not in the pooler set", leaderID.GetName())
-	}
-
-	// Verify the leader is reachable and still reports itself as the leader in its
-	// live consensus status — never the PoolerType label.
-	statusResp, err := s.rpcClient.Status(ctx, leader.MultiPooler,
-		&multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		return nil, mterrors.Wrap(err, "consensus leader unreachable during health check")
-	}
-	if !commonconsensus.IsLeader(statusResp.GetConsensusStatus()) {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus leader %s no longer reports itself as the leader", leaderID.GetName())
-	}
-	return leader, nil
+// ShardMembers is the result of FindShardMembers: the shard's poolers, the highest
+// consensus rule known across them, and the pooler that rule names as leader.
+type ShardMembers struct {
+	// Poolers is every pooler the store knows about for the shard.
+	Poolers []*multiorchdatapb.PoolerHealthState
+	// HighestKnownRule is the highest known consensus rule across Poolers, or nil
+	// if none carries a rule. HighestKnownRule.GetLeaderId() names the leader.
+	HighestKnownRule *clustermetadatapb.ShardRule
+	// Leader is the pooler named by HighestKnownRule, or nil when no rule is known
+	// or the named pooler is not in the store (e.g. known only via a follower's
+	// rule).
+	Leader *multiorchdatapb.PoolerHealthState
 }
 
-// findConsensusLeader returns the ID of the leader named by the highest known
-// rule across the poolers' consensus status, or nil if none is known.
-func findConsensusLeader(poolers []*multiorchdatapb.PoolerHealthState) *clustermetadatapb.ID {
+// FindShardMembers identifies the shard's members, consensus rule, and leader's health.
+func (s *PoolerStore) FindShardMembers(shardKey *clustermetadatapb.ShardKey) ShardMembers {
+	poolers := s.FindPoolersInShard(shardKey)
+
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
 	for _, pooler := range poolers {
 		if cs := pooler.GetConsensusStatus(); cs != nil {
 			statuses = append(statuses, cs)
 		}
 	}
-	return commonconsensus.HighestKnownRule(statuses).GetLeaderId()
+
+	rule := commonconsensus.HighestKnownRule(statuses)
+	leaderID := rule.GetLeaderId()
+
+	var leader *multiorchdatapb.PoolerHealthState
+	if leaderID != nil {
+		for _, pooler := range poolers {
+			if proto.Equal(pooler.GetMultiPooler().GetId(), leaderID) {
+				leader = pooler
+				break
+			}
+		}
+	}
+
+	return ShardMembers{Poolers: poolers, HighestKnownRule: rule, Leader: leader}
 }

@@ -15,7 +15,6 @@
 package analysis
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,7 +41,7 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 }
 
 func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore(nil, slog.Default())}
+	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore()}
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
