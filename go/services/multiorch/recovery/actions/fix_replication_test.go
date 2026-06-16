@@ -133,7 +133,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	err := action.Execute(ctx, problem)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to find primary")
+	assert.Contains(t, err.Error(), "no consensus leader known")
 }
 
 func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {

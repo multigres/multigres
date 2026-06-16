@@ -16,7 +16,6 @@ package actions
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -117,13 +116,10 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		return mterrors.Wrap(err, "failed to find affected replica")
 	}
 
-	shard := a.poolerStore.FindShardMembers(problem.ShardKey)
-	if len(shard.Poolers) == 0 {
-		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
-	}
-	primary, err := pollLeaderHealth(ctx, a.rpcClient, shard)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to find primary")
+	primary := a.poolerStore.FindShardMembers(problem.ShardKey).Leader
+	if primary == nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no consensus leader known for shard %s", problem.ShardKey)
 	}
 
 	a.logger.InfoContext(ctx, "found primary for replication",
