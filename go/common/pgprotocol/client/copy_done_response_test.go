@@ -87,6 +87,7 @@ func newTestReadOnlyConn(input []byte) *Conn {
 		conn:           &mockNetConn{buf: bytes.NewBuffer(nil)},
 		bufferedReader: bufio.NewReader(r),
 		bufferedWriter: bufio.NewWriter(bytes.NewBuffer(nil)),
+		serverParams:   make(map[string]string),
 	}
 }
 
