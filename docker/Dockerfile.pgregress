@@ -1,0 +1,124 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Linux environment for regenerating the pgregress patch set.
+#
+# WHY THIS EXISTS: the patches under
+# go/test/endtoend/pgregresstest/testdata/pg17/patches/ capture multigres-specific
+# divergences from STOCK PostgreSQL output. Stock output is platform-sensitive
+# (locale collation, timezone/datestyle formatting, error-cursor positions), so a
+# patch set generated on macOS is full of macOS-vs-Linux noise and will FAIL the
+# CI verification, which runs on ubuntu-24.04. Always regenerate on Linux.
+#
+# This image mirrors the CI runner (.github/workflows/test-pgregress.yml +
+# .github/scripts/setup-test-environment.sh) so the regenerated patches match
+# what CI verifies.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build/test dependencies — same packages CI installs.
+#   build-essential bison flex libreadline-dev zlib1g-dev : build PostgreSQL 17.6 from source
+#   uuid-dev   : ./configure --with-uuid       (uuid-ossp contrib)
+#   libssl-dev : ./configure --with-ssl=openssl (pgcrypto, PG16+; pgjwt depends on it)
+#   libsodium-dev pkg-config : pgsodium external extension (PkgConfigDeps)
+#   clang libclang-dev : pg_graphql's pgrx/bindgen step needs libclang to generate
+#                        bindings from the PostgreSQL headers (GitHub runners ship
+#                        clang preinstalled; a clean image must add it)
+#   git curl ca-certificates gnupg lsb-release : clone PostgreSQL + extensions,
+#       fetch toolchains, and add the PGDG apt repo for pgbackrest (below)
+#   locales : glibc locales the regression collate suite needs (see locale-gen below)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential bison flex libreadline-dev zlib1g-dev \
+      uuid-dev libssl-dev libsodium-dev pkg-config \
+      clang libclang-dev \
+      git curl ca-certificates gnupg lsb-release locales \
+    && rm -rf /var/lib/apt/lists/*
+
+# pgbackrest from PGDG (apt.postgresql.org) — the multigres cluster's primary-init
+# "create-first-backup" step runs `pgbackrest stanza-create`, which must support
+# PostgreSQL 17. Ubuntu universe ships pgbackrest 2.50, which REJECTS PG17
+# ("unexpected control version = 1700 ... is this version of PostgreSQL
+# supported?", exit 56) — that failure makes pgctld loop init->start->stop and the
+# shard bootstrap never converges ("unknown WAL position"). PGDG ships a current
+# pgbackrest (2.53+) with PG17 support; this is exactly what CI's
+# setup-test-environment.sh installs.
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends pgbackrest \
+    && pgbackrest version \
+    && rm -rf /var/lib/apt/lists/*
+
+# Generate the glibc locales the PostgreSQL regression collate tests reference
+# (collate.sql -> en_US; collate.linux.utf8.sql -> de_DE, sv_SE, tr_TR, ja_JP.eucjp).
+# Without them the tests self-skip and produce spurious diffs — the exact failure
+# mode seen when regenerating on macOS. en_US.UTF-8 is also the default LANG.
+RUN sed -i -E \
+      -e 's/^# *(en_US.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(de_DE.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(fr_FR.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(sv_SE.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(tr_TR.UTF-8 UTF-8)/\1/' \
+      -e 's/^# *(ja_JP.EUC-JP EUC-JP)/\1/' \
+      /etc/locale.gen \
+    && locale-gen
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+# Go toolchain — pinned to go.mod (keep in sync with the `go` directive there).
+# Installed under /usr/local (world-readable), usable by the non-root user below.
+ARG GO_VERSION=1.25.1
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+
+# etcd — topology store the multigres cluster-under-test starts (matches the
+# version setup-test-environment.sh installs in CI).
+ARG ETCD_VERSION=v3.6.4
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${ARCH}.tar.gz" -o /tmp/etcd.tgz \
+    && tar -C /tmp -xzf /tmp/etcd.tgz \
+    && cp "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}/etcd" "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}/etcdctl" /usr/local/bin/ \
+    && rm -rf /tmp/etcd.tgz "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}"
+
+# Run the suite as a NON-ROOT user: pgctld and PostgreSQL both refuse to run as
+# root ("servenv init: running as root is not permitted" / "postgres cannot run
+# as root"). GitHub runners execute as the unprivileged `runner` user; mirror that.
+# Pre-create the cache mountpoints owned by `tester` so the named volumes the run
+# script mounts there initialise with tester ownership (and stay writable).
+ARG USER=tester
+ARG UID=1000
+# ubuntu:24.04 ships a default `ubuntu` user already occupying UID 1000 — remove
+# it so `tester` can take that UID (keeps cache-volume ownership simple).
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && useradd --create-home --uid "${UID}" --shell /bin/bash "${USER}" \
+    && mkdir -p /workspace /workspace/bin \
+               /home/${USER}/.cache/go-build \
+               /home/${USER}/go/pkg/mod \
+               /home/${USER}/.cargo/registry \
+               /tmp/multigres_pg_cache \
+    && chown -R "${USER}:${USER}" /workspace /tmp/multigres_pg_cache /home/${USER}
+
+USER ${USER}
+ENV HOME=/home/${USER}
+ENV PATH=/usr/local/go/bin:/home/${USER}/.cargo/bin:$PATH
+ENV GOTOOLCHAIN=local
+
+# Rust toolchain — installed under the non-root user's home so the harness's
+# `cargo install cargo-pgrx` (pinned to the version pg_graphql's crate requires,
+# currently 0.16.1) can write to $CARGO_HOME/bin at runtime.
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+WORKDIR /workspace
