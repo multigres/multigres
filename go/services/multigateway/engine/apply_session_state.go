@@ -162,16 +162,17 @@ func (s *ApplySessionState) PortalStreamExecute(
 	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
 }
 
+// setConfigParamResolver is the small protocol-specific layer for resolving
+// bound set_config(...) arguments. The executeSetWithResolvedParams helper owns
+// the shared is_local -> name -> GMV guard -> value -> applyTracked flow, while
+// each caller supplies how ParamRefs are decoded for its protocol path.
+type setConfigParamResolver struct {
+	resolveBool func(ref *ast.ParamRef, what string) (bool, error)
+	resolveText func(ref *ast.ParamRef, what string) (string, error)
+}
+
 // executeSetWithBinds resolves name/value/is_local from the portal's binds
 // and conditionally updates SessionSettings.
-//
-// is_local is resolved first because it decides whether tracking happens at
-// all: when it resolves true the call is transaction-scoped, PG owns it via
-// the Sequence's trailing Route, and the gateway must NOT write to
-// SessionSettings (otherwise the tracker would outlive the transaction PG
-// scoped the change to). Resolving it first also lets us skip the text
-// decodes for the bound name/value slots — they're only needed for the
-// tracker write.
 //
 // Errors (NULL bind, unsupported OID, out-of-range ParamRef) propagate up
 // through the Sequence, which aborts before the Route fires.
@@ -182,45 +183,14 @@ func (s *ApplySessionState) executeSetWithBinds(
 	portalInfo *preparedstatement.PortalInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// is_local resolves from the bind when bound; otherwise it falls back to the
-	// literal baked into the synthetic VariableStmt (true only for a
-	// gateway-managed set_config(..., true) — see planner.syntheticSetStmt).
-	isLocal := s.VariableStmt.IsLocal
-	if s.BindRefs.IsLocalParam != nil {
-		b, err := preparedstatement.DecodeBindAsBool(portalInfo, s.BindRefs.IsLocalParam, "set_config is_local argument")
-		if err != nil {
-			return err
-		}
-		isLocal = b
-	}
-
-	name := s.VariableStmt.Name
-	if s.BindRefs.NameParam != nil {
-		v, err := preparedstatement.DecodeBindAsText(portalInfo, s.BindRefs.NameParam, "set_config name argument")
-		if err != nil {
-			return err
-		}
-		name = v
-	}
-
-	// A SET LOCAL of an ordinary (non-gateway-managed) variable is owned by
-	// PostgreSQL via the trailing Route — the gateway tracks nothing and can
-	// skip decoding the value. Gateway-managed variables fall through so the
-	// transaction-local override is applied to gateway state.
-	if isLocal && !handler.IsGatewayManagedVariable(name) {
-		return nil
-	}
-
-	value := extractVariableValue(s.VariableStmt.Args)
-	if s.BindRefs.ValueParam != nil {
-		v, err := preparedstatement.DecodeBindAsText(portalInfo, s.BindRefs.ValueParam, "set_config value argument")
-		if err != nil {
-			return err
-		}
-		value = v
-	}
-
-	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
+	return s.executeSetWithResolvedParams(ctx, conn, state, setConfigParamResolver{
+		resolveBool: func(ref *ast.ParamRef, what string) (bool, error) {
+			return preparedstatement.DecodeBindAsBool(portalInfo, ref, what)
+		},
+		resolveText: func(ref *ast.ParamRef, what string) (string, error) {
+			return preparedstatement.DecodeBindAsText(portalInfo, ref, what)
+		},
+	}, callback)
 }
 
 // executeSetWithNormalizedBinds is StreamExecute's counterpart to
@@ -230,11 +200,6 @@ func (s *ApplySessionState) executeSetWithBinds(
 // parameterizes the value of a gateway-managed set_config(..., true) call —
 // the plan is cached by its normalized SQL, so every execution must
 // re-resolve the value from that execution's literals.
-//
-// Mirrors executeSetWithBinds' resolution order: is_local first (it decides
-// whether tracking happens at all), then name, then value only if the
-// tracker write will fire. Errors propagate up through the Sequence, which
-// aborts before the trailing Route fires.
 func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	ctx context.Context,
 	conn *server.Conn,
@@ -242,48 +207,77 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// is_local resolves from the normalized literal when bound; otherwise it
-	// falls back to the literal baked into the synthetic VariableStmt (true
-	// only for a gateway-managed set_config(..., true)).
+	return s.executeSetWithResolvedParams(ctx, conn, state, setConfigParamResolver{
+		resolveBool: func(ref *ast.ParamRef, what string) (bool, error) {
+			c, err := normalizedBindConst(bindVars, ref, what)
+			if err != nil {
+				return false, err
+			}
+			b, ok := c.Val.(*ast.Boolean)
+			if !ok {
+				return false, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+					"%s ($%d) must be a boolean literal", what, ref.Number))
+			}
+			return b.BoolVal, nil
+		},
+		resolveText: func(ref *ast.ParamRef, what string) (string, error) {
+			c, err := normalizedBindConst(bindVars, ref, what)
+			if err != nil {
+				return "", err
+			}
+			return extractConstValue(c), nil
+		},
+	}, callback)
+}
+
+// executeSetWithResolvedParams owns the protocol-independent set_config bind
+// flow: resolve is_local first because it decides whether tracking happens at
+// all, resolve name next so the gateway-managed guard can run, and resolve the
+// value only when a tracker write will actually fire.
+func (s *ApplySessionState) executeSetWithResolvedParams(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	resolver setConfigParamResolver,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// is_local resolves from the bound value when present; otherwise it falls
+	// back to the literal baked into the synthetic VariableStmt (true only for a
+	// gateway-managed set_config(..., true) — see planner.syntheticSetStmt).
 	isLocal := s.VariableStmt.IsLocal
 	if s.BindRefs.IsLocalParam != nil {
-		c, err := normalizedBindConst(bindVars, s.BindRefs.IsLocalParam, "set_config is_local argument")
+		b, err := resolver.resolveBool(s.BindRefs.IsLocalParam, "set_config is_local argument")
 		if err != nil {
 			return err
 		}
-		b, ok := c.Val.(*ast.Boolean)
-		if !ok {
-			return mterrors.NewFeatureNotSupported(fmt.Sprintf(
-				"set_config is_local argument ($%d) must be a boolean literal", s.BindRefs.IsLocalParam.Number))
-		}
-		isLocal = b.BoolVal
+		isLocal = b
 	}
 
 	name := s.VariableStmt.Name
 	if s.BindRefs.NameParam != nil {
-		c, err := normalizedBindConst(bindVars, s.BindRefs.NameParam, "set_config name argument")
+		v, err := resolver.resolveText(s.BindRefs.NameParam, "set_config name argument")
 		if err != nil {
 			return err
 		}
-		name = extractConstValue(c)
+		name = v
 	}
 
 	// A transaction-scoped set_config of an ordinary (non-gateway-managed)
 	// variable is owned by PostgreSQL via the trailing Route — the gateway
 	// tracks nothing and can skip resolving the value. Gateway-managed
 	// variables fall through so the transaction-local override is applied to
-	// gateway state (parity with executeSetWithBinds).
+	// gateway state.
 	if isLocal && !handler.IsGatewayManagedVariable(name) {
 		return nil
 	}
 
 	value := extractVariableValue(s.VariableStmt.Args)
 	if s.BindRefs.ValueParam != nil {
-		c, err := normalizedBindConst(bindVars, s.BindRefs.ValueParam, "set_config value argument")
+		v, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
 		if err != nil {
 			return err
 		}
-		value = extractConstValue(c)
+		value = v
 	}
 
 	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
