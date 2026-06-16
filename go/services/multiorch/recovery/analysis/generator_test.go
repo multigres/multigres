@@ -33,7 +33,7 @@ import (
 
 // primaryConsensusStatus builds a ConsensusStatus that names id as the leader
 // in its current rule with the given coordinator term. This is the minimal
-// fixture required for commonconsensus.IsLeader to return true for a given pooler.
+// fixture required for commonconsensus.NamesSelfAsLeader to return true for a given pooler.
 func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
@@ -97,7 +97,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	assert.Equal(t, "testdb", analysis.ShardKey.Database)
 	assert.Equal(t, "testtg", analysis.ShardKey.TableGroup)
 	assert.Equal(t, "0", analysis.ShardKey.Shard)
-	assert.True(t, analysis.IsLeader)
+	assert.True(t, analysis.NamesSelfAsLeader)
 	assert.True(t, analysis.LastCheckValid)
 }
 
@@ -205,14 +205,14 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Find the primary analysis
 	var primaryAnalysis *PoolerAnalysis
 	for _, a := range analyses {
-		if a.IsLeader {
+		if a.NamesSelfAsLeader {
 			primaryAnalysis = a
 			break
 		}
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.True(t, primaryAnalysis.IsLeader)
+	assert.True(t, primaryAnalysis.NamesSelfAsLeader)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
@@ -287,7 +287,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Find the replica analysis
 	replicaAnalysis := sa.Replicas()
 	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.False(t, replicaAnalysis[0].IsLeader)
+	assert.False(t, replicaAnalysis[0].NamesSelfAsLeader)
 
 	// Primary health is now a shard-level field
 	assert.NotNil(t, sa.HighestShardRule.GetLeaderId(), "should have topology primary ID populated")

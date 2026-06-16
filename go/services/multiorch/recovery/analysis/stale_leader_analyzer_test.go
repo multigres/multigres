@@ -48,13 +48,13 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		stalePA := &PoolerAnalysis{
-			PoolerID:        staleID,
-			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:        true,
-			IsInitialized:   true,
-			LastCheckValid:  true,
-			ConsensusStatus: primaryRuleStatus(staleID, 5),
-			ConsensusTerm:   10,
+			PoolerID:          staleID,
+			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			NamesSelfAsLeader: true,
+			IsInitialized:     true,
+			LastCheckValid:    true,
+			ConsensusStatus:   primaryRuleStatus(staleID, 5),
+			ConsensusTerm:     10,
 		}
 		sa := &ShardAnalysis{
 			ShardKey: stalePA.ShardKey,
@@ -83,12 +83,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newPA := &PoolerAnalysis{
-			PoolerID:        newID,
-			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:        true,
-			IsInitialized:   true,
-			ConsensusStatus: primaryRuleStatus(newID, 6),
-			ConsensusTerm:   11,
+			PoolerID:          newID,
+			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			NamesSelfAsLeader: true,
+			IsInitialized:     true,
+			ConsensusStatus:   primaryRuleStatus(newID, 6),
+			ConsensusTerm:     11,
 		}
 		stalePA := &PoolerAnalysis{
 			PoolerID:        staleID,
@@ -125,9 +125,9 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica1",
 			},
-			ShardKey:      &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:      false,
-			IsInitialized: true,
+			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			NamesSelfAsLeader: false,
+			IsInitialized:     true,
 		}
 
 		problem, err := analyzeOne(analyzer, analysis)
@@ -140,12 +140,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 		pa := &PoolerAnalysis{
-			PoolerID:        primaryID,
-			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:        true,
-			IsInitialized:   true,
-			ConsensusStatus: primaryRuleStatus(primaryID, 5),
-			ConsensusTerm:   10,
+			PoolerID:          primaryID,
+			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			NamesSelfAsLeader: true,
+			IsInitialized:     true,
+			ConsensusStatus:   primaryRuleStatus(primaryID, 5),
+			ConsensusTerm:     10,
 		}
 		sa := &ShardAnalysis{
 			ShardKey: pa.ShardKey,
@@ -164,7 +164,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: nil}
-		analysis := &PoolerAnalysis{IsLeader: true}
+		analysis := &PoolerAnalysis{NamesSelfAsLeader: true}
 
 		_, err := analyzeOne(analyzer, analysis)
 
@@ -178,12 +178,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		stale1ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-1"}
 		stale2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-2"}
 		newPA := &PoolerAnalysis{
-			PoolerID:        newID,
-			ShardKey:        &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsLeader:        true,
-			IsInitialized:   true,
-			ConsensusStatus: primaryRuleStatus(newID, 6),
-			ConsensusTerm:   11,
+			PoolerID:          newID,
+			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			NamesSelfAsLeader: true,
+			IsInitialized:     true,
+			ConsensusStatus:   primaryRuleStatus(newID, 6),
+			ConsensusTerm:     11,
 		}
 		stale1PA := &PoolerAnalysis{
 			PoolerID:        stale1ID,

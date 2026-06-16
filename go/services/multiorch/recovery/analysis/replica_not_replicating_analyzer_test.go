@@ -67,7 +67,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // No primary_conninfo configured
 				WalReplayNotPaused:  true,
@@ -91,7 +91,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				WalReplayNotPaused:  false, // Replication stopped
@@ -114,7 +114,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},
@@ -131,7 +131,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				WalReplayNotPaused:  true,
@@ -149,7 +149,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            primaryID,
 				ShardKey:            shardKey,
-				IsLeader:            true,
+				NamesSelfAsLeader:   true,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 			}},
@@ -166,7 +166,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       false, // Not initialized
 				PrimaryConnInfoHost: "",
 			}},
@@ -184,7 +184,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},
@@ -207,7 +207,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				IsLeader:            false,
+				NamesSelfAsLeader:   false,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},

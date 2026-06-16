@@ -67,11 +67,11 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	}
 
 	leaderPA := &PoolerAnalysis{
-		PoolerID:       primaryID,
-		ShardKey:       shardKey,
-		IsLeader:       true,
-		LastCheckValid: true,
-		IsInitialized:  true,
+		PoolerID:          primaryID,
+		ShardKey:          shardKey,
+		NamesSelfAsLeader: true,
+		LastCheckValid:    true,
+		IsInitialized:     true,
 	}
 
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*PoolerAnalysis) *ShardAnalysis {

@@ -50,7 +50,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 	}
 
 	// Only analyze replicas
-	if poolerAnalysis.IsLeader {
+	if poolerAnalysis.NamesSelfAsLeader {
 		return nil, nil
 	}
 

@@ -120,7 +120,7 @@ func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
 func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
 	var replicas []*PoolerAnalysis
 	for _, pa := range sa.Analyses {
-		if !pa.IsLeader {
+		if !pa.NamesSelfAsLeader {
 			replicas = append(replicas, pa)
 		}
 	}
@@ -136,7 +136,7 @@ type PoolerAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 
 	// Pooler properties
-	IsLeader bool
+	NamesSelfAsLeader bool
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool

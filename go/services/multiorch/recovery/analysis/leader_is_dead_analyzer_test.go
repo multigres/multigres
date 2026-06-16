@@ -62,10 +62,10 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 			HasInitializedReplica: true,
 			Analyses: []*PoolerAnalysis{
 				{
-					PoolerID:      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
-					ShardKey:      shardKey,
-					IsLeader:      false,
-					IsInitialized: true,
+					PoolerID:          &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
+					ShardKey:          shardKey,
+					NamesSelfAsLeader: false,
+					IsInitialized:     true,
 				},
 			},
 		}

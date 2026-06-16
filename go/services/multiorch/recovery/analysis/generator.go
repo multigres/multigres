@@ -184,6 +184,11 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID
 // GenerateAnalysisForPooler generates and returns the ShardAnalysis for the shard containing
 // the given pooler ID. Used primarily in tests to inspect shard-level fields like
 // ReplicasConnectedToLeader without running the full analysis loop.
+//
+// TODO: remove this method. It has no production callers (production uses
+// GenerateShardAnalyses / GenerateShardAnalysis) and is exported only for tests.
+// Migrate the test call sites to GenerateShardAnalysis(shardKey) — they already
+// know the shard key — and delete this poolerID→shardKey convenience wrapper.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.ComponentID) (*ShardAnalysis, error) {
 	pooler, ok := g.poolerStore.Get(poolerIDStr)
 	if !ok {
@@ -212,14 +217,14 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	shardKey *clustermetadatapb.ShardKey,
 ) *PoolerAnalysis {
 	analysis := &PoolerAnalysis{
-		PoolerID:         pooler.MultiPooler.Id,
-		ShardKey:         shardKey,
-		IsLeader:         commonconsensus.IsLeader(pooler.GetConsensusStatus()),
-		LastCheckValid:   pooler.IsLastCheckValid,
-		IsInitialized:    store.IsInitialized(pooler),
-		HasDataDirectory: pooler.GetStatus().GetHasDataDirectory(),
-		CohortMembers:    pooler.GetStatus().GetCohortMembers(),
-		AnalyzedAt:       time.Now(),
+		PoolerID:          pooler.MultiPooler.Id,
+		ShardKey:          shardKey,
+		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.GetConsensusStatus()),
+		LastCheckValid:    pooler.IsLastCheckValid,
+		IsInitialized:     store.IsInitialized(pooler),
+		HasDataDirectory:  pooler.GetStatus().GetHasDataDirectory(),
+		CohortMembers:     pooler.GetStatus().GetCohortMembers(),
+		AnalyzedAt:        time.Now(),
 	}
 
 	// Compute staleness
@@ -231,7 +236,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	analysis.AvailabilityStatus = pooler.GetAvailabilityStatus()
 
 	// If this is a REPLICA, populate replica-specific fields
-	if !analysis.IsLeader {
+	if !analysis.NamesSelfAsLeader {
 		if rs := pooler.GetStatus().GetReplicationStatus(); rs != nil {
 			analysis.WalReplayNotPaused = !rs.GetIsWalReplayPaused()
 
@@ -288,7 +293,7 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			continue
 		}
 
-		if commonconsensus.IsLeader(pooler.GetConsensusStatus()) {
+		if commonconsensus.NamesSelfAsLeader(pooler.GetConsensusStatus()) {
 			continue
 		}
 
@@ -440,7 +445,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
 	for _, pa := range sa.Analyses {
-		if !pa.IsLeader && pa.LastCheckValid && pa.IsInitialized {
+		if !pa.NamesSelfAsLeader && pa.LastCheckValid && pa.IsInitialized {
 			sa.HasInitializedReplica = true
 			break
 		}
