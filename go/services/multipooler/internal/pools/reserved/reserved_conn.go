@@ -141,12 +141,14 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 // SnapshotTxnState captures the current session-state baseline as the
 // transaction snapshot. Transaction-start paths that run BEGIN outside
 // BeginWithQuery must call this so a later ROLLBACK can still revert the pool's
-// cached connstate in lock-step with PostgreSQL. In particular the COPY paths
-// run BEGIN on the raw *regular.Conn inside a connection-acquisition validate
-// callback (the *reserved.Conn wrapper doesn't exist yet), then add the
-// transaction reason manually; they call this immediately afterwards, before any
-// client statement runs in the transaction, so the captured baseline is the
-// pre-transaction state.
+// cached connstate in lock-step with PostgreSQL. In particular, acquisition
+// paths that need the first backend write to be retryable (COPY initiation and
+// transaction starts on fresh reserved connections) run BEGIN on the raw
+// *regular.Conn inside a connection-acquisition validate callback (the
+// *reserved.Conn wrapper doesn't exist yet), then add the transaction reason
+// manually; they call this immediately afterwards, before any client statement
+// runs in the transaction, so the captured baseline is the pre-transaction
+// state.
 func (c *Conn) SnapshotTxnState() {
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 }

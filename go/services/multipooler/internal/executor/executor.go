@@ -395,19 +395,37 @@ func (e *Executor) reserveAndStreamExecute(
 		"begin_tx", beginTx,
 		"query", sql)
 
-	// If the query references a gateway-managed prepared statement (wrapped
-	// EXECUTE forms like CREATE TEMP TABLE ... AS EXECUTE), parse it during
-	// reserved-connection acquisition. Doing the Parse via the validate
-	// callback lets the reserved pool transparently swap a stale (silently
-	// closed) socket for a fresh one before we register the connection — the
-	// failure mode that flaked TestWrappedPreparedStatementExecution.
+	beginQuery := "BEGIN"
+	if reservationOptions.GetBeginQuery() != "" {
+		beginQuery = reservationOptions.GetBeginQuery()
+	}
+
+	// Do the first state-modifying writes on a newly borrowed socket inside the
+	// reserved-pool validate callback. If the regular pool hands us a stale socket
+	// that PostgreSQL closed while idle (for example after a backend restart), the
+	// validate path taints it and retries on a fresh socket before this reserved
+	// connection is registered.
 	//
-	// Parse is a session-level operation in PostgreSQL, so running it before
-	// BEGIN is safe; the prepared statement persists into the transaction.
+	// Parse is a session-level operation in PostgreSQL, so running it before BEGIN
+	// is safe; the prepared statement persists into the transaction. VPID stamping
+	// must happen before BEGIN so lock-detection can map this backend for the full
+	// transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
-	if preparedStmt := options.GetPreparedStatement(); preparedStmt != nil {
+	preparedStmt := options.GetPreparedStatement()
+	if preparedStmt != nil || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			return e.ensurePreparedWithName(ctx, conn, preparedStmt)
+			if preparedStmt != nil {
+				if err := e.ensurePreparedWithName(ctx, conn, preparedStmt); err != nil {
+					return err
+				}
+			}
+			if beginTx {
+				e.stampVpidOnRegular(ctx, conn, options)
+				if _, err := conn.Query(ctx, beginQuery); err != nil {
+					return fmt.Errorf("failed to begin transaction: %w", err)
+				}
+			}
+			return nil
 		}
 		reservedOpts = append(reservedOpts, reserved.WithValidate(validate))
 	}
@@ -419,15 +437,23 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
 
-	// Stamp multigres_vpid on the freshly reserved backend so subsequent
-	// lock-detection probes can map vpid → real pid. Done before BEGIN so
-	// the value is in place for the entire transaction lifecycle.
-	e.stampVpidOnReserved(ctx, reservedConn, options)
+	if beginTx {
+		// validate ran BEGIN via the raw *regular.Conn, which bypassed
+		// reserved.Conn.BeginWithQuery's bookkeeping. Mark the transaction reason
+		// explicitly and capture the rollback snapshot before any client statement
+		// runs in the transaction.
+		reservedConn.AddReservationReason(protoutil.ReasonTransaction)
+		reservedConn.SnapshotTxnState()
+	} else {
+		// Stamp multigres_vpid on the freshly reserved backend so subsequent
+		// lock-detection probes can map vpid → real pid. Transaction starts stamp
+		// inside validate before BEGIN so the tag is in place for the full txn.
+		e.stampVpidOnReserved(ctx, reservedConn, options)
+	}
 
-	// Apply all reservation reasons to the reserved connection.
-	// BeginWithQuery below adds ReasonTransaction internally, but non-transaction
-	// reasons (e.g., temp_table) must be added explicitly so that buildReservedState
-	// returns the correct bitmask and DiscardTempTables can find the shard.
+	// Apply all non-transaction reservation reasons to the reserved connection
+	// (e.g., temp_table) so buildReservedState returns the correct bitmask and
+	// DiscardTempTables can find the shard.
 	if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
 		reservedConn.AddReservationReason(nonBeginReasons)
 	}
@@ -443,21 +469,6 @@ func (e *Executor) reserveAndStreamExecute(
 	// existing-reservation case.
 	for _, name := range reservationOptions.GetPinPortalNames() {
 		reservedConn.ReserveForPortal(name)
-	}
-
-	// If this is a transaction reservation, execute BEGIN first.
-	// The BEGIN result is not sent to the callback — it's an internal setup detail.
-	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
-	// Use the original BEGIN query if provided to preserve isolation level and access mode.
-	if beginTx {
-		beginQuery := "BEGIN"
-		if reservationOptions.GetBeginQuery() != "" {
-			beginQuery = reservationOptions.GetBeginQuery()
-		}
-		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, err
-		}
 	}
 
 	// Execute the actual query and stream results to the callback as they arrive,
