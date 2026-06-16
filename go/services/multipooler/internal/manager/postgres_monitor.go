@@ -184,12 +184,6 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		return postgresState{}, err
 	}
 
-	// Skip all action while awaiting a rewind after emergency demotion.
-	if pm.rewindPending.Load() {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping, awaiting rewind after demotion")
-		return postgresState{}, nil
-	}
-
 	// Discover current state
 	currentState, err := pm.discoverPostgresState(ctx)
 	if err != nil {
@@ -223,13 +217,6 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		return postgresState{}, err
 	}
 	defer pm.actionLock.Release(lockCtx)
-
-	// Re-check rewindPending after acquiring the lock: Recruit sets this flag
-	// while holding the lock, so we may have been waiting while it demoted the node.
-	if pm.rewindPending.Load() {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: skipping after lock acquire, rewind now pending")
-		return postgresState{}, nil
-	}
 
 	// Re-verify state after acquiring lock (conditions may have changed)
 	currentState, err = pm.discoverPostgresState(lockCtx)

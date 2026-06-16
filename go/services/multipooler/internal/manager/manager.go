@@ -163,8 +163,9 @@ type MultiPoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
-	// rewindPending suppresses the postgres monitor after emergency demotion until a
-	// rewind completes successfully. Set by emergencyDemoteLocked, cleared by RewindToSource.
+	// rewindPending marks that this node's WAL may have diverged from the cluster's
+	// chosen history, so the next restart-as-standby or SetPrimary must run pg_rewind
+	// to remove potential phantom / non-durable WAL entries.
 	rewindPending atomic.Bool
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet

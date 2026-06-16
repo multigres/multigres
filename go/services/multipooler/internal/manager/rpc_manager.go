@@ -738,8 +738,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	pm.healthStreamer.UpdateLeaderObservation(nil)
 
-	// Suppress the postgres monitor until a rewind completes; the monitor would
-	// otherwise restart postgres on this demoted node.
+	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
+	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
+	// demote path) must run pg_rewind before trusting local WAL.
 	pm.rewindPending.Store(true)
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
