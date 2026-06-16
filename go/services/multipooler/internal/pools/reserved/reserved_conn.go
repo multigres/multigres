@@ -67,7 +67,7 @@ type Conn struct {
 	// value (e.g. successful ROLLBACK TO SAVEPOINT). While set, release
 	// finalization syncs connstate to the gateway's authoritative session
 	// settings instead of trusting the stale cache.
-	sessionStateUntrusted atomic.Bool
+	sessionStateUntrusted bool
 
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
@@ -319,18 +319,18 @@ func (c *Conn) InactivityTimeout() time.Duration {
 // MarkSessionStateUntrusted records that connstate may not match the backend's
 // real session state, so the next reconciliation must be forced.
 func (c *Conn) MarkSessionStateUntrusted() {
-	c.sessionStateUntrusted.Store(true)
+	c.sessionStateUntrusted = true
 }
 
 // SessionStateUntrusted returns true if forced reconciliation is required.
 func (c *Conn) SessionStateUntrusted() bool {
-	return c.sessionStateUntrusted.Load()
+	return c.sessionStateUntrusted
 }
 
 // ClearSessionStateUntrusted marks connstate as trusted again after a full
 // rollback snapshot restore or successful forced reconciliation.
 func (c *Conn) ClearSessionStateUntrusted() {
-	c.sessionStateUntrusted.Store(false)
+	c.sessionStateUntrusted = false
 }
 
 // --- Lifecycle ---
