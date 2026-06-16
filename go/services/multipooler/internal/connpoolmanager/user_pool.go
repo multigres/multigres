@@ -95,6 +95,10 @@ type UserPoolConfig struct {
 
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
+
+	// SettingsCache interns gateway session settings for release-boundary
+	// connstate sync on untrusted reserved connections.
+	SettingsCache *connstate.SettingsCache
 }
 
 // NewUserPool creates a new UserPool for the given user.
@@ -132,6 +136,7 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		Logger:            logger,
 		OnReserve:         config.OnReserve,
 		OnRelease:         config.OnRelease,
+		SettingsCache:     config.SettingsCache,
 		RegularPoolConfig: &regular.PoolConfig{
 			ClientConfig:   config.ClientConfig,
 			ConnPoolConfig: config.ReservedPoolConfig,

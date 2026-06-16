@@ -216,6 +216,12 @@ func (sc *ScatterConn) StreamExecute(
 	recheckAdvisory := state.PendingAdvisoryLockRecheck
 	state.PendingAdvisoryLockRecheck = false
 
+	// One-shot: a successful ROLLBACK TO SAVEPOINT reverted session GUCs on the
+	// backend without the pooler observing the exact values. Forward it so the
+	// multipooler marks the reserved connection's session state untrusted.
+	markUntrusted := state.PendingMarkSessionStateUntrusted
+	state.PendingMarkSessionStateUntrusted = false
+
 	// Case 1: Already have reserved connection - use it
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		sc.logger.DebugContext(ctx, "using existing reserved connection",
@@ -296,6 +302,14 @@ func (sc *ScatterConn) StreamExecute(
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.RecheckAdvisoryLocks = true
+		}
+
+		// ROLLBACK TO SAVEPOINT reverted session state invisibly to the pooler.
+		if markUntrusted {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.MarkSessionStateUntrusted = true
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)

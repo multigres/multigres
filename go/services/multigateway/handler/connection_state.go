@@ -108,6 +108,14 @@ type MultiGatewayConnectionState struct {
 	// One-shot: cleared after it is consumed.
 	PendingAdvisoryLockRecheck bool
 
+	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
+	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
+	// on the backend without the pooler observing the exact reverted values, so
+	// ScatterConn forwards it as ReservationOptions.MarkSessionStateUntrusted,
+	// asking the multipooler to force reconciliation before the next reserved
+	// user SQL or at release. One-shot: cleared after it is consumed.
+	PendingMarkSessionStateUntrusted bool
+
 	// PendingPinPortals carries the cursor names that the next StreamExecute
 	// must register on the reserved backend's portal set via
 	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a
