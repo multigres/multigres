@@ -35,10 +35,9 @@ func newFinalizerTestPool(t *testing.T, server *fakepgserver.Server, onRelease f
 	t.Helper()
 	cache := connstate.NewSettingsCache(10)
 	return NewPool(context.Background(), &PoolConfig{
-		InactivityTimeout:          5 * time.Second,
-		ReleaseFinalizationTimeout: 2 * time.Second,
-		OnRelease:                  onRelease,
-		SettingsCache:              cache,
+		InactivityTimeout: 5 * time.Second,
+		OnRelease:         onRelease,
+		SettingsCache:     cache,
 		RegularPoolConfig: &regular.PoolConfig{
 			ClientConfig: server.ClientConfig(),
 			ConnPoolConfig: &connpool.Config{

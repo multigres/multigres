@@ -31,19 +31,12 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
-const defaultReleaseFinalizationTimeout = 5 * time.Second
-
 // PoolConfig holds configuration for the reserved pool.
 type PoolConfig struct {
 	// InactivityTimeout is the maximum duration a reserved connection can be inactive
 	// (no client activity) before being killed. A value of 0 means no timeout.
 	// Default: 30s
 	InactivityTimeout time.Duration
-
-	// ReleaseFinalizationTimeout bounds clean-release reconciliation before the
-	// backend is recycled into the regular pool. On timeout/failure the backend is
-	// tainted/closed instead of reused. Default: 5s.
-	ReleaseFinalizationTimeout time.Duration
 
 	// Logger for pool operations.
 	Logger *slog.Logger
@@ -114,10 +107,6 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	if config.InactivityTimeout <= 0 {
 		config.InactivityTimeout = 30 * time.Second
 	}
-	if config.ReleaseFinalizationTimeout <= 0 {
-		config.ReleaseFinalizationTimeout = defaultReleaseFinalizationTimeout
-	}
-
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
