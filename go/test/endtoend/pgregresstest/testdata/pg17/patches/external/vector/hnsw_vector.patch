@@ -1,0 +1,11 @@
+--- a
++++ b
+@@ -134,6 +134,8 @@
+ DROP TABLE t;
+ -- unlogged
+ CREATE UNLOGGED TABLE t (val vector(3));
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ INSERT INTO t (val) VALUES ('[0,0,0]'), ('[1,2,3]'), ('[1,1,1]'), (NULL);
+ CREATE INDEX ON t USING hnsw (val vector_l2_ops);
+ SELECT * FROM t ORDER BY val <-> '[3,3,3]';
