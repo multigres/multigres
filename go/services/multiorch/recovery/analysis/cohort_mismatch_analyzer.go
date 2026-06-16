@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -70,13 +69,13 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 
 	// We only act when the shard has a reachable, ready leader to receive the
 	// rule update. Bootstrap and failover paths set up the cohort separately.
-	if sa.HighestTermDiscoveredLeaderID == nil || !sa.LeaderReachable || !sa.LeaderPostgresReady {
+	if !sa.LeaderReachable || !sa.LeaderPostgresReady {
 		return nil, nil
 	}
 
-	// Build a set of current cohort member ID strings for O(1) lookup.
-	cohortIDs := make(map[topoclient.ComponentID]struct{}, len(sa.LeaderStandbyIDs))
-	for _, id := range sa.LeaderStandbyIDs {
+	// Build a set of current cohort member ID strings from the ShardRule for O(1) lookup.
+	cohortIDs := make(map[topoclient.ComponentID]struct{}, len(sa.HighestShardRule.GetCohortMembers()))
+	for _, id := range sa.HighestShardRule.GetCohortMembers() {
 		cohortIDs[topoclient.ComponentIDString(id)] = struct{}{}
 	}
 
@@ -136,7 +135,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
 func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *PoolerAnalysis) bool {
-	if pa.IsLeader {
+	if pa.NamesSelfAsLeader {
 		return false
 	}
 	if !pa.LastCheckValid {
@@ -145,12 +144,9 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *Poole
 	if !pa.IsInitialized {
 		return false
 	}
-	if pa.PoolerType != clustermetadatapb.PoolerType_REPLICA {
-		return false
-	}
 	// Replication must be configured and not stopped — otherwise the standby
 	// can't acknowledge writes and adding it would degrade durability.
-	if pa.PrimaryConnInfoHost == "" || pa.ReplicationStopped {
+	if pa.PrimaryConnInfoHost == "" || !pa.WalReplayNotPaused {
 		return false
 	}
 	if types.PoolerIsCohortIneligible(pa.AvailabilityStatus) {

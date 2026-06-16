@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -107,7 +106,7 @@ func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.
 
 func newPoolerStore(t *testing.T) *store.PoolerStore {
 	t.Helper()
-	return store.NewPoolerStore(rpcclient.NewFakeClient(), slog.Default())
+	return store.NewPoolerStore()
 }
 
 // --- Interface / metadata ---

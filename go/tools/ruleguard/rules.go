@@ -206,14 +206,16 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 }
 
 // disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
-// in the multigateway — both the .Type field and the generated GetType()
-// getter — which must derive leader identity from consensus state
-// (self_leadership), never from the topology role label. The PoolerType routing
-// label on a query.Target is a different field and is unaffected; constructing a
-// record with a Type (struct literal) is also unaffected — only reading the Type
-// off a discovered MultiPooler / MultiPoolerInfo is disallowed.
+// in the multigateway and multiorch — both the .Type field and the generated
+// GetType() getter — which must derive leader identity from consensus state
+// (self_leadership / the highest known shard rule), never from the topology role
+// label. The PoolerType routing label on a query.Target is a different field and
+// is unaffected; constructing a record with a Type (struct literal) is also
+// unaffected — only reading the Type off a discovered MultiPooler /
+// MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
+// pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use GetSelfLeadership() != nil instead.
+// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.NamesSelfAsLeader).
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
@@ -222,7 +224,35 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 		Where(
 			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
-				m.File().PkgPath.Matches(`services/multigateway`) &&
+				m.File().PkgPath.Matches(`services/(multigateway|multiorch)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership (GetSelfLeadership() != nil)")
+		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
+}
+
+// disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's
+// replication primary — both the generated GetReplicationPrimary() getter and the
+// raw .ReplicationPrimary field. proto3 cannot tell an unset ReplicationPrimary
+// from one written with the zero-valued initial rule (0/0, no leader — the shape
+// of fresh cluster state, e.g. the first backup), so reading it raw lets a phantom
+// 0/0 entry masquerade as a real leader. Route reads through
+// commonconsensus.ReplicationPrimaryOrNil, which returns nil for a 0/0 entry.
+//
+// Excluded:
+//   - go/common/consensus: implements the safe accessor (reads the field itself).
+//   - rpc_consensus.go: builds a ConsensusStatus and must assign the field; the
+//     DSL can't distinguish an assignment target from a read.
+//   - test files.
+//
+// The unrelated ConsensusState.GetReplicationPrimary() (the multipooler's
+// in-memory holder) is a different receiver type and is not matched.
+func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+
+	m.Match(`$x.GetReplicationPrimary()`, `$x.ReplicationPrimary`).
+		Where(
+			m["x"].Type.Is("*clustermetadata.ConsensusStatus") &&
+				!m.File().PkgPath.Matches(`common/consensus`) &&
+				!m.File().Name.Matches(`rpc_consensus\.go$`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
 }
