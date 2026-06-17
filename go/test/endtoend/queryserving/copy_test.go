@@ -258,7 +258,7 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 				rowCount := 10000
 				for i := 1; i <= rowCount; i++ {
 					// Each row ~200 bytes
-					dataBuilder.WriteString(fmt.Sprintf("%d\t%s\n", i, strings.Repeat("x", 190)))
+					fmt.Fprintf(&dataBuilder, "%d\t%s\n", i, strings.Repeat("x", 190))
 				}
 
 				copyCmd := fmt.Sprintf("COPY %s FROM STDIN", tableName)

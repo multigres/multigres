@@ -1521,11 +1521,11 @@ func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.No
 				// committed atomically under that lock, so it can't be
 				// interleaved with a synchronous handler's packet.
 				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
-					c.logger.Error("failed to push notification", "error", err)
+					c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
 					return
 				}
 				if err := c.flush(); err != nil {
-					c.logger.Error("failed to flush notification", "error", err)
+					c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
 					return
 				}
 			}

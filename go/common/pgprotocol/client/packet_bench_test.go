@@ -30,12 +30,12 @@ import (
 // measure is encoder + bufio cost.
 
 type discardConn struct {
-	bytesWritten uint64
+	bytesWritten atomic.Uint64
 }
 
 func (d *discardConn) Read(b []byte) (int, error) { return 0, io.EOF }
 func (d *discardConn) Write(b []byte) (int, error) {
-	atomic.AddUint64(&d.bytesWritten, uint64(len(b)))
+	d.bytesWritten.Add(uint64(len(b)))
 	return len(b), nil
 }
 func (d *discardConn) Close() error                       { return nil }

@@ -15,7 +15,6 @@
 package consensus
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 
@@ -28,7 +27,7 @@ import (
 
 // testLogger discards output to keep test runs quiet.
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // clusterIDStrings maps poolers to their "cell_name" keys for unordered

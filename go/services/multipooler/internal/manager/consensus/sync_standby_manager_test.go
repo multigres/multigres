@@ -17,7 +17,6 @@ package consensus
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"testing"
 
@@ -33,7 +32,7 @@ import (
 
 // newTestSSM creates a postgresqlSyncStandbyManager backed by the given mock query service.
 func newTestSSM(mockQS *mock.QueryService) *postgresqlSyncStandbyManager {
-	return NewSyncStandbyManager(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQS, nil)
+	return NewSyncStandbyManager(slog.New(slog.DiscardHandler), mockQS, nil)
 }
 
 // withTestActionLock returns a context that satisfies actionlock.AssertActionLockHeld.

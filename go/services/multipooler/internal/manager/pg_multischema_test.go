@@ -17,7 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"testing"
 
@@ -66,7 +65,7 @@ var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
 // newTestManagerWithMock creates a test MultiPoolerManager with a mock query service
 func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	mockQueryService := mock.NewQueryService()
 
 	// Create a memorytopo store for tests that need topoClient (e.g., GetRemoteOperationTimeout)

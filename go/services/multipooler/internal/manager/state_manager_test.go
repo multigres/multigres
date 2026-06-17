@@ -17,7 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -57,7 +56,7 @@ func (c *slowComponent) OnStateChange(_ context.Context, _ clustermetadatapb.Poo
 }
 
 func newTestLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // testPoolerID identifies the synthetic pooler used by StateManager tests. A

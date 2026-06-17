@@ -587,9 +587,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
-		logger.Info("PostgreSQL listener starting", "port", mg.pgPort.Get())
+		logger.InfoContext(ctx, "PostgreSQL listener starting", "port", mg.pgPort.Get())
 		if err := mg.pgListener.Serve(); err != nil {
-			logger.Error("PostgreSQL listener error", "error", err)
+			logger.ErrorContext(ctx, "PostgreSQL listener error", "error", err)
 		}
 	}()
 
@@ -597,9 +597,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		go func() {
 			replicaPort := mg.pgReplicaPort.Get()
-			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
+			logger.InfoContext(ctx, "replica PostgreSQL listener starting", "port", replicaPort)
 			if err := mg.pgReplicaListener.Serve(); err != nil {
-				logger.Error("replica PostgreSQL listener error", "error", err)
+				logger.ErrorContext(ctx, "replica PostgreSQL listener error", "error", err)
 			}
 		}()
 	}

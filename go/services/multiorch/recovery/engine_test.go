@@ -261,9 +261,9 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	)
 
 	// Track config reloads
-	var reloadCount int32
+	var reloadCount atomic.Int32
 	re.SetConfigReloader(func() []string {
-		atomic.AddInt32(&reloadCount, 1)
+		reloadCount.Add(1)
 		return []string{"db1", "db2"}
 	})
 
@@ -276,7 +276,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 
 	// Wait for config reload to be called at least once
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&reloadCount) > 0
+		return reloadCount.Load() > 0
 	}, 2*time.Second, 50*time.Millisecond, "config reloader was never called during maintenance loop")
 
 	// Wait for targets to be updated

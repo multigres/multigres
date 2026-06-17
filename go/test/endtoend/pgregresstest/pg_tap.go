@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -212,8 +213,8 @@ func (pb *PostgresBuilder) runExternalPgTAP(t *testing.T, ctx context.Context, e
 	// `CREATE EXTENSION IF NOT EXISTS pg_partman`, which would then emit an
 	// unexpected "already exists" NOTICE and diff against pgmq's base.out. Drop in
 	// reverse so dependents go before dependencies; best-effort.
-	for i := len(ext.PreCreateExtensions) - 1; i >= 0; i-- {
-		e := ext.PreCreateExtensions[i]
+	for _, v := range slices.Backward(ext.PreCreateExtensions) {
+		e := v
 		_ = execOnPrimary(directPgPort, password, fmt.Sprintf("DROP EXTENSION IF EXISTS %q CASCADE", e.Name))
 		if e.Schema != "" {
 			_ = execOnPrimary(directPgPort, password, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", e.Schema))

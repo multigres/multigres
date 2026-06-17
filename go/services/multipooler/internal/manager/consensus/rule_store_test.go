@@ -17,7 +17,6 @@ package consensus
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -34,7 +33,7 @@ import (
 // and a no-op SyncStandbyManager. Most tests don't exercise GUC reconciliation
 // directly, so the noop is sufficient.
 func newMockRuleStore(qs *mock.QueryService) *ruleStore {
-	return NewRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), qs, noopSyncStandbyManager{})
+	return NewRuleStore(slog.New(slog.DiscardHandler), qs, noopSyncStandbyManager{})
 }
 
 // errSyncStandbyManager is a SyncStandbyManager test double whose NeedsApply
@@ -64,7 +63,7 @@ func makePoolerPosition(coordinatorTerm, leaderSubterm int64) *clustermetadatapb
 func TestQueryRuleHistory(t *testing.T) {
 	t.Run("returns records ordered newest first", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := NewRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
+		rs := NewRuleStore(slog.New(slog.DiscardHandler), mockQueryService, noopSyncStandbyManager{})
 
 		leaderAppName := "zone1_leader-1"
 		coordID := "zone1_coordinator-1"
@@ -128,7 +127,7 @@ func TestQueryRuleHistory(t *testing.T) {
 
 	t.Run("returns empty slice when no records exist", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := NewRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
+		rs := NewRuleStore(slog.New(slog.DiscardHandler), mockQueryService, noopSyncStandbyManager{})
 
 		mockQueryService.AddQueryPatternOnce(
 			"SELECT coordinator_term, leader_subterm, event_type",
@@ -151,7 +150,7 @@ func TestQueryRuleHistory(t *testing.T) {
 
 	t.Run("propagates query error", func(t *testing.T) {
 		mockQueryService := mock.NewQueryService()
-		rs := NewRuleStore(slog.New(slog.NewTextHandler(io.Discard, nil)), mockQueryService, noopSyncStandbyManager{})
+		rs := NewRuleStore(slog.New(slog.DiscardHandler), mockQueryService, noopSyncStandbyManager{})
 
 		mockQueryService.AddQueryPatternOnceWithError(
 			"SELECT coordinator_term, leader_subterm, event_type",
@@ -207,7 +206,7 @@ func TestHasInconsistentGUC_FalseWhenPolicyInvalid(t *testing.T) {
 
 func TestHasInconsistentGUC_FalseWhenNeedsApplyErrors(t *testing.T) {
 	rs := NewRuleStore(
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		slog.New(slog.DiscardHandler),
 		mock.NewQueryService(),
 		errSyncStandbyManager{needsApplyErr: errors.New("postgres down")},
 	)

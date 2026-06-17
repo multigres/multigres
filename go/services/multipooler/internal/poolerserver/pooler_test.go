@@ -16,7 +16,6 @@ package poolerserver
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -78,7 +77,7 @@ func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 }
 
 func newStartRequestTestServer() *QueryPoolerServer {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	return &QueryPoolerServer{
 		logger:        logger,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
@@ -348,7 +347,7 @@ func (m *drainMockPoolManager) closeReservedCallCount() int {
 }
 
 func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	return &QueryPoolerServer{
 		logger:        logger,
 		poolManager:   mock,

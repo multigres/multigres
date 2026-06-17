@@ -367,7 +367,7 @@ func (pc *PoolerConnection) streamHealth(
 	stalenessTimeout := constants.DefaultHealthCheckTimeout
 	stalenessTimer := time.AfterFunc(stalenessTimeout, func() {
 		pc.healthTimedOut.Store(true)
-		pc.logger.Warn("health stream timed out", "pooler_id", poolerID)
+		pc.logger.WarnContext(streamCtx, "health stream timed out", "pooler_id", poolerID)
 		streamCancel()
 	})
 	defer stalenessTimer.Stop()

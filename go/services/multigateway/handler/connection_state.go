@@ -16,6 +16,7 @@ package handler
 
 import (
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -634,8 +635,8 @@ func (m *MultiGatewayConnectionState) snapshotSessionSettingsLocked() map[string
 // case-folded identifiers, which the parser already canonicalizes). Returns
 // -1 if not found. Caller must hold m.mu.
 func (m *MultiGatewayConnectionState) findSavepointLocked(name string) int {
-	for i := len(m.savepoints) - 1; i >= 0; i-- {
-		if m.savepoints[i].name == name {
+	for i, v := range slices.Backward(m.savepoints) {
+		if v.name == name {
 			return i
 		}
 	}
