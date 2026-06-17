@@ -66,6 +66,12 @@ type RuleStorer interface {
 	// inRecovery is false) and re-applies the GUC if needed. Requires the
 	// action lock.
 	ReconcileGUC(ctx context.Context, inRecovery bool) error
+
+	// ClearSyncStandby clears synchronous_standby_names via SyncStandbyManager so
+	// the manager's cache stays coherent (it is the sole writer). Used when a node
+	// is demoted to a read-only standby. Requires the action lock and that postgres
+	// is already in recovery.
+	ClearSyncStandby(ctx context.Context) error
 }
 
 // ruleStore manages the current shard rule in postgres.
@@ -158,6 +164,12 @@ func (rs *ruleStore) ReconcileGUC(ctx context.Context, inRecovery bool) error {
 		Policy: policy,
 		Cohort: pos.GetRule().GetCohortMembers(),
 	})
+}
+
+// ClearSyncStandby clears synchronous_standby_names via SyncStandbyManager so the
+// manager's cache stays coherent. See SyncStandbyManager.Clear.
+func (rs *ruleStore) ClearSyncStandby(ctx context.Context) error {
+	return rs.syncStandby.Clear(ctx)
 }
 
 // ----------------------------------------------------------------------------

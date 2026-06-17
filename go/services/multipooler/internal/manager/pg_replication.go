@@ -831,28 +831,6 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 	return nil
 }
 
-// resetSynchronousReplication clears the synchronous standby list
-// This should be called after the server is read-only to safely clear settings
-func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	// Clear synchronous_standby_names to remove all standbys
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
-	}
-
-	if err := pm.reloadPostgresConfig(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
-	return nil
-}
-
 // ----------------------------------------------------------------------------
 // standbyUpdateOperationName maps a CohortUpdateOperation enum to a short string for logging/history.
 func standbyUpdateOperationName(op multipoolermanagerdatapb.CohortUpdateOperation) string {
