@@ -32,9 +32,8 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Compile-time assertion that DemoteStaleLeaderAction implements types.RecoveryAction.
@@ -130,16 +129,31 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 		fmt.Sprintf("postgres not running on stale leader %s, skipping demote attempt", poolerIDStr))
 	// }
 
-	// Find the correct leader to use as rewind source
-	correctLeader, _, err := a.findCorrectLeader(problem.ShardKey, problem.PoolerID)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to find correct leader")
+	// Identify the rewind target from cached consensus state: the leader named by
+	// the highest known rule across the shard (the global consensus view, never a
+	// node's local self-claim).
+	members := a.poolerStore.FindShardMembers(problem.ShardKey)
+	correctLeader, correctRule := members.Leader, members.HighestKnownRule
+	if correctLeader == nil || correctRule == nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no consensus leader known for shard %s", commontypes.FormatShardKey(problem.ShardKey))
+	}
+
+	// If the supposedly-stale node is itself the highest known consensus leader,
+	// it is not actually stale (e.g. a spurious or already-resolved detection):
+	// there is nothing newer to rewind it toward. Do nothing rather than send a
+	// self-targeted SetPrimary, which the pooler would ignore.
+	if proto.Equal(correctLeader.GetMultiPooler().GetId(), problem.PoolerID) {
+		a.logger.InfoContext(ctx, "stale leader is the current consensus leader, nothing to demote",
+			"leader", correctLeader.MultiPooler.Id.Name,
+			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
+		return nil
 	}
 
 	a.logger.InfoContext(ctx, "demoting stale leader via SetPrimary",
 		"stale_leader", poolerIDStr,
 		"correct_leader", correctLeader.MultiPooler.Id.Name,
-		"correct_leader_rule", commonconsensus.FormatRuleNumber(correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()))
+		"correct_leader_rule", commonconsensus.FormatRuleNumber(correctRule.GetRuleNumber()))
 
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
 	defer func() {
@@ -158,7 +172,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 5. Updates topology to REPLICA
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		Leader: topoclient.PoolerAddressFor(correctLeader.MultiPooler),
-		Rule:   correctLeader.GetConsensusStatus().GetCurrentPosition().GetRule(),
+		Rule:   correctRule,
 	}
 	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.MultiPooler, setPrimaryReq); err != nil {
 		return mterrors.Wrap(err, "SetPrimary RPC failed")
@@ -171,49 +185,4 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		"demoted_leader", poolerIDStr)
 
 	return nil
-}
-
-// findCorrectLeader finds the current leader in the shard and returns it along with its term.
-// The correct leader is the one with the highest LeaderTerm.
-func (a *DemoteStaleLeaderAction) findCorrectLeader(shardKey *clustermetadatapb.ShardKey, stalePrimary *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, int64, error) {
-	var correctLeader *multiorchdatapb.PoolerHealthState
-	var maxLeaderTerm int64
-
-	// Iterate through all poolers to find the current leader
-	a.poolerStore.Range(func(key topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true // continue
-		}
-
-		// Only consider poolers in the same shard
-		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
-			return true // continue
-		}
-
-		// Skip the stale leader
-		if proto.Equal(pooler.MultiPooler.Id, stalePrimary) {
-			return true // continue
-		}
-
-		if !commonconsensus.IsLeader(pooler.GetConsensusStatus()) {
-			return true // continue
-		}
-
-		leaderTerm := commonconsensus.LeaderTerm(pooler.GetConsensusStatus())
-
-		if leaderTerm > maxLeaderTerm {
-			maxLeaderTerm = leaderTerm
-			correctLeader = pooler
-		}
-
-		return true // continue
-	})
-
-	if correctLeader == nil {
-		return nil, 0, fmt.Errorf("no current leader found in shard %s", commontypes.FormatShardKey(shardKey))
-	}
-
-	consensusTerm := correctLeader.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-
-	return correctLeader, consensusTerm, nil
 }

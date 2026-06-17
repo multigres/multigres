@@ -422,6 +422,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		OnRecycle:                 onRecycle,
 		OnReserve:                 onReserve,
 		OnRelease:                 onRelease,
+		SettingsCache:             m.settingsCache,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create user pool for %q: %w", user, err)

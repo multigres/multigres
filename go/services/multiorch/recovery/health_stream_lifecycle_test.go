@@ -15,7 +15,6 @@
 package recovery
 
 import (
-	"log/slog"
 	"testing"
 	"time"
 
@@ -41,7 +40,7 @@ func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore()
 	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}

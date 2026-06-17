@@ -31,15 +31,10 @@ type ConnectionState struct {
 	// mu protects all mutable fields in this struct.
 	mu sync.Mutex
 
-	// User is the current role set via SET ROLE.
-	// This is tracked separately from Settings and is NOT used for pool bucket routing.
-	// The role affects PostgreSQL's role-based access control (RLS policies, object
-	// permissions, stored procedure access, etc.).
-	// Empty string means no role has been set (using connection's default role).
-	User string
-
 	// Settings contains session variables (SET commands).
 	// This is the key for connection pool bucket assignment.
+	// The current role is tracked as the "role" variable inside Settings (it is
+	// a session GUC), not as a separate field.
 	Settings *Settings
 
 	// PreparedStatements stores prepared statements by name.
@@ -94,7 +89,6 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
-		User:               s.User,
 		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
 	}
 
@@ -107,6 +101,52 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	return clone
 }
 
+// TxnSnapshot captures the parts of ConnectionState that PostgreSQL rolls back
+// together with the surrounding transaction: session GUCs set via SET,
+// including the current role ("role" is tracked as a Settings variable). A
+// session SET (or SET ROLE) issued inside a transaction is reverted on
+// ROLLBACK and kept on COMMIT; the pool caches that state in ConnectionState
+// and relies on it (via interned-Settings pointer identity) to decide when to
+// re-apply settings to a backend. A reserved connection snapshots its state
+// when it opens a transaction and restores the snapshot if the transaction
+// rolls back, so the pool's cached view never diverges from the backend's real
+// session state.
+//
+// Settings is interned and immutable (it is replaced wholesale via SetSettings,
+// never mutated in place), so it is captured by reference. PreparedStatements
+// are intentionally NOT captured here. Although ConnectionState tracks which
+// prepared statements have been parsed on this backend connection, PostgreSQL
+// treats prepared statements as session-level objects: PREPARE/Parse survives
+// ROLLBACK and ROLLBACK TO SAVEPOINT, and DEALLOCATE/Close is not undone by
+// rollback. Restoring them from a transaction snapshot would make the pool's
+// cache diverge from the backend.
+type TxnSnapshot struct {
+	settings *Settings
+}
+
+// SnapshotForTxn captures the transaction-revertible parts of the state.
+// Returns nil for a nil receiver.
+func (s *ConnectionState) SnapshotForTxn() *TxnSnapshot {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return &TxnSnapshot{settings: s.Settings}
+}
+
+// RestoreFromTxn restores state captured by SnapshotForTxn. It is called after a
+// ROLLBACK so the pool's view matches the backend, which PostgreSQL has just
+// reverted to its pre-transaction session state. No-op for a nil snapshot.
+func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
+	if s == nil || snap == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Settings = snap.settings
+}
+
 // Close cleans up the connection state.
 func (s *ConnectionState) Close() {
 	if s == nil {
@@ -116,7 +156,6 @@ func (s *ConnectionState) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.User = ""
 	s.Settings = nil
 	s.PreparedStatements = nil
 }
@@ -139,46 +178,6 @@ func (s *ConnectionState) SetSettings(settings *Settings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Settings = settings
-}
-
-// --- User/Role Methods ---
-
-// GetUser returns the current user role set via SET ROLE.
-// Returns empty string if no role has been set.
-func (s *ConnectionState) GetUser() string {
-	if s == nil {
-		return ""
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.User
-}
-
-// SetUser sets the current user role.
-// This should be called after executing SET ROLE on the connection.
-func (s *ConnectionState) SetUser(user string) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.User = user
-}
-
-// ClearUser clears the current user role.
-// This should be called after executing RESET ROLE on the connection.
-func (s *ConnectionState) ClearUser() {
-	s.SetUser("")
-}
-
-// HasUser returns true if a user role has been set.
-func (s *ConnectionState) HasUser() bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.User != ""
 }
 
 // --- Prepared Statement Methods ---

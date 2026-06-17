@@ -16,6 +16,7 @@ package handler
 
 import (
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,6 +108,14 @@ type MultiGatewayConnectionState struct {
 	// One-shot: cleared after it is consumed.
 	PendingAdvisoryLockRecheck bool
 
+	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
+	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
+	// on the backend without the pooler observing the exact reverted values, so
+	// ScatterConn forwards it as ReservationOptions.MarkSessionStateUntrusted,
+	// asking the multipooler to force reconciliation before the next reserved
+	// user SQL or at release. One-shot: cleared after it is consumed.
+	PendingMarkSessionStateUntrusted bool
+
 	// PendingPinPortals carries the cursor names that the next StreamExecute
 	// must register on the reserved backend's portal set via
 	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a
@@ -152,10 +161,10 @@ type MultiGatewayConnectionState struct {
 	// to apply subscription changes before reporting success to the client.
 	SubSync SubscriptionSync
 
-	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
-	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
-	// The default is initialized from startup params (if present) or the --statement-timeout flag.
-	// Parsed at SET time to avoid repeated parsing on every query.
+	// statementTimeout is managed entirely by the gateway and is NOT forwarded
+	// to PostgreSQL. The default is initialized from startup params (if
+	// present) or the --statement-timeout flag. Parsed at SET time to avoid
+	// repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
 
 	// savepoints is the stack of per-savepoint snapshots driving GUC revert
@@ -165,16 +174,17 @@ type MultiGatewayConnectionState struct {
 	// present, is the BEGIN-level frame (name=""); indices 1+ correspond to
 	// user SAVEPOINTs.
 	//
-	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct
-	// (e.g. statementTimeout) AND every non-GMV snapshot field stored on the
-	// savepointFrame (currently `openHoldCursors`) must be wired into all six
-	// lifecycle methods — pushFrameLocked, ReleaseSavepoint,
-	// RollbackToSavepoint, BeginTransaction, CommitTransaction,
-	// RollbackTransaction — or revert semantics break for the missing field.
-	// When a second GMV is added, refactor to a non-generic `gmvLifecycle`
-	// interface ({Snapshot, RestoreFromDepth(int), PopFrom(int),
-	// ClearSnapshots}) and iterate a `[]gmvLifecycle` registry instead of
-	// naming each variable explicitly.
+	// MAINTENANCE CONTRACT: every gateway-managed variable must be returned by
+	// gatewayManagedVariablesLocked so all transaction/savepoint lifecycle
+	// methods keep its snapshot stack in lockstep with savepoints. The
+	// gmvLifecycle interface (Snapshot/RestoreFromDepth/PopFrom/ClearSnapshots
+	// and ResetLocal) is the complete set of operations those methods need, so
+	// adding a GMV requires only extending gatewayManagedVariablesLocked — no
+	// per-variable wiring in the lifecycle methods themselves. Every non-GMV
+	// snapshot field stored on savepointFrame (currently `openHoldCursors`)
+	// must still be wired into pushFrameLocked, ReleaseSavepoint,
+	// RollbackToSavepoint, BeginTransaction, CommitTransaction, and
+	// RollbackTransaction.
 	savepoints []savepointFrame
 
 	// targetReplica is true when this connection arrived on the replica-reads
@@ -496,6 +506,18 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.SessionSettings = nil
 }
 
+// gatewayManagedVariablesLocked returns every gateway-managed variable for the
+// transaction/savepoint lifecycle methods to iterate. It returns a fixed-size
+// array (not a slice) so the result stays on the caller's stack — these are hot
+// transaction-boundary paths and a slice literal would escape to the heap on
+// every call. Adding a GMV means bumping the array size and adding the element
+// here; the compiler flags a size mismatch if you forget one.
+func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [1]gmvLifecycle {
+	return [1]gmvLifecycle{
+		&m.statementTimeout,
+	}
+}
+
 // SetStatementTimeout sets the session-level statement timeout override.
 func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.mu.Lock()
@@ -533,13 +555,75 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 	m.statementTimeout.SetLocalToDefault()
 }
 
+// gatewayManagedVariableNames is the canonical set of session variables the
+// gateway manages itself: SET / SHOW / RESET are handled locally and the value
+// is never written to SessionSettings (so it is not replayed to backends on
+// pool rotation). This is the single source of truth consulted by the planner
+// (routing decisions) and the engine (set_config execution). Names compare
+// case-insensitively.
+var gatewayManagedVariableNames = map[string]struct{}{
+	"statement_timeout": {},
+}
+
+// IsGatewayManagedVariable reports whether name (case-insensitive) is a session
+// variable managed entirely by the gateway and not forwarded to PostgreSQL.
+func IsGatewayManagedVariable(name string) bool {
+	_, ok := gatewayManagedVariableNames[strings.ToLower(name)]
+	return ok
+}
+
+// ApplyGatewayManagedVariable applies a SET / set_config(...) of a
+// gateway-managed variable to gateway-local state instead of the
+// SessionSettings map. Routing here (rather than SetSessionVariable) is what
+// keeps SHOW consistent and keeps the variable out of GetSessionSettings, so it
+// is never replayed to a backend on pool rotation.
+//
+// Returns (handled, err): handled is false when name is not gateway-managed and
+// the caller must fall back to SessionSettings. err is non-nil when value is
+// invalid for the variable (e.g. an unparsable statement_timeout), mirroring
+// PostgreSQL's set-time validation.
+//
+// isLocal selects the transaction-local override (SET LOCAL / set_config(...,
+// true)) over the session-level override.
+func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
+	switch strings.ToLower(name) {
+	case "statement_timeout":
+		d, err := ParsePostgresInterval("statement_timeout", value)
+		if err != nil {
+			return true, err
+		}
+		if isLocal {
+			m.SetLocalStatementTimeout(d)
+		} else {
+			m.SetStatementTimeout(d)
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
 // variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
 // observes the session-level (or default) value.
 func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ResetLocal()
+	}
+}
+
+// ResetGatewayManagedVariables reverts every gateway-managed variable to its
+// startup/default value (session and transaction-local overrides both
+// cleared). Called by RESET ALL, which must cover GMVs in addition to the
+// SessionSettings map since they live outside it.
+func (m *MultiGatewayConnectionState) ResetGatewayManagedVariables() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.Reset()
+	}
 }
 
 // snapshotSessionSettingsLocked returns a copy of SessionSettings (or nil if
@@ -574,7 +658,9 @@ func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
 		sessionSettings: m.snapshotSessionSettingsLocked(),
 		openHoldCursors: m.snapshotOpenHoldCursorsLocked(),
 	})
-	m.statementTimeout.Snapshot()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.Snapshot()
+	}
 }
 
 // snapshotOpenHoldCursorsLocked returns a copy of the current OpenHoldCursors
@@ -605,7 +691,9 @@ func (m *MultiGatewayConnectionState) BeginTransaction() {
 		return
 	}
 	m.savepoints = m.savepoints[:0]
-	m.statementTimeout.ClearSnapshots()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ClearSnapshots()
+	}
 	m.pushFrameLocked("")
 }
 
@@ -630,7 +718,9 @@ func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
 		return
 	}
 	m.savepoints = m.savepoints[:idx]
-	m.statementTimeout.PopFrom(idx)
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.PopFrom(idx)
+	}
 }
 
 // HoldCursorsDeclaredAfterSavepoint returns the names of `DECLARE … WITH HOLD`
@@ -697,7 +787,9 @@ func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 	}
 	m.OpenHoldCursors = surviving
 	m.savepoints = m.savepoints[:idx+1]
-	m.statementTimeout.RestoreFromDepth(idx)
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.RestoreFromDepth(idx)
+	}
 }
 
 // CommitTransaction drops all savepoint frames (current values become
@@ -707,8 +799,10 @@ func (m *MultiGatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.savepoints = nil
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ClearSnapshots()
+		gmv.ResetLocal()
+	}
 }
 
 // RollbackTransaction reverts all SET / RESET commands issued inside the
@@ -719,7 +813,9 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.savepoints) == 0 {
-		m.statementTimeout.ResetLocal()
+		for _, gmv := range m.gatewayManagedVariablesLocked() {
+			gmv.ResetLocal()
+		}
 		return
 	}
 	m.SessionSettings = nil
@@ -727,9 +823,11 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
 	}
-	m.statementTimeout.RestoreFromDepth(0)
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.RestoreFromDepth(0)
+		gmv.ClearSnapshots()
+		gmv.ResetLocal()
+	}
 	m.savepoints = nil
 }
 

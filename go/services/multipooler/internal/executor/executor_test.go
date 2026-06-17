@@ -33,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
@@ -62,6 +63,7 @@ type mockReservedConn struct {
 	pinnedPortals   []string
 	releasedPortals []string
 	releaseCalls    []reserved.ReleaseReason
+	markedUntrusted bool
 	openHoldCursors map[string]bool
 }
 
@@ -129,8 +131,12 @@ func (m *mockReservedConn) Query(_ context.Context, sql string) ([]*sqltypes.Res
 	return m.queryResults, nil
 }
 
-func (m *mockReservedConn) Release(reason reserved.ReleaseReason) {
+func (m *mockReservedConn) Release(reason reserved.ReleaseReason, _ map[string]string) {
 	m.releaseCalls = append(m.releaseCalls, reason)
+}
+
+func (m *mockReservedConn) MarkSessionStateUntrusted() {
+	m.markedUntrusted = true
 }
 
 // Compile-time check.
@@ -212,6 +218,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		nil,
 		noopCallback,
 	)
 
@@ -236,6 +243,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockReleased(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		nil,
 		noopCallback,
 	)
 
@@ -263,6 +271,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryLockSkippedInTxn(t *testing.T) {
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		nil,
 		noopCallback,
 	)
 
@@ -284,6 +293,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryProbeErrorKeepsPinned(t *testing.T)
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		nil,
 		noopCallback,
 	)
 
@@ -307,6 +317,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryEmptyProbeKeepsPinned(t *testing.T)
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT pg_advisory_unlock(101)",
 		&query.ReservationOptions{RecheckAdvisoryLocks: true},
+		nil,
 		noopCallback,
 	)
 
@@ -333,6 +344,7 @@ func TestStreamExecuteOnReservedConn_AdvisoryNoRecheckNoProbe(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{}, // no RecheckAdvisoryLocks
+		nil,
 		noopCallback,
 	)
 
@@ -360,6 +372,7 @@ func TestStreamExecuteOnReservedConn_AddsTransactionViaBegin(t *testing.T) {
 			Reasons:    protoutil.ReasonTransaction,
 			BeginQuery: "BEGIN ISOLATION LEVEL SERIALIZABLE",
 		},
+		nil,
 		noopCallback,
 	)
 
@@ -391,6 +404,7 @@ func TestStreamExecuteOnReservedConn_SkipsBeginIfAlreadyInTxn(t *testing.T) {
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
+		nil,
 		noopCallback,
 	)
 
@@ -411,6 +425,7 @@ func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CREATE TEMP TABLE t (id int)",
 		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		nil,
 		noopCallback,
 	)
 
@@ -435,6 +450,7 @@ func TestStreamExecuteOnReservedConn_BeginErrorPropagates(t *testing.T) {
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
+		nil,
 		noopCallback,
 	)
 
@@ -457,6 +473,7 @@ func TestStreamExecuteOnReservedConn_DefaultBeginQueryWhenEmpty(t *testing.T) {
 	_, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "SELECT 1",
 		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, // BeginQuery left empty
+		nil,
 		noopCallback,
 	)
 
@@ -477,7 +494,7 @@ func TestStreamExecuteOnReservedConn_NoReservationOptions(t *testing.T) {
 	e := newTestExecutor()
 
 	_, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc, "SELECT 1", nil, noopCallback,
+		context.Background(), rc, "SELECT 1", nil, nil, noopCallback,
 	)
 
 	require.NoError(t, err)
@@ -502,6 +519,7 @@ func TestStreamExecuteOnReservedConn_PinPortalSuccess(t *testing.T) {
 		context.Background(), rc,
 		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
 		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
+		nil,
 		noopCallback,
 	)
 
@@ -534,6 +552,7 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureRollsBack(t *testing.T) {
 		context.Background(), rc,
 		"DECLARE c1 CURSOR WITH HOLD FOR SELECT 1",
 		&query.ReservationOptions{PinPortalNames: []string{"c1"}},
+		nil,
 		noopCallback,
 	)
 
@@ -566,6 +585,7 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 		context.Background(), rc,
 		"DECLARE bad CURSOR WITH HOLD FOR SELECT garbage",
 		&query.ReservationOptions{PinPortalNames: []string{"bad"}},
+		nil,
 		noopCallback,
 	)
 
@@ -595,6 +615,7 @@ func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T)
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CLOSE c1",
 		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
+		nil,
 		noopCallback,
 	)
 
@@ -621,6 +642,7 @@ func TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons(t *testing.T
 	state, err := e.streamExecuteOnReservedConn(
 		context.Background(), rc, "CLOSE c1",
 		&query.ReservationOptions{ReleasePortalNames: []string{"c1"}},
+		nil,
 		noopCallback,
 	)
 
@@ -629,6 +651,32 @@ func TestStreamExecuteOnReservedConn_ReleasePortalKeepsOtherReasons(t *testing.T
 	require.Empty(t, rc.releaseCalls,
 		"conn must stay reserved while ReasonTransaction is set")
 	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons)
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
+}
+
+// TestStreamExecuteOnReservedConn_MarkSessionStateUntrusted verifies that a
+// statement carrying ReservationOptions.MarkSessionStateUntrusted (e.g. a
+// ROLLBACK TO SAVEPOINT) marks the reserved connection's session state
+// untrusted so the next reconciliation is forced.
+func TestStreamExecuteOnReservedConn_MarkSessionStateUntrusted(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "ROLLBACK TO SAVEPOINT sp",
+		&query.ReservationOptions{MarkSessionStateUntrusted: true},
+		nil,
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.True(t, rc.markedUntrusted,
+		"ROLLBACK TO SAVEPOINT must mark the reserved connection untrusted")
+	require.Empty(t, rc.releaseCalls)
 	require.Equal(t, uint64(42), state.GetReservedConnectionId())
 }
 
@@ -726,6 +774,13 @@ func TestSessionSettingsForPool_EnabledFiltersAppName(t *testing.T) {
 	})
 }
 
+// --- sessionSettingsFromOptions tests ---
+
+func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
+	e := &Executor{vpidStampEnabled: false}
+	require.Nil(t, e.sessionSettingsFromOptions(nil))
+}
+
 // --- stampVpid* early-return tests ---
 //
 // The happy-path SET application_name issue is covered by integration tests
@@ -818,13 +873,82 @@ func TestStampVpidOnReserved_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	rconn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	defer rconn.Release(reserved.ReleaseCommit)
+	defer rconn.Release(reserved.ReleaseCommit, nil)
 
 	e := &Executor{vpidStampEnabled: true}
 	server.ResetQueryLog()
 	e.stampVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
 	assert.Equal(t, "set application_name = 'multigres_vpid:123'", server.QueryLog())
+}
+
+// TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway is a
+// regression test for the cross-client GUC leak where a sticky
+// ROLLBACK-TO-SAVEPOINT "untrusted" flag survived to session teardown under a
+// surviving session reason (e.g. a session-level advisory lock that outlives
+// COMMIT). ReleaseReservedConnection must forward the gateway's authoritative
+// session settings to the release boundary so connstate is synced to the truth,
+// not wrongly cleared — clearing it would leak the backend's real session GUCs
+// to the next client that reuses this pooled backend.
+func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Simulate the post-ROLLBACK-TO-SAVEPOINT, post-COMMIT state: connstate is
+	// stale (holds the pre-rollback value), the connection is marked untrusted,
+	// and it is no longer in a transaction (a surviving session reason kept it
+	// reserved, so the teardown's rollback step is skipped and the untrusted flag
+	// stays sticky).
+	stale := cache.GetOrCreate(map[string]string{"search_path": "myschema", "work_mem": "256MB"})
+	rconn, err := pool.NewConn(ctx, stale)
+	require.NoError(t, err)
+	rconn.MarkSessionStateUntrusted()
+	require.False(t, rconn.IsInTransaction())
+
+	e := &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}
+
+	// Gateway's authoritative settings after the savepoint rollback: work_mem
+	// reverted, the pre-savepoint search_path retained.
+	gatewaySettings := map[string]string{"search_path": "myschema"}
+	server.ResetQueryLog()
+
+	err = e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+		SessionSettings:      gatewaySettings,
+	})
+	require.NoError(t, err)
+
+	// The connstate sync is in-memory only — no backend SQL.
+	assert.NotContains(t, server.QueryLog(), "reset all")
+	assert.NotContains(t, server.QueryLog(), "set_config")
+
+	// connstate must equal the gateway truth: NOT cleared to nil (the bug) and
+	// NOT left at the stale pre-rollback value.
+	expected := cache.GetOrCreate(gatewaySettings)
+	assert.Equal(t, expected, rconn.Conn().Settings(),
+		"untrusted teardown must sync connstate to gateway settings, not clear or leave it stale")
+	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
 // --- NewExecutor smoke test ---

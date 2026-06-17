@@ -398,6 +398,14 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 		state.AppendPendingReleasePortals(lostHoldCursors...)
 	}
 
+	// PostgreSQL reverts session GUCs (and role) set after the savepoint when it
+	// rolls back to it, but the pooler's connstate cache does not observe the
+	// exact reverted values. Signal the multipooler to mark the reserved
+	// connection's session state untrusted so it force-reconciles before the
+	// next reserved user SQL or at release, rather than trusting a stale
+	// connstate pointer. Set before exec so the same RPC carries the flag.
+	state.PendingMarkSessionStateUntrusted = true
+
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
 	if err != nil {
 		return err

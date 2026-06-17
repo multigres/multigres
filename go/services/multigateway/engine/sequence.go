@@ -41,13 +41,17 @@ func NewSequence(primitives []Primitive) *Sequence {
 // StreamExecute executes each primitive in order, stopping on first error.
 //
 // bindVars are forwarded to every child. The current Sequence shape used by
-// planSelectStmt is [silent ApplySessionState..., Route]: the silent steps
-// ignore bindVars (their VariableSetStmt is fully synthesized at plan time
-// from the literal set_config args), while the trailing Route uses bindVars
-// + its NormalizedAST to reconstruct the original literals before sending
-// the query to the backend. Dropping bindVars here breaks that
-// reconstruction — the normalized `$N` placeholders reach PG unbound and
-// fail with "there is no parameter $N".
+// planSelectStmt is [silent ApplySessionState..., Route]: all-literal silent
+// steps ignore bindVars (their VariableSetStmt is fully synthesized at plan
+// time from the literal set_config args), BindRefs steps resolve their bound
+// set_config slots from bindVars (the normalizer parameterizes the value of
+// a gateway-managed set_config(..., true) — see
+// ApplySessionState.executeSetWithNormalizedBinds), and the trailing Route
+// uses bindVars + its NormalizedAST to reconstruct the original literals
+// before sending the query to the backend. Dropping bindVars here breaks
+// both: the tracker would record a `__bind_$N__` placeholder, and the
+// normalized `$N` placeholders would reach PG unbound and fail with "there
+// is no parameter $N".
 func (s *Sequence) StreamExecute(
 	ctx context.Context,
 	exec IExecute,

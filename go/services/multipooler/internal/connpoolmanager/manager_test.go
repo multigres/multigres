@@ -246,7 +246,7 @@ func TestManager_NewReservedConn(t *testing.T) {
 	// Verify connection has a unique ID.
 	assert.Greater(t, conn.ConnID(), int64(0))
 
-	conn.Release(reserved.ReleaseCommit) // ReleaseCommit
+	conn.Release(reserved.ReleaseCommit, nil) // ReleaseCommit
 }
 
 func TestManager_NewReservedConn_WithSettings(t *testing.T) {
@@ -270,7 +270,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
-	conn.Release(reserved.ReleaseCommit)
+	conn.Release(reserved.ReleaseCommit, nil)
 
 	// Verify SET was called.
 	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
@@ -640,7 +640,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	// Warm up: create a user pool.
 	c1, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
-	c1.Release(reserved.ReleaseCommit)
+	c1.Release(reserved.ReleaseCommit, nil)
 
 	// Simulate reopenConnections: close then reopen against the same fake server.
 	manager.Close()
@@ -655,7 +655,7 @@ func TestManager_NewReservedConn_SurvivesReopen(t *testing.T) {
 	c2, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c2)
-	c2.Release(reserved.ReleaseCommit)
+	c2.Release(reserved.ReleaseCommit, nil)
 }
 
 func TestManager_GetReservedConn(t *testing.T) {
@@ -678,7 +678,7 @@ func TestManager_GetReservedConn(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, connID, retrieved.ConnID())
 
-	conn.Release(reserved.ReleaseCommit)
+	conn.Release(reserved.ReleaseCommit, nil)
 }
 
 func TestManager_GetReservedConn_NotFound(t *testing.T) {
@@ -886,7 +886,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	initialSettings := map[string]string{"search_path": "public"}
 	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
-	defer conn.Release(reserved.ReleaseCommit)
+	defer conn.Release(reserved.ReleaseCommit, nil)
 
 	// Record how many SET calls have been made so far.
 	setsBefore := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
@@ -916,7 +916,7 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	settings := map[string]string{"search_path": "public"}
 	conn, err := manager.NewReservedConn(ctx, settings, "testuser", nil, nil)
 	require.NoError(t, err)
-	defer conn.Release(reserved.ReleaseCommit)
+	defer conn.Release(reserved.ReleaseCommit, nil)
 
 	// Record SET calls.
 	setsBefore := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
@@ -941,7 +941,7 @@ func TestManager_ApplySettingsToConn_NilSettings(t *testing.T) {
 
 	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
 	require.NoError(t, err)
-	defer conn.Release(reserved.ReleaseCommit)
+	defer conn.Release(reserved.ReleaseCommit, nil)
 
 	// Apply nil settings — should be a no-op.
 	err = manager.ApplySettingsToConn(ctx, conn.Conn(), nil)
@@ -966,7 +966,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 	initialSettings := map[string]string{"search_path": "public", "work_mem": "256MB"}
 	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser", nil, nil)
 	require.NoError(t, err)
-	defer conn.Release(reserved.ReleaseCommit)
+	defer conn.Release(reserved.ReleaseCommit, nil)
 
 	// Record calls so far.
 	combinedBefore := server.GetPatternCalledNum(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`)

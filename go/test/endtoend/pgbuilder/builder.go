@@ -419,7 +419,12 @@ func pkgConfigCOPT(ctx context.Context, pkgs []string) (string, error) {
 // the install tree pgConfig points at.
 func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
 	name := spec.Name
-	makeVars := []string{"PG_CONFIG=" + pgConfig}
+	// USE_PGXS=1 is the documented switch for building contrib-style Makefiles
+	// out of the PostgreSQL source tree: extensions that also live as contrib
+	// modules (pgaudit) default to in-tree paths (../../src/Makefile.global)
+	// without it. Pure-PGXS Makefiles (pgvector, hypopg, …) never reference the
+	// variable, so passing it is universally safe.
+	makeVars := []string{"PG_CONFIG=" + pgConfig, "USE_PGXS=1"}
 	if len(spec.PkgConfigDeps) > 0 {
 		copt, err := pkgConfigCOPT(ctx, spec.PkgConfigDeps)
 		if err != nil {

@@ -15,36 +15,29 @@
 package store
 
 import (
-	"context"
-	"log/slog"
-
 	"google.golang.org/protobuf/proto"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// PoolerStore manages pooler health state and provides RPC-based domain queries.
+// PoolerStore manages cached pooler health state and provides in-memory domain
+// queries over it. It is a pure data store: it makes no RPCs and forms no
+// liveness judgments. Callers that must confirm a pooler is reachable or still
+// serving do so separately (see the recovery actions' leader verification).
 type PoolerStore struct {
-	health    *poolerHealthStore
-	rpcClient rpcclient.MultiPoolerClient
-	logger    *slog.Logger
+	health *poolerHealthStore
 }
 
 // NewPoolerStore creates a new PoolerStore.
-// rpcClient and logger are used by FindHealthyPrimary; they may be nil in tests
-// that do not exercise that method.
-func NewPoolerStore(rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *PoolerStore {
+func NewPoolerStore() *PoolerStore {
 	return &PoolerStore{
-		health:    newPoolerHealthStore(),
-		rpcClient: rpcClient,
-		logger:    logger,
+		health: newPoolerHealthStore(),
 	}
 }
 
@@ -106,7 +99,6 @@ func (s *PoolerStore) DoUpdateRange(fn func(key topoclient.ComponentID, value *m
 	s.health.doUpdateRange(fn)
 }
 
-// IsInitialized returns true if the pooler has been initialized.
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey *clustermetadatapb.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
@@ -152,67 +144,43 @@ func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb
 	return found, nil
 }
 
-// FindHealthyPrimary finds a healthy, initialized primary in the given pooler slice.
-// It verifies health by making an RPC call to each candidate.
-// Returns an error if multiple primaries are found (likely a stale primary that needs to be demoted).
-//
-// Candidate selection uses a union of topology type and live health-stream data because
-// topology (from etcd) can be stale when etcd is unavailable after a failover. A pooler
-// is considered a candidate if either:
-//   - its topology type is PRIMARY (MultiPooler.Type), or
-//   - its most recent health-stream snapshot reports it is running as PRIMARY (Status.PoolerType).
-//
-// Each candidate is then verified via Status RPC; only nodes whose live PoolerType
-// is PRIMARY are accepted, so stale topology entries running as standby are skipped.
-func (s *PoolerStore) FindHealthyPrimary(
-	ctx context.Context,
-	poolers []*multiorchdatapb.PoolerHealthState,
-) (*multiorchdatapb.PoolerHealthState, error) {
-	var healthyPrimary *multiorchdatapb.PoolerHealthState
+// ShardMembers is the result of FindShardMembers: the shard's poolers, the highest
+// consensus rule known across them, and the pooler that rule names as leader.
+type ShardMembers struct {
+	// Poolers is every pooler the store knows about for the shard.
+	Poolers []*multiorchdatapb.PoolerHealthState
+	// HighestKnownRule is the highest known consensus rule across Poolers, or nil
+	// if none carries a rule. HighestKnownRule.GetLeaderId() names the leader.
+	HighestKnownRule *clustermetadatapb.ShardRule
+	// Leader is the pooler named by HighestKnownRule, or nil when no rule is known
+	// or the named pooler is not in the store (e.g. known only via a follower's
+	// rule).
+	Leader *multiorchdatapb.PoolerHealthState
+}
 
+// FindShardMembers identifies the shard's members, consensus rule, and leader's health.
+func (s *PoolerStore) FindShardMembers(shardKey *clustermetadatapb.ShardKey) ShardMembers {
+	poolers := s.FindPoolersInShard(shardKey)
+
+	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
 	for _, pooler := range poolers {
-		if pooler.MultiPooler == nil {
-			continue
+		if cs := pooler.GetConsensusStatus(); cs != nil {
+			statuses = append(statuses, cs)
 		}
-
-		// Accept candidates indicated as PRIMARY by topology OR live health data.
-		// Topology can be stale when etcd is unavailable; health data can lag during
-		// role transitions. Using the union avoids missing the actual primary in either case.
-		isTopologyPrimary := pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY
-		isHealthPrimary := pooler.Status != nil && pooler.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY
-		if !isTopologyPrimary && !isHealthPrimary {
-			continue
-		}
-
-		// Verify via Status RPC — check the live PoolerType to skip stale candidates
-		// (e.g. topology says PRIMARY but postgres is running as standby after a failover).
-		statusResp, err := s.rpcClient.Status(ctx, pooler.MultiPooler,
-			&multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			s.logger.WarnContext(ctx, "primary unreachable during health check",
-				"pooler", pooler.MultiPooler.Id.Name,
-				"error", err)
-			continue
-		}
-		if statusResp.GetStatus().GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
-			s.logger.WarnContext(ctx, "pooler is not running as primary, skipping",
-				"pooler", pooler.MultiPooler.Id.Name,
-				"pooler_type", statusResp.GetStatus().GetPoolerType())
-			continue
-		}
-
-		if healthyPrimary != nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"multiple primaries found: %s and %s (stale primary needs demotion)",
-				healthyPrimary.MultiPooler.Id.Name, pooler.MultiPooler.Id.Name)
-		}
-		healthyPrimary = pooler
 	}
 
-	if healthyPrimary == nil {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no healthy primary found")
+	rule := commonconsensus.HighestKnownRule(statuses)
+	leaderID := rule.GetLeaderId()
+
+	var leader *multiorchdatapb.PoolerHealthState
+	if leaderID != nil {
+		for _, pooler := range poolers {
+			if proto.Equal(pooler.GetMultiPooler().GetId(), leaderID) {
+				leader = pooler
+				break
+			}
+		}
 	}
 
-	return healthyPrimary, nil
+	return ShardMembers{Poolers: poolers, HighestKnownRule: rule, Leader: leader}
 }

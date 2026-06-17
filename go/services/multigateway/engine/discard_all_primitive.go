@@ -120,10 +120,10 @@ func (d *DiscardAllPrimitive) StreamExecute(
 	}
 
 	// RESET ALL + SET SESSION AUTHORIZATION DEFAULT — clear every SET-tracked
-	// GUC and the gateway-managed variables (e.g. statement_timeout). The next
-	// query replays an empty session-settings set, resetting the backend.
+	// GUC and every gateway-managed variable. The next query replays an empty
+	// session-settings set, resetting the backend.
 	state.ResetAllSessionVariables()
-	state.ResetStatementTimeout()
+	state.ResetGatewayManagedVariables()
 
 	// UNLISTEN * — drop all LISTEN subscriptions. Not in a transaction here, so
 	// apply immediately rather than queueing as a pending action.
