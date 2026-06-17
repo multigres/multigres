@@ -318,6 +318,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	// For now, all poolers start as REPLICA
 	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
+	backendVpidTrackingEnabled := mp.backendVpidTrackingEnabled.Get()
+
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:             mp.socketFilePath.Get(),
@@ -326,7 +328,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgctldAddr:                 mp.pgctldAddr.Get(),
 		ConsensusEnabled:           mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 		ConnPoolConfig:             mp.connPoolConfig,
-		DisableBackendVpidTracking: !mp.backendVpidTrackingEnabled.Get(),
+		BackendVpidTrackingEnabled: &backendVpidTrackingEnabled,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),

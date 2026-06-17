@@ -48,11 +48,6 @@ import (
 // backends. The table also stores pg_stat_activity.backend_start and readers
 // join on (pid, backend_start), so an orphaned row left behind by abrupt
 // backend loss cannot match a future backend that reuses the same pid.
-//
-// Cost on the query path: when tracking is enabled (the default), each regular
-// pooled query records an active association before user SQL and clears it
-// before recycling the backend. The --backend-vpid-tracking-enabled flag is an
-// emergency opt-out, not the default operating mode.
 
 const vpidCleanupTimeout = 250 * time.Millisecond
 
@@ -65,7 +60,7 @@ const vpidCleanupTimeout = 250 * time.Millisecond
 // the caller has no client connection id, or this connection already recorded
 // the same active association.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
-	if e.backendVpidTrackingDisabled || options == nil || options.ClientConnectionId == 0 {
+	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	state := conn.State()
@@ -93,7 +88,7 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 // Must be called before the reservation's BEGIN so the row commits in
 // autocommit and is visible to other sessions for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
-	if e.backendVpidTrackingDisabled || options == nil || options.ClientConnectionId == 0 {
+	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	e.trackVpidOnRegular(ctx, conn.Conn(), options)
@@ -104,7 +99,7 @@ func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn,
 // It must run in autocommit: if the backend is not idle, or the cleanup query
 // fails/times out, the caller must not recycle the backend as clean.
 func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) bool {
-	if e.backendVpidTrackingDisabled {
+	if !e.backendVpidTrackingEnabled {
 		return true
 	}
 	state := conn.State()
