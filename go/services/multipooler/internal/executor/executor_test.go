@@ -776,7 +776,7 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 // --- trackVpid* happy-path tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
-// verify that the helper upserts the (backend_pid/backend_start → vpid) row,
+// verify that the helper upserts the (backend_pid → vpid) row,
 // skips the upsert when the connection already tracks the same vpid, and
 // clears the row at recycle/release.
 
@@ -797,7 +797,7 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
-	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 99")
+	assert.Contains(t, log, "values (pg_backend_pid(), 99)")
 
 	// Same vpid again: the per-conn cache skips the redundant upsert.
 	server.ResetQueryLog()
@@ -813,14 +813,14 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
-	assert.Contains(t, server.QueryLog(), "select pg_backend_pid(), backend_start, 99", "same vpid after cleanup must upsert again")
+	assert.Contains(t, server.QueryLog(), "values (pg_backend_pid(), 99)", "same vpid after cleanup must upsert again")
 
 	// A different vpid re-upserts.
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 100})
 	log = server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table")
-	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 100")
+	assert.Contains(t, log, "values (pg_backend_pid(), 100)")
 }
 
 func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
@@ -851,7 +851,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
-	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 123")
+	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
 
 	server.ResetQueryLog()
 	e.releaseReservedConn(ctx, rconn, reserved.ReleaseCommit, nil)
@@ -879,7 +879,7 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "upsert failure must not trigger hot-path DDL")
-	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 7")
+	assert.Contains(t, log, "values (pg_backend_pid(), 7)")
 	assert.Zero(t, conn.State().TrackedVpid())
 }
 
