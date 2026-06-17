@@ -42,10 +42,9 @@ type ConnectionState struct {
 	PreparedStatements map[string]*query.PreparedStatement
 
 	// trackedVpid is the gateway virtual pid most recently recorded for this
-	// backend in multigres.backend_vpid. It lets the executor skip the upsert
-	// when the same gateway session draws this connection again (the common
-	// steady-state case). A reconnect installs a fresh ConnectionState, so
-	// the cache resets to 0 and the new backend pid gets re-recorded.
+	// backend in multigres.backend_vpid. It lets the executor skip duplicate
+	// upserts within one active gateway/backend association. Cleanup resets the
+	// value before recycle/release; a reconnect installs a fresh ConnectionState.
 	trackedVpid uint32
 }
 

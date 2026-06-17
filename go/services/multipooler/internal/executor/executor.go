@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -48,9 +47,10 @@ type Executor struct {
 	poolerConsolidator *preparedstatement.PoolerConsolidator
 	poolerID           *clustermetadatapb.ID
 
-	// vpidTableEnsure guards the one-time creation of the multigres schema
-	// and the multigres.backend_vpid table (see ensureVpidTable).
-	vpidTableEnsure sync.Once
+	// backendVpidTrackingDisabled is an emergency opt-out. Tracking is enabled
+	// by default so multigateway virtual pids can be resolved to backend pids
+	// through multigres.backend_vpid.
+	backendVpidTrackingDisabled bool
 }
 
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
@@ -67,17 +67,28 @@ func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, con
 	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
 }
 
-func (e *Executor) releaseReservedConn(conn *reserved.Conn, reason reserved.ReleaseReason, options *query.ExecuteOptions) {
-	conn.Release(reason, e.sessionSettingsFromOptions(options))
+func (e *Executor) releaseReservedConn(ctx context.Context, conn *reserved.Conn, reason reserved.ReleaseReason, options *query.ExecuteOptions) {
+	e.releaseReservedConnAPI(ctx, conn, reason, e.sessionSettingsFromOptions(options))
+}
+
+func (e *Executor) releaseReservedConnAPI(ctx context.Context, rc reservedConnAPI, reason reserved.ReleaseReason, gatewaySessionSettings map[string]string) {
+	if conn := rc.Conn(); conn != nil {
+		if !e.clearVpidOnRegular(ctx, conn) {
+			rc.Release(reserved.ReleaseError, nil)
+			return
+		}
+	}
+	rc.Release(reason, gatewaySessionSettings)
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, backendVpidTrackingEnabled bool) *Executor {
 	return &Executor{
-		logger:             logger,
-		poolManager:        poolManager,
-		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
-		poolerID:           poolerID,
+		logger:                      logger,
+		poolManager:                 poolManager,
+		poolerConsolidator:          preparedstatement.NewPoolerConsolidator(),
+		poolerID:                    poolerID,
+		backendVpidTrackingDisabled: !backendVpidTrackingEnabled,
 	}
 }
 
@@ -160,11 +171,10 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
-	defer conn.Recycle()
+	defer e.recycleTrackedRegularConn(ctx, conn)
 
-	// Record the vpid mapping for this pooled regular conn — the next
-	// client to draw from the pool will overwrite the row, but for the
-	// duration of the current query the backend is correctly attributed.
+	// Record the vpid mapping for this pooled regular conn; the defer above
+	// clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
@@ -269,9 +279,10 @@ func (e *Executor) StreamExecute(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
-	defer conn.Recycle()
+	defer e.recycleTrackedRegularConn(ctx, conn)
 
 	// Record the vpid mapping for this pooled regular conn (lock detection).
+	// The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// When a PreparedStatement is provided we cannot use the retry-on-connection-error
@@ -524,7 +535,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 		}
 	}
 	if shouldRelease {
-		rc.Release(reserved.ReleasePortalComplete, gatewaySessionSettings)
+		e.releaseReservedConnAPI(ctx, rc, reserved.ReleasePortalComplete, gatewaySessionSettings)
 		return nil, nil
 	}
 
@@ -592,7 +603,7 @@ func (e *Executor) maybeUnpinSessionAdvisoryLock(ctx context.Context, rc reserve
 	// No advisory locks remain. Drop the reason; release the backend if nothing
 	// else keeps it reserved.
 	if rc.RemoveReservationReason(protoutil.ReasonSessionAdvisoryLock) {
-		rc.Release(reserved.ReleaseAdvisoryUnlock, gatewaySessionSettings)
+		e.releaseReservedConnAPI(ctx, rc, reserved.ReleaseAdvisoryUnlock, gatewaySessionSettings)
 		e.logger.DebugContext(ctx, "released advisory-lock reservation; no locks remain",
 			"reserved_conn_id", rc.ConnID())
 		return true
@@ -821,7 +832,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// Portal completed — release this portal's reservation. ReleasePortal returns
 	// true only when all reservation reasons are gone.
 	if reservedConn.ReleasePortal(portal.Name) {
-		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 		return nil, nil
 	}
 
@@ -855,9 +866,10 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
-	defer conn.Recycle()
+	defer e.recycleTrackedRegularConn(ctx, conn)
 
 	// Record the vpid mapping for this pooled regular conn (lock detection).
+	// The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// Ensure the statement is prepared on this connection (with consolidation)
@@ -933,7 +945,7 @@ func (e *Executor) Describe(
 		if err != nil {
 			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 		}
-		defer pooled.Recycle()
+		defer e.recycleTrackedRegularConn(ctx, pooled)
 
 		conn = pooled.Conn
 	}
@@ -1276,7 +1288,7 @@ func (e *Executor) CopyFinalize(
 		// diverge from upstream PostgreSQL output.
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+				e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 				return nil, nil, err
 			}
 			return nil, e.buildReservedState(reservedConn), err
@@ -1302,7 +1314,7 @@ func (e *Executor) CopyFinalize(
 	// Remove the COPY reason. If other reasons remain (e.g., transaction),
 	// keep the connection reserved. Otherwise, release it back to the pool.
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 		return result, nil, nil
 	}
 
@@ -1383,7 +1395,7 @@ func (e *Executor) CopyAbort(
 	// Clean abort — remove the COPY reason. If other reasons remain
 	// (e.g., transaction), keep the connection reserved.
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 		return nil, nil
 	}
 
@@ -1560,7 +1572,7 @@ func (e *Executor) CopyOutStream(
 			// Mirror CopyFinalize's release semantics.
 			if !mterrors.IsConnectionError(err) {
 				if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-					e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+					e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 					return nil, nil, err
 				}
 				return nil, e.buildReservedState(reservedConn), err
@@ -1583,7 +1595,7 @@ func (e *Executor) CopyOutStream(
 	if err != nil {
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+				e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 				return nil, nil, err
 			}
 			return nil, e.buildReservedState(reservedConn), err
@@ -1599,7 +1611,7 @@ func (e *Executor) CopyOutStream(
 	}
 
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleasePortalComplete, options)
 		return result, nil, nil
 	}
 	return result, e.buildReservedState(reservedConn), nil
@@ -1737,7 +1749,7 @@ func (e *Executor) ConcludeTransaction(
 	shouldRelease := remainingReasons == 0
 
 	if shouldRelease {
-		e.releaseReservedConn(reservedConn, releaseReason, options)
+		e.releaseReservedConn(ctx, reservedConn, releaseReason, options)
 		e.logger.DebugContext(ctx, "transaction concluded",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"command_tag", commandTag,
@@ -1793,7 +1805,7 @@ func (e *Executor) DiscardTempTables(
 	// If no other reasons remain, release the connection
 	remainingReasons := reservedConn.RemainingReasons()
 	if remainingReasons == 0 {
-		e.releaseReservedConn(reservedConn, reserved.ReleaseCommit, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleaseCommit, options)
 		e.logger.DebugContext(ctx, "discard temp tables completed, connection released",
 			"reserved_conn_id", options.ReservedConnectionId)
 		return result, nil, nil
@@ -1902,7 +1914,7 @@ func (e *Executor) ReleaseReservedConnection(
 	if cleanupFailed {
 		reservedConn.Release(reserved.ReleaseError, nil)
 	} else {
-		e.releaseReservedConn(reservedConn, reserved.ReleaseRollback, options)
+		e.releaseReservedConn(ctx, reservedConn, reserved.ReleaseRollback, options)
 	}
 
 	e.logger.DebugContext(ctx, "reserved connection released",

@@ -17,8 +17,8 @@ package executor
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/multigres/multigres/go/common/multigresschema"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
@@ -42,62 +42,46 @@ import (
 // application_name stamp the table row cannot be wiped by RESET ALL /
 // DISCARD ALL, so the row written at reservation time stays valid.
 //
-// Rows are deliberately not deleted when a connection returns to the pool:
-// the next checkout overwrites the row for that backend pid before any query
-// runs, and a leftover row pointing at an idle pooled backend contributes no
-// blockers to the aggregated probe. Dead backends are filtered out by the
-// shim's join against pg_stat_activity.
+// Rows are deleted at the release/recycle boundary so the table reflects only
+// backends currently associated with a gateway connection. That keeps metadata
+// consumers from having to distinguish live assignments from idle pooled
+// backends. The table also stores pg_stat_activity.backend_start and readers
+// join on (pid, backend_start), so an orphaned row left behind by abrupt
+// backend loss cannot match a future backend that reuses the same pid.
 //
-// Cost on the query path: the upsert is skipped when the connection's
-// ConnectionState already records this vpid (the common steady-state case of
-// one session reusing the same pooled backend), so the extra round trip is
-// only paid when a backend changes hands between gateway sessions.
+// Cost on the query path: when tracking is enabled (the default), each regular
+// pooled query records an active association before user SQL and clears it
+// before recycling the backend. The --backend-vpid-tracking-enabled flag is an
+// emergency opt-out, not the default operating mode.
 
-// ensureVpidTable creates the multigres schema and backend_vpid table once
-// per executor, using the supplied connection. Best-effort: on a standby the
-// DDL fails (read-only) and the error is only logged — standbys receive no
-// vpid-tracked traffic, and a primary that was reinitialized underneath a
-// running pooler is healed by the retry inside trackVpidOnRegular.
-func (e *Executor) ensureVpidTable(ctx context.Context, conn *regular.Conn) {
-	e.vpidTableEnsure.Do(func() {
-		if _, err := conn.Query(ctx, multigresschema.BackendVpidDDL); err != nil {
-			e.logger.WarnContext(ctx, "failed to create multigres.backend_vpid; vpid tracking degraded", "error", err)
-		}
-	})
-}
+const vpidCleanupTimeout = 250 * time.Millisecond
 
-// trackVpidOnRegular upserts the (backend_pid → vpid) mapping row for the
-// given connection's backend. Must only be called while the connection is in
-// autocommit (fresh checkout / pre-BEGIN) — see the package comment above.
-// Best-effort: a failure does not block the actual query; only lock
-// detection through the proxy depends on the mapping. No-op when the caller
-// has no client connection id, or when this connection's last recorded vpid
-// is already this one.
+// trackVpidOnRegular upserts the (backend_pid/backend_start → vpid) mapping
+// row for the given connection's backend. Must only be called while the
+// connection is in autocommit (fresh checkout / pre-BEGIN) — see the package
+// comment above.
+// Best-effort: a failure does not block the actual query; only lock detection
+// through the proxy depends on the mapping. No-op when tracking is disabled,
+// the caller has no client connection id, or this connection already recorded
+// the same active association.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
-	if options == nil || options.ClientConnectionId == 0 {
+	if e.backendVpidTrackingDisabled || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	state := conn.State()
 	if state.TrackedVpid() == options.ClientConnectionId {
 		return
 	}
-	e.ensureVpidTable(ctx, conn)
-	upsert := fmt.Sprintf(
-		"INSERT INTO multigres.backend_vpid (backend_pid, vpid) VALUES (pg_backend_pid(), %d) "+
-			"ON CONFLICT (backend_pid) DO UPDATE SET vpid = EXCLUDED.vpid, updated_at = now()",
-		options.ClientConnectionId)
-	if _, err := conn.Query(ctx, upsert); err == nil {
-		state.SetTrackedVpid(options.ClientConnectionId)
+	if !conn.IsIdle() {
+		e.logger.DebugContext(ctx, "skipping vpid mapping upsert outside autocommit")
 		return
 	}
-	// The table can vanish underneath a long-lived pooler (e.g. the test
-	// harness drops and recreates the data directory between suites without
-	// restarting the pooler). Re-run the DDL outside the sync.Once and retry
-	// the upsert once; ignore the DDL error so a concurrent re-creation race
-	// still lets the retry succeed.
-	if _, err := conn.Query(ctx, multigresschema.BackendVpidDDL); err != nil {
-		e.logger.DebugContext(ctx, "vpid table re-create failed", "error", err)
-	}
+
+	upsert := fmt.Sprintf(
+		"INSERT INTO multigres.backend_vpid (backend_pid, backend_start, vpid) "+
+			"SELECT pg_backend_pid(), backend_start, %d FROM pg_stat_activity WHERE pid = pg_backend_pid() "+
+			"ON CONFLICT (backend_pid) DO UPDATE SET backend_start = EXCLUDED.backend_start, vpid = EXCLUDED.vpid, updated_at = now()",
+		options.ClientConnectionId)
 	if _, err := conn.Query(ctx, upsert); err != nil {
 		e.logger.DebugContext(ctx, "vpid mapping upsert failed", "error", err)
 		return
@@ -109,8 +93,44 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 // Must be called before the reservation's BEGIN so the row commits in
 // autocommit and is visible to other sessions for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
-	if options == nil || options.ClientConnectionId == 0 {
+	if e.backendVpidTrackingDisabled || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	e.trackVpidOnRegular(ctx, conn.Conn(), options)
+}
+
+// clearVpidOnRegular removes this backend's active vpid mapping before the
+// connection stops being associated with the gateway session that borrowed it.
+// It must run in autocommit: if the backend is not idle, or the cleanup query
+// fails/times out, the caller must not recycle the backend as clean.
+func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) bool {
+	if e.backendVpidTrackingDisabled {
+		return true
+	}
+	state := conn.State()
+	if state.TrackedVpid() == 0 {
+		return true
+	}
+	defer state.SetTrackedVpid(0)
+
+	if !conn.IsIdle() {
+		e.logger.DebugContext(ctx, "skipping vpid mapping cleanup outside autocommit")
+		return false
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(ctx, vpidCleanupTimeout)
+	defer cancel()
+
+	if _, err := conn.Query(cleanupCtx, "DELETE FROM multigres.backend_vpid WHERE backend_pid = pg_backend_pid()"); err != nil {
+		e.logger.DebugContext(cleanupCtx, "vpid mapping cleanup failed", "error", err)
+		return false
+	}
+	return true
+}
+
+func (e *Executor) recycleTrackedRegularConn(ctx context.Context, conn regular.PooledConn) {
+	if !e.clearVpidOnRegular(ctx, conn.Conn) {
+		conn.Conn.Close()
+	}
+	conn.Recycle()
 }
