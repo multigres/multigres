@@ -81,6 +81,7 @@ func (t *TransactionPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch t.Kind {
@@ -104,7 +105,7 @@ func (t *TransactionPrimitive) StreamExecute(
 
 	default:
 		// Other transaction statements (e.g., PREPARE TRANSACTION) pass through.
-		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
+		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info, callback)
 	}
 }
 
@@ -340,7 +341,7 @@ func (t *TransactionPrimitive) executeSavepoint(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
 		return err
 	}
 	state.PushSavepoint(t.SavepointName)
@@ -358,7 +359,7 @@ func (t *TransactionPrimitive) executeReleaseSavepoint(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
 		return err
 	}
 	state.ReleaseSavepoint(t.SavepointName)
@@ -382,10 +383,10 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
 
 	// PG closes any cursor (including WITH HOLD) declared in the
-	// rolled-back sub-transaction. Enqueue those names so ScatterConn
-	// forwards them as release_portal_names alongside the ROLLBACK TO
-	// statement and the multipooler's portal pin set matches what the
-	// server keeps. Done before exec so the same RPC carries both.
+	// rolled-back sub-transaction. Pass those names as the ROLLBACK TO
+	// statement's release-portal intent so ScatterConn forwards them as
+	// release_portal_names on the same RPC and the multipooler's portal pin set
+	// matches what the server keeps.
 	//
 	// NOTE: CLOSE itself is *not* transactional in PostgreSQL — a
 	// cursor explicitly CLOSE'd inside the sub-transaction stays
@@ -394,11 +395,9 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	// open set (see RollbackToSavepoint) so the gateway's tracking
 	// drops them too.
 	lostHoldCursors := state.HoldCursorsDeclaredAfterSavepoint(t.SavepointName)
-	if len(lostHoldCursors) > 0 {
-		state.AppendPendingReleasePortals(lostHoldCursors...)
-	}
 
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, callback)
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state,
+		PlanExecInfo{ReleasePortals: lostHoldCursors}, callback)
 	if err != nil {
 		return err
 	}
@@ -448,9 +447,10 @@ func (t *TransactionPrimitive) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return t.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return t.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

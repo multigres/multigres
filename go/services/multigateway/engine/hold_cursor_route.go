@@ -26,8 +26,8 @@ import (
 )
 
 // HoldCursorRoute routes a `DECLARE ... WITH HOLD` cursor declaration through
-// a reserved connection. It signals ScatterConn (via PendingPinPortals) that
-// the cursor name must be pinned on the backend so the cursor survives the
+// a reserved connection. It signals ScatterConn (via PlanExecInfo.PinPortals)
+// that the cursor name must be pinned on the backend so the cursor survives the
 // transaction's COMMIT — at which point the multipooler would otherwise
 // release the backend to the pool and the next FETCH would land on a
 // different connection.
@@ -68,10 +68,13 @@ func (h *HoldCursorRoute) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	state.AppendPendingPinPortals(h.CursorName)
-	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, callback); err != nil {
+	// info.PinPortals is set by the planner (the cursor name is known at plan
+	// time); forward it to the reservation, then record the cursor as open on
+	// success.
+	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, info, callback); err != nil {
 		return err
 	}
 	state.AddOpenHoldCursor(h.CursorName)
@@ -89,9 +92,10 @@ func (h *HoldCursorRoute) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return h.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return h.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 func (h *HoldCursorRoute) GetTableGroup() string { return h.TableGroup }

@@ -75,12 +75,15 @@ func (p *Planner) planSelectStmt(
 			primitives = append(primitives, engine.NewApplySessionStateSilent(sql, base))
 		}
 	}
-	// The trailing route runs the SELECT itself. routePrimitive folds in the
-	// advisory-lock pin when needed, so a `SELECT set_config(...),
-	// pg_advisory_lock(...)` both tracks the session setting (via the
-	// ApplySessionState primitives above) and pins the backend for the lock.
-	primitives = append(primitives, p.routePrimitive(sql, stmt, opts))
-	return engine.NewPlan(sql, engine.NewSequence(primitives)), nil
+	// The trailing route runs the SELECT itself. Advisory-lock pinning rides on
+	// the plan's ExecInfo (set below); Sequence forwards it to this trailing
+	// Route, so a `SELECT set_config(...), pg_advisory_lock(...)` both tracks the
+	// session setting (via the ApplySessionState primitives above) and pins the
+	// backend for the lock.
+	primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	plan := engine.NewPlan(sql, engine.NewSequence(primitives))
+	plan.ExecInfo = advisoryExecInfo(opts)
+	return plan, nil
 }
 
 // planResolveSetConfig plans a SELECT whose target list is entirely
@@ -116,14 +119,18 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 		return nil, err
 	}
 
-	// The resolve projection runs through the ordinary routing primitive, so
-	// opts (advisory-lock pinning) and bindVar reconstruction are handled by the
-	// same Route / AdvisoryLockRoute as any other query — the resolve primitive
-	// just reads the rows the route streams back.
-	resolveRoute := p.routePrimitive(unroll.SqlString(), unroll, opts)
+	// The resolve projection runs through an ordinary Route (bindVar
+	// reconstruction included); advisory-lock pinning rides on the plan's
+	// ExecInfo, which ResolveTrackSetConfig forwards to this Route at exec time
+	// (that's the query that actually evaluates the set_config args, including
+	// any pg_advisory_lock call). The resolve primitive just reads the rows the
+	// route streams back.
+	resolveRoute := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, unroll.SqlString(), unroll)
 
 	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
-	return engine.NewPlan(sql, prim), nil
+	plan := engine.NewPlan(sql, prim)
+	plan.ExecInfo = advisoryExecInfo(opts)
+	return plan, nil
 }
 
 // rewriteToUnrollProjection rewrites ss in place: its target list (already

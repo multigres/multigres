@@ -154,7 +154,7 @@ func (p *Planner) Plan(
 			// main dispatch, so attach the failover warning on this path too.
 			p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
 			unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
-			unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
+			unwrappedPlan.Type = planType(unwrappedPlan.Primitive, unwrappedPlan.ExecInfo)
 			return unwrappedPlan, nil
 		}
 	}
@@ -261,7 +261,7 @@ func (p *Planner) Plan(
 	p.maybeWrapUnloggedWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
-	plan.Type = primitiveName(plan.Primitive)
+	plan.Type = planType(plan.Primitive, plan.ExecInfo)
 
 	return plan, nil
 }
@@ -309,8 +309,13 @@ func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
 // persists across queries on the same session.
 func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.Plan, error) {
 	p.logger.Debug("planning temp table creation", "sql", sql)
-	route := engine.NewTempTableRoute(p.defaultTableGroup, constants.DefaultShard, sql)
-	return engine.NewPlan(sql, route), nil
+	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil))
+	// The temp-table reservation is a static property of the plan: it routes as
+	// a plain Route, but ExecInfo.TempTable tells the executor to reserve a
+	// connection with ReasonTempTable.
+	plan.ExecInfo.TempTable = true
+	plan.Type = engine.PlanTypeTempTableRoute
+	return plan, nil
 }
 
 // planHoldCursorDeclare creates a plan for `DECLARE ... WITH HOLD` cursors.
@@ -323,6 +328,9 @@ func (p *Planner) planHoldCursorDeclare(sql string, stmt *ast.DeclareCursorStmt)
 		"cursor", stmt.PortalName, "sql", sql)
 	route := engine.NewHoldCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
 	plan := engine.NewPlan(sql, route)
+	// The cursor name to pin is known at plan time, so it rides on the cached
+	// plan's ExecInfo; HoldCursorRoute forwards it to the reservation.
+	plan.ExecInfo.PinPortals = []string{stmt.PortalName}
 	plan.Type = engine.PlanTypeHoldCursorRoute
 	return plan, nil
 }
@@ -346,11 +354,12 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 }
 
 // planDefault creates a simple route plan for queries without special handling.
-// This is the fallback for most SQL statements. opts.PinForAdvisoryLock routes
-// the query through an AdvisoryLockRoute so the backend stays pinned for the
-// session-level advisory lock's lifetime.
+// This is the fallback for most SQL statements. Advisory-lock pinning, when the
+// statement touches a session-level advisory lock, rides on the plan's ExecInfo
+// (see advisoryExecInfo) rather than a dedicated routing primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	plan := engine.NewPlan(sql, p.routePrimitive(sql, stmt, opts))
+	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	plan.ExecInfo = advisoryExecInfo(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
@@ -358,22 +367,16 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	return plan, nil
 }
 
-// routePrimitive builds the routing primitive for an ordinary query: a plain
-// Route, or an AdvisoryLockRoute wrapping it when the statement touches
-// session-level advisory locks. Centralizing this lets the set_config Sequence
-// path (planSelectStmt) and the bare-route path (planDefault) fold in the
-// advisory handling the same way, so a query that both takes an advisory lock
-// and tracks a set_config keeps both behaviors.
-//
-// We wrap on RecheckForAdvisoryLock (the superset): an acquire wants both a pin
-// and a recheck, a bare release wants only the recheck. The wrapper carries the
-// pin intent separately so a release doesn't reserve a connection.
-func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) engine.Primitive {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-	if opts.RecheckForAdvisoryLock {
-		return engine.NewAdvisoryLockRoute(route, opts.PinForAdvisoryLock)
+// advisoryExecInfo derives the plan-level reservation directives for a statement
+// that touches session-level advisory locks. We track on RecheckForAdvisoryLock
+// (the superset): an acquire wants both a pin and a recheck, a bare release
+// wants only the recheck — so the pin is carried separately and a release does
+// not reserve a connection. The zero value (no advisory) is the common case.
+func advisoryExecInfo(opts PlanOptions) engine.PlanExecInfo {
+	return engine.PlanExecInfo{
+		AdvisoryLock:         opts.PinForAdvisoryLock,
+		RecheckAdvisoryLocks: opts.RecheckForAdvisoryLock,
 	}
-	return route
 }
 
 // SetDefaultTableGroup updates the default tablegroup for routing.
@@ -388,16 +391,29 @@ func (p *Planner) GetDefaultTableGroup() string {
 	return p.defaultTableGroup
 }
 
+// planType returns the observability label for a plan. Temp-table and
+// advisory-lock routing no longer have dedicated primitive types — they are a
+// plain Route plus ExecInfo — so the label for a Route is refined from the
+// plan's ExecInfo to preserve the previous TempTableRoute / AdvisoryLockRoute
+// labels in spans and query logs.
+func planType(p engine.Primitive, info engine.PlanExecInfo) string {
+	if _, ok := p.(*engine.Route); ok {
+		switch {
+		case info.TempTable:
+			return engine.PlanTypeTempTableRoute
+		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
+			return engine.PlanTypeAdvisoryLockRoute
+		}
+	}
+	return primitiveName(p)
+}
+
 // primitiveName returns a short string identifying the primitive type.
 // Used for observability (span attributes and query logs).
 func primitiveName(p engine.Primitive) string {
 	switch p.(type) {
 	case *engine.Route:
 		return engine.PlanTypeRoute
-	case *engine.TempTableRoute:
-		return engine.PlanTypeTempTableRoute
-	case *engine.AdvisoryLockRoute:
-		return engine.PlanTypeAdvisoryLockRoute
 	case *engine.HoldCursorRoute:
 		return engine.PlanTypeHoldCursorRoute
 	case *engine.CloseCursorRoute:

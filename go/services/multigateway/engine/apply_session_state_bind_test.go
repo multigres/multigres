@@ -62,7 +62,7 @@ func runBindExecute(t *testing.T, prim *ApplySessionState, portalInfo *prepareds
 	t.Helper()
 	state := &handler.MultiGatewayConnectionState{}
 	var tags []string
-	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false,
+	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error {
 			tags = append(tags, r.CommandTag)
 			return nil

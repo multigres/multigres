@@ -52,6 +52,7 @@ func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
 	_ *querypb.PreparedStatement,
 	_ *handler.MultiGatewayConnectionState,
+	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteCalls.Add(1)
@@ -63,6 +64,7 @@ func (m *mockExec) PortalStreamExecute(
 	_ context.Context, _, _ string, _ *server.Conn,
 	_ *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo, _ int32, _ bool,
+	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.portalStreamExecuteCalls.Add(1)

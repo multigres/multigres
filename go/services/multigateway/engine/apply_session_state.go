@@ -148,12 +148,13 @@ func (s *ApplySessionState) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if s.BindRefs != nil {
 		return s.executeSetWithBinds(ctx, state, portalInfo, callback)
 	}
-	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return s.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // executeSetWithBinds resolves name/value/is_local from the portal's binds
@@ -219,6 +220,7 @@ func (s *ApplySessionState) StreamExecute(
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {

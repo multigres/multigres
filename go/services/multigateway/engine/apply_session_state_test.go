@@ -53,7 +53,7 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("SET work_mem = '256MB'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	val, exists := state.GetSessionVariable("work_mem")
@@ -80,7 +80,7 @@ func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 	ssr := NewApplySessionState("SET totally_invalid_variable = 'whatever'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err, "SET with invalid param should succeed locally")
 
 	val, exists := state.GetSessionVariable("totally_invalid_variable")
@@ -105,7 +105,7 @@ func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 	ssr := NewApplySessionState("RESET never_set_var", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err, "RESET of never-set variable should succeed")
 
 	_, exists := state.GetSessionVariable("never_set_var")
@@ -130,7 +130,7 @@ func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("RESET work_mem", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// Variable should be removed
@@ -158,7 +158,7 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 	ssr := NewApplySessionState("RESET ALL", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// All variables should be cleared
@@ -187,7 +187,7 @@ func TestApplySessionState_UnsupportedKind(t *testing.T) {
 	ssr := NewApplySessionState("SET work_mem TO DEFAULT", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.Error(t, err)
 
 	var pgDiag *mterrors.PgDiagnostic
@@ -360,7 +360,7 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true /*isLocal*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// State must NOT have absorbed the LOCAL value.
@@ -390,7 +390,7 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 100*time.Millisecond, state.GetStatementTimeout())
@@ -415,7 +415,7 @@ func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
 	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -443,7 +443,7 @@ func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
 	prim := NewGatewaySessionStateReset("RESET statement_timeout", "statement_timeout", false /*isLocal*/, true /*isResetStmt*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -467,7 +467,7 @@ func TestGatewaySessionState_SETToDEFAULT_NonLocalReturnsSETTag(t *testing.T) {
 	prim := NewGatewaySessionStateReset("SET statement_timeout TO DEFAULT", "statement_timeout", false /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -492,7 +492,7 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// State must NOT have changed: outside-txn SET LOCAL is a no-op.

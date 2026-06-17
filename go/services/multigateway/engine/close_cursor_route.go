@@ -81,25 +81,28 @@ func NewCloseAllCursorRoute(tableGroup, shard, sql string) *CloseCursorRoute {
 // CLOSE target, runs the CLOSE on the backend, and on success drops the
 // gateway's HOLD-cursor bookkeeping.
 //
-// Release lifecycle on failure: ScatterConn consumes (and nils)
-// PendingReleasePortals when it issues the RPC, and the multipooler applies
-// portal releases only after the query succeeds (see
-// streamExecuteOnReservedConn). A CLOSE error therefore leaves the
-// gateway's pending slot already cleared, OpenHoldCursors still populated
-// (we only call RemoveOpenHoldCursor after a successful CLOSE), and the
-// multipooler's pin set untouched. The server-side cursor stays open, so
-// gateway tracking matches reality — no extra cleanup is required here.
+// Release lifecycle on failure: the release names ride on this call's
+// PlanExecInfo, and the multipooler applies portal releases only after the
+// query succeeds (see streamExecuteOnReservedConn). A CLOSE error therefore
+// leaves OpenHoldCursors still populated (we only call RemoveOpenHoldCursor
+// after a successful CLOSE) and the multipooler's pin set untouched. The
+// server-side cursor stays open, so gateway tracking matches reality — no extra
+// cleanup is required here.
 func (c *CloseCursorRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// The release set is computed from current session state (which the planner
+	// doesn't have), so augment the threaded info at exec time rather than at
+	// plan time.
 	targets := c.targets(state)
-	state.AppendPendingReleasePortals(targets...)
-	if err := exec.StreamExecute(ctx, conn, c.TableGroup, c.Shard, c.Query, nil, state, callback); err != nil {
+	info.ReleasePortals = targets
+	if err := exec.StreamExecute(ctx, conn, c.TableGroup, c.Shard, c.Query, nil, state, info, callback); err != nil {
 		return err
 	}
 	for _, name := range targets {
@@ -117,9 +120,10 @@ func (c *CloseCursorRoute) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return c.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return c.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 func (c *CloseCursorRoute) GetTableGroup() string { return c.TableGroup }

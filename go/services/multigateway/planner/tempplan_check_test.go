@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser"
-	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
 // TestTempObjectCreationReserves asserts that every statement creating a
@@ -64,7 +63,7 @@ func TestTempObjectCreationReserves(t *testing.T) {
 			require.Len(t, asts, 1)
 			plan, err := s.p.Plan(tc.sql, asts[0], s.conn.Conn, PlanOptions{})
 			require.NoError(t, err)
-			_, isTemp := plan.Primitive.(*engine.TempTableRoute)
+			isTemp := plan.ExecInfo.TempTable
 			require.Equal(t, tc.wantTemp, isTemp,
 				"plan primitive = %s", plan.Primitive.String())
 		})
@@ -73,19 +72,19 @@ func TestTempObjectCreationReserves(t *testing.T) {
 	// The extended query protocol must reserve for the same statements: a
 	// temp object created via Parse/Bind/Execute on a pooled backend would
 	// vanish on connection recycle exactly like the simple-protocol case.
-	// The portal path plans a TempTableRoute for temp creations and a plain
+	// The portal path sets ExecInfo.TempTable for temp creations and uses a plain
 	// Route (which reissues the portal) for the non-temp variants.
 	for _, tc := range tests {
 		t.Run("portal/"+tc.sql, func(t *testing.T) {
 			plan, err := planPortal(t, s.p, s.conn.Conn, tc.sql)
 			require.NoError(t, err)
 			if !tc.wantTemp {
-				_, isTemp := plan.Primitive.(*engine.TempTableRoute)
+				isTemp := plan.ExecInfo.TempTable
 				require.False(t, isTemp, "plan primitive = %s", plan.Primitive.String())
 				return
 			}
 			require.NotNil(t, plan, "temp creation must plan locally, not plain portal execute")
-			_, isTemp := plan.Primitive.(*engine.TempTableRoute)
+			isTemp := plan.ExecInfo.TempTable
 			require.True(t, isTemp, "plan primitive = %s", plan.Primitive.String())
 		})
 	}

@@ -27,16 +27,17 @@ import (
 )
 
 // TestPlan_SessionAdvisoryLockRouting verifies how statements that touch
-// session-level advisory locks are routed. Both acquires and releases go
-// through AdvisoryLockRoute (so the multipooler re-probes pg_locks afterward),
-// but only acquires set the pin intent that reserves the backend. Transaction-
-// level locks and unrelated queries route through a plain Route.
+// session-level advisory locks are routed. Both acquires and releases set the
+// plan's ExecInfo.RecheckAdvisoryLocks (so the multipooler re-probes pg_locks
+// afterward), but only acquires set ExecInfo.AdvisoryLock, the pin intent that
+// reserves the backend. Transaction-level locks and unrelated queries carry no
+// advisory ExecInfo.
 func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 	tests := []struct {
 		name         string
 		sql          string
-		wantAdvisory bool // routed through AdvisoryLockRoute (acquire or release)
-		wantPin      bool // reserves the backend (acquire only)
+		wantAdvisory bool // ExecInfo.RecheckAdvisoryLocks (acquire or release)
+		wantPin      bool // ExecInfo.AdvisoryLock — reserves the backend (acquire only)
 	}{
 		{name: "exclusive", sql: "SELECT pg_advisory_lock(101)", wantAdvisory: true, wantPin: true},
 		{name: "shared", sql: "SELECT pg_advisory_lock_shared(101)", wantAdvisory: true, wantPin: true},
@@ -69,14 +70,16 @@ func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
-			route, isAdvisory := plan.Primitive.(*engine.AdvisoryLockRoute)
+			// Routing is a plain Route; advisory intent rides on plan.ExecInfo.
+			_, isRoute := plan.Primitive.(*engine.Route)
+			require.True(t, isRoute, "expected a plain Route, got %T", plan.Primitive)
+			assert.Equal(t, tt.wantAdvisory, plan.ExecInfo.RecheckAdvisoryLocks, "recheck intent for %q", tt.sql)
+			assert.Equal(t, tt.wantPin, plan.ExecInfo.AdvisoryLock, "pin intent for %q", tt.sql)
 			if tt.wantAdvisory {
-				require.True(t, isAdvisory, "expected AdvisoryLockRoute, got %T", plan.Primitive)
-				assert.Equal(t, tt.wantPin, route.Pins(), "pin intent for %q", tt.sql)
 				assert.Equal(t, engine.PlanTypeAdvisoryLockRoute, plan.Type,
-					"plan.Type must be set for observability")
+					"plan.Type must reflect advisory routing for observability")
 			} else {
-				assert.False(t, isAdvisory, "did not expect AdvisoryLockRoute for %q", tt.sql)
+				assert.Equal(t, engine.PlanTypeRoute, plan.Type)
 			}
 		})
 	}
@@ -109,8 +112,11 @@ func TestPlan_AdvisoryLockComposesWithSetConfig(t *testing.T) {
 	}
 	assert.True(t, hasApplySessionState, "set_config must still be tracked via ApplySessionState")
 
-	// The trailing route must be an AdvisoryLockRoute so the backend is pinned.
+	// The trailing primitive is a plain Route; the advisory pin now rides on the
+	// plan's ExecInfo, which the Sequence forwards to that Route at exec time.
 	last := seq.Primitives[len(seq.Primitives)-1]
-	_, isAdvisory := last.(*engine.AdvisoryLockRoute)
-	assert.True(t, isAdvisory, "trailing route must be AdvisoryLockRoute, got %T", last)
+	_, isRoute := last.(*engine.Route)
+	assert.True(t, isRoute, "trailing primitive must be a Route, got %T", last)
+	assert.True(t, plan.ExecInfo.AdvisoryLock, "plan must carry the advisory-lock pin intent")
+	assert.True(t, plan.ExecInfo.RecheckAdvisoryLocks, "plan must request the advisory recheck")
 }
