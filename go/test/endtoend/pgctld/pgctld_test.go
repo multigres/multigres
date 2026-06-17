@@ -1380,7 +1380,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err := os.WriteFile(primaryConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	testPassword := "test_pg_rewind_password_123" //nolint:gosec // Test password, not a real credential
+	testPassword := "test_pg_rewind_password_123"
 	err = os.MkdirAll(primaryDir, 0o755)
 	require.NoError(t, err)
 
