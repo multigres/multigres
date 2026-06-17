@@ -85,6 +85,35 @@ func TestNewLogicalReplicationConnTagsReasonAndStartupParam(t *testing.T) {
 		"replication=database must have been parsed by the server")
 }
 
+func TestNewLogicalReplicationConnMarksBackendTaintedAtAcquire(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetCredentialProvider(fakeReplicationCredentialProvider{})
+
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+		},
+	})
+	defer pool.Close()
+
+	conn, err := pool.NewLogicalReplicationConn(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, pgserver.ReplicationLogical, server.LastReplicationMode())
+
+	// ReleaseCommit does not prevent reuse by itself. The replacement normal
+	// startup below proves the replication-mode backend was marked tainted when
+	// it was acquired rather than relying on release-reason classification.
+	conn.Release(ReleaseCommit, nil)
+	assert.Equal(t, pgserver.ReplicationOff, server.LastReplicationMode())
+
+	plain, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	plain.Release(ReleaseCommit, nil)
+}
+
 func TestNewLogicalReplicationConnIsExemptFromIdleKiller(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
