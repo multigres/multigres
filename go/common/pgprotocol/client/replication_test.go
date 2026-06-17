@@ -243,6 +243,9 @@ func TestReplicationRead_ContextCancelUnblocks(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Less(t, time.Since(start), 2*time.Second, "must unblock promptly on cancel, not hang")
+	// A context cancellation must NOT kill the stream: the socket is intact and
+	// the caller may resume (walreceiver-style read-then-ack).
+	assert.Equal(t, replStreamStreaming, c.replState, "ctx cancel must not mark the stream dead")
 }
 
 func TestReplicationWrite_AfterDeadStreamErrors(t *testing.T) {
@@ -384,6 +387,9 @@ func TestReplicationRead_ReadErrorWrapped(t *testing.T) {
 	_, err := c.ReadReplicationMessage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read replication message")
+	// A genuine (non-context) read failure breaks the stream: it must be marked
+	// dead so a subsequent WriteReplicationData refuses to send.
+	assert.Equal(t, replStreamDead, c.replState, "transport read error must mark the stream dead")
 }
 
 func TestReplicationRead_DeadlineContextArmsAndReads(t *testing.T) {

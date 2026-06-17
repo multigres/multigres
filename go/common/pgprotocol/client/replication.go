@@ -137,20 +137,32 @@ type ReplicationMessage struct {
 // ctx is honored: if it has a deadline or is cancelled, a blocked read unblocks
 // and returns a context error. This is the teardown primitive used to abort
 // long-lived streams (e.g. on leader change).
-func (c *Conn) ReadReplicationMessage(ctx context.Context) (ReplicationMessage, error) {
+func (c *Conn) ReadReplicationMessage(ctx context.Context) (msg ReplicationMessage, err error) {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
 	stop := c.makeReadsCancelable(ctx)
 	defer stop()
 
+	// Any non-context error (transport failure, server CopyDone/ErrorResponse,
+	// malformed or unexpected frame) terminates the stream in both directions:
+	// mark it dead so WriteReplicationData refuses further sends. A context
+	// error (cancel/deadline) is excluded — the socket is intact and the caller
+	// may resume reading or send an ack before reading again (walreceiver-style),
+	// so a deadline-driven wakeup must not kill the stream.
+	defer func() {
+		if err != nil && ctx.Err() == nil {
+			c.replState = replStreamDead
+		}
+	}()
+
 	for {
-		msgType, body, err := c.readMessage()
-		if err != nil {
+		msgType, body, readErr := c.readMessage()
+		if readErr != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ReplicationMessage{}, ctxErr
 			}
-			return ReplicationMessage{}, fmt.Errorf("read replication message: %w", err)
+			return ReplicationMessage{}, fmt.Errorf("read replication message: %w", readErr)
 		}
 
 		switch msgType {
@@ -164,13 +176,11 @@ func (c *Conn) ReadReplicationMessage(ctx context.Context) (ReplicationMessage, 
 			// Recorded into serverParams; not a stream-terminating event
 			// under normal operation. A parse failure means a malformed body
 			// (wire corruption), which we surface rather than swallow.
-			if err := c.handleParameterStatus(body); err != nil {
-				c.replState = replStreamDead
-				return ReplicationMessage{}, fmt.Errorf("malformed ParameterStatus in copy-both stream: %w", err)
+			if psErr := c.handleParameterStatus(body); psErr != nil {
+				return ReplicationMessage{}, fmt.Errorf("malformed ParameterStatus in copy-both stream: %w", psErr)
 			}
 
 		case protocol.MsgCopyDone:
-			c.replState = replStreamDead
 			return ReplicationMessage{}, io.EOF
 
 		case protocol.MsgErrorResponse:
@@ -178,11 +188,9 @@ func (c *Conn) ReadReplicationMessage(ctx context.Context) (ReplicationMessage, 
 			// (its return is ignored — pgErr is the error worth surfacing).
 			pgErr := c.parseError(body)
 			_ = c.waitForReadyForQuery(ctx)
-			c.replState = replStreamDead
 			return ReplicationMessage{}, pgErr
 
 		default:
-			c.replState = replStreamDead
 			return ReplicationMessage{}, fmt.Errorf("unexpected message in copy-both stream: '%c' (0x%02x)", msgType, msgType)
 		}
 	}

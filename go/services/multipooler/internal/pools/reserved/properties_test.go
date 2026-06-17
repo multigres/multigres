@@ -32,6 +32,7 @@ func TestReleaseReason_String(t *testing.T) {
 		{ReleaseCommit, "commit"},
 		{ReleaseRollback, "rollback"},
 		{ReleasePortalComplete, "portal_complete"},
+		{ReleaseAdvisoryUnlock, "advisory_unlock"},
 		{ReleaseTimeout, "timeout"},
 		{ReleaseKill, "kill"},
 		{ReleaseError, "error"},
@@ -41,6 +42,34 @@ func TestReleaseReason_String(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.reason.String())
+		})
+	}
+}
+
+func TestReleaseReason_preventsReuse(t *testing.T) {
+	// Clean release reasons leave the backend in a known protocol state, so
+	// the connection can be finalized and recycled into the regular pool.
+	for _, reason := range []ReleaseReason{
+		ReleaseCommit,
+		ReleaseRollback,
+		ReleasePortalComplete,
+		ReleaseAdvisoryUnlock,
+	} {
+		t.Run(reason.String()+"_reusable", func(t *testing.T) {
+			assert.False(t, reason.preventsReuse())
+		})
+	}
+
+	// Uncertain or failure reasons must taint the backend instead of reusing
+	// it. Unknown reasons fail safe to taint.
+	for _, reason := range []ReleaseReason{
+		ReleaseTimeout,
+		ReleaseKill,
+		ReleaseError,
+		ReleaseReason(999),
+	} {
+		t.Run(reason.String()+"_tainted", func(t *testing.T) {
+			assert.True(t, reason.preventsReuse())
 		})
 	}
 }

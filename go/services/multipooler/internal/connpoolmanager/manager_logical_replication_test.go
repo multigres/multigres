@@ -52,7 +52,7 @@ func TestManagerNewLogicalReplicationConn(t *testing.T) {
 	const user = "test_user"
 	conn, err := mgr.NewLogicalReplicationConn(context.Background(), user, nil, nil)
 	require.NoError(t, err)
-	defer conn.Release(reserved.ReleaseError)
+	defer conn.Release(reserved.ReleaseError, nil)
 
 	assert.True(t, protoutil.HasLogicalReplicationReason(conn.RemainingReasons()),
 		"replication conn must be tagged with ReasonLogicalReplication")
@@ -117,11 +117,11 @@ func TestManager_LogicalReplicationSharesReservedCap(t *testing.T) {
 	assert.Nil(t, blocked)
 
 	// Releasing one reserved conn must free a slot and unblock replication.
-	r1.Release(reserved.ReleaseCommit)
+	r1.Release(reserved.ReleaseCommit, nil)
 
 	rl, err := mgr.NewLogicalReplicationConn(ctx, user, nil, nil)
 	require.NoError(t, err, "releasing a reserved conn must let a replication conn through")
 	require.NotNil(t, rl)
-	defer rl.Release(reserved.ReleaseError)
-	defer r2.Release(reserved.ReleaseCommit)
+	defer rl.Release(reserved.ReleaseError, nil)
+	defer r2.Release(reserved.ReleaseCommit, nil)
 }
