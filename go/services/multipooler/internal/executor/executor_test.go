@@ -831,17 +831,17 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
-		name     string
-		disabled bool
-		options  *query.ExecuteOptions
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
 	}{
-		{"disabled with options", true, &query.ExecuteOptions{ClientConnectionId: 5}},
-		{"nil options", false, nil},
-		{"zero id", false, &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"tracking disabled", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"nil options", true, nil},
+		{"zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{backendVpidTrackingDisabled: tc.disabled}
+			e := &Executor{backendVpidTrackingEnabled: tc.enabled}
 			// nil conn would panic on Query — guard must short-circuit first.
 			e.trackVpidOnReserved(ctx, nil, tc.options)
 		})
@@ -851,17 +851,17 @@ func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
-		name     string
-		disabled bool
-		options  *query.ExecuteOptions
+		name    string
+		enabled bool
+		options *query.ExecuteOptions
 	}{
-		{"disabled with options", true, &query.ExecuteOptions{ClientConnectionId: 5}},
-		{"nil options", false, nil},
-		{"zero id", false, &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"tracking disabled", false, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"nil options", true, nil},
+		{"zero id", true, &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{backendVpidTrackingDisabled: tc.disabled}
+			e := &Executor{backendVpidTrackingEnabled: tc.enabled}
 			e.trackVpidOnRegular(ctx, nil, tc.options)
 		})
 	}
@@ -885,7 +885,7 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
@@ -939,7 +939,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
 
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
@@ -966,7 +966,7 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
@@ -1233,12 +1233,12 @@ func TestNewExecutor(t *testing.T) {
 	e := NewExecutor(logger, nil, poolerID, true)
 	require.NotNil(t, e)
 	assert.Equal(t, poolerID, e.poolerID)
-	assert.False(t, e.backendVpidTrackingDisabled)
+	assert.True(t, e.backendVpidTrackingEnabled)
 	assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
 
 	disabled := NewExecutor(logger, nil, poolerID, false)
 	require.NotNil(t, disabled)
-	assert.True(t, disabled.backendVpidTrackingDisabled)
+	assert.False(t, disabled.backendVpidTrackingEnabled)
 }
 
 func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {

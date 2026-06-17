@@ -29,10 +29,10 @@ type Config struct {
 	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
 
-	// DisableBackendVpidTracking is an emergency opt-out. Tracking is enabled by
-	// default and records active gateway-vpid/backend-pid associations in
-	// multigres.backend_vpid.
-	DisableBackendVpidTracking bool
+	// BackendVpidTrackingEnabled controls active gateway-vpid/backend-pid
+	// tracking in multigres.backend_vpid. Nil means enabled (the default); false
+	// is an emergency opt-out.
+	BackendVpidTrackingEnabled *bool
 
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 	PgBackRestCertFile string // TLS client certificate file path

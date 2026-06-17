@@ -51,10 +51,10 @@ type Executor struct {
 	poolerID           *clustermetadatapb.ID
 	metrics            *queryStats
 
-	// backendVpidTrackingDisabled is an emergency opt-out. Tracking is enabled
-	// by default so multigateway virtual pids can be resolved to backend pids
-	// through multigres.backend_vpid.
-	backendVpidTrackingDisabled bool
+	// backendVpidTrackingEnabled controls whether multigateway virtual pids are
+	// recorded in multigres.backend_vpid. It is enabled by default; the flag is
+	// an emergency opt-out.
+	backendVpidTrackingEnabled bool
 }
 
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
@@ -88,12 +88,12 @@ func (e *Executor) releaseReservedConnAPI(ctx context.Context, rc reservedConnAP
 // NewExecutor creates a new Executor instance.
 func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, backendVpidTrackingEnabled bool) *Executor {
 	return &Executor{
-		logger:                      logger,
-		poolManager:                 poolManager,
-		poolerConsolidator:          preparedstatement.NewPoolerConsolidator(),
-		poolerID:                    poolerID,
-		metrics:                     newQueryStats(),
-		backendVpidTrackingDisabled: !backendVpidTrackingEnabled,
+		logger:                     logger,
+		poolManager:                poolManager,
+		poolerConsolidator:         preparedstatement.NewPoolerConsolidator(),
+		poolerID:                   poolerID,
+		metrics:                    newQueryStats(),
+		backendVpidTrackingEnabled: backendVpidTrackingEnabled,
 	}
 }
 

@@ -338,7 +338,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, !config.DisableBackendVpidTracking)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, backendVpidTrackingEnabled(config))
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -773,8 +773,12 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 	}
 }
 
+func backendVpidTrackingEnabled(config *Config) bool {
+	return config == nil || config.BackendVpidTrackingEnabled == nil || *config.BackendVpidTrackingEnabled
+}
+
 func (pm *MultiPoolerManager) provisionBackendVpidTable(ctx context.Context) {
-	if pm.config.DisableBackendVpidTracking {
+	if !backendVpidTrackingEnabled(pm.config) {
 		return
 	}
 	queryService := pm.internalQueryService()
