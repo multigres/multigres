@@ -538,7 +538,6 @@ func TestPasswordNormalization(t *testing.T) {
 	t.Run("bidirectional check failure uses raw password (RFC 4013 example 7)", func(t *testing.T) {
 		// RFC 4013 Example #7: <U+0627><U+0031> → Error (bidirectional check failure)
 		// PostgreSQL allows passwords that fail bidirectional checks by using raw password
-		//nolint:gosec // G101 false positive - test password for RFC 4013 bidi validation
 		passwordWithBidiViolation := "foo\u0627\u0031bar"
 		assert.Equal(t, passwordWithBidiViolation, normalizePassword(passwordWithBidiViolation),
 			"Password with bidi violation should be returned unchanged")

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// go/tools/s3mock/cmd/s3mock/main.go
+// go/test/s3mock/cmd/s3mock/main.go
 package main
 
 import (
@@ -22,7 +22,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/multigres/multigres/go/tools/s3mock"
+	"github.com/multigres/multigres/go/test/s3mock"
 )
 
 func main() {

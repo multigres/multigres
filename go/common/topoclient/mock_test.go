@@ -221,7 +221,7 @@ func (l *mockLockDescriptor) Unlock(ctx context.Context) error {
 type mockFactory struct {
 	mu          sync.Mutex
 	shouldFail  bool
-	createCount int32
+	createCount atomic.Int32
 	connections []*mockConn
 }
 
@@ -236,14 +236,14 @@ func (f *mockFactory) setShouldFail(fail bool) {
 }
 
 func (f *mockFactory) getCreateCount() int32 {
-	return atomic.LoadInt32(&f.createCount)
+	return f.createCount.Load()
 }
 
 func (f *mockFactory) newConn() (Conn, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	count := atomic.AddInt32(&f.createCount, 1)
+	count := f.createCount.Add(1)
 
 	if f.shouldFail {
 		return nil, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "factory error")
@@ -268,7 +268,7 @@ func (f *mockFactory) waitForNewConn(currentCount int32) {
 // mockFactoryWithSelectiveFailure fails only for specific cells
 type mockFactoryWithSelectiveFailure struct {
 	mu          sync.Mutex
-	createCount int32
+	createCount atomic.Int32
 	failForCell string
 }
 
@@ -276,7 +276,7 @@ func (f *mockFactoryWithSelectiveFailure) newConn(topoName string) (Conn, error)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	count := atomic.AddInt32(&f.createCount, 1)
+	count := f.createCount.Add(1)
 
 	if topoName == f.failForCell {
 		return nil, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "factory error")

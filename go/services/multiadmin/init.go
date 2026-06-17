@@ -129,10 +129,10 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 			)
 			// NOTE: The ctx parameter to the generated method here is unused.
 			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(ctx, gwmux, ma.adminServer); err != nil {
-				logger.Error("failed to register grpc-gateway handler", "error", err)
+				logger.ErrorContext(ctx, "failed to register grpc-gateway handler", "error", err)
 			} else {
 				ma.senv.HTTPHandle("/api/", gwmux)
-				logger.Info("MultiAdmin gRPC and HTTP API services registered")
+				logger.InfoContext(ctx, "MultiAdmin gRPC and HTTP API services registered")
 			}
 		}
 	})

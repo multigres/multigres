@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// go/tools/s3mock/storage.go
+// go/test/s3mock/storage.go
 package s3mock
 
 import (

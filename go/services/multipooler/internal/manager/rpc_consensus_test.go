@@ -17,7 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -1018,7 +1017,7 @@ func TestAvailabilityStatus(t *testing.T) {
 // sees the signal without waiting for the next periodic snapshot, and does
 // NOT broadcast when the value is unchanged (idempotent calls are cheap).
 func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
 	streamer := newHealthStreamer(logger, id, "tg", "0")
 	pm := &MultiPoolerManager{

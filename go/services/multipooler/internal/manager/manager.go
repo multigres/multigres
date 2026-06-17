@@ -1007,6 +1007,7 @@ func (pm *MultiPoolerManager) loadShardConfigFromGlobalTopo() {
 		// we exec (and the temp file would be cleaned up when closed).
 		pgpassPath := filepath.Join(pm.record.PoolerDir(), "pgbackrest", "pgbackrest.pgpass")
 		pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", pg1User, pg1Password)
+		// #nosec G703 -- pgpassPath is built from the pooler's own PoolerDir, not external input.
 		if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
 			pm.setStateError(fmt.Errorf("failed to write pgbackrest pgpass file: %w", err))
 			return

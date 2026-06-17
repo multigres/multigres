@@ -93,6 +93,7 @@ func main() {
 	}
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok {
+		// #nosec G706 -- repo is GITHUB_REPOSITORY from the CI runner; this is a dev/CI tool, not a request handler.
 		log.Fatalf("GITHUB_REPOSITORY must be owner/name, got %q", repo)
 	}
 
@@ -103,6 +104,7 @@ func main() {
 	gh := github.NewClient(nil).WithAuthToken(token)
 
 	since := time.Now().UTC().AddDate(0, 0, -*days)
+	// #nosec G706 -- repo is GITHUB_REPOSITORY from the CI runner; this is a dev/CI tool, not a request handler.
 	log.Printf("scanning runs across all branches since %s for repo %s", since.Format(time.RFC3339), repo)
 	logRateLimit(ctx, gh, "start")
 
@@ -233,6 +235,7 @@ func logRateLimit(ctx context.Context, gh *github.Client, label string) {
 		return
 	}
 	core := rl.GetCore()
+	// #nosec G706 -- args come from the GitHub API rate-limit response; this is a dev/CI tool, not a request handler.
 	log.Printf("rate-limit (%s): %d/%d remaining (resets %s)",
 		label, core.Remaining, core.Limit, core.Reset.Format(time.RFC3339))
 }
@@ -539,11 +542,13 @@ func postSlack(ctx context.Context, webhookURL string, p slackPayload) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G704 -- webhookURL is the operator-configured Slack webhook (flag/env); this is a dev/CI tool, not a request handler.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// #nosec G704 -- webhookURL is the operator-configured Slack webhook (flag/env); this is a dev/CI tool, not a request handler.
 	resp, err := (&http.Client{Timeout: httpTimeoutSec * time.Second}).Do(req)
 	if err != nil {
 		return err

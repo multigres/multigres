@@ -134,7 +134,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		// the timer fires after this failover has already ended and a new
 		// one has started, the stale callback is ignored.
 		sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
-			sb.logger.Warn("max failover duration exceeded, stopping buffering")
+			sb.logger.WarnContext(ctx, "max failover duration exceeded, stopping buffering")
 			sb.stopBuffering("max duration exceeded", gen)
 		})
 		sb.mu.Unlock()

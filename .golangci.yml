@@ -316,6 +316,15 @@ linters:
       - linters:
           - gosec
         text: "G204:"
+      # In test code only, silence G101 (hardcoded credentials) and the gosec
+      # taint-analysis family (G7xx: path traversal, SSRF, XSS, log injection,
+      # open redirect). Tests run against controlled inputs — GUC-name maps,
+      # example AWS keys, computed temp paths — so these fire as false positives.
+      # We keep all of them active for non-test code.
+      - linters:
+          - gosec
+        text: "(G101|G7[0-9][0-9]):"
+        path: "(_test\\.go$|^go/test/|/testutil/)"
       # mterrors intentionally uses direct error comparisons
       - linters:
           - errorlint
