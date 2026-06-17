@@ -187,11 +187,13 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // PostgreSQL backend pids via the multigres.backend_vpid table, which the
 // multipooler upserts whenever it hands a backend to a gateway session (the
 // row commits in autocommit before any BEGIN, so it is visible to this probe
-// for the whole transaction). The table is also created here, idempotently and
-// ahead of the suite, so the shim never races the pooler's own lazy creation.
-// The wait-check aggregates over every matching backend rather than picking one
-// non-deterministically; rows of dead backends are ignored via the join against
-// pg_stat_activity.
+// for the whole transaction). The row is deleted when the backend is released
+// or recycled, so the table represents active gateway-to-backend associations.
+// The table is also created here, idempotently and ahead of the suite, so the
+// shim never races the pooler's own lazy creation. The wait-check aggregates
+// over every matching backend rather than picking one non-deterministically;
+// rows of dead backends are ignored via the join against pg_stat_activity as a
+// defensive fallback for abrupt connection loss.
 func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
 	t.Helper()
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
@@ -260,32 +262,31 @@ BEGIN
     RETURNING id INTO v_log_id;
 
     -- Diagnostic snapshot of the mapping table, restricted to live
-    -- backends (rows of dead backends linger until their pid is reused).
+    -- backends as a defensive fallback for abrupt connection loss.
     SELECT array_agg(bv.vpid || '=' || bv.backend_pid)
     INTO v_vpid_entries
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid;
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start;
 
     SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
     INTO v_all_backends
     FROM pg_stat_activity sa
     WHERE sa.datname = current_database();
 
-    -- A client vpid can map to multiple live PG backends (a leftover row
-    -- for a pool conn the client used for an earlier query, plus the live
-    -- reserved conn). Picking one non-deterministically risks probing the
-    -- idle one and missing the wait. real_check_pid is kept for
-    -- diagnostic display only; the actual block check below aggregates
-    -- over every matching backend.
+    -- A client vpid should normally map to one live PG backend. Aggregate
+    -- anyway so transient hand-off overlap or duplicate mappings cannot make
+    -- the wait check pick a non-blocked backend non-deterministically.
+    -- real_check_pid is kept for diagnostic display only; the actual block
+    -- check below aggregates over every matching backend.
     SELECT bv.backend_pid INTO v_real_check_pid
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
     WHERE bv.vpid = check_pid
     LIMIT 1;
 
     SELECT array_agg(bv.backend_pid) INTO v_real_blocked_by
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
     WHERE bv.vpid = ANY(blocked_by);
 
     -- Direct connections (no multigateway) hand us real pids; preserve them.
@@ -306,7 +307,7 @@ BEGIN
     FROM (
         SELECT unnest(pg_blocking_pids(bv.backend_pid)) AS b
         FROM multigres.backend_vpid bv
-        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
         WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
@@ -323,7 +324,7 @@ BEGIN
     FROM (
         SELECT unnest(pg_safe_snapshot_blocking_pids(bv.backend_pid)) AS b
         FROM multigres.backend_vpid bv
-        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
         WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found

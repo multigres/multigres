@@ -29,6 +29,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/multigresschema"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -337,7 +338,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, !config.DisableBackendVpidTracking)
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -741,6 +742,7 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
+		pm.provisionBackendVpidTable(pm.ctx)
 	}
 
 	// Create sidecar schema and start heartbeat before opening query service controller
@@ -768,6 +770,20 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 		if err := pm.startPubSubListener(context.TODO()); err != nil {
 			pm.logger.Error("Failed to start PubSub listener", "error", err)
 		}
+	}
+}
+
+func (pm *MultiPoolerManager) provisionBackendVpidTable(ctx context.Context) {
+	if pm.config.DisableBackendVpidTracking {
+		return
+	}
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		pm.logger.WarnContext(ctx, "backend vpid tracking enabled but internal query service is unavailable")
+		return
+	}
+	if err := queryService.QueryMultiStatement(ctx, multigresschema.BackendVpidDDL); err != nil {
+		pm.logger.WarnContext(ctx, "failed to provision multigres.backend_vpid; vpid tracking degraded", "error", err)
 	}
 }
 

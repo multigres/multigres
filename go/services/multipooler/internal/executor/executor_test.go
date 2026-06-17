@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +67,7 @@ type mockReservedConn struct {
 	openHoldCursors map[string]bool
 }
 
+func (m *mockReservedConn) Conn() *regular.Conn      { return nil }
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
@@ -817,7 +817,7 @@ func TestScramKeysFromOptions(t *testing.T) {
 // --- sessionSettingsFromOptions tests ---
 
 func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
-	e := &Executor{vpidStampEnabled: false}
+	e := &Executor{}
 	require.Nil(t, e.sessionSettingsFromOptions(nil))
 }
 
@@ -831,15 +831,17 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
-		name    string
-		options *query.ExecuteOptions
+		name     string
+		disabled bool
+		options  *query.ExecuteOptions
 	}{
-		{"nil options", nil},
-		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"disabled with options", true, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"nil options", false, nil},
+		{"zero id", false, &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{}
+			e := &Executor{backendVpidTrackingDisabled: tc.disabled}
 			// nil conn would panic on Query — guard must short-circuit first.
 			e.trackVpidOnReserved(ctx, nil, tc.options)
 		})
@@ -849,15 +851,17 @@ func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
-		name    string
-		options *query.ExecuteOptions
+		name     string
+		disabled bool
+		options  *query.ExecuteOptions
 	}{
-		{"nil options", nil},
-		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"disabled with options", true, &query.ExecuteOptions{ClientConnectionId: 5}},
+		{"nil options", false, nil},
+		{"zero id", false, &query.ExecuteOptions{ClientConnectionId: 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{}
+			e := &Executor{backendVpidTrackingDisabled: tc.disabled}
 			e.trackVpidOnRegular(ctx, nil, tc.options)
 		})
 	}
@@ -866,9 +870,9 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 // --- trackVpid* happy-path tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
-// verify that the helper creates multigres.backend_vpid once per executor,
-// upserts the (backend_pid → vpid) row, and skips the upsert when the
-// connection already tracks the same vpid.
+// verify that the helper upserts the (backend_pid/backend_start → vpid) row,
+// skips the upsert when the connection already tracks the same vpid, and
+// clears the row at recycle/release.
 
 func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	server := fakepgserver.New(t)
@@ -886,22 +890,31 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
 	log := server.QueryLog()
-	assert.Contains(t, log, "create unlogged table if not exists multigres.backend_vpid",
-		"first track call must create the mapping table")
-	assert.Contains(t, log, "values (pg_backend_pid(), 99)")
+	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
+	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 99")
 
 	// Same vpid again: the per-conn cache skips the redundant upsert.
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 	assert.Empty(t, server.QueryLog(), "re-tracking the same vpid must be a no-op")
 
-	// A different vpid re-upserts; the DDL is guarded by sync.Once so only
-	// the upsert runs.
+	// Cleanup deletes this backend's row and resets the per-conn cache so a
+	// later hand-off to the same vpid records a fresh association.
+	server.ResetQueryLog()
+	e.clearVpidOnRegular(ctx, conn)
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
+	assert.Zero(t, conn.State().TrackedVpid())
+
+	server.ResetQueryLog()
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+	assert.Contains(t, server.QueryLog(), "select pg_backend_pid(), backend_start, 99", "same vpid after cleanup must upsert again")
+
+	// A different vpid re-upserts.
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 100})
 	log = server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table")
-	assert.Contains(t, log, "values (pg_backend_pid(), 100)")
+	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 100")
 }
 
 func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
@@ -931,13 +944,17 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
 	log := server.QueryLog()
-	assert.Contains(t, log, "create unlogged table if not exists multigres.backend_vpid")
-	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
+	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
+	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 123")
+
+	server.ResetQueryLog()
+	e.releaseReservedConn(ctx, rconn, reserved.ReleaseCommit, nil)
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
 }
 
 // TestTrackVpidOnRegular_BestEffortOnError verifies the failure path: when
-// the upsert errors, the helper re-runs the DDL and retries once, and never
-// surfaces an error to the query path.
+// the upsert errors, the helper never surfaces an error to the query path and
+// does not mark the connection as tracked.
 func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -954,12 +971,10 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
 
-	// ensure (once) + upsert + re-create + retried upsert = 4 statements.
 	log := server.QueryLog()
-	assert.Equal(t, 2, strings.Count(log, "create unlogged table if not exists"),
-		"expected initial ensure plus one re-create attempt")
-	assert.Equal(t, 2, strings.Count(log, "values (pg_backend_pid(), 7)"),
-		"expected the upsert to be retried exactly once")
+	assert.NotContains(t, log, "create unlogged table", "upsert failure must not trigger hot-path DDL")
+	assert.Contains(t, log, "select pg_backend_pid(), backend_start, 7")
+	assert.Zero(t, conn.State().TrackedVpid())
 }
 
 // TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway is a
@@ -1215,10 +1230,15 @@ func TestNewExecutor(t *testing.T) {
 	logger := slog.Default()
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 
-	e := NewExecutor(logger, nil, poolerID)
+	e := NewExecutor(logger, nil, poolerID, true)
 	require.NotNil(t, e)
 	assert.Equal(t, poolerID, e.poolerID)
+	assert.False(t, e.backendVpidTrackingDisabled)
 	assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
+
+	disabled := NewExecutor(logger, nil, poolerID, false)
+	require.NotNil(t, disabled)
+	assert.True(t, disabled.backendVpidTrackingDisabled)
 }
 
 func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
