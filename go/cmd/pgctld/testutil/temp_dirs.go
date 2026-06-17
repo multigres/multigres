@@ -171,6 +171,7 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 
 		if info.Name() == "postmaster.pid" {
 			// Read the PID from the file and kill the process
+			// #nosec G122 -- walking the test's own temp dir during cleanup; no untrusted symlink TOCTOU.
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return nil //nolint:nilerr // Continue if we can't read the file
