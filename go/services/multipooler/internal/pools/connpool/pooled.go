@@ -35,6 +35,11 @@ type Pooled[C Connection] struct {
 	// Used for the Recycle pattern.
 	pool *Pool[C]
 
+	// taintOnRecycle marks a borrowed connection as unusable without releasing
+	// its pool slot until Recycle. This is for connections that must remain
+	// capacity-accounted while active but must never return to the idle pool.
+	taintOnRecycle bool
+
 	// Conn is the underlying connection.
 	Conn C
 }
@@ -45,21 +50,38 @@ func (p *Pooled[C]) Close() {
 }
 
 // Recycle returns the connection to its pool.
-// If the connection is closed, a new connection will be created to replace it.
-// If the pool reference is nil, the connection is closed instead.
+// If the connection is closed or marked with TaintOnRecycle, a new connection
+// will be created to replace it. If the pool reference is nil, the connection
+// is closed instead.
 func (p *Pooled[C]) Recycle() {
 	switch {
 	case p.pool == nil:
 		p.Conn.Close()
 	case p.Conn.IsClosed():
-		p.pool.put(nil)
+		p.recycleDiscarded()
+	case p.taintOnRecycle:
+		p.Conn.Close()
+		p.recycleDiscarded()
 	default:
 		p.pool.put(p)
 	}
 }
 
-// Taint marks this connection as unusable and removes it from the pool.
-// The connection will be closed and a new one created when recycled.
+func (p *Pooled[C]) recycleDiscarded() {
+	pool := p.pool
+	p.pool = nil
+	pool.put(nil)
+}
+
+// TaintOnRecycle marks this borrowed connection as unusable while keeping its
+// pool slot borrowed until Recycle. Recycle will close this connection and
+// replace it instead of returning it to the idle pool.
+func (p *Pooled[C]) TaintOnRecycle() {
+	p.taintOnRecycle = true
+}
+
+// Taint marks this connection as unusable and immediately releases/replaces its
+// pool slot. Use TaintOnRecycle when the slot must remain borrowed until Recycle.
 func (p *Pooled[C]) Taint() {
 	if p.pool == nil {
 		return

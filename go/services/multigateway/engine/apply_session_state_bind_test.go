@@ -15,15 +15,19 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -296,6 +300,144 @@ func TestApplySessionState_OutOfRangeParamRef(t *testing.T) {
 	_, _, err := runBindExecute(t, prim, portalInfo)
 	require.Error(t, err)
 	assertFeatureErrBind(t, err, "but the portal carries 1 values")
+}
+
+// ---------- Normalized-binds (simple-protocol) resolution ----------
+//
+// The tests below cover StreamExecute's BindRefs path: the ParamRefs were
+// minted by ast.Normalize (not by the client), so resolution reads the
+// normalizer-extracted bindVars instead of a portal's wire Bind values.
+// This is the path a cached `SELECT set_config('<gmv>', <value>, true)`
+// simple query takes — the value collapses into the plan-cache key, so the
+// primitive must re-resolve it on every execution.
+
+// runNormalizedExecute executes the primitive's StreamExecute (simple-
+// protocol path) against a fresh connection state with the given conn and
+// normalizer-extracted bindVars.
+func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Conn, bindVars []*ast.A_Const) (*handler.MultiGatewayConnectionState, []string, error) {
+	t.Helper()
+	state := &handler.MultiGatewayConnectionState{}
+	state.InitStatementTimeout(30 * time.Second)
+	var tags []string
+	err := prim.StreamExecute(context.Background(), nil, conn, state, bindVars, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			tags = append(tags, r.CommandTag)
+			return nil
+		})
+	return state, tags, err
+}
+
+// normalizedGMVLocalPrim builds the primitive planSelectStmt mints for
+// `SELECT set_config('statement_timeout', <value>, true)` after the
+// normalizer parameterized the value: synthetic stmt with IsLocal=true and
+// a `__bind_$1__` placeholder, BindRefs carrying the ValueParam.
+func normalizedGMVLocalPrim(sql string) *ApplySessionState {
+	stmt := syntheticSetForTest("statement_timeout", "__bind_$1__")
+	stmt.IsLocal = true
+	return NewApplySessionStateFromBind(sql, stmt, &BoundSetConfigRefs{
+		ValueParam: &ast.ParamRef{Number: 1},
+	})
+}
+
+func txnConn(t *testing.T) *server.Conn {
+	t.Helper()
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	return conn
+}
+
+// TestApplySessionState_NormalizedBindGMVLocalResolves — the gateway-managed
+// transaction-local override must be applied with the value resolved from
+// THIS execution's bindVars, not the `__bind_$1__` placeholder baked into
+// the cached plan's synthetic VariableStmt.
+func TestApplySessionState_NormalizedBindGMVLocalResolves(t *testing.T) {
+	const sql = "SELECT set_config('statement_timeout', $1, true)"
+	prim := normalizedGMVLocalPrim(sql)
+
+	state, tags, err := runNormalizedExecute(t, prim, txnConn(t),
+		[]*ast.A_Const{ast.NewA_Const(ast.NewString("250ms"), 0)})
+	require.NoError(t, err)
+	assert.Nil(t, tags, "SilentTracking must suppress the SET CommandComplete; Route owns the response")
+	assert.Equal(t, 250*time.Millisecond, state.GetStatementTimeout())
+	_, exists := state.GetSessionVariable("statement_timeout")
+	assert.False(t, exists, "GMV must not land in SessionSettings")
+}
+
+// TestApplySessionState_NormalizedBindCacheReuseAcrossValues is the engine-
+// level regression for the plan-cache staleness report: the SAME primitive
+// (same cached plan, same BindRefs) must apply each execution's value. A
+// baked-in literal or placeholder would fail every iteration after the first.
+func TestApplySessionState_NormalizedBindCacheReuseAcrossValues(t *testing.T) {
+	const sql = "SELECT set_config('statement_timeout', $1, true)"
+	prim := normalizedGMVLocalPrim(sql)
+
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"100ms", 100 * time.Millisecond},
+		{"2s", 2 * time.Second},
+		{"1m", time.Minute},
+	} {
+		state, _, err := runNormalizedExecute(t, prim, txnConn(t),
+			[]*ast.A_Const{ast.NewA_Const(ast.NewString(tc.value), 0)})
+		require.NoError(t, err, "iteration %q", tc.value)
+		assert.Equal(t, tc.want, state.GetStatementTimeout(),
+			"iteration %q must reflect that iteration's normalized literal", tc.value)
+	}
+}
+
+// TestApplySessionState_NormalizedBindGMVLocalOutsideTxnIsNoOp — parity with
+// the literal path: a transaction-local GMV override outside a transaction
+// must not be applied (it would leak for the connection's lifetime; PG scopes
+// it to the implicit single-statement transaction).
+func TestApplySessionState_NormalizedBindGMVLocalOutsideTxnIsNoOp(t *testing.T) {
+	const sql = "SELECT set_config('statement_timeout', $1, true)"
+	prim := normalizedGMVLocalPrim(sql)
+
+	idleConn := server.NewTestConn(&bytes.Buffer{}).Conn // idle: not in a transaction
+	state, _, err := runNormalizedExecute(t, prim, idleConn,
+		[]*ast.A_Const{ast.NewA_Const(ast.NewString("2s"), 0)})
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "local override must not leak outside a transaction")
+}
+
+// TestApplySessionState_NormalizedBindSessionValueResolves covers the
+// is_local=false shape executed via the simple protocol (reachable through
+// cross-protocol plan-cache sharing): the resolved value must land in
+// SessionSettings under the literal name.
+func TestApplySessionState_NormalizedBindSessionValueResolves(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, false)"
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("search_path", "__bind_$1__"),
+		&BoundSetConfigRefs{
+			ValueParam: &ast.ParamRef{Number: 1},
+		})
+
+	state, tags, err := runNormalizedExecute(t, prim, server.NewTestConn(&bytes.Buffer{}).Conn,
+		[]*ast.A_Const{ast.NewA_Const(ast.NewString("public,extensions"), 0)})
+	require.NoError(t, err)
+	assert.Nil(t, tags)
+	got, ok := state.GetSessionVariable("search_path")
+	require.True(t, ok)
+	assert.Equal(t, "public,extensions", got)
+}
+
+// TestApplySessionState_NormalizedBindOutOfRangeErrors — a ParamRef pointing
+// past the extracted literals (user-typed $N in a simple query) must error
+// before any gateway state is written; the Sequence aborts before the Route.
+func TestApplySessionState_NormalizedBindOutOfRangeErrors(t *testing.T) {
+	const sql = "SELECT set_config('statement_timeout', $2, true)"
+	stmt := syntheticSetForTest("statement_timeout", "__bind_$2__")
+	stmt.IsLocal = true
+	prim := NewApplySessionStateFromBind(sql, stmt, &BoundSetConfigRefs{
+		ValueParam: &ast.ParamRef{Number: 2},
+	})
+
+	state, _, err := runNormalizedExecute(t, prim, txnConn(t),
+		[]*ast.A_Const{ast.NewA_Const(ast.NewString("only-one"), 0)})
+	require.Error(t, err)
+	assertFeatureErrBind(t, err, "carries 1 normalized literal")
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "gateway state must not be updated on bind-resolution error")
 }
 
 // assertFeatureErrBind wraps the verbose unwrap-into-PgDiagnostic check.

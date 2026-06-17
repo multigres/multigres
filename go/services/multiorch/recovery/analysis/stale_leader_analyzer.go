@@ -58,26 +58,24 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// Need multiple leaders to detect staleness.
-	if len(sa.Leaders) <= 1 {
+	// The shard's leader is the pooler named by the highest known consensus rule.
+	// Any reachable pooler whose own consensus status says it believes itself the
+	// leader of its term (commonconsensus.NamesSelfAsLeader) but is not that named leader is
+	// a stale leader to be demoted.
+	leaderID := sa.HighestShardRule.GetLeaderId()
+	if leaderID == nil {
 		return nil, nil
 	}
 
-	// A tie in LeaderTerm indicates a consensus bug — skip automatic demotion.
-	if sa.HighestTermReachableLeader == nil {
-		return nil, nil
-	}
-
-	// Collect stale leaders: every topology-PRIMARY pooler that is not the
-	// highest-term leader is stale. This includes poolers whose own rule has
-	// caught up (LeaderTerm == 0 because the rule now names a different
-	// leader) — exactly the post-emergency-demotion state we need to repair.
 	var staleLeaders []*PoolerAnalysis
-	for _, p := range sa.Leaders {
-		if proto.Equal(p.PoolerID, sa.HighestTermReachableLeader.PoolerID) {
+	for _, pa := range sa.Analyses {
+		if !pa.LastCheckValid || !commonconsensus.NamesSelfAsLeader(pa.ConsensusStatus) {
 			continue
 		}
-		staleLeaders = append(staleLeaders, p)
+		if proto.Equal(pa.PoolerID, leaderID) {
+			continue
+		}
+		staleLeaders = append(staleLeaders, pa)
 	}
 
 	if len(staleLeaders) == 0 {
@@ -89,6 +87,8 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	// priority.
 	slices.SortFunc(staleLeaders, compareLeaderTimeline)
 
+	leaderTerm := sa.HighestShardRule.GetRuleNumber().GetCoordinatorTerm()
+
 	// Assign descending priorities so the most stale leader (sorted first)
 	// gets PriorityEmergency, the next gets PriorityEmergency-1, etc.
 	problems := make([]types.Problem, 0, len(staleLeaders))
@@ -98,11 +98,11 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 			CheckName: "StaleLeader",
 			PoolerID:  stale.PoolerID,
 			ShardKey:  sa.ShardKey,
-			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_term %d) is stale, most advanced leader %s (most_advanced_leader_term %d)",
+			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_term %d) is stale, current leader %s (leader_term %d)",
 				stale.PoolerID.Name,
 				commonconsensus.LeaderTerm(stale.ConsensusStatus),
-				sa.HighestTermReachableLeader.PoolerID.Name,
-				commonconsensus.LeaderTerm(sa.HighestTermReachableLeader.ConsensusStatus)),
+				leaderID.Name,
+				leaderTerm),
 			Priority:       types.PriorityEmergency - types.Priority(i),
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),

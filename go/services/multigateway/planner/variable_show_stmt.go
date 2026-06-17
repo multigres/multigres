@@ -15,6 +15,8 @@
 package planner
 
 import (
+	"strings"
+
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -28,12 +30,19 @@ func (p *Planner) planVariableShowStmt(
 	stmt *ast.VariableShowStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
-	if !isGatewayManagedVariable(stmt.Name) {
+	// Canonicalize to the lowercase GUC name. PostgreSQL lowercases unquoted
+	// identifiers in the parser, but a quoted name (e.g. SHOW "Statement_Timeout")
+	// preserves case. isGatewayManagedVariable already compares
+	// case-insensitively; passing the lowercased name to the primitive keeps
+	// the executor's case-sensitive switch from missing it (which would panic)
+	// and matches the column label PostgreSQL returns.
+	name := strings.ToLower(stmt.Name)
+	if !isGatewayManagedVariable(name) {
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
 	}
 
-	p.logger.Debug("planning SHOW gateway-managed variable", "variable", stmt.Name)
-	primitive := engine.NewGatewayShowVariable(sql, stmt.Name)
+	p.logger.Debug("planning SHOW gateway-managed variable", "variable", name)
+	primitive := engine.NewGatewayShowVariable(sql, name)
 	plan := engine.NewPlan(sql, primitive)
 	return plan, nil
 }

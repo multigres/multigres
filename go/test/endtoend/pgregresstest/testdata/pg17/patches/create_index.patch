@@ -11,3 +11,12 @@
  CREATE INDEX onek_unique2 ON onek USING btree(unique2 int4_ops);
  CREATE INDEX onek_hundred ON onek USING btree(hundred int4_ops);
  CREATE INDEX onek_stringu1 ON onek USING btree(stringu1 name_ops);
+@@ -1209,6 +1207,8 @@
+ -- HASH
+ --
+ CREATE UNLOGGED TABLE unlogged_hash_table (id int4);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ CREATE INDEX unlogged_hash_index ON unlogged_hash_table USING hash (id int4_ops);
+ DROP TABLE unlogged_hash_table;
+ -- CREATE INDEX hash_ovfl_index ON hash_ovfl_heap USING hash (x int4_ops);

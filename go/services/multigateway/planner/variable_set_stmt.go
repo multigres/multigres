@@ -127,14 +127,11 @@ func (p *Planner) planVariableSetStmt(
 // isGatewayManagedVariable returns true for session variables that are managed
 // entirely by the gateway and should NOT be forwarded to PostgreSQL.
 // These variables control gateway-level behavior (e.g., timeouts) and sending
-// them to PostgreSQL would be redundant or counterproductive for connection pooling.
+// them to PostgreSQL would be redundant or counterproductive for connection
+// pooling. It delegates to handler.IsGatewayManagedVariable so the planner and
+// engine share a single source of truth for the managed-variable set.
 func isGatewayManagedVariable(name string) bool {
-	switch strings.ToLower(name) {
-	case "statement_timeout":
-		return true
-	default:
-		return false
-	}
+	return handler.IsGatewayManagedVariable(name)
 }
 
 // planGatewayManagedVariable creates a GatewaySessionState primitive for a

@@ -574,7 +574,7 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	poolerStore := store.NewPoolerStore(nil, slog.Default())
+	poolerStore := store.NewPoolerStore()
 
 	// Track new-pooler callbacks via a channel.
 	discovered := make(chan *clustermetadata.ID, 10)

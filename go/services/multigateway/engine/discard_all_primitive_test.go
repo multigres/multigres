@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,6 +125,8 @@ func TestDiscardAllPrimitive_Success(t *testing.T) {
 
 	state := handler.NewMultiGatewayConnectionState()
 	state.SetSessionVariable("work_mem", "64MB")
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
 	state.AddOpenHoldCursor("c1")
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
@@ -138,9 +141,10 @@ func TestDiscardAllPrimitive_Success(t *testing.T) {
 	assert.Equal(t, byte('A'), h.closeCalls[0].typ)
 	assert.Empty(t, h.closeCalls[0].name)
 
-	// RESET ALL: session settings cleared.
+	// RESET ALL: session settings and gateway-managed variables cleared.
 	_, ok := state.GetSessionVariable("work_mem")
 	assert.False(t, ok, "RESET ALL must clear session settings")
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "DISCARD ALL must reset gateway-managed variables")
 
 	// CLOSE ALL: gateway HOLD-cursor bookkeeping cleared.
 	assert.False(t, state.HasAnyOpenHoldCursor(), "DISCARD ALL must clear HOLD cursor tracking")
@@ -162,6 +166,8 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 	conn := newDiscardTestConn(t, h)
 	state := handler.NewMultiGatewayConnectionState()
 	state.SetSessionVariable("work_mem", "64MB")
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetStatementTimeout(5 * time.Second)
 	state.AddOpenHoldCursor("c1")
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
@@ -176,6 +182,7 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 	v, ok := state.GetSessionVariable("work_mem")
 	assert.True(t, ok, "session settings must be left intact when release fails")
 	assert.Equal(t, "64MB", v)
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout(), "gateway-managed variables must be left intact when release fails")
 	assert.True(t, state.HasAnyOpenHoldCursor(), "HOLD cursor tracking must be left intact when release fails")
 }
 

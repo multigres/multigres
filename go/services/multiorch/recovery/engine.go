@@ -238,7 +238,7 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
-	poolerStore := store.NewPoolerStore(rpcClient, logger)
+	poolerStore := store.NewPoolerStore()
 	healthStream := NewHealthStream(ctx, rpcClient, poolerStore, logger)
 
 	engine := &Engine{

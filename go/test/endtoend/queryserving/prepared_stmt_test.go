@@ -15,6 +15,7 @@
 package queryserving
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -192,6 +193,164 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestPreparedStatementTransactionSemantics verifies that SQL-level prepared
+// statements follow PostgreSQL's session-scoped lifecycle, not transaction
+// rollback semantics. In particular, PREPARE and DEALLOCATE are not undone by
+// ROLLBACK or ROLLBACK TO SAVEPOINT.
+func TestPreparedStatementTransactionSemantics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping prepared statement transaction semantics test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err)
+			defer db.Close()
+
+			// Force a single client session so PREPARE/EXECUTE/DEALLOCATE and the
+			// transaction control statements all target the same PostgreSQL session.
+			db.SetMaxOpenConns(1)
+
+			ctx := utils.WithTimeout(t, 30*time.Second)
+			suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+			t.Run("prepare_inside_transaction_survives_full_rollback", func(t *testing.T) {
+				stmtName := "tx_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'tx_p survived full rollback' AS proof, 42 AS val")
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				var proof string
+				var val int
+				err := db.QueryRowContext(ctx, "EXECUTE "+stmtName).Scan(&proof, &val)
+				require.NoError(t, err)
+				assert.Equal(t, "tx_p survived full rollback", proof)
+				assert.Equal(t, 42, val)
+			})
+
+			t.Run("prepare_inside_savepoint_survives_rollback_to_savepoint", func(t *testing.T) {
+				stmtName := "sp_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "SAVEPOINT sp")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'sp_p survived rollback to savepoint' AS proof, 43 AS val")
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK TO SAVEPOINT sp")
+
+				var proof string
+				var val int
+				err := db.QueryRowContext(ctx, "EXECUTE "+stmtName).Scan(&proof, &val)
+				require.NoError(t, err)
+				assert.Equal(t, "sp_p survived rollback to savepoint", proof)
+				assert.Equal(t, 43, val)
+
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+			})
+
+			t.Run("deallocate_inside_transaction_is_not_undone_by_full_rollback", func(t *testing.T) {
+				stmtName := "del_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'del_p should be gone' AS proof, 44 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				_, err := db.ExecContext(ctx, "EXECUTE "+stmtName)
+				assertInvalidPreparedStatementName(t, err)
+			})
+
+			t.Run("deallocate_inside_savepoint_is_not_undone_by_rollback_to_savepoint", func(t *testing.T) {
+				stmtName := "del_sp_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'del_sp_p should be gone' AS proof, 45 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "SAVEPOINT sp")
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK TO SAVEPOINT sp")
+
+				_, err := db.ExecContext(ctx, "EXECUTE "+stmtName)
+				assertInvalidPreparedStatementName(t, err)
+			})
+
+			t.Run("backend_prepared_connstate_survives_reserved_rollback", func(t *testing.T) {
+				// The temp table pins the multigateway session to one multipooler
+				// backend after ROLLBACK. SELECT 1 is the first statement after BEGIN,
+				// so it opens the backend transaction and captures the transaction
+				// snapshot. The following wrapped EXECUTE parses the canonical prepared
+				// statement on that backend inside the already-open transaction, after
+				// the snapshot was captured. If multipooler transaction snapshots
+				// restored PreparedStatements, ROLLBACK would drop the in-memory entry
+				// while the backend still has the prepared statement, and the second
+				// wrapped EXECUTE would try to Parse the same canonical name again.
+				stmtName := "backend_p_" + suffix
+				proofWant := "backend prepared statement survived rollback " + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "DISCARD TEMP") }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "CREATE TEMP TABLE ps_pin_"+suffix+"(x int)")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT '"+proofWant+"' AS proof, 9001 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+
+				var one int
+				err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+				require.NoError(t, err)
+				assert.Equal(t, 1, one)
+
+				drainPreparedRows(t, ctx, db, "EXPLAIN (COSTS OFF) EXECUTE "+stmtName)
+
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				drainPreparedRows(t, ctx, db, "EXPLAIN (COSTS OFF) EXECUTE "+stmtName)
+
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "DISCARD TEMP")
+			})
+		})
+	}
+}
+
+func execPreparedTestSQL(t *testing.T, ctx context.Context, db *sql.DB, query string) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, query)
+	require.NoError(t, err)
+}
+
+func drainPreparedRows(t *testing.T, ctx context.Context, db *sql.DB, query string) {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+	}
+	require.NoError(t, rows.Err())
+}
+
+func assertInvalidPreparedStatementName(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var pqErr *pq.Error
+	require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
+	assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 }
 
 // TestWrappedPreparedStatementExecution covers wrapped EXECUTE forms

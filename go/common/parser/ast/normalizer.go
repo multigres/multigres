@@ -175,11 +175,13 @@ func funcNamePartEquals(n Node, want string) bool {
 
 // setConfigIsLocalLiteralTrue reports whether fc is a 3-arg call whose
 // third argument is the literal boolean true. The normalizer uses this
-// to allow parameterizing set_config args when is_local=true: those calls
-// aren't tracked or rewritten by the planner, so their literals carry no
-// planning-relevant meaning, and preserving them would churn the plan
-// cache for hot patterns like PostgREST's per-request
-// set_config('request.jwt.claims', '<dynamic JSON>', true).
+// to allow parameterizing set_config's value when is_local=true: the name
+// and is_local literals stay in place — the planner reads them to decide
+// whether the call is tracked (ordinary variables aren't; gateway-managed
+// variables are, as a transaction-local override whose parameterized value
+// is resolved from BindValues at execute time) — while the high-cardinality
+// value would churn the plan cache for hot patterns like PostgREST's
+// per-request set_config('request.jwt.claims', '<dynamic JSON>', true).
 //
 // Anything other than a clean literal-true (false, missing, ParamRef,
 // non-literal expression, TypeCast over a literal) returns false — the
