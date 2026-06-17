@@ -96,8 +96,17 @@ func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn,
 
 // clearVpidOnRegular removes this backend's active vpid mapping before the
 // connection stops being associated with the gateway session that borrowed it.
-// It must run in autocommit: if the backend is not idle, or the cleanup query
-// fails/times out, the caller must not recycle the backend as clean.
+// Returns true on the normal path (mapping cleared, or nothing to clear) so the
+// caller recycles the backend.
+//
+// It returns false only on paths where the backend is already in an uncertain
+// state and should not be recycled clean regardless of vpid tracking: the conn
+// is not idle (a leaked open transaction — recycling it would hand a dirty
+// backend to the next session), or the cleanup DELETE failed/timed out (its last
+// operation did not complete cleanly). The caller then closes the backend; this
+// is about connection health, not mapping staleness — a recycled-but-stale row
+// would be harmless because the next checkout re-upserts before any query and an
+// idle pooled backend blocks no one.
 func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) bool {
 	if !e.backendVpidTrackingEnabled {
 		return true
