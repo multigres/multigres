@@ -392,6 +392,25 @@ func TestReplicationRead_ReadErrorWrapped(t *testing.T) {
 	assert.Equal(t, replStreamDead, c.replState, "transport read error must mark the stream dead")
 }
 
+// TestReplicationRead_ReadErrorRefusesSubsequentWrite is the behavior-level
+// regression for the dead-transition that was originally missed: after a
+// transport read failure, a send must be refused. Before the fix the stream
+// stayed in replStreamStreaming, so this WriteReplicationData wrongly succeeded
+// — checking the observable contract (not just the internal replState) is what
+// catches that class of bug.
+func TestReplicationRead_ReadErrorRefusesSubsequentWrite(t *testing.T) {
+	c := newTestReadOnlyConn(nil) // EOF on first read
+	c.replState = replStreamStreaming
+
+	_, err := c.ReadReplicationMessage(context.Background())
+	require.Error(t, err, "read on a closed stream must error")
+
+	// The stream is broken; the next send must be refused.
+	err = c.WriteReplicationData(append([]byte{'r'}, make([]byte, 33)...))
+	require.Error(t, err, "WriteReplicationData must refuse after a failed read")
+	assert.Contains(t, err.Error(), "not streaming")
+}
+
 func TestReplicationRead_DeadlineContextArmsAndReads(t *testing.T) {
 	// A ctx with a deadline exercises makeReadsCancelable's SetReadDeadline path
 	// (and stop's deadline clear) while still returning the frame.
