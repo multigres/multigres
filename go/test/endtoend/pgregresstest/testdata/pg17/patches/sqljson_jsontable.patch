@@ -1,3 +1,8 @@
+# Known divergence (by design): this malformed statement is rejected by
+# multigateway's own SQL parser before it reaches PostgreSQL, so the error is
+# "parse error at position 18: syntax error" instead of PostgreSQL's "syntax
+# error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Here: SELECT JSON_TABLE('[]', '$').
 --- a
 +++ b
 @@ -1,9 +1,7 @@
