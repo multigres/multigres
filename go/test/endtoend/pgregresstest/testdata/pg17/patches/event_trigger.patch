@@ -1,3 +1,7 @@
+# Known divergence (by design): the `create event trigger ... execute procedure
+# test_event_trigger('argument not allowed')` statement is rejected by
+# multigateway's own parser, so the error is "parse error at position 127:
+# syntax error" instead of PostgreSQL's "syntax error at or near ...".
 --- a
 +++ b
 @@ -75,9 +75,7 @@
@@ -34,12 +38,3 @@
  owner of default privileges on new relations belonging to role regress_evt_user
  -- cleanup before next test
  -- these are all OK; the second one should emit a NOTICE
-@@ -519,7 +516,7 @@
- -- matview rewrite when changing access method
- CREATE MATERIALIZED VIEW heapmv USING heap AS SELECT 1 AS a;
- ALTER MATERIALIZED VIEW heapmv SET ACCESS METHOD heap2;
--NOTICE: Table 'heapmv' is being rewritten (reason = 8)
-+ERROR: access method "heap2" does not exist
- DROP MATERIALIZED VIEW heapmv;
- -- shouldn't trigger a table_rewrite event
- alter table rewriteme alter column foo type numeric(12,4);
