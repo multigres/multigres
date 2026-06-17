@@ -545,7 +545,7 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -598,7 +598,7 @@ func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -628,7 +628,7 @@ func TestPlan_DynamicSetConfig_AdvisoryLockPins(t *testing.T) {
 	// not a literal/bound param) and advisory-lock-acquiring.
 	sql := "SELECT set_config('x', pg_try_advisory_lock(1)::text, false)"
 	stmt := parseOne(t, sql)
-	plan, err := p.Plan(sql, stmt, testConn.Conn)
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
@@ -670,7 +670,7 @@ func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, plan)
 			var diag *mterrors.PgDiagnostic

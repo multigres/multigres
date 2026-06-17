@@ -217,10 +217,10 @@ func (p *PreparedStatementPrimitive) executeDeallocateAll(
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE statements come in
-// via the simple protocol (PlanPortal returns nil for them); the
-// EXECUTE form has its own internal portal-style flow that already
-// reuses HandleBind / PortalStreamExecute on the backend. Delegate.
+// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE are gateway-managed
+// identically on both protocols, so the portal binds carry no extra meaning
+// here — the EXECUTE form already runs its own internal portal-style flow,
+// reusing HandleBind / PortalStreamExecute on the backend. Delegate.
 func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,

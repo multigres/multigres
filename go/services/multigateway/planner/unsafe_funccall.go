@@ -184,9 +184,9 @@ type statementAnalysis struct {
 	ReleasesSessionAdvisoryLock bool
 }
 
-// analyzeStatement is the single pre-dispatch analysis pass that every planning
-// path (simple `Plan()` and extended-protocol `PlanPortal()`) must apply. It
-// does two things in one place:
+// analyzeStatement is the single pre-dispatch analysis pass that `Plan()`
+// applies on both the simple and extended-protocol paths. It does two things in
+// one place:
 //
 //   - Rejects unsupported constructs: Tier 2 statement types (LOAD, ALTER
 //     SYSTEM, CREATE/DROP DATABASE, ...), changes to cluster-managed GUCs (the
@@ -202,9 +202,9 @@ type statementAnalysis struct {
 // planned): the normalizer stays policy-free, and everything that depends on
 // gateway routing policy lives here, on the cache-miss planning path.
 //
-// Centralizing both concerns here is the point — earlier versions ran only the
-// statement-type rejection from PlanPortal and silently let blocklisted
-// function calls through on non-cacheable extended-protocol paths.
+// Centralizing both concerns here is the point — earlier versions ran only a
+// statement-type rejection on the extended-protocol path and silently let
+// blocklisted function calls through on non-cacheable portal queries.
 func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 	if err := rejectUnsupportedStatement(stmt); err != nil {
 		return nil, err

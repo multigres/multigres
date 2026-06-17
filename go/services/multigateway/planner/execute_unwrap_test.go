@@ -156,7 +156,7 @@ func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	// The primitive should be a TempTableRoute with PreparedStatement attached.
@@ -185,7 +185,7 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	// Sequence[UnloggedTableWarning, Route(with prepared statement)].
@@ -221,7 +221,7 @@ func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	route, ok := plan.Primitive.(*engine.Route)
@@ -249,7 +249,7 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	const sql = "EXPLAIN CREATE TEMP TABLE tmp_nested AS EXECUTE p_nested_temp"
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	ttr, ok := plan.Primitive.(*engine.TempTableRoute)

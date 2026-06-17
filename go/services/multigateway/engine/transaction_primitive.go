@@ -437,9 +437,9 @@ func (t *TransactionPrimitive) recordTxnMetrics(
 
 // PortalStreamExecute satisfies the Primitive interface for the
 // extended-protocol path. BEGIN / COMMIT / ROLLBACK / SAVEPOINT carry
-// no parameter binds; PlanPortal explicitly funnels TransactionStmt
-// through Plan() so this primitive runs locally rather than being
-// portal-forwarded. Delegate.
+// no parameter binds; Plan routes every TransactionStmt through
+// planTransactionStmt on both protocols so this primitive runs locally
+// rather than being portal-forwarded. Delegate.
 func (t *TransactionPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,

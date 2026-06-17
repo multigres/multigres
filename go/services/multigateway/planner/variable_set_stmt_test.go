@@ -189,9 +189,10 @@ func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
 
 // TestPlanPortal_SET pins that the extended-protocol path plans SET/RESET the
 // same way the simple protocol does: plain SET validates + tracks (Sequence),
-// RESET tracks locally, and only SET LOCAL / SET TRANSACTION fall through to a
-// plain portal execute. A nil plan for a plain SET would forward a raw SET to a
-// pooled backend — mutating it outside multipooler's tracking and skipping
+// RESET tracks locally, and SET LOCAL / SET TRANSACTION route as a plain Route
+// (which reissues the portal to the authoritative backend). Producing a Sequence
+// for a plain SET — rather than a bare Route — is what keeps a raw SET from
+// mutating a pooled backend outside multipooler's tracking and skipping
 // pool-rotation replay.
 func TestPlanPortal_SET(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
@@ -199,7 +200,7 @@ func TestPlanPortal_SET(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	t.Run("plain SET is planned (validate + track)", func(t *testing.T) {
-		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET work_mem = '256MB'"), testConn.Conn)
+		plan, err := planPortal(t, p, testConn.Conn, "SET work_mem = '256MB'")
 		require.NoError(t, err)
 		require.NotNil(t, plan, "non-gateway SET must be planned, not forwarded raw to a pooled backend")
 		seq, ok := plan.Primitive.(*engine.Sequence)
@@ -210,22 +211,26 @@ func TestPlanPortal_SET(t *testing.T) {
 	})
 
 	t.Run("RESET is planned", func(t *testing.T) {
-		plan, err := p.PlanPortal(newPortalInfoFor(t, "RESET work_mem"), testConn.Conn)
+		plan, err := planPortal(t, p, testConn.Conn, "RESET work_mem")
 		require.NoError(t, err)
 		require.NotNil(t, plan, "RESET must be planned so it clears local tracking")
 		_, ok := plan.Primitive.(*engine.ApplySessionState)
 		assert.True(t, ok, "expected ApplySessionState, got %T", plan.Primitive)
 	})
 
-	t.Run("SET LOCAL falls through to PG", func(t *testing.T) {
-		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET LOCAL work_mem = '256MB'"), testConn.Conn)
+	t.Run("SET LOCAL routes to PG", func(t *testing.T) {
+		plan, err := planPortal(t, p, testConn.Conn, "SET LOCAL work_mem = '256MB'")
 		require.NoError(t, err)
-		assert.Nil(t, plan, "SET LOCAL is forwarded to the backend (authoritative)")
+		require.NotNil(t, plan)
+		_, ok := plan.Primitive.(*engine.Route)
+		assert.True(t, ok, "SET LOCAL must route as a plain Route to the authoritative backend, got %T", plan.Primitive)
 	})
 
-	t.Run("SET TRANSACTION falls through to PG", func(t *testing.T) {
-		plan, err := p.PlanPortal(newPortalInfoFor(t, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), testConn.Conn)
+	t.Run("SET TRANSACTION routes to PG", func(t *testing.T) {
+		plan, err := planPortal(t, p, testConn.Conn, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
 		require.NoError(t, err)
-		assert.Nil(t, plan, "SET TRANSACTION is forwarded to the backend")
+		require.NotNil(t, plan)
+		_, ok := plan.Primitive.(*engine.Route)
+		assert.True(t, ok, "SET TRANSACTION must route as a plain Route to the backend, got %T", plan.Primitive)
 	})
 }

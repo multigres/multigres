@@ -157,7 +157,7 @@ func planAndExecute(t *testing.T, s *testSetup, sql string) (*sqltypes.Result, e
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
 
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	if err != nil {
 		return nil, err
 	}

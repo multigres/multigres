@@ -156,11 +156,11 @@ func (c *CopyStatement) StreamExecute(
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. COPY FROM STDIN is simple-protocol only —
-// PlanPortal returns nil for CopyStmt and isCacheable rejects it — so
-// the executor never reaches this method in practice. The delegate to
-// StreamExecute keeps the contract uniform without inventing portal
-// semantics for a primitive that doesn't have any.
+// extended-protocol path. COPY is effectively simple-protocol only —
+// PostgreSQL rejects COPY in the extended query protocol — so the executor
+// does not reach this method in practice. The delegate to StreamExecute keeps
+// the contract uniform without inventing portal semantics for a primitive that
+// doesn't have any.
 func (c *CopyStatement) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,

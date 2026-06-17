@@ -65,7 +65,7 @@ func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 			p := NewPlanner("default", logger, nil)
 			conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
-			plan, err := p.Plan(tt.sql, parseOne(t, tt.sql), conn)
+			plan, err := p.Plan(tt.sql, parseOne(t, tt.sql), conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -92,7 +92,7 @@ func TestPlan_AdvisoryLockComposesWithSetConfig(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	sql := "SELECT set_config('search_path', 'myschema', false), pg_advisory_lock(101)"
-	plan, err := p.Plan(sql, parseOne(t, sql), conn)
+	plan, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 

@@ -52,7 +52,7 @@ func (p *Planner) planSelectStmt(
 	conn *server.Conn,
 	setConfigs []setConfigCall,
 	dynamicSetConfig bool,
-	opts PlannerOptions,
+	opts PlanOptions,
 ) (*engine.Plan, error) {
 	if dynamicSetConfig {
 		return p.planResolveSetConfig(sql, stmt, opts)
@@ -106,7 +106,7 @@ func (p *Planner) planSelectStmt(
 // set_config('x', pg_try_advisory_lock(1)::text, false)); that call runs when
 // the resolve projection evaluates the arguments, so the primitive must pin the
 // backend the same way routePrimitive would for an ordinary query.
-func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts PlannerOptions) (*engine.Plan, error) {
+func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts PlanOptions) (*engine.Plan, error) {
 	// Clone before mutating: the AST may be a cached plan's normalized tree
 	// shared across executions.
 	unroll := ast.CloneRefOfSelectStmt(stmt)

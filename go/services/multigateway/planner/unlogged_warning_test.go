@@ -47,7 +47,7 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 			asts, err := parser.ParseSQL(tc.sql)
 			require.NoError(t, err)
 			require.Len(t, asts, 1)
-			plan, err := s.p.Plan(tc.sql, asts[0], s.conn.Conn)
+			plan, err := s.p.Plan(tc.sql, asts[0], s.conn.Conn, PlanOptions{})
 			require.NoError(t, err)
 
 			warns := leadingUnloggedWarning(plan.Primitive) != nil
@@ -60,15 +60,13 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 	// the backend with no warning attached.
 	for _, tc := range tests {
 		t.Run("portal/"+tc.sql, func(t *testing.T) {
-			plan, err := s.p.PlanPortal(newPortalInfoFor(t, tc.sql), s.conn.Conn)
+			plan, err := planPortal(t, s.p, s.conn.Conn, tc.sql)
 			require.NoError(t, err)
 			if !tc.wantWarn {
-				// Non-unlogged creates either plan locally (temp) or fall through to
-				// a plain portal execute (nil plan); neither carries the warning.
-				if plan != nil {
-					require.Nil(t, leadingUnloggedWarning(plan.Primitive),
-						"plan primitive = %s", plan.Primitive.String())
-				}
+				// Non-unlogged creates plan to a temp/local primitive or a plain
+				// Route (which reissues the portal); neither carries the warning.
+				require.Nil(t, leadingUnloggedWarning(plan.Primitive),
+					"plan primitive = %s", plan.Primitive.String())
 				return
 			}
 			require.NotNil(t, plan, "unlogged creation must plan locally to attach the warning")
