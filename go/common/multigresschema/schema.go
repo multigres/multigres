@@ -26,24 +26,29 @@ const Name = "multigres"
 const BackendVpidTable = "multigres.backend_vpid"
 
 // BackendVpidDDL creates the multigres schema and the backend_vpid table,
-// which maps a live PostgreSQL backend pid/backend_start pair to the
-// multigateway virtual pid (the pid the proxied client sees) it is currently
-// serving. The multipooler upserts a row whenever it hands a backend to a
-// gateway session and deletes it
-// when that backend is released/recycled; the pgregress isolation harness reads
-// the table to translate virtual pids into real pids for lock-wait probes.
+// which maps a live PostgreSQL backend pid to the multigateway virtual pid
+// (the pid the proxied client sees) it is currently serving. The multipooler
+// upserts a row whenever it hands a backend to a gateway session and deletes
+// it when that backend is released/recycled; the pgregress isolation harness
+// reads the table to translate virtual pids into real pids for lock-wait probes.
+// Readers join the table against pg_stat_activity on backend_pid, so a row
+// orphaned by abrupt backend loss (no release ran) is ignored once that pid is
+// gone, and is overwritten the next time the pid is handed out.
 //
 // The table is UNLOGGED: it describes live backend processes, which do not
 // survive a crash either, and standbys (which cannot be written to anyway)
 // never need it. The GRANTs let pool connections of any user upsert and delete
 // their own mapping row.
+//
+// The DROP COLUMN keeps the DDL idempotent against databases provisioned by an
+// earlier revision of this schema that carried a NOT NULL backend_start column,
+// which the current upsert no longer populates.
 const BackendVpidDDL = `CREATE SCHEMA IF NOT EXISTS multigres;
 CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
 	backend_pid integer PRIMARY KEY,
-	backend_start timestamptz NOT NULL,
 	vpid bigint NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE multigres.backend_vpid ADD COLUMN IF NOT EXISTS backend_start timestamptz;
+ALTER TABLE multigres.backend_vpid DROP COLUMN IF EXISTS backend_start;
 GRANT USAGE ON SCHEMA multigres TO PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC`

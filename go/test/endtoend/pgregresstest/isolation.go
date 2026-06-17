@@ -266,7 +266,7 @@ BEGIN
     SELECT array_agg(bv.vpid || '=' || bv.backend_pid)
     INTO v_vpid_entries
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start;
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid;
 
     SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
     INTO v_all_backends
@@ -280,13 +280,13 @@ BEGIN
     -- check below aggregates over every matching backend.
     SELECT bv.backend_pid INTO v_real_check_pid
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
     WHERE bv.vpid = check_pid
     LIMIT 1;
 
     SELECT array_agg(bv.backend_pid) INTO v_real_blocked_by
     FROM multigres.backend_vpid bv
-    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
+    JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
     WHERE bv.vpid = ANY(blocked_by);
 
     -- Direct connections (no multigateway) hand us real pids; preserve them.
@@ -307,7 +307,7 @@ BEGIN
     FROM (
         SELECT unnest(pg_blocking_pids(bv.backend_pid)) AS b
         FROM multigres.backend_vpid bv
-        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
         WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
@@ -324,7 +324,7 @@ BEGIN
     FROM (
         SELECT unnest(pg_safe_snapshot_blocking_pids(bv.backend_pid)) AS b
         FROM multigres.backend_vpid bv
-        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid AND sa.backend_start = bv.backend_start
+        JOIN pg_stat_activity sa ON sa.pid = bv.backend_pid
         WHERE bv.vpid = check_pid
         UNION ALL
         SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found

@@ -45,16 +45,20 @@ import (
 // Rows are deleted at the release/recycle boundary so the table reflects only
 // backends currently associated with a gateway connection. That keeps metadata
 // consumers from having to distinguish live assignments from idle pooled
-// backends. The table also stores pg_stat_activity.backend_start and readers
-// join on (pid, backend_start), so an orphaned row left behind by abrupt
-// backend loss cannot match a future backend that reuses the same pid.
+// backends. Readers join the table against pg_stat_activity on backend_pid, so
+// a row orphaned by abrupt backend loss is ignored once the pid is gone and is
+// overwritten (ON CONFLICT) the next time the pool hands that pid to a session.
 
 const vpidCleanupTimeout = 250 * time.Millisecond
 
-// trackVpidOnRegular upserts the (backend_pid/backend_start → vpid) mapping
-// row for the given connection's backend. Must only be called while the
-// connection is in autocommit (fresh checkout / pre-BEGIN) — see the package
-// comment above.
+// trackVpidOnRegular upserts the (backend_pid → vpid) mapping row for the given
+// connection's backend. Must only be called while the connection is in
+// autocommit (fresh checkout / pre-BEGIN) — see the package comment above.
+//
+// The write deliberately uses only pg_backend_pid() and a literal vpid: it
+// reads no catalog/stats views, so it cannot be perturbed by the session's
+// current role (e.g. a client SET ROLE to an unprivileged role).
+//
 // Best-effort: a failure does not block the actual query; only lock detection
 // through the proxy depends on the mapping. No-op when tracking is disabled,
 // the caller has no client connection id, or this connection already recorded
@@ -73,9 +77,9 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 	}
 
 	upsert := fmt.Sprintf(
-		"INSERT INTO multigres.backend_vpid (backend_pid, backend_start, vpid) "+
-			"SELECT pg_backend_pid(), backend_start, %d FROM pg_stat_activity WHERE pid = pg_backend_pid() "+
-			"ON CONFLICT (backend_pid) DO UPDATE SET backend_start = EXCLUDED.backend_start, vpid = EXCLUDED.vpid, updated_at = now()",
+		"INSERT INTO multigres.backend_vpid (backend_pid, vpid) "+
+			"VALUES (pg_backend_pid(), %d) "+
+			"ON CONFLICT (backend_pid) DO UPDATE SET vpid = EXCLUDED.vpid, updated_at = now()",
 		options.ClientConnectionId)
 	if _, err := conn.Query(ctx, upsert); err != nil {
 		e.logger.DebugContext(ctx, "vpid mapping upsert failed", "error", err)
