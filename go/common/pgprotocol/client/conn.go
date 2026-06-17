@@ -147,6 +147,10 @@ type Conn struct {
 	// ctx is the context for this connection.
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// replState tracks the copy-both replication lifecycle. Zero value
+	// (replStreamIdle) is correct for every non-replication connection.
+	replState replStreamState
 }
 
 // Connect establishes a new connection to a PostgreSQL server.
