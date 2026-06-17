@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// go/tools/s3mock/tls.go
+// go/test/s3mock/tls.go
 package s3mock
 
 import (

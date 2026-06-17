@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# go/tools/s3mock/test-pgbackrest.sh
+# go/test/s3mock/test-pgbackrest.sh
 #
 # End-to-end test of S3 mock server with pgBackRest
 #
@@ -78,7 +78,7 @@ log "Test directory: $TEST_DIR"
 
 # Step 1: Build and start S3 mock server
 log "Building S3 mock server..."
-go build -o "$TEST_DIR/s3mock" ./go/tools/s3mock/cmd/s3mock || error "Failed to build s3mock"
+go build -o "$TEST_DIR/s3mock" ./go/test/s3mock/cmd/s3mock || error "Failed to build s3mock"
 
 log "Starting S3 mock server..."
 "$TEST_DIR/s3mock" test-bucket >"$TEST_DIR/s3mock.log" 2>&1 &

@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/tools/s3mock"
+	"github.com/multigres/multigres/go/test/s3mock"
 )
 
 // filesystemSetupManager manages the shared test setup for filesystem backend tests.
