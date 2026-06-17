@@ -142,6 +142,7 @@ func run() error {
 
 	out := os.Stdout
 	if summaryPath := os.Getenv("GITHUB_STEP_SUMMARY"); summaryPath != "" {
+		// #nosec G703 -- summaryPath is GITHUB_STEP_SUMMARY, provided by the CI runner, not external input.
 		sf, err := os.OpenFile(summaryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err

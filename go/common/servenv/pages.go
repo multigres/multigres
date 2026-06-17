@@ -39,9 +39,11 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 		content, err := web.TemplateFS.ReadFile(cssPath)
 		if err != nil {
 			http.NotFound(w, r)
+			// #nosec G705 -- written after http.NotFound (text/plain + nosniff), not rendered as HTML.
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
+		// #nosec G705 -- content is from the embedded template FS served as image/x-icon, not user input.
 		_, _ = w.Write(content)
 	})
 	sv.HTTPHandleFunc("/css/", func(w http.ResponseWriter, r *http.Request) {
@@ -50,9 +52,11 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 		content, err := web.TemplateFS.ReadFile(cssPath)
 		if err != nil {
 			http.NotFound(w, r)
+			// #nosec G705 -- written after http.NotFound (text/plain + nosniff), not rendered as HTML.
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
+		// #nosec G705 -- content is from the embedded template FS served as text/css, not user input.
 		_, _ = w.Write(content)
 	})
 

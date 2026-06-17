@@ -73,6 +73,7 @@ func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqlt
 	// If this is the first subscriber for this channel, start a gRPC stream.
 	if len(m.channels[pgChannel]) == 1 {
 		//nolint:gocritic // Long-lived gRPC stream for notification fan-out, not tied to any request.
+		// #nosec G118 -- cancel is stored in m.streams and invoked when the last subscriber unsubscribes.
 		ctx, cancel := context.WithCancel(context.Background())
 		m.streams[pgChannel] = cancel
 		m.metrics.StreamAdd(ctx)
