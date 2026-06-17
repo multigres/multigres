@@ -27,6 +27,10 @@
 
 FROM ubuntu:24.04
 
+# checkov:skip=CKV_DOCKER_2: this is a one-shot build/test image that runs the
+# pgregress suite to completion and exits; it is not a long-running service, so a
+# HEALTHCHECK is not meaningful.
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Build/test dependencies — same packages CI installs.
