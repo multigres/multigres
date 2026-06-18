@@ -71,10 +71,11 @@ func TestResolveStatementTimeout(t *testing.T) {
 
 func TestParsePostgresInterval(t *testing.T) {
 	tests := []struct {
-		name    string
-		value   string
-		want    time.Duration
-		wantErr bool
+		name        string
+		value       string
+		want        time.Duration
+		wantErr     bool
+		errContains string // when set, the error message must contain this substring
 	}{
 		{
 			name:  "integer milliseconds",
@@ -102,14 +103,27 @@ func TestParsePostgresInterval(t *testing.T) {
 			want:  0,
 		},
 		{
-			name:    "negative integer",
-			value:   "-1",
-			wantErr: true,
+			name:  "max boundary",
+			value: "2147483647",
+			want:  2147483647 * time.Millisecond,
 		},
 		{
-			name:    "negative Go duration",
-			value:   "-5s",
-			wantErr: true,
+			name:        "negative integer",
+			value:       "-1",
+			wantErr:     true,
+			errContains: `-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
+		},
+		{
+			name:        "negative Go duration",
+			value:       "-5s",
+			wantErr:     true,
+			errContains: `-5000 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
+		},
+		{
+			name:        "over max integer",
+			value:       "2147483648",
+			wantErr:     true,
+			errContains: `2147483648 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
 		},
 		{
 			name:    "invalid string",
@@ -133,6 +147,9 @@ func TestParsePostgresInterval(t *testing.T) {
 			got, err := ParsePostgresInterval("statement_timeout", tt.value)
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.errContains != "" {
+					require.Contains(t, err.Error(), tt.errContains)
+				}
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.want, got)
