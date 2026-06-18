@@ -35,10 +35,12 @@ import (
 // implemented yet (parser-setup-hooks chunk), so identifier words become
 // T_WORD/T_CWORD or a keyword, never T_DATUM.
 type lexer struct {
-	core     *parser.Lexer // the underlying SQL scanner we wrap
-	result   *plpgsqlast.PLpgSQL_function
-	err      error
-	pushback []auxToken
+	input     string        // original source, for slicing raw fragment text
+	core      *parser.Lexer // the underlying SQL scanner we wrap
+	result    *plpgsqlast.PLpgSQL_function
+	err       error
+	pushback  []auxToken
+	lastToken auxToken // last token returned by Lex (the parser's current lookahead)
 }
 
 // auxToken is one scanned token plus the data Lex needs to publish it.
@@ -46,13 +48,13 @@ type auxToken struct {
 	tok       int    // PL/pgSQL token code, or IDENT for a word awaiting reclassification
 	str       string // semantic string (lowercased for unquoted words/keywords)
 	ival      int    // semantic int (ICONST, PARAM)
-	pos       int    // byte offset of the token in the source
+	pos       int    // byte offset of the token's start in the source
 	quoted    bool   // a delimited ("...") identifier — never a keyword
 	isKeyword bool   // the SQL lexer classified this word as a SQL keyword
 }
 
 func newLexer(input string) *lexer {
-	return &lexer{core: parser.NewLexer(input)}
+	return &lexer{input: input, core: parser.NewLexer(input)}
 }
 
 // Lex implements the goyacc lexer interface. It scans one PL/pgSQL token,
@@ -63,6 +65,10 @@ func (l *lexer) Lex(lval *plpgsqlSymType) int {
 	if tok == IDENT {
 		tok, str = l.reclassifyWord(a)
 	}
+	// Cache the final token so a fragment-scanning action can push the parser's
+	// pending lookahead back to us (see beginScan). pos stays the first token's
+	// offset, which is what raw-text capture needs even for compound names.
+	l.lastToken = auxToken{tok: tok, str: str, ival: a.ival, pos: a.pos, quoted: a.quoted}
 	lval.str = str
 	lval.ival = a.ival
 	lval.location = a.pos

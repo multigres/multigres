@@ -33,6 +33,7 @@ type Stmt interface {
 type PLpgSQL_stmt_block struct {
 	BaseNode
 	Label      string                   `json:"label,omitempty"`      // optional block label
+	Decls      []Datum                  `json:"decls,omitempty"`      // DECLARE-section variables
 	Body       []Stmt                   `json:"body,omitempty"`       // statements between BEGIN and END
 	Exceptions *PLpgSQL_exception_block `json:"exceptions,omitempty"` // EXCEPTION section, or nil
 }
@@ -51,6 +52,13 @@ func (b *PLpgSQL_stmt_block) SqlString() string {
 		sb.WriteString("<<")
 		sb.WriteString(b.Label)
 		sb.WriteString(">> ")
+	}
+	if len(b.Decls) > 0 {
+		sb.WriteString("DECLARE\n")
+		for _, d := range b.Decls {
+			sb.WriteString(d.SqlString())
+			sb.WriteString("\n")
+		}
 	}
 	sb.WriteString("BEGIN\n")
 	for _, s := range b.Body {

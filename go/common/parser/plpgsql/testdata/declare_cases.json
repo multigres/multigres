@@ -1,0 +1,72 @@
+[
+  {
+    "comment": "simple int",
+    "body": "DECLARE i int; BEGIN END",
+    "deparse": "DECLARE\ni int;\nBEGIN\nEND"
+  },
+  {
+    "comment": "varchar with length",
+    "body": "DECLARE x varchar(10); BEGIN END",
+    "deparse": "DECLARE\nx varchar(10);\nBEGIN\nEND"
+  },
+  {
+    "comment": "numeric precision/scale",
+    "body": "DECLARE x numeric(10,2); BEGIN END",
+    "deparse": "DECLARE\nx numeric(10,2);\nBEGIN\nEND"
+  },
+  {
+    "comment": "%TYPE",
+    "body": "DECLARE x foo.bar%TYPE; BEGIN END",
+    "deparse": "DECLARE\nx foo.bar%TYPE;\nBEGIN\nEND"
+  },
+  {
+    "comment": "array type",
+    "body": "DECLARE x int[]; BEGIN END",
+    "deparse": "DECLARE\nx int[];\nBEGIN\nEND"
+  },
+  {
+    "comment": "CONSTANT with default",
+    "body": "DECLARE x CONSTANT int := 1; BEGIN END",
+    "deparse": "DECLARE\nx CONSTANT int := 1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "default via :=",
+    "body": "DECLARE x int := 1 + 2; BEGIN END",
+    "deparse": "DECLARE\nx int := 1 + 2;\nBEGIN\nEND"
+  },
+  {
+    "comment": "default via =",
+    "body": "DECLARE x int = 5; BEGIN END",
+    "deparse": "DECLARE\nx int := 5;\nBEGIN\nEND"
+  },
+  {
+    "comment": "default via DEFAULT keyword",
+    "body": "DECLARE x int DEFAULT 7; BEGIN END",
+    "deparse": "DECLARE\nx int := 7;\nBEGIN\nEND"
+  },
+  {
+    "comment": "subquery default value",
+    "body": "DECLARE x int := (SELECT count(*) FROM t); BEGIN END",
+    "deparse": "DECLARE\nx int := (SELECT count(*) FROM t);\nBEGIN\nEND"
+  },
+  {
+    "comment": "NOT NULL with default",
+    "body": "DECLARE x int NOT NULL := 0; BEGIN END",
+    "deparse": "DECLARE\nx int NOT NULL := 0;\nBEGIN\nEND"
+  },
+  {
+    "comment": "multiple declarations",
+    "body": "DECLARE a int; b text := 'hi'; BEGIN END",
+    "deparse": "DECLARE\na int;\nb text := 'hi';\nBEGIN\nEND"
+  },
+  {
+    "comment": "declarations and a body",
+    "body": "DECLARE i int; BEGIN NULL; END",
+    "deparse": "DECLARE\ni int;\nBEGIN\nEND"
+  },
+  {
+    "comment": "NOT NULL without default is an error",
+    "body": "DECLARE x int NOT NULL; BEGIN END",
+    "error": "must have a default value"
+  }
+]

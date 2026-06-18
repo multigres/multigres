@@ -30,6 +30,10 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_function(parent, node, replacer)
 	case *PLpgSQL_stmt_block:
 		return a.rewriteRefOfPLpgSQL_stmt_block(parent, node, replacer)
+	case *PLpgSQL_type:
+		return a.rewriteRefOfPLpgSQL_type(parent, node, replacer)
+	case *PLpgSQL_var:
+		return a.rewriteRefOfPLpgSQL_var(parent, node, replacer)
 	case RootNode:
 		return a.rewriteRootNode(parent, node, replacer)
 	default:
@@ -67,6 +71,20 @@ func (a *application) rewriteRefOfBaseNode(parent Node, node *BaseNode, replacer
 		}
 	}
 	return true
+}
+
+// Function Generation Source: InterfaceMethod
+func (a *application) rewriteDatum(parent Node, node Datum, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	switch node := node.(type) {
+	case *PLpgSQL_var:
+		return a.rewriteRefOfPLpgSQL_var(parent, node, replacer)
+	default:
+		// this should never happen
+		return true
+	}
 }
 
 // Function Generation Source: PtrToStructMethod
@@ -183,6 +201,15 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_block(parent Node, node *PLpgSQL_
 			return true
 		}
 	}
+	for x, el := range node.Decls {
+		if !a.rewriteDatum(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_stmt_block).Decls[x] = newNode.(Datum)
+			}
+		}(x)) {
+			return false
+		}
+	}
 	for x, el := range node.Body {
 		if !a.rewriteStmt(node, el, func(idx int) replacerFunc {
 			return func(newNode, parent Node) {
@@ -194,6 +221,76 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_block(parent Node, node *PLpgSQL_
 	}
 	if !a.rewriteRefOfPLpgSQL_exception_block(node, node.Exceptions, func(newNode, parent Node) {
 		parent.(*PLpgSQL_stmt_block).Exceptions = newNode.(*PLpgSQL_exception_block)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_type(parent Node, node *PLpgSQL_type, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_var(parent Node, node *PLpgSQL_var, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_type(node, node.DataType, func(newNode, parent Node) {
+		parent.(*PLpgSQL_var).DataType = newNode.(*PLpgSQL_type)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.DefaultVal, func(newNode, parent Node) {
+		parent.(*PLpgSQL_var).DefaultVal = newNode.(*PLpgSQL_expr)
 	}) {
 		return false
 	}

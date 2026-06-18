@@ -38,6 +38,8 @@ const (
 	T_PLpgSQL_stmt_block              // BEGIN … END block
 	T_PLpgSQL_expr                    // SQL fragment (verbatim text + parsed AST)
 	T_PLpgSQL_exception_block         // EXCEPTION section of a block
+	T_PLpgSQL_var                     // declared scalar variable
+	T_PLpgSQL_type                    // declared type (captured as text)
 )
 
 // String returns the string representation of a NodeTag.
@@ -51,6 +53,10 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_expr"
 	case T_PLpgSQL_exception_block:
 		return "T_PLpgSQL_exception_block"
+	case T_PLpgSQL_var:
+		return "T_PLpgSQL_var"
+	case T_PLpgSQL_type:
+		return "T_PLpgSQL_type"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

@@ -34,6 +34,8 @@
 package plpgsql
 
 import (
+	"fmt"
+
 	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
 )
 
@@ -50,6 +52,12 @@ type plpgsqlResultSetter interface {
 	block    *plpgsqlast.PLpgSQL_stmt_block
 	stmt     plpgsqlast.Stmt
 	stmts    []plpgsqlast.Stmt
+	declsect declSect
+	datum    plpgsqlast.Datum
+	datums   []plpgsqlast.Datum
+	typ      *plpgsqlast.PLpgSQL_type
+	expr     *plpgsqlast.PLpgSQL_expr
+	bval     bool
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -102,6 +110,12 @@ type plpgsqlResultSetter interface {
 
 %type <function> pl_function
 %type <block>    pl_block
+%type <declsect> decl_sect
+%type <datums>   decl_stmts
+%type <datum>    decl_stmt decl_statement
+%type <typ>      decl_datatype
+%type <expr>     decl_defval
+%type <bval>     decl_const decl_notnull
 %type <stmts>    proc_sect
 %type <stmt>     proc_stmt stmt_null
 %type <str>      opt_block_label opt_label any_identifier unreserved_keyword
@@ -132,21 +146,141 @@ opt_semi:
 	;
 
 /*
- * The block itself. DECLARE (decl_sect) and EXCEPTION (exception_sect) land in
- * later chunks; for now a block is an optional label, BEGIN, a statement list,
- * END, and an optional matching end label.
+ * The block: an optional DECLARE section, BEGIN, a statement list, END, and an
+ * optional matching end label. EXCEPTION (exception_sect) lands in a later
+ * chunk.
  */
 pl_block:
-		opt_block_label K_BEGIN proc_sect K_END opt_label
+		decl_sect K_BEGIN proc_sect K_END opt_label
 			{
 				block := plpgsqlast.NewPLpgSQL_stmt_block()
-				block.Label = $1
+				block.Label = $1.label
+				block.Decls = $1.decls
 				block.Body = $3
-				if err := checkLabels($1, $5); err != nil {
+				if err := checkLabels($1.label, $5); err != nil {
 					plpgsqllex.Error(err.Error())
 				}
 				$$ = block
 			}
+	;
+
+/*
+ * Declaration section. The block label lives here (before DECLARE), matching
+ * pl_gram.y. DECLARE itself is optional.
+ */
+decl_sect:
+		opt_block_label
+			{
+				$$ = declSect{label: $1}
+			}
+	|	opt_block_label K_DECLARE decl_stmts
+			{
+				$$ = declSect{label: $1, decls: $3}
+			}
+	;
+
+decl_stmts:
+		decl_stmts decl_stmt
+			{
+				$$ = appendDatum($1, $2)
+			}
+	|	decl_stmt
+			{
+				$$ = appendDatum(nil, $1)
+			}
+	;
+
+decl_stmt:
+		decl_statement
+			{
+				$$ = $1
+			}
+	|	K_DECLARE
+			{
+				// extra DECLAREs are allowed and ignored, matching PG
+				$$ = nil
+			}
+	;
+
+/*
+ * A single variable declaration: name [CONSTANT] type [NOT NULL] [:= expr] ;
+ * The type and default-value text are captured by the read_sql_construct
+ * machinery (see read_construct.go), invoked from the actions below. ALIAS,
+ * CURSOR, and COLLATE forms are deferred.
+ */
+decl_statement:
+		any_identifier decl_const decl_datatype decl_notnull decl_defval
+			{
+				v := plpgsqlast.NewPLpgSQL_var($1)
+				v.IsConst = $2
+				v.DataType = $3
+				v.NotNull = $4
+				v.DefaultVal = $5
+				if v.NotNull && v.DefaultVal == nil {
+					plpgsqllex.Error(fmt.Sprintf(
+						"variable %q must have a default value, since it's declared NOT NULL",
+						v.Refname))
+				}
+				$$ = v
+			}
+	;
+
+decl_const:
+		/* empty */
+			{
+				$$ = false
+			}
+	|	K_CONSTANT
+			{
+				$$ = true
+			}
+	;
+
+decl_datatype:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readDatatype()
+			}
+	;
+
+decl_notnull:
+		/* empty */
+			{
+				$$ = false
+			}
+	|	K_NOT K_NULL
+			{
+				$$ = true
+			}
+	;
+
+decl_defval:
+		';'
+			{
+				$$ = nil
+			}
+	|	decl_defkey
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readSQLExpr()
+			}
+	;
+
+decl_defkey:
+		assign_operator
+	|	K_DEFAULT
+	;
+
+assign_operator:
+		'='
+	|	COLON_EQUALS
 	;
 
 proc_sect:

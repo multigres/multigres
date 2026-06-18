@@ -30,6 +30,10 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_function(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
+	case *PLpgSQL_type:
+		return CloneRefOfPLpgSQL_type(in)
+	case *PLpgSQL_var:
+		return CloneRefOfPLpgSQL_var(in)
 	case RootNode:
 		return CloneRootNode(in)
 	default:
@@ -45,6 +49,20 @@ func CloneRefOfBaseNode(n *BaseNode) *BaseNode {
 	}
 	out := *n
 	return &out
+}
+
+// CloneDatum creates a deep clone of the input.
+func CloneDatum(in Datum) Datum {
+	if in == nil {
+		return nil
+	}
+	switch in := in.(type) {
+	case *PLpgSQL_var:
+		return CloneRefOfPLpgSQL_var(in)
+	default:
+		// this should never happen
+		return nil
+	}
 }
 
 // CloneRefOfPLpgSQL_exception_block creates a deep clone of the input.
@@ -85,8 +103,31 @@ func CloneRefOfPLpgSQL_stmt_block(n *PLpgSQL_stmt_block) *PLpgSQL_stmt_block {
 	}
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Decls = CloneSliceOfDatum(n.Decls)
 	out.Body = CloneSliceOfStmt(n.Body)
 	out.Exceptions = CloneRefOfPLpgSQL_exception_block(n.Exceptions)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_type creates a deep clone of the input.
+func CloneRefOfPLpgSQL_type(n *PLpgSQL_type) *PLpgSQL_type {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_var creates a deep clone of the input.
+func CloneRefOfPLpgSQL_var(n *PLpgSQL_var) *PLpgSQL_var {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.DataType = CloneRefOfPLpgSQL_type(n.DataType)
+	out.DefaultVal = CloneRefOfPLpgSQL_expr(n.DefaultVal)
 	return &out
 }
 
@@ -112,6 +153,18 @@ func CloneStmt(in Stmt) Stmt {
 // CloneBaseNode creates a deep clone of the input.
 func CloneBaseNode(n BaseNode) BaseNode {
 	return *CloneRefOfBaseNode(&n)
+}
+
+// CloneSliceOfDatum creates a deep clone of the input.
+func CloneSliceOfDatum(n []Datum) []Datum {
+	if n == nil {
+		return nil
+	}
+	res := make([]Datum, len(n))
+	for i, x := range n {
+		res[i] = CloneDatum(x)
+	}
+	return res
 }
 
 // CloneSliceOfStmt creates a deep clone of the input.

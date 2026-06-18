@@ -35,10 +35,12 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [x] 1.3a Clone/rewrite generator machinery for the `plpgsqlast` subpackage
       (own asthelpergen run, folded into `make parser`) — committed on the
       branch
-- [~] 1.4 Minimal block parsing (`BEGIN … END;`) — code complete and green;
-  not yet committed
-- [ ] 1.5 DECLARE section + type names
-- [ ] 1.6 Assignment + SQL-fragment boundary (`read_sql_construct` equiv)
+- [x] 1.4 Minimal block parsing (`BEGIN … END;`) — committed on the branch
+- [~] 1.5 DECLARE section + types **and the `read_sql_construct` boundary**
+  (folded in, since DECLARE is its first consumer) — code complete and
+  green; not yet committed. `PLpgSQL_expr.Parsed` left nil (text only).
+- [ ] 1.6 Assignment (`x := expr;`) — now a thin add-on reusing the boundary;
+      plus the fragment-parsing step (`Query` → `ast.Stmt`)
 - [ ] 1.7 Control flow: IF, LOOP, WHILE
 - [ ] 1.8 FOR family + CASE + EXIT
 - [ ] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY
