@@ -28,6 +28,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_expr(parent, node, replacer)
 	case *PLpgSQL_function:
 		return a.rewriteRefOfPLpgSQL_function(parent, node, replacer)
+	case *PLpgSQL_stmt_assign:
+		return a.rewriteRefOfPLpgSQL_stmt_assign(parent, node, replacer)
 	case *PLpgSQL_stmt_block:
 		return a.rewriteRefOfPLpgSQL_stmt_block(parent, node, replacer)
 	case *PLpgSQL_type:
@@ -169,6 +171,40 @@ func (a *application) rewriteRefOfPLpgSQL_function(parent Node, node *PLpgSQL_fu
 	}
 	if !a.rewriteRefOfPLpgSQL_stmt_block(node, node.Action, func(newNode, parent Node) {
 		parent.(*PLpgSQL_function).Action = newNode.(*PLpgSQL_stmt_block)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_stmt_assign(parent Node, node *PLpgSQL_stmt_assign, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.Expr, func(newNode, parent Node) {
+		parent.(*PLpgSQL_stmt_assign).Expr = newNode.(*PLpgSQL_expr)
 	}) {
 		return false
 	}
@@ -342,6 +378,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return true
 	}
 	switch node := node.(type) {
+	case *PLpgSQL_stmt_assign:
+		return a.rewriteRefOfPLpgSQL_stmt_assign(parent, node, replacer)
 	case *PLpgSQL_stmt_block:
 		return a.rewriteRefOfPLpgSQL_stmt_block(parent, node, replacer)
 	default:

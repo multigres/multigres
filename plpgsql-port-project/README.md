@@ -39,8 +39,8 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [~] 1.5 DECLARE section + types **and the `read_sql_construct` boundary**
   (folded in, since DECLARE is its first consumer) — code complete and
   green; not yet committed. `PLpgSQL_expr.Parsed` left nil (text only).
-- [ ] 1.6 Assignment (`x := expr;`) — now a thin add-on reusing the boundary;
-      plus the fragment-parsing step (`Query` → `ast.Stmt`)
+- [~] 1.6 Assignment (`x := expr;`) — uses `T_WORD`/`T_CWORD` (not PG's
+  `T_DATUM`; see resolution note) — code complete and green; not committed
 - [ ] 1.7 Control flow: IF, LOOP, WHILE
 - [ ] 1.8 FOR family + CASE + EXIT
 - [ ] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY
@@ -48,7 +48,8 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [ ] 1.11 RAISE + ASSERT
 - [ ] 1.12 Exception blocks
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK
-- [ ] 1.14 Compile-side parser-setup hooks (variable resolution)
+- [!] 1.14 Compile-side parser-setup hooks (variable resolution) — DEFERRED /
+  optional; not needed for Tier 1 (we use `T_WORD`/`T_CWORD`, never `T_DATUM`)
 - [ ] 1.15 PG regression corpus harness (all `pl/plpgsql/src/sql/*.sql` parse)
 
 ### Phase 2 — Planner wire-in

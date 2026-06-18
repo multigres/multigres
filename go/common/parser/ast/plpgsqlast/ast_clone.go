@@ -28,6 +28,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_expr(in)
 	case *PLpgSQL_function:
 		return CloneRefOfPLpgSQL_function(in)
+	case *PLpgSQL_stmt_assign:
+		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
 	case *PLpgSQL_type:
@@ -96,6 +98,17 @@ func CloneRefOfPLpgSQL_function(n *PLpgSQL_function) *PLpgSQL_function {
 	return &out
 }
 
+// CloneRefOfPLpgSQL_stmt_assign creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_assign(n *PLpgSQL_stmt_assign) *PLpgSQL_stmt_assign {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_stmt_block creates a deep clone of the input.
 func CloneRefOfPLpgSQL_stmt_block(n *PLpgSQL_stmt_block) *PLpgSQL_stmt_block {
 	if n == nil {
@@ -142,6 +155,8 @@ func CloneStmt(in Stmt) Stmt {
 		return nil
 	}
 	switch in := in.(type) {
+	case *PLpgSQL_stmt_assign:
+		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
 	default:

@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "simple assignment",
+    "body": "BEGIN x := 1; END",
+    "deparse": "BEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "expression rhs",
+    "body": "BEGIN x := 1 + 2; END",
+    "deparse": "BEGIN\nx := 1 + 2;\nEND"
+  },
+  {
+    "comment": "equals operator normalizes to :=",
+    "body": "BEGIN x = 5; END",
+    "deparse": "BEGIN\nx := 5;\nEND"
+  },
+  {
+    "comment": "compound target",
+    "body": "BEGIN rec.field := 1; END",
+    "deparse": "BEGIN\nrec.field := 1;\nEND"
+  },
+  {
+    "comment": "subquery rhs",
+    "body": "BEGIN x := (SELECT count(*) FROM t); END",
+    "deparse": "BEGIN\nx := (SELECT count(*) FROM t);\nEND"
+  },
+  {
+    "comment": "string rhs",
+    "body": "BEGIN msg := 'hello'; END",
+    "deparse": "BEGIN\nmsg := 'hello';\nEND"
+  },
+  {
+    "comment": "function call rhs",
+    "body": "BEGIN x := lower(y); END",
+    "deparse": "BEGIN\nx := lower(y);\nEND"
+  },
+  {
+    "comment": "assignment among statements",
+    "body": "BEGIN NULL; x := 1; NULL; END",
+    "deparse": "BEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "assignment with declaration",
+    "body": "DECLARE x int; BEGIN x := 1; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
+  }
+]

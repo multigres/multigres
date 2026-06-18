@@ -18,6 +18,26 @@ sign off on scope before writing code.
 3. Hardening comes last: PG's regression corpus runs against the finished
    parser as an acceptance gate, not incrementally.
 
+## Variable resolution / `T_DATUM` — not needed for Tier 1 (key decision)
+
+PG's scanner resolves identifiers to `T_DATUM` using a namespace built from
+DECLAREs, and the grammar leans on `T_DATUM` to (a) tell an **assignment** apart
+from an ordinary SQL statement and (b) bind **loop/cursor** variables. For
+Tier-1 static analysis we need **neither**: we capture every embedded
+SQL/expression fragment and walk it regardless of whether an identifier is a
+declared variable.
+
+So we **do not** build the namespace or emit `T_DATUM`. Everywhere PG's grammar
+uses `T_DATUM`, we use `T_WORD`/`T_CWORD`. This works because our lexer (1.2)
+already collapses a compound name (`a.b.c`) into a single `T_CWORD` token —
+that's the same one-token property `T_DATUM` gives PG, so the LALR(1)
+disambiguation (e.g. `target := …` vs a SQL statement) is preserved.
+
+Consequence: the old "compile-side parser-setup hooks / variable resolution"
+chunk (1.14) is **deferred and optional** — a semantic-fidelity refinement, not
+a Tier-1 requirement. The statement-family chunks below each note where they
+substitute `T_WORD`/`T_CWORD` for PG's `T_DATUM`.
+
 ## Chunk list
 
 ### 1.1 Grammar + build scaffolding
@@ -120,31 +140,32 @@ populated for the first time.
 values, CONSTANT, NOT NULL, %TYPE, %ROWTYPE. Type-resolution stubs are OK;
 we only need the parse.
 
-### 1.6 Assignment + SQL-fragment boundary
+### 1.6 Assignment
 
-Implement the `read_sql_construct` equivalent: scan tokens until a
-terminator set (`;`, `LOOP`, `WHEN`, `USING`, `THEN`, `ELSE`, etc.),
-stringify, set `PLpgSQL_expr.Query` + `ParseMode`, parse, and store the
-result in `PLpgSQL_expr.Parsed`. Then use it for the simplest consumer:
-assignment (`variable := expr;`). This is the boundary that the Tier 1 walker
-will ultimately traverse — critical to get right.
+The `read_sql_construct` boundary already landed (folded into 1.5). This chunk
+is the thin add-on: the assignment statement.
 
-**DECISION to make here — how to parse a bare expression fragment** (`ParseMode
-== RAW_PARSE_PLPGSQL_EXPR`, e.g. an IF condition or assignment RHS), since our
-`ParseSQL` only parses full statement lists (≈ PG's `RAW_PARSE_DEFAULT`):
+PG's `stmt_assign` is `T_DATUM` — the **resolved** variable. We do not have
+variable resolution (see the "Variable resolution / T_DATUM" note above), so we
+use `T_WORD`/`T_CWORD` instead. Our lexer already collapses a compound name to a
+single `T_CWORD`, so
 
-- **(a) Pragmatic:** wrap the fragment as `SELECT <expr>` and parse that, so
-  `Parsed` is always an `ast.Stmt`. Cheap; no shared-parser change; the walker
-  unwraps the single target.
-- **(b) Faithful to PG:** teach the SQL parser an expression entry mode (PG's
-  `RAW_PARSE_PLPGSQL_EXPR` / `RAW_PARSE_PLPGSQL_ASSIGN1..3` via `raw_parser`).
-  Closer to PG, but a change to the shared `go/common/parser`.
+```text
+stmt_assign: T_WORD assign_operator <rhs> | T_CWORD assign_operator <rhs>
+```
 
-`PLpgSQL_expr.ParseMode` already exists to carry the distinction; pick (a) or
-(b) when writing the chunk-06 detail doc.
+is LALR(1)-clean (one target token, then the operator). The RHS is captured as a
+`PLpgSQL_expr` (`RAW_PARSE_PLPGSQL_EXPR`) via the 1.5 scanner; node
+`PLpgSQL_stmt_assign` holds the target text plus the RHS expr.
 
-**Acceptance:** parse `BEGIN x := 1; END;`, `BEGIN x := (SELECT foo());
-END;`, confirm `PLpgSQL_expr.Parsed` is a valid SQL AST.
+Still open (deferred; not needed for parse-only): turning `PLpgSQL_expr.Query`
+into `Parsed` — the SELECT-wrap vs. expression-parse-mode call. `Parsed` stays
+nil for now, as in 1.5. (Options: (a) wrap as `SELECT <expr>` and parse with the
+existing `ParseSQL`; (b) add a `RAW_PARSE_PLPGSQL_EXPR`-style entry to the shared
+SQL parser. Decide when we wire the walker in Phase 2.)
+
+**Acceptance:** parse `BEGIN x := 1; END;`, `x := (SELECT foo());`,
+`a.b := 1;` (compound target); assert the captured RHS `Query`.
 
 ### 1.7 Control flow — IF, LOOP, WHILE
 
@@ -192,15 +213,17 @@ out the `PLpgSQL_exception_block` placeholder that 1.3 stubbed (add its
 Close out the remaining statement productions. `GET [CURRENT] DIAGNOSTICS
 var = item [, …];`, bare `COMMIT [AND [NO] CHAIN];`, `ROLLBACK …`.
 
-### 1.14 Compile-side parser-setup hooks
+### 1.14 Compile-side parser-setup hooks — DEFERRED / OPTIONAL
 
-Port just the parsing-side hooks from `pl_comp.c`:
-`plpgsql_parser_setup`, `plpgsql_pre_column_ref`, `plpgsql_post_column_ref`,
-`plpgsql_param_ref`. Wired into the main SQL parser's hookable points so
-embedded SQL fragments correctly classify PL/pgSQL variable references. For
-static analysis we only need enough resolution to distinguish "variable"
-from "literal/column" — the walker uses that to reason about
-`set_config(literal, …)` vs `set_config(var, …)`.
+See the "Variable resolution / `T_DATUM`" decision above: this is **not** needed
+for Tier 1. We never emit `T_DATUM`, so the namespace and the `pl_comp.c` hooks
+(`plpgsql_parser_setup`, `plpgsql_pre/post_column_ref`, `plpgsql_param_ref`) are
+unnecessary for capturing and walking fragments.
+
+Keep it on the list only as a possible later refinement: it would let the walker
+tell a `set_config(var, …)` (name is a PL/pgSQL variable) from
+`set_config(literal, …)`. That is a precision improvement on top of the Tier-1
+rules, not a blocker — revisit only if a real case needs it.
 
 ### 1.15 PG regression corpus harness
 

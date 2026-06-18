@@ -79,6 +79,36 @@ func NewPLpgSQL_stmt_block() *PLpgSQL_stmt_block {
 	}
 }
 
+// PLpgSQL_stmt_assign is an assignment statement (`target := expr`). Ported from
+// plpgsql.h (PLpgSQL_stmt_assign). PG stores the resolved variable (varno) and
+// the whole `target := value` as one ASSIGN-mode expr; for the parse-level port
+// (no variable resolution) we keep the target as written and the right-hand
+// side as its own expression.
+type PLpgSQL_stmt_assign struct {
+	BaseNode
+	Target string        `json:"target,omitempty"` // assignment target (variable name, as written)
+	Expr   *PLpgSQL_expr `json:"expr,omitempty"`   // right-hand side expression
+}
+
+func (a *PLpgSQL_stmt_assign) isStmt() {}
+
+func (a *PLpgSQL_stmt_assign) String() string { return "PLpgSQL_stmt_assign" }
+
+func (a *PLpgSQL_stmt_assign) SqlString() string {
+	rhs := ""
+	if a.Expr != nil {
+		rhs = a.Expr.SqlString()
+	}
+	return a.Target + " := " + rhs
+}
+
+func NewPLpgSQL_stmt_assign(target string) *PLpgSQL_stmt_assign {
+	return &PLpgSQL_stmt_assign{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_assign, Loc: -1},
+		Target:   target,
+	}
+}
+
 // PLpgSQL_exception_block is the EXCEPTION section of a block (PG's
 // PLpgSQL_exception_block). Its WHEN-clause list and handler nodes
 // (PLpgSQL_exception / PLpgSQL_condition) are added by the exception-block

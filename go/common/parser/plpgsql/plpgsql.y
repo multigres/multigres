@@ -117,8 +117,9 @@ type plpgsqlResultSetter interface {
 %type <expr>     decl_defval
 %type <bval>     decl_const decl_notnull
 %type <stmts>    proc_sect
-%type <stmt>     proc_stmt stmt_null
+%type <stmt>     proc_stmt stmt_null stmt_assign
 %type <str>      opt_block_label opt_label any_identifier unreserved_keyword
+%type <str>      assign_target
 
 %start pl_function
 
@@ -304,6 +305,10 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_assign
+			{
+				$$ = $1
+			}
 	|	stmt_null
 			{
 				$$ = $1
@@ -315,6 +320,36 @@ stmt_null:
 			{
 				// Like PG, we build no node for NULL; it carries no meaning.
 				$$ = nil
+			}
+	;
+
+/*
+ * Assignment. PG keys this on T_DATUM (the resolved variable); we have no
+ * variable resolution, so the target is a plain word or compound name
+ * (T_WORD/T_CWORD — the lexer already collapses a.b.c to one T_CWORD). The RHS
+ * is captured as an expression by the read_sql_construct scanner, up to ';'.
+ */
+stmt_assign:
+		assign_target assign_operator
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_assign($1)
+				stmt.Expr = lx.readSQLExpr()
+				$$ = stmt
+			}
+	;
+
+assign_target:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	T_CWORD
+			{
+				$$ = $1
 			}
 	;
 

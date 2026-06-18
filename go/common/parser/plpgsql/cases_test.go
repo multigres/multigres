@@ -50,6 +50,7 @@ type parseCase struct {
 var caseFiles = []string{
 	"block_cases.json",
 	"declare_cases.json",
+	"assign_cases.json",
 }
 
 func TestParseCases(t *testing.T) {

@@ -40,6 +40,7 @@ const (
 	T_PLpgSQL_exception_block         // EXCEPTION section of a block
 	T_PLpgSQL_var                     // declared scalar variable
 	T_PLpgSQL_type                    // declared type (captured as text)
+	T_PLpgSQL_stmt_assign             // assignment statement (target := expr)
 )
 
 // String returns the string representation of a NodeTag.
@@ -57,6 +58,8 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_var"
 	case T_PLpgSQL_type:
 		return "T_PLpgSQL_type"
+	case T_PLpgSQL_stmt_assign:
+		return "T_PLpgSQL_stmt_assign"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}
