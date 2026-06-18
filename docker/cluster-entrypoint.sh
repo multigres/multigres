@@ -37,6 +37,31 @@ NUM_CELLS="${MULTIGRES_NUM_CELLS:-2}"
 # `tenant_db`). Additional cells use consecutive ports (base+1, base+2).
 GATEWAY_PG_PORT="${MULTIGRES_GATEWAY_PG_PORT:-15432}"
 
+# PostgreSQL max_connections. The bundled default is 60 (Supabase Pico preset).
+# Setting this raises PostgreSQL's ceiling AND sizes the connection pooler to
+# match: the pooler's global capacity is set to this value minus POOL_RESERVE,
+# leaving headroom for superuser logins, replication, and the pooler's own admin
+# pool. So the pooler never tries to open more backends than PostgreSQL allows.
+#
+#   MULTIGRES_PG_MAX_CONNECTIONS=100   # postgres=100, pooler global capacity=90
+#
+# Applied only at first init (a fresh data dir).
+PG_MAX_CONNECTIONS="${MULTIGRES_PG_MAX_CONNECTIONS:-}"
+
+# Connections held back from the pooler when MULTIGRES_PG_MAX_CONNECTIONS is set.
+POOL_RESERVE=10
+
+# Extra PostgreSQL configuration, as raw postgresql.conf text (one setting per
+# line) for anything MULTIGRES_PG_MAX_CONNECTIONS doesn't cover. Appended
+# verbatim onto every cell's generated postgresql.conf at data-dir init,
+# last-write-wins, so it overrides the bundled defaults:
+#
+#   MULTIGRES_PG_EXTRA_CONF=$'shared_buffers = 256MB\nwork_mem = 8MB'
+#
+# Applied only at first init (a fresh data dir); changing it after a cluster has
+# already initialized has no effect, matching POSTGRES_INITDB_EXTRA_CONF.
+PG_EXTRA_CONF="${MULTIGRES_PG_EXTRA_CONF:-}"
+
 # trim_cells rewrites a generated multigres.yaml in place, keeping only the
 # first ${NUM_CELLS} cells. It deletes the extra cell blocks from both the
 # provisioner-config `cells:` map and the `topology.cells:` list. Keeping
@@ -95,6 +120,16 @@ if ! [[ "${GATEWAY_PG_PORT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "MULTIGRES_GATEWAY_PG_PORT must be a positive integer, got '${GATEWAY_PG_PORT}'" >&2
   exit 1
 fi
+if [ -n "${PG_MAX_CONNECTIONS}" ]; then
+  if ! [[ "${PG_MAX_CONNECTIONS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "MULTIGRES_PG_MAX_CONNECTIONS must be a positive integer, got '${PG_MAX_CONNECTIONS}'" >&2
+    exit 1
+  fi
+  if [ "${PG_MAX_CONNECTIONS}" -le "${POOL_RESERVE}" ]; then
+    echo "MULTIGRES_PG_MAX_CONNECTIONS must be greater than ${POOL_RESERVE} (the pooler reserve), got '${PG_MAX_CONNECTIONS}'" >&2
+    exit 1
+  fi
+fi
 
 mkdir -p "${CONFIG_PATH}"
 
@@ -106,6 +141,35 @@ if [ ! -f "${CONFIG_PATH}/multigres.yaml" ]; then
   multigres cluster init --config-path "${CONFIG_PATH}"
   trim_cells "${CONFIG_PATH}/multigres.yaml" "${NUM_CELLS}"
   set_gateway_ports "${CONFIG_PATH}/multigres.yaml" "${GATEWAY_PG_PORT}" "${NUM_CELLS}"
+fi
+
+# Assemble extra PostgreSQL config from the max_connections knob and any raw
+# MULTIGRES_PG_EXTRA_CONF, then hand it to every cell's pgctld via
+# POSTGRES_INITDB_EXTRA_CONF (a whitespace-separated list of postgresql.conf
+# snippet paths pgctld appends at init). The local provisioner spawns pgctld and
+# multipooler with the container's environment, so exporting here reaches every
+# cell. Our snippet is appended last so it wins under postgres' last-write-wins,
+# even if the caller already pointed POSTGRES_INITDB_EXTRA_CONF at their own file.
+if [ -n "${PG_MAX_CONNECTIONS}" ] || [ -n "${PG_EXTRA_CONF}" ]; then
+  extra_conf_file="${CONFIG_PATH}/pg-extra.conf"
+  : >"${extra_conf_file}" # truncate so reruns don't accumulate duplicate lines
+
+  if [ -n "${PG_MAX_CONNECTIONS}" ]; then
+    echo "max_connections = ${PG_MAX_CONNECTIONS}" >>"${extra_conf_file}"
+    # multipooler reads CONNPOOL_GLOBAL_CAPACITY; keep it below max_connections.
+    export CONNPOOL_GLOBAL_CAPACITY=$((PG_MAX_CONNECTIONS - POOL_RESERVE))
+    echo "==> max_connections=${PG_MAX_CONNECTIONS}; pooler global capacity=${CONNPOOL_GLOBAL_CAPACITY} (reserved ${POOL_RESERVE})"
+  fi
+  if [ -n "${PG_EXTRA_CONF}" ]; then
+    printf '%s\n' "${PG_EXTRA_CONF}" >>"${extra_conf_file}"
+  fi
+
+  if [ -n "${POSTGRES_INITDB_EXTRA_CONF:-}" ]; then
+    export POSTGRES_INITDB_EXTRA_CONF="${POSTGRES_INITDB_EXTRA_CONF} ${extra_conf_file}"
+  else
+    export POSTGRES_INITDB_EXTRA_CONF="${extra_conf_file}"
+  fi
+  echo "==> Applying extra PostgreSQL config via ${extra_conf_file}"
 fi
 
 echo "==> Starting Multigres cluster..."

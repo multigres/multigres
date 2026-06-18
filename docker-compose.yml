@@ -31,6 +31,10 @@ services:
       # container as a drop-in PostgreSQL on the default port (e.g. as Supabase
       # Storage's tenant_db). Keep ports/healthcheck below in sync.
       MULTIGRES_GATEWAY_PG_PORT: "15432"
+      # PostgreSQL max_connections (default 60). Raising it also sizes the
+      # connection pooler to this value minus 10. Forwarded from the host env so
+      # CI / callers can override it without editing this file; empty = default.
+      MULTIGRES_PG_MAX_CONNECTIONS: "${MULTIGRES_PG_MAX_CONNECTIONS:-}"
     ports:
       - "15432:15432" # zone1 multigateway — PostgreSQL wire protocol
       - "15100:15100" # multigateway HTTP (status/metrics)

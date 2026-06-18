@@ -51,6 +51,42 @@ that hardcodes `5432`, such as Supabase Storage's `tenant_db`. Additional cells
 take consecutive ports (`base+1`, `base+2`). Keep the published `ports:` and the
 healthcheck in `docker-compose.yml` in sync with this value.
 
+### Max connections (`MULTIGRES_PG_MAX_CONNECTIONS`)
+
+The bundled PostgreSQL defaults to `max_connections = 60` (the Supabase Pico
+preset). Set `MULTIGRES_PG_MAX_CONNECTIONS` to raise it:
+
+```bash
+MULTIGRES_PG_MAX_CONNECTIONS=100 docker compose up --build
+```
+
+This does two things so PostgreSQL and the pooler stay consistent:
+
+- sets PostgreSQL's `max_connections` to the value, and
+- sizes the connection pooler's global capacity to that value **minus 10**
+  (here, 90). The 10-connection reserve leaves room for superuser logins,
+  replication, so the pooler never tries to
+  open more backends than PostgreSQL allows.
+
+`SHOW max_connections` through the gateway then reports the value you set, since
+the gateway passes it through to PostgreSQL. Applied only at first init (a fresh
+data dir). The value must be greater than 10.
+
+### Extra PostgreSQL config (`MULTIGRES_PG_EXTRA_CONF`)
+
+For anything `MULTIGRES_PG_MAX_CONNECTIONS` doesn't cover, set
+`MULTIGRES_PG_EXTRA_CONF` to raw `postgresql.conf` text. It is appended verbatim
+onto every cell's config at init, last-write-wins:
+
+```bash
+MULTIGRES_PG_EXTRA_CONF=$'shared_buffers = 256MB\nwork_mem = 8MB' docker compose up --build
+```
+
+The value may span multiple lines (one setting per line). Like the knob above,
+it is applied only at first init. Advanced callers can instead point
+`POSTGRES_INITDB_EXTRA_CONF` at a mounted snippet directly — if both are set,
+the values from these knobs are appended last and win.
+
 ## Usage
 
 From the repository root:

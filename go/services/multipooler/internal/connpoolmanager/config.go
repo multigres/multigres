@@ -266,6 +266,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		globalCapacity: viperutil.Configure(reg, "connpool.global-capacity", viperutil.Options[int64]{
 			Default:  globalCapacity,
 			FlagName: "connpool-global-capacity",
+			EnvVars:  []string{"CONNPOOL_GLOBAL_CAPACITY"},
 		}),
 		reservedRatio: viperutil.Configure(reg, "connpool.reserved-ratio", viperutil.Options[float64]{
 			Default:  reservedRatio,
@@ -330,7 +331,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
 	// Fair share allocation flags
-	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools)")
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools) (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
 
 	// Rebalancer flags
