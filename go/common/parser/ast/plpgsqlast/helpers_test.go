@@ -70,6 +70,22 @@ func TestRewriteVisitsOwnedNodes(t *testing.T) {
 	)
 }
 
+// Rewrite descends through the control-flow nodes and their helper arms,
+// including the []*PLpgSQL_if_elsif slice (a generated slice-of-pointer walk).
+func TestRewriteVisitsControlFlow(t *testing.T) {
+	ifst := NewPLpgSQL_stmt_if()
+	ifst.Cond = NewPLpgSQL_expr("x > 0")
+	ei := NewPLpgSQL_if_elsif()
+	ei.Cond = NewPLpgSQL_expr("x < 0")
+	ifst.ElsifList = []*PLpgSQL_if_elsif{ei}
+
+	// Pre-order: the IF, its condition, then each ELSIF arm and its condition.
+	assert.Equal(t,
+		[]NodeTag{T_PLpgSQL_stmt_if, T_PLpgSQL_expr, T_PLpgSQL_if_elsif, T_PLpgSQL_expr},
+		collectTags(ifst),
+	)
+}
+
 // Rewrite stops at the boundary: it never descends into PLpgSQL_expr.Parsed,
 // because an ast.Stmt is not a plpgsqlast.Node. The embedded SQL is analyzed
 // separately by the SQL-side walker.

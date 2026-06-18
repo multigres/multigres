@@ -36,6 +36,14 @@ type declSect struct {
 	decls []plpgsqlast.Datum
 }
 
+// loopBody carries the pieces of a `… END LOOP <label>;` tail (PG's loop_body
+// struct in pl_gram.y) from the loop_body production up to stmt_loop/stmt_while,
+// which build the node and validate the end label.
+type loopBody struct {
+	stmts    []plpgsqlast.Stmt
+	endLabel string
+}
+
 // scanNext reads the next token for fragment scanning: a raw token from
 // internalLex with simple keyword reclassification (so keyword terminators like
 // K_NOT / K_DEFAULT are recognized), but no compound-word merging — byte
@@ -119,7 +127,17 @@ func (l *lexer) readDatatype() *plpgsqlast.PLpgSQL_type {
 // a PLpgSQL_expr. Parsed is left nil — turning the text into an ast.Stmt is a
 // separate step.
 func (l *lexer) readSQLExpr() *plpgsqlast.PLpgSQL_expr {
-	text, _, err := l.scanFragment(';')
+	return l.readSQLExprUntil(';')
+}
+
+// readSQLExprUntil scans an expression up to (and consuming) the first of the
+// given terminators at paren depth 0, returning it as a PLpgSQL_expr. It is the
+// Go analogue of PG's read_sql_expression, which takes the terminator token; the
+// `;`, K_THEN, and K_LOOP forms (expr_until_semi / _then / _loop in pl_gram.y)
+// differ only in which terminator they pass. Parsed is left nil, as in
+// readSQLExpr.
+func (l *lexer) readSQLExprUntil(terminators ...int) *plpgsqlast.PLpgSQL_expr {
+	text, _, err := l.scanFragment(terminators...)
 	if err != nil {
 		l.Error(err.Error())
 		return plpgsqlast.NewPLpgSQL_expr("")
@@ -138,4 +156,30 @@ func appendDatum(ds []plpgsqlast.Datum, d plpgsqlast.Datum) []plpgsqlast.Datum {
 		return ds
 	}
 	return append(ds, d)
+}
+
+// appendElsif appends an ELSIF arm to the stmt_elsifs list. It exists to keep
+// the append out of the grammar action, dodging goyacc's -f "fast-append"
+// optimization, which is unsafe for this rule.
+//
+// fast-append rewrites a literal `$$ = append($1, …)` — when it is the FIRST $$
+// write in the action — into an in-place mutation of the value stack's boxed
+// slice: `*(*[]T)(Iaddr(VAL.union)) = append(...)`, where Iaddr returns the
+// interface's data word (a pointer to the boxed slice header). That reuses $1's
+// backing array, but is sound only when $1 owns a non-nil backing array. Our
+// base case is `stmt_elsifs: /*empty*/ { $$ = nil }`, so on the first arm $1 is
+// a nil slice — and boxing a nil slice into an interface does NOT allocate:
+// runtime.convTslice returns &runtime.zeroVal[0], the global shared zero buffer.
+// The in-place append then writes a real {ptr,1,1} header into runtime.zeroVal,
+// corrupting every nil-slice/zero-value box in the program (symptom: a phantom
+// element in some unrelated []Stmt body, crashing the deparse). Verified: inline
+// + nil base crashes; inline + a non-nil base (make([]T,0,1)) does not.
+//
+// Routing through a function call hides the bare idiom, so goyacc emits the
+// ordinary `LOCAL = append(...)` form. (This is also why proc_sect's inline
+// append is safe: its first $$ write is `$$ = $1`, which switches the action off
+// the fast-append path. The trigger is the bare idiom, not a conditional —
+// appendDatum guards against the same thing.)
+func appendElsif(es []*plpgsqlast.PLpgSQL_if_elsif, e *plpgsqlast.PLpgSQL_if_elsif) []*plpgsqlast.PLpgSQL_if_elsif {
+	return append(es, e)
 }

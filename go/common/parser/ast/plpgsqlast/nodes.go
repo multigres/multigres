@@ -41,6 +41,11 @@ const (
 	T_PLpgSQL_var                     // declared scalar variable
 	T_PLpgSQL_type                    // declared type (captured as text)
 	T_PLpgSQL_stmt_assign             // assignment statement (target := expr)
+	T_PLpgSQL_stmt_if                 // IF … THEN … [ELSIF …] [ELSE …] END IF
+	T_PLpgSQL_if_elsif                // one ELSIF arm of an IF statement
+	T_PLpgSQL_stmt_loop               // unconditional LOOP … END LOOP
+	T_PLpgSQL_stmt_while              // WHILE cond LOOP … END LOOP
+	T_PLpgSQL_stmt_exit               // EXIT / CONTINUE [label] [WHEN cond]
 )
 
 // String returns the string representation of a NodeTag.
@@ -60,6 +65,16 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_type"
 	case T_PLpgSQL_stmt_assign:
 		return "T_PLpgSQL_stmt_assign"
+	case T_PLpgSQL_stmt_if:
+		return "T_PLpgSQL_stmt_if"
+	case T_PLpgSQL_if_elsif:
+		return "T_PLpgSQL_if_elsif"
+	case T_PLpgSQL_stmt_loop:
+		return "T_PLpgSQL_stmt_loop"
+	case T_PLpgSQL_stmt_while:
+		return "T_PLpgSQL_stmt_while"
+	case T_PLpgSQL_stmt_exit:
+		return "T_PLpgSQL_stmt_exit"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

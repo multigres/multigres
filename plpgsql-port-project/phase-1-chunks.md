@@ -167,19 +167,25 @@ SQL parser. Decide when we wire the walker in Phase 2.)
 **Acceptance:** parse `BEGIN x := 1; END;`, `x := (SELECT foo());`,
 `a.b := 1;` (compound target); assert the captured RHS `Query`.
 
-### 1.7 Control flow — IF, LOOP, WHILE
+### 1.7 Control flow — IF, LOOP, WHILE, EXIT/CONTINUE
 
 Grammar for `IF … THEN … [ELSIF … THEN …] [ELSE …] END IF`, bare `LOOP … END
-LOOP`, `WHILE expr LOOP … END LOOP`. Corresponding AST nodes
-(`PLpgSQL_stmt_if`, `_loop`, `_while`). Each embedded expression goes
-through the 1.6 boundary.
+LOOP`, `WHILE expr LOOP … END LOOP`, and `EXIT/CONTINUE [label] [WHEN expr]`.
+Corresponding AST nodes (`PLpgSQL_stmt_if` + `_if_elsif`, `_loop`, `_while`,
+`_exit`). Each embedded expression goes through the 1.6 boundary.
 
-### 1.8 FOR family + CASE + EXIT
+EXIT/CONTINUE was pulled forward from 1.8: it is cheap, needs only the existing
+single-terminator scanner (`expr_until_semi`), and is the loop-control companion
+of the LOOP/WHILE introduced here. Its namespace-based validation (label exists,
+CONTINUE forbids block labels, must be inside a loop) is dropped — we have no
+namespace (see the `T_DATUM` decision) and capture the statement without it.
+
+### 1.8 FOR family + CASE
 
 `FOR var IN a..b [BY step] [REVERSE] LOOP` (integer),
 `FOR var [, …] IN query LOOP` (query), `FOR var IN cursor LOOP` (cursor),
 `FOREACH var [SLICE n] IN ARRAY expr LOOP`. `CASE [expr] WHEN … THEN …
-[ELSE …] END CASE`. `EXIT [label] [WHEN expr]`, `CONTINUE` counterparts.
+[ELSE …] END CASE`. (EXIT/CONTINUE moved to 1.7.)
 
 ### 1.9 SQL-embedding — EXECSQL, PERFORM, CALL, RETURN
 

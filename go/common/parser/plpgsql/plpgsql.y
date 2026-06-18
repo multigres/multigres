@@ -57,6 +57,8 @@ type plpgsqlResultSetter interface {
 	datums   []plpgsqlast.Datum
 	typ      *plpgsqlast.PLpgSQL_type
 	expr     *plpgsqlast.PLpgSQL_expr
+	elsifs   []*plpgsqlast.PLpgSQL_if_elsif
+	loopbody loopBody
 	bval     bool
 }
 
@@ -116,9 +118,13 @@ type plpgsqlResultSetter interface {
 %type <typ>      decl_datatype
 %type <expr>     decl_defval
 %type <bval>     decl_const decl_notnull
-%type <stmts>    proc_sect
-%type <stmt>     proc_stmt stmt_null stmt_assign
-%type <str>      opt_block_label opt_label any_identifier unreserved_keyword
+%type <stmts>    proc_sect stmt_else
+%type <stmt>     proc_stmt stmt_null stmt_assign stmt_if stmt_loop stmt_while stmt_exit
+%type <elsifs>   stmt_elsifs
+%type <loopbody> loop_body
+%type <expr>     expr_until_semi expr_until_then expr_until_loop opt_exitcond
+%type <bval>     exit_type
+%type <str>      opt_block_label opt_loop_label opt_label any_identifier unreserved_keyword
 %type <str>      assign_target
 
 %start pl_function
@@ -309,6 +315,22 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_if
+			{
+				$$ = $1
+			}
+	|	stmt_loop
+			{
+				$$ = $1
+			}
+	|	stmt_while
+			{
+				$$ = $1
+			}
+	|	stmt_exit
+			{
+				$$ = $1
+			}
 	|	stmt_null
 			{
 				$$ = $1
@@ -350,6 +372,174 @@ assign_target:
 	|	T_CWORD
 			{
 				$$ = $1
+			}
+	;
+
+/*
+ * IF … THEN … [ELSIF … THEN …] [ELSE …] END IF. Each condition is captured as a
+ * PLpgSQL_expr by the expr_until_then scanner (read_sql_expression up to THEN).
+ */
+stmt_if:
+		K_IF expr_until_then proc_sect stmt_elsifs stmt_else K_END K_IF ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_if()
+				stmt.Cond = $2
+				stmt.ThenBody = $3
+				stmt.ElsifList = $4
+				stmt.ElseBody = $5
+				$$ = stmt
+			}
+	;
+
+stmt_elsifs:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	stmt_elsifs K_ELSIF expr_until_then proc_sect
+			{
+				ei := plpgsqlast.NewPLpgSQL_if_elsif()
+				ei.Cond = $3
+				ei.Stmts = $4
+				$$ = appendElsif($1, ei)
+			}
+	;
+
+stmt_else:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	K_ELSE proc_sect
+			{
+				$$ = $2
+			}
+	;
+
+/*
+ * Unconditional LOOP and WHILE. Both share loop_body for the `… END LOOP
+ * <label>;` tail. opt_loop_label mirrors PG (identical to opt_block_label, kept
+ * separate to track the grammar). The end label is validated against the start
+ * label, like blocks.
+ */
+stmt_loop:
+		opt_loop_label K_LOOP loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_loop()
+				stmt.Label = $1
+				stmt.Body = $3.stmts
+				if err := checkLabels($1, $3.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+stmt_while:
+		opt_loop_label K_WHILE expr_until_loop loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_while()
+				stmt.Label = $1
+				stmt.Cond = $3
+				stmt.Body = $4.stmts
+				if err := checkLabels($1, $4.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+loop_body:
+		proc_sect K_END K_LOOP opt_label ';'
+			{
+				$$ = loopBody{stmts: $1, endLabel: $4}
+			}
+	;
+
+/*
+ * EXIT / CONTINUE [label] [WHEN cond]. PG validates the label and loop-nesting
+ * here using the namespace; we have none, so we only capture the statement (see
+ * the chunk note). The WHEN condition is scanned up to ';'.
+ */
+stmt_exit:
+		exit_type opt_label opt_exitcond
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_exit($1)
+				stmt.Label = $2
+				stmt.Cond = $3
+				$$ = stmt
+			}
+	;
+
+exit_type:
+		K_EXIT
+			{
+				$$ = true
+			}
+	|	K_CONTINUE
+			{
+				$$ = false
+			}
+	;
+
+opt_exitcond:
+		';'
+			{
+				$$ = nil
+			}
+	|	K_WHEN expr_until_semi
+			{
+				$$ = $2
+			}
+	;
+
+/*
+ * Expression-scanning productions. Each is an empty rule whose action manually
+ * scans an embedded SQL expression up to a terminator (PG's read_sql_expression
+ * family: expr_until_semi / _then / _loop). The beginScan / clear-lookahead
+ * dance matches decl_datatype and stmt_assign.
+ */
+expr_until_semi:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readSQLExprUntil(';')
+			}
+	;
+
+expr_until_then:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readSQLExprUntil(K_THEN)
+			}
+	;
+
+expr_until_loop:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readSQLExprUntil(K_LOOP)
+			}
+	;
+
+opt_loop_label:
+		/* empty */
+			{
+				$$ = ""
+			}
+	|	LESS_LESS any_identifier GREATER_GREATER
+			{
+				$$ = $2
 			}
 	;
 

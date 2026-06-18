@@ -26,6 +26,12 @@ var (
 	_ Node = (*PLpgSQL_expr)(nil)
 	_ Node = (*PLpgSQL_exception_block)(nil)
 	_ Stmt = (*PLpgSQL_stmt_block)(nil)
+	_ Stmt = (*PLpgSQL_stmt_if)(nil)
+	_ Stmt = (*PLpgSQL_stmt_loop)(nil)
+	_ Stmt = (*PLpgSQL_stmt_while)(nil)
+	_ Stmt = (*PLpgSQL_stmt_exit)(nil)
+	// PLpgSQL_if_elsif is a helper node (like PG's struct), not a statement.
+	_ Node = (*PLpgSQL_if_elsif)(nil)
 )
 
 func TestNodeTags(t *testing.T) {
@@ -33,6 +39,11 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_block, NewPLpgSQL_stmt_block().NodeTag())
 	assert.Equal(t, T_PLpgSQL_expr, NewPLpgSQL_expr("SELECT 1").NodeTag())
 	assert.Equal(t, T_PLpgSQL_exception_block, NewPLpgSQL_exception_block().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_if, NewPLpgSQL_stmt_if().NodeTag())
+	assert.Equal(t, T_PLpgSQL_if_elsif, NewPLpgSQL_if_elsif().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_loop, NewPLpgSQL_stmt_loop().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_while, NewPLpgSQL_stmt_while().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_exit, NewPLpgSQL_stmt_exit(true).NodeTag())
 }
 
 func TestExprSqlStringIsVerbatim(t *testing.T) {

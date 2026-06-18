@@ -28,10 +28,20 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_expr(in)
 	case *PLpgSQL_function:
 		return CloneRefOfPLpgSQL_function(in)
+	case *PLpgSQL_if_elsif:
+		return CloneRefOfPLpgSQL_if_elsif(in)
 	case *PLpgSQL_stmt_assign:
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
+	case *PLpgSQL_stmt_exit:
+		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_if:
+		return CloneRefOfPLpgSQL_stmt_if(in)
+	case *PLpgSQL_stmt_loop:
+		return CloneRefOfPLpgSQL_stmt_loop(in)
+	case *PLpgSQL_stmt_while:
+		return CloneRefOfPLpgSQL_stmt_while(in)
 	case *PLpgSQL_type:
 		return CloneRefOfPLpgSQL_type(in)
 	case *PLpgSQL_var:
@@ -98,6 +108,18 @@ func CloneRefOfPLpgSQL_function(n *PLpgSQL_function) *PLpgSQL_function {
 	return &out
 }
 
+// CloneRefOfPLpgSQL_if_elsif creates a deep clone of the input.
+func CloneRefOfPLpgSQL_if_elsif(n *PLpgSQL_if_elsif) *PLpgSQL_if_elsif {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	out.Stmts = CloneSliceOfStmt(n.Stmts)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_stmt_assign creates a deep clone of the input.
 func CloneRefOfPLpgSQL_stmt_assign(n *PLpgSQL_stmt_assign) *PLpgSQL_stmt_assign {
 	if n == nil {
@@ -119,6 +141,54 @@ func CloneRefOfPLpgSQL_stmt_block(n *PLpgSQL_stmt_block) *PLpgSQL_stmt_block {
 	out.Decls = CloneSliceOfDatum(n.Decls)
 	out.Body = CloneSliceOfStmt(n.Body)
 	out.Exceptions = CloneRefOfPLpgSQL_exception_block(n.Exceptions)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_exit creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_exit(n *PLpgSQL_stmt_exit) *PLpgSQL_stmt_exit {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_if creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_if(n *PLpgSQL_stmt_if) *PLpgSQL_stmt_if {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	out.ThenBody = CloneSliceOfStmt(n.ThenBody)
+	out.ElsifList = CloneSliceOfRefOfPLpgSQL_if_elsif(n.ElsifList)
+	out.ElseBody = CloneSliceOfStmt(n.ElseBody)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_loop creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_loop(n *PLpgSQL_stmt_loop) *PLpgSQL_stmt_loop {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Body = CloneSliceOfStmt(n.Body)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_while creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_while(n *PLpgSQL_stmt_while) *PLpgSQL_stmt_while {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	out.Body = CloneSliceOfStmt(n.Body)
 	return &out
 }
 
@@ -159,6 +229,14 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
+	case *PLpgSQL_stmt_exit:
+		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_if:
+		return CloneRefOfPLpgSQL_stmt_if(in)
+	case *PLpgSQL_stmt_loop:
+		return CloneRefOfPLpgSQL_stmt_loop(in)
+	case *PLpgSQL_stmt_while:
+		return CloneRefOfPLpgSQL_stmt_while(in)
 	default:
 		// this should never happen
 		return nil
@@ -168,6 +246,18 @@ func CloneStmt(in Stmt) Stmt {
 // CloneBaseNode creates a deep clone of the input.
 func CloneBaseNode(n BaseNode) BaseNode {
 	return *CloneRefOfBaseNode(&n)
+}
+
+// CloneSliceOfStmt creates a deep clone of the input.
+func CloneSliceOfStmt(n []Stmt) []Stmt {
+	if n == nil {
+		return nil
+	}
+	res := make([]Stmt, len(n))
+	for i, x := range n {
+		res[i] = CloneStmt(x)
+	}
+	return res
 }
 
 // CloneSliceOfDatum creates a deep clone of the input.
@@ -182,14 +272,14 @@ func CloneSliceOfDatum(n []Datum) []Datum {
 	return res
 }
 
-// CloneSliceOfStmt creates a deep clone of the input.
-func CloneSliceOfStmt(n []Stmt) []Stmt {
+// CloneSliceOfRefOfPLpgSQL_if_elsif creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_if_elsif(n []*PLpgSQL_if_elsif) []*PLpgSQL_if_elsif {
 	if n == nil {
 		return nil
 	}
-	res := make([]Stmt, len(n))
+	res := make([]*PLpgSQL_if_elsif, len(n))
 	for i, x := range n {
-		res[i] = CloneStmt(x)
+		res[i] = CloneRefOfPLpgSQL_if_elsif(x)
 	}
 	return res
 }

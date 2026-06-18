@@ -44,6 +44,17 @@ func (b *PLpgSQL_stmt_block) String() string {
 	return "PLpgSQL_stmt_block"
 }
 
+// deparseBody writes a statement list the way a block body is rendered: each
+// statement's deparse followed by ";\n". Shared by every node that holds a
+// statement list (blocks, IF branches, loop bodies) so they round-trip
+// identically.
+func deparseBody(sb *strings.Builder, body []Stmt) {
+	for _, s := range body {
+		sb.WriteString(s.SqlString())
+		sb.WriteString(";\n")
+	}
+}
+
 // SqlString deparses the block. Declaration and EXCEPTION rendering are added
 // as those chunks land; for now it emits the label, BEGIN, the body, and END.
 func (b *PLpgSQL_stmt_block) SqlString() string {
@@ -61,10 +72,7 @@ func (b *PLpgSQL_stmt_block) SqlString() string {
 		}
 	}
 	sb.WriteString("BEGIN\n")
-	for _, s := range b.Body {
-		sb.WriteString(s.SqlString())
-		sb.WriteString(";\n")
-	}
+	deparseBody(&sb, b.Body)
 	sb.WriteString("END")
 	if b.Label != "" {
 		sb.WriteString(" ")
@@ -106,6 +114,187 @@ func NewPLpgSQL_stmt_assign(target string) *PLpgSQL_stmt_assign {
 	return &PLpgSQL_stmt_assign{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_assign, Loc: -1},
 		Target:   target,
+	}
+}
+
+// PLpgSQL_stmt_if is an IF statement (PG's PLpgSQL_stmt_if, plpgsql.h):
+// `IF cond THEN … [ELSIF cond THEN …] [ELSE …] END IF`. The ELSIF arms are
+// PLpgSQL_if_elsif helper nodes; ElseBody is nil when there is no ELSE.
+type PLpgSQL_stmt_if struct {
+	BaseNode
+	Cond      *PLpgSQL_expr       `json:"cond,omitempty"`       // boolean expression for THEN
+	ThenBody  []Stmt              `json:"then_body,omitempty"`  // statements in the THEN branch
+	ElsifList []*PLpgSQL_if_elsif `json:"elsif_list,omitempty"` // ELSIF arms, in order
+	ElseBody  []Stmt              `json:"else_body,omitempty"`  // statements in the ELSE branch, or nil
+}
+
+func (s *PLpgSQL_stmt_if) isStmt() {}
+
+func (s *PLpgSQL_stmt_if) String() string { return "PLpgSQL_stmt_if" }
+
+func (s *PLpgSQL_stmt_if) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("IF ")
+	sb.WriteString(s.Cond.SqlString())
+	sb.WriteString(" THEN\n")
+	deparseBody(&sb, s.ThenBody)
+	for _, ei := range s.ElsifList {
+		sb.WriteString(ei.SqlString())
+	}
+	if s.ElseBody != nil {
+		sb.WriteString("ELSE\n")
+		deparseBody(&sb, s.ElseBody)
+	}
+	sb.WriteString("END IF")
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_if() *PLpgSQL_stmt_if {
+	return &PLpgSQL_stmt_if{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_if, Loc: -1},
+	}
+}
+
+// PLpgSQL_if_elsif is one ELSIF arm of an IF statement (PG's PLpgSQL_if_elsif).
+// PG keeps it as a plain helper struct, not a PLpgSQL_stmt, so this implements
+// Node but not Stmt. Its deparse includes the leading `ELSIF … THEN` so the
+// enclosing IF can render the arms by concatenation.
+type PLpgSQL_if_elsif struct {
+	BaseNode
+	Cond  *PLpgSQL_expr `json:"cond,omitempty"`  // boolean expression for this arm
+	Stmts []Stmt        `json:"stmts,omitempty"` // statements run when Cond holds
+}
+
+func (e *PLpgSQL_if_elsif) String() string { return "PLpgSQL_if_elsif" }
+
+func (e *PLpgSQL_if_elsif) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("ELSIF ")
+	sb.WriteString(e.Cond.SqlString())
+	sb.WriteString(" THEN\n")
+	deparseBody(&sb, e.Stmts)
+	return sb.String()
+}
+
+func NewPLpgSQL_if_elsif() *PLpgSQL_if_elsif {
+	return &PLpgSQL_if_elsif{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_if_elsif, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_loop is an unconditional `LOOP … END LOOP` (PG's
+// PLpgSQL_stmt_loop). Label is the optional block label; it is echoed after
+// END LOOP on deparse so the result re-parses (checkLabels requires a match).
+type PLpgSQL_stmt_loop struct {
+	BaseNode
+	Label string `json:"label,omitempty"` // optional loop label
+	Body  []Stmt `json:"body,omitempty"`  // statements between LOOP and END LOOP
+}
+
+func (s *PLpgSQL_stmt_loop) isStmt() {}
+
+func (s *PLpgSQL_stmt_loop) String() string { return "PLpgSQL_stmt_loop" }
+
+func (s *PLpgSQL_stmt_loop) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_loop() *PLpgSQL_stmt_loop {
+	return &PLpgSQL_stmt_loop{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_loop, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_while is a `WHILE cond LOOP … END LOOP` (PG's PLpgSQL_stmt_while).
+type PLpgSQL_stmt_while struct {
+	BaseNode
+	Label string        `json:"label,omitempty"` // optional loop label
+	Cond  *PLpgSQL_expr `json:"cond,omitempty"`  // loop-continuation condition
+	Body  []Stmt        `json:"body,omitempty"`  // statements between LOOP and END LOOP
+}
+
+func (s *PLpgSQL_stmt_while) isStmt() {}
+
+func (s *PLpgSQL_stmt_while) String() string { return "PLpgSQL_stmt_while" }
+
+func (s *PLpgSQL_stmt_while) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("WHILE ")
+	sb.WriteString(s.Cond.SqlString())
+	sb.WriteString(" LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_while() *PLpgSQL_stmt_while {
+	return &PLpgSQL_stmt_while{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_while, Loc: -1},
+	}
+}
+
+// writeLoopLabel writes a `<<label>> ` prefix when label is non-empty.
+func writeLoopLabel(sb *strings.Builder, label string) {
+	if label != "" {
+		sb.WriteString("<<")
+		sb.WriteString(label)
+		sb.WriteString(">> ")
+	}
+}
+
+// writeLoopEnd writes `END LOOP` plus the echoed label when present.
+func writeLoopEnd(sb *strings.Builder, label string) {
+	sb.WriteString("END LOOP")
+	if label != "" {
+		sb.WriteString(" ")
+		sb.WriteString(label)
+	}
+}
+
+// PLpgSQL_stmt_exit is an EXIT or CONTINUE (PG's PLpgSQL_stmt_exit). IsExit
+// distinguishes the two. Label and Cond (the optional WHEN expression) are both
+// optional. PG's namespace-based validation (label exists, CONTINUE forbids
+// block labels, EXIT/CONTINUE must be inside a loop) is dropped: we have no
+// namespace, so we capture the statement without checking it.
+type PLpgSQL_stmt_exit struct {
+	BaseNode
+	IsExit bool          `json:"is_exit,omitempty"` // true for EXIT, false for CONTINUE
+	Label  string        `json:"label,omitempty"`   // optional target label
+	Cond   *PLpgSQL_expr `json:"cond,omitempty"`    // optional WHEN condition
+}
+
+func (s *PLpgSQL_stmt_exit) isStmt() {}
+
+func (s *PLpgSQL_stmt_exit) String() string { return "PLpgSQL_stmt_exit" }
+
+func (s *PLpgSQL_stmt_exit) SqlString() string {
+	var sb strings.Builder
+	if s.IsExit {
+		sb.WriteString("EXIT")
+	} else {
+		sb.WriteString("CONTINUE")
+	}
+	if s.Label != "" {
+		sb.WriteString(" ")
+		sb.WriteString(s.Label)
+	}
+	if s.Cond != nil {
+		sb.WriteString(" WHEN ")
+		sb.WriteString(s.Cond.SqlString())
+	}
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_exit(isExit bool) *PLpgSQL_stmt_exit {
+	return &PLpgSQL_stmt_exit{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_exit, Loc: -1},
+		IsExit:   isExit,
 	}
 }
 
