@@ -25,22 +25,32 @@ import (
 
 // TestExternalSpecs_Coherent guards the catalog/spec invariants so a config
 // edit can't silently break the external suite: every runnable external
-// extension has a build spec, every spec pins exactly one of Tag/Commit, and
-// every DependsOn entry resolves to a spec.
+// extension has a build spec, real build specs pin exactly one of Tag/Commit,
+// aliases point at their covering build spec, and every DependsOn entry resolves
+// to a spec.
 func TestExternalSpecs_Coherent(t *testing.T) {
 	require.Empty(t, CheckExternalSpecs(),
 		"every runnable external extension needs an externalSpecs entry")
 
 	for name, spec := range externalSpecs {
 		assert.Equal(t, name, spec.Name, "spec key and Name must match")
-		assert.NotEmpty(t, spec.Repo, "%s: Repo required", name)
-		assert.True(t, (spec.Tag == "") != (spec.Commit == ""),
-			"%s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
-			name, spec.Tag, spec.Commit)
 		for _, dep := range spec.DependsOn {
 			_, ok := externalSpecs[dep]
 			assert.True(t, ok, "%s: DependsOn %q has no externalSpecs entry", name, dep)
 		}
+
+		if spec.TestRunner == "postgis-alias" {
+			assert.Empty(t, spec.Repo, "%s: alias should not clone a repo", name)
+			assert.Empty(t, spec.Tag, "%s: alias should not pin a tag", name)
+			assert.Empty(t, spec.Commit, "%s: alias should not pin a commit", name)
+			assert.Contains(t, spec.DependsOn, "postgis", "%s: alias must depend on postgis", name)
+			continue
+		}
+
+		assert.NotEmpty(t, spec.Repo, "%s: Repo required", name)
+		assert.True(t, (spec.Tag == "") != (spec.Commit == ""),
+			"%s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
+			name, spec.Tag, spec.Commit)
 	}
 }
 

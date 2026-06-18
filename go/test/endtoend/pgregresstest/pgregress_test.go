@@ -93,8 +93,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// + make + install on slower developer machines (macOS); CI is faster so
 	// 20 minutes is overkill there but harmless.
 	const (
-		buildTimeout = 20 * time.Minute
-		suiteTimeout = 20 * time.Minute
+		buildTimeout = 60 * time.Minute
+		suiteTimeout = 60 * time.Minute
 	)
 
 	buildCtx := utils.WithTimeout(t, buildTimeout)
@@ -196,6 +196,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				BuildSystem:   ext.BuildSystem,
 				PgrxVersion:   ext.PgrxVersion,
 				PkgConfigDeps: ext.PkgConfigDeps,
+				ConfigureArgs: ext.ConfigureArgs,
 			}
 			if _, err := builder.InstallExternalExtension(t, buildCtx, spec); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)

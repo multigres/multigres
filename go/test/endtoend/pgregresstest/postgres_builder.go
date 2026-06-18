@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -248,9 +249,26 @@ func ExternalModules() []ExternalExtension {
 		want[s] = true
 	}
 	var out []ExternalExtension
+	seen := map[string]bool{}
+	add := func(e ExternalExtension) {
+		if seen[e.Name] {
+			return
+		}
+		seen[e.Name] = true
+		out = append(out, e)
+	}
 	for _, e := range all {
 		if want[e.Name] {
-			out = append(out, e)
+			add(e)
+		}
+	}
+	for name := range want {
+		spec, ok := externalSpecs[name]
+		if !ok || spec.TestRunner != "postgis-alias" {
+			continue
+		}
+		if postgis, ok := externalSpecs["postgis"]; ok {
+			add(postgis)
 		}
 	}
 	return out
@@ -294,7 +312,7 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 	// PGEXTERNAL_TESTS=pg_partman) drives psql directly and needs no pg_regress.
 	needRegress := false
 	for _, ext := range exts {
-		if ext.Harness == HarnessPgRegress {
+		if ext.Harness == HarnessPgRegress && ext.TestRunner == "" {
 			needRegress = true
 			break
 		}
@@ -314,6 +332,36 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 	}
 
 	for _, ext := range exts {
+		if ext.TestRunner == "postgis" {
+			res, err := pb.runPostGISTests(t, ctx, ext, multigatewayPort, directPgPort, password)
+			if res == nil {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				if err != nil {
+					return merged, fmt.Errorf("external/%s: %w", ext.Name, err)
+				}
+				return merged, fmt.Errorf("external/%s: no test results", ext.Name)
+			}
+			if res.TotalTests == 0 {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				if err != nil {
+					return merged, fmt.Errorf("external/%s: no tests executed: %w", ext.Name, err)
+				}
+				return merged, fmt.Errorf("external/%s: no tests executed", ext.Name)
+			}
+			if err != nil && !hasPostGISRunnerResults(res) {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				return merged, fmt.Errorf("external/%s: no PostGIS regress tests executed: %w", ext.Name, err)
+			}
+			mergeExternalResults(merged, res)
+			if err != nil {
+				t.Logf("external/%s: runner exited with error after producing %d result(s): %v", ext.Name, res.TotalTests, err)
+			}
+			continue
+		}
+		if ext.TestRunner == "postgis-alias" {
+			continue
+		}
+
 		cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
 		// Fixtures live under ext.TestSubdir within the checkout (pgvector: test/;
 		// pg_cron: the repo root, i.e. "."; pg_partman: test/). filepath.Join
@@ -430,6 +478,580 @@ func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension,
 	}, nil
 }
 
+func hasPostGISRunnerResults(res *TestResults) bool {
+	if res == nil {
+		return false
+	}
+	for _, tr := range res.Tests {
+		if !strings.HasSuffix(tr.Name, "/create_extension") {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeExternalResults(dst, src *TestResults) {
+	for _, tr := range src.Tests {
+		dst.Tests = append(dst.Tests, tr)
+		switch tr.Status {
+		case "fail":
+			dst.FailedTests++
+			detail := tr.FailReason
+			if detail == "" {
+				detail = "see external test artifacts"
+			}
+			dst.FailureDetails = append(dst.FailureDetails, TestFailure{
+				TestName: tr.Name,
+				Error:    detail,
+			})
+		case "skip":
+			dst.SkippedTests++
+		default:
+			dst.PassedTests++
+		}
+	}
+	dst.TimedOut = dst.TimedOut || src.TimedOut
+}
+
+type postGISComponent struct {
+	Extension string
+	Module    string
+	Flag      string
+	Required  bool
+}
+
+var postGISComponents = []postGISComponent{
+	{Extension: "postgis", Module: "postgis", Required: true},
+	{Extension: "postgis_topology", Module: "postgis_topology", Flag: "--topology"},
+	{Extension: "postgis_raster", Module: "postgis_raster", Flag: "--raster"},
+	{Extension: "postgis_sfcgal", Module: "postgis_sfcgal", Flag: "--sfcgal"},
+}
+
+// postGISTestSources maps each component module to the directory (relative to
+// the checkout root) that holds its regress Makefile + tests.mk. Used both for
+// test discovery (make -n check) and for generating the Make-prerequisite
+// fixtures before the runner.
+var postGISTestSources = []struct {
+	module string
+	dir    string
+}{
+	{module: "postgis", dir: "regress"},
+	{module: "postgis_topology", dir: filepath.Join("topology", "test")},
+	{module: "postgis_raster", dir: filepath.Join("raster", "test", "regress")},
+	{module: "postgis_sfcgal", dir: filepath.Join("sfcgal", "regress")},
+}
+
+// generatePostGISFixtures builds the regress fixtures PostGIS generates as Make
+// prerequisites of `make check` but NOT as part of `make all`/`make install`.
+// Topology is the notable case: its tests open with
+//
+//	\i :top_builddir/topology/test/load_topology.sql
+//
+// and load_topology.sql / load_topology-4326.sql / load_large_topology.sql /
+// topo_predicates.sql are produced by cpp from *.in templates in the Makefile's
+// check-regress-deps target. Because the harness drives regress/run_test.pl
+// directly (it cannot use `make check`; see runPostGISTests), those prerequisites
+// are never built, so the \i fails with "No such file or directory", the
+// city_data topology never loads, and every downstream city_data.* reference
+// errors out. Running check-regress-deps here closes that gap. Components whose
+// Makefile has no such target (the build already generated their fixtures, e.g.
+// raster's rtpostgis.sql) are skipped.
+func (pb *PostgresBuilder) generatePostGISFixtures(ctx context.Context, t *testing.T, cloneDir string, enabled map[string]bool) error {
+	for _, src := range postGISTestSources {
+		if !enabled[src.module] {
+			continue
+		}
+		dir := filepath.Join(cloneDir, src.dir)
+		raw, err := os.ReadFile(filepath.Join(dir, "Makefile"))
+		if err != nil {
+			continue
+		}
+		if !strings.Contains(string(raw), "check-regress-deps:") {
+			continue
+		}
+		t.Logf("Generating PostGIS %s regress fixtures (make check-regress-deps)...", src.module)
+		if out, err := executil.Command(ctx, "make", "-C", dir, "check-regress-deps").CombinedOutput(); err != nil {
+			return fmt.Errorf("postgis %s fixture generation failed: %w\n%s", src.module, err, truncateForLog(string(out), 2000))
+		}
+	}
+	return nil
+}
+
+func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ext ExternalExtension, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
+	outputDir := filepath.Join(pb.OutputDir, "external", ext.Name)
+	tmpDir := filepath.Join(outputDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir postgis tmp: %w", err)
+	}
+
+	if err := resetContribState(directPgPort, password); err != nil {
+		t.Logf("external/%s: warning: public schema reset failed: %v", ext.Name, err)
+	}
+	if err := patchPostGISRunnerDatabase(filepath.Join(cloneDir, "regress", "run_test.pl")); err != nil {
+		return nil, err
+	}
+
+	// Pre-install the PostGIS components directly on the primary (directPgPort),
+	// NOT through the gateway. CREATE EXTENSION postgis_topology runs
+	// `ALTER DATABASE <db> SET search_path = ..., topology` as part of its install
+	// script; routed through the gateway that change would land on one pooled
+	// backend while the others keep the old default, so later statements scattered
+	// across the pool wouldn't see the `topology` schema. Executing it on the
+	// primary bakes the new per-database search_path default into
+	// pg_db_role_setting; after the install we terminate any already-open client
+	// backends so multipooler reconnects and every backend used by run_test.pl is
+	// born with the topology-aware default. This keeps the primary-preinstall
+	// approach reliable even in the full external suite, where earlier extensions
+	// or setup readiness probes may have warmed the pool before PostGIS runs.
+	// (This replaces the connection-defaults pool-refresh mechanism for the
+	// PostGIS path.)
+	enabled := map[string]bool{}
+	synthetic := []IndividualTestResult{}
+	for _, comp := range postGISComponents {
+		if !extensionControlExists(pb.InstallDir, comp.Extension) {
+			if comp.Required {
+				return nil, fmt.Errorf("%s control file not installed", comp.Extension)
+			}
+			continue
+		}
+		if err := createExtensionWithSchema(directPgPort, password, comp.Extension, ""); err != nil {
+			tr := IndividualTestResult{
+				Name:       comp.Module + "/create_extension",
+				Status:     "fail",
+				FailReason: err.Error(),
+			}
+			synthetic = append(synthetic, tr)
+			if comp.Required {
+				return testResultsFromSynthetic(synthetic), err
+			}
+			continue
+		}
+		enabled[comp.Module] = true
+	}
+	if terminated, err := terminateDatabaseClientBackends(directPgPort, password); err != nil {
+		return testResultsFromSynthetic(synthetic), fmt.Errorf("refresh PostGIS pooled backends: %w", err)
+	} else if terminated > 0 {
+		t.Logf("external/%s: terminated %d existing postgres client backend(s) after PostGIS pre-install", ext.Name, terminated)
+	}
+
+	// Build the fixtures PostGIS generates as `make check` prerequisites (topology
+	// load_*.sql, topo_predicates.sql) before the runner \i's them.
+	if err := pb.generatePostGISFixtures(ctx, t, cloneDir, enabled); err != nil {
+		return testResultsFromSynthetic(synthetic), err
+	}
+
+	tests, err := listPostGISTests(ctx, cloneDir, enabled)
+	if err != nil {
+		return nil, err
+	}
+	if len(tests) == 0 {
+		return testResultsFromSynthetic(synthetic), errors.New("no PostGIS regress tests found")
+	}
+
+	args := []string{
+		filepath.Join("regress", "run_test.pl"),
+		"--nocreate",
+		"--nodrop",
+		"--extensions",
+	}
+	for _, comp := range postGISComponents {
+		if comp.Flag != "" && enabled[comp.Module] {
+			args = append(args, comp.Flag)
+		}
+	}
+	args = append(args, tests...)
+
+	t.Logf("Running external/%s run_test.pl (%d tests) against multigateway...", ext.Name, len(tests))
+	cmd := executil.Command(ctx, "perl", args...).WithProcessGroup().SetDir(cloneDir)
+	cmd.SetWaitDelay(10 * time.Second)
+	cmd.AddEnv(
+		"PGHOST=localhost",
+		fmt.Sprintf("PGPORT=%d", multigatewayPort),
+		"PGUSER=postgres",
+		"PGPASSWORD="+password,
+		"PGDATABASE=postgres",
+		"PGCONNECT_TIMEOUT=10",
+		"POSTGIS_REGRESS_DB=postgres",
+		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
+		"PGIS_REG_TMPDIR="+tmpDir,
+	)
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	startTime := time.Now()
+	runErr := cmd.Run()
+	duration := time.Since(startTime)
+
+	outData := stdoutBuf.Bytes()
+	if err := os.WriteFile(filepath.Join(outputDir, "regression.out"), outData, 0o644); err != nil {
+		t.Logf("external/%s: warning: write regression.out failed: %v", ext.Name, err)
+	}
+	if stderrBuf.Len() > 0 {
+		if err := os.WriteFile(filepath.Join(outputDir, "regression.stderr"), stderrBuf.Bytes(), 0o644); err != nil {
+			t.Logf("external/%s: warning: write regression.stderr failed: %v", ext.Name, err)
+		}
+	}
+
+	res, parseErr := parsePostGISResults(string(outData))
+	if parseErr != nil {
+		if runErr != nil {
+			return testResultsFromSynthetic(synthetic), fmt.Errorf("postgis runner failed: %w; parse output: %w", runErr, parseErr)
+		}
+		return testResultsFromSynthetic(synthetic), parseErr
+	}
+	res.Duration = duration
+	res.TimedOut = ctx.Err() == context.DeadlineExceeded
+
+	verifyPostGISResults(ctx, cloneDir, tmpDir, res, GetPatchMode())
+	res.Tests = append(synthetic, res.Tests...)
+	recountResults(res)
+	if runErr != nil {
+		return res, runErr
+	}
+	return res, nil
+}
+
+func extensionControlExists(installDir, name string) bool {
+	for _, dir := range []string{
+		filepath.Join(installDir, "share", "postgresql", "extension"),
+		filepath.Join(installDir, "share", "extension"),
+	} {
+		if suiteutil.FileExists(filepath.Join(dir, name+".control")) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchPostGISRunnerDatabase(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read postgis runner %q: %w", path, err)
+	}
+	patched := strings.ReplaceAll(string(raw), " template1", " postgres")
+	patched = strings.ReplaceAll(patched,
+		`    sql("ALTER DATABASE \"$DB\" SET test.executor_slow_factor = $test_executor_slow_factor");`,
+		`    # Multigres runs PostGIS against an existing database through the gateway; ALTER DATABASE is intentionally blocked.`,
+	)
+	if patched == string(raw) {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(patched), 0o755); err != nil {
+		return fmt.Errorf("patch postgis runner %q: %w", path, err)
+	}
+	return nil
+}
+
+func listPostGISTests(ctx context.Context, cloneDir string, enabled map[string]bool) ([]string, error) {
+	// Let PostGIS's generated Makefiles decide the regress list. The manifests are
+	// make programs, not data files: they contain feature conditionals, ordering
+	// constraints (for example raster cleanup tests that must run last), slow-test
+	// exclusions, and runner hook paths in RUNTESTFLAGS_INTERNAL. A dry-run of the
+	// component check targets gives us the fully-expanded run_test.pl command lines
+	// without reimplementing Make in Go.
+	var tests []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		tests = append(tests, name)
+	}
+
+	for _, src := range postGISTestSources {
+		if !enabled[src.module] {
+			continue
+		}
+		dir := filepath.Join(cloneDir, src.dir)
+		if !suiteutil.FileExists(filepath.Join(dir, "Makefile")) {
+			return nil, fmt.Errorf("PostGIS %s tests enabled but %s/Makefile is missing", src.module, src.dir)
+		}
+		cmd := executil.Command(ctx, "make", "-C", dir, "-n", "check")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("PostGIS %s test discovery failed: %w\n%s", src.module, err, truncateForLog(string(out), 2000))
+		}
+		names := parsePostGISMakeDryRunTests(cloneDir, src.dir, string(out))
+		if len(names) == 0 {
+			return nil, fmt.Errorf("PostGIS %s tests enabled but make dry-run produced no regress tests", src.module)
+		}
+		for _, name := range names {
+			add(name)
+		}
+	}
+	return tests, nil
+}
+
+func parsePostGISMakeDryRunTests(cloneDir, makeDir, output string) []string {
+	var tests []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		tests = append(tests, name)
+	}
+
+	// Make may print long run_test.pl invocations with shell continuations.
+	output = strings.ReplaceAll(output, "\\\n", " ")
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.Contains(line, "run_test.pl") {
+			continue
+		}
+		words := splitShellWords(line)
+		start := -1
+		for i, word := range words {
+			if strings.Contains(word, "run_test.pl") {
+				start = i + 1
+				break
+			}
+		}
+		if start < 0 {
+			continue
+		}
+		for _, word := range words[start:] {
+			add(normalizePostGISTestArg(cloneDir, makeDir, word))
+		}
+	}
+	return tests
+}
+
+func normalizePostGISTestArg(cloneDir, makeDir, arg string) string {
+	arg = strings.TrimSpace(arg)
+	arg = strings.TrimRight(arg, ";")
+	if arg == "" || strings.HasPrefix(arg, "-") || arg == "&&" || arg == "||" || arg == "|" {
+		return ""
+	}
+	if strings.Contains(arg, "=") && !strings.ContainsAny(arg, `/\`) {
+		return ""
+	}
+	arg = strings.TrimSuffix(arg, ".sql")
+
+	candidates := []string{arg}
+	if filepath.IsAbs(arg) {
+		if rel, err := filepath.Rel(cloneDir, arg); err == nil && !strings.HasPrefix(rel, "..") {
+			candidates = append([]string{rel}, candidates...)
+		}
+	} else if makeDir != "" {
+		candidates = append(candidates, filepath.Join(makeDir, arg))
+	}
+	for _, candidate := range candidates {
+		candidate = filepath.ToSlash(filepath.Clean(candidate))
+		if candidate == "." || strings.HasPrefix(candidate, "../") || strings.HasPrefix(candidate, "/") {
+			continue
+		}
+		if postGISTestExpectedExists(cloneDir, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func splitShellWords(line string) []string {
+	var words []string
+	var buf strings.Builder
+	quote := rune(0)
+	escaped := false
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		words = append(words, buf.String())
+		buf.Reset()
+	}
+	for _, r := range line {
+		if escaped {
+			buf.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				buf.WriteRune(r)
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\r', '\n':
+			flush()
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	if escaped {
+		buf.WriteRune('\\')
+	}
+	flush()
+	return words
+}
+
+func parsePostGISResults(output string) (*TestResults, error) {
+	res := &TestResults{
+		FailureDetails: []TestFailure{},
+		Tests:          []IndividualTestResult{},
+	}
+	lineRe := regexp.MustCompile(`^\s+(.+?)\s+\.+\s+(ok|failed|skipped)(?:\s*(.*))?$`)
+	durationRe := regexp.MustCompile(`in\s+(\d+)\s+ms`)
+	for line := range strings.SplitSeq(output, "\n") {
+		m := lineRe.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		rawName := strings.TrimSpace(m[1])
+		statusText := m[2]
+		detail := strings.TrimSpace(m[3])
+		status := "pass"
+		switch statusText {
+		case "failed":
+			status = "fail"
+		case "skipped":
+			status = "skip"
+		}
+		duration := ""
+		if dm := durationRe.FindStringSubmatch(detail); len(dm) == 2 {
+			duration = dm[1] + "ms"
+		}
+		tr := IndividualTestResult{
+			Name:     postGISResultName(rawName),
+			Status:   status,
+			Duration: duration,
+		}
+		if status == "fail" {
+			if detail == "" {
+				detail = "PostGIS runner reported failure"
+			}
+			tr.FailReason = detail
+			res.FailureDetails = append(res.FailureDetails, TestFailure{
+				TestName: tr.Name,
+				Error:    detail,
+			})
+		}
+		res.Tests = append(res.Tests, tr)
+	}
+	if len(res.Tests) == 0 {
+		return nil, errors.New("no PostGIS regress result lines found")
+	}
+	recountResults(res)
+	return res, nil
+}
+
+func postGISResultName(rawName string) string {
+	module := "postgis"
+	switch {
+	case strings.HasPrefix(rawName, "topology/"):
+		module = "postgis_topology"
+	case strings.HasPrefix(rawName, "raster/"):
+		module = "postgis_raster"
+	case strings.HasPrefix(rawName, "sfcgal/"):
+		module = "postgis_sfcgal"
+	}
+	return module + "/" + rawName
+}
+
+func verifyPostGISResults(ctx context.Context, cloneDir, tmpDir string, res *TestResults, mode PatchMode) {
+	repoRoot := findRepoRoot()
+	for i := range res.Tests {
+		test := &res.Tests[i]
+		module, rawName, ok := strings.Cut(test.Name, "/")
+		if !ok || rawName == "create_extension" || test.Status == "skip" {
+			continue
+		}
+		expectedPath := postGISExpectedPath(cloneDir, rawName)
+		actualPath := filepath.Join(tmpDir, fmt.Sprintf("test_%d_out", i+1))
+		if expectedPath == "" || !suiteutil.FileExists(actualPath) {
+			continue
+		}
+		outcome, err := VerifyTest(ctx, VerifyInput{
+			Name:         rawName,
+			ExpectedPath: expectedPath,
+			ActualPath:   actualPath,
+			PatchDir:     filepath.Join(PatchesDir(), "external", module),
+			RepoRoot:     repoRoot,
+		}, mode)
+		if err != nil {
+			test.Status = "fail"
+			test.FailReason = err.Error()
+			continue
+		}
+		test.Status = outcome.Status
+		test.PatchApplied = outcome.PatchApplied
+		test.PatchPath = outcome.PatchPath
+		test.FailReason = outcome.Reason
+	}
+}
+
+func postGISTestExpectedExists(cloneDir, rawName string) bool {
+	if postGISExpectedPath(cloneDir, rawName) != "" {
+		return true
+	}
+	// Some PostGIS expected files are generated by configure from .in templates.
+	// The built tree should normally contain the generated file by the time tests
+	// run, but accepting templates during dry-run parsing keeps discovery tied to
+	// real expected-output fixtures without mistaking runner hook SQL files for
+	// tests.
+	return slices.ContainsFunc([]string{
+		filepath.Join(cloneDir, rawName+"_expected.in"),
+		filepath.Join(cloneDir, rawName+".expected.in"),
+	}, suiteutil.FileExists)
+}
+
+func postGISExpectedPath(cloneDir, rawName string) string {
+	candidates := []string{
+		filepath.Join(cloneDir, rawName+"_expected"),
+		filepath.Join(cloneDir, rawName+".expected"),
+	}
+	for _, c := range candidates {
+		if suiteutil.FileExists(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+func testResultsFromSynthetic(tests []IndividualTestResult) *TestResults {
+	res := &TestResults{Tests: tests}
+	recountResults(res)
+	return res
+}
+
+func recountResults(res *TestResults) {
+	res.PassedTests = 0
+	res.FailedTests = 0
+	res.SkippedTests = 0
+	res.FailureDetails = res.FailureDetails[:0]
+	for _, tr := range res.Tests {
+		switch tr.Status {
+		case "fail":
+			res.FailedTests++
+			detail := tr.FailReason
+			if detail == "" {
+				detail = "test failed"
+			}
+			res.FailureDetails = append(res.FailureDetails, TestFailure{TestName: tr.Name, Error: detail})
+		case "skip":
+			res.SkippedTests++
+		default:
+			res.PassedTests++
+		}
+	}
+	res.TotalTests = len(res.Tests)
+}
+
 // resetContribState resets the shared postgres database to a clean baseline on
 // the primary's PostgreSQL directly (bypassing multigateway, which rejects
 // schema DDL), clearing everything a previous module's suite installed:
@@ -501,6 +1123,48 @@ func resetContribState(directPgPort int, password string) error {
 		}
 	}
 	return nil
+}
+
+// terminateDatabaseClientBackends closes existing client backends for the shared
+// postgres database on the primary, excluding this direct maintenance
+// connection. The PostGIS harness uses it after installing postgis_topology
+// directly on the primary: that install updates ALTER DATABASE search_path, but
+// already-open multipooler backends keep the old startup default until they
+// reconnect. Terminating them here forces subsequent gateway traffic to open
+// fresh backends that inherit the new database default.
+func terminateDatabaseClientBackends(directPgPort int, password string) (int, error) {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		directPgPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return 0, fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT pg_terminate_backend(pid)
+		FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND pid <> pg_backend_pid()
+		  AND backend_type = 'client backend'`)
+	if err != nil {
+		return 0, fmt.Errorf("terminate client backends: %w", err)
+	}
+	defer rows.Close()
+
+	terminated := 0
+	for rows.Next() {
+		var ok sql.NullBool
+		if err := rows.Scan(&ok); err != nil {
+			return terminated, err
+		}
+		if ok.Valid && ok.Bool {
+			terminated++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return terminated, err
+	}
+	return terminated, nil
 }
 
 // collectStrings drains a single-column query result into a slice, closing the

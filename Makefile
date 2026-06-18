@@ -178,7 +178,7 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 # testdata/pg17/patches/external/<ext>/.
 pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch-based verification.
 	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=verify \
-	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+	go test -v -timeout 180m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
 # Re-run the external extension suite in generate mode: any residual diff between
 # actual output and patched-expected output is absorbed by (re)writing
@@ -186,7 +186,7 @@ pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch
 # in the PR diff before merging.
 pgexternal-update-patches: build ## Regenerate testdata/pg17/patches/external/*.patch from the current run.
 	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate \
-	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+	go test -v -timeout 180m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
 # Regenerate the FULL pgregress patch set (regression + isolation + contrib +
 # external) inside an ubuntu-24.04 container that mirrors CI. The patch set is
