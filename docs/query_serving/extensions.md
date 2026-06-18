@@ -22,8 +22,11 @@ complete `pg_available_extensions` inventory.
 | `fuzzystrmatch` | contrib  | -                                                                                              |
 | `hstore`        | contrib  | -                                                                                              |
 | `ltree`         | contrib  | -                                                                                              |
+| `pg_prewarm`    | contrib  | -                                                                                              |
 | `pg_trgm`       | contrib  | -                                                                                              |
+| `pg_walinspect` | contrib  | `NO_INSTALLCHECK`; explicit REGRESS list (cluster provides `wal_level=replica`).               |
 | `pgcrypto`      | contrib  | Requires PostgreSQL to be built with OpenSSL.                                                  |
+| `pgstattuple`   | contrib  | FDW-section patched (gateway blocks `CREATE FOREIGN DATA WRAPPER` / `CREATE SERVER`).          |
 | `unaccent`      | contrib  | -                                                                                              |
 | `uuid-ossp`     | contrib  | Requires PostgreSQL UUID support.                                                              |
 | `http`          | external | pgsql-http; local httpbin; upstream/autocommit suite; timeout-wording patch.                   |

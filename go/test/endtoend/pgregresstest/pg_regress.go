@@ -158,9 +158,36 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 			t.Logf("contrib/%s: warning: public schema reset failed: %v", mod, err)
 		}
 
-		t.Logf("Running contrib/%s installcheck against multigateway...", mod)
-		cmd := executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
-			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
+		var cmd *executil.Cmd
+		if tests, ok := contribRegressTests[mod]; ok {
+			// NO_INSTALLCHECK module: `make installcheck` is a no-op and the
+			// REGRESS list lives only in the Makefile, so drive pg_regress
+			// directly with the explicit list (mirroring the module's REGRESS
+			// line). Read sql/ + expected/ from the source tree (--inputdir /
+			// --expecteddir) and write results/ into the build tree (--outputdir),
+			// matching what verifyContribModule reads. --use-existing --dbname=postgres
+			// because multigateway rejects DROP/CREATE DATABASE; the module's
+			// --temp-config is unnecessary since we run against the existing
+			// cluster (pg_walinspect's wal_level=replica is already provided by
+			// the multigres standby).
+			srcDir := filepath.Join(pb.SourceDir, "contrib", mod)
+			pgRegress := filepath.Join(pb.BuildDir, "src", "test", "regress", "pg_regress")
+			t.Logf("Running contrib/%s pg_regress (%d tests, NO_INSTALLCHECK) against multigateway...", mod, len(tests))
+			args := []string{
+				"--inputdir=" + srcDir,
+				"--outputdir=" + moduleDir,
+				"--expecteddir=" + srcDir,
+				"--bindir=" + pb.BinDir(),
+				"--use-existing",
+				"--dbname=postgres",
+			}
+			args = append(args, tests...)
+			cmd = executil.Command(ctx, pgRegress, args...).WithProcessGroup().SetDir(moduleDir)
+		} else {
+			t.Logf("Running contrib/%s installcheck against multigateway...", mod)
+			cmd = executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
+				"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
+		}
 
 		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 			suiteName: "Contrib/" + mod,
