@@ -112,9 +112,10 @@ func (s *ResolveTrackSetConfig) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return s.execute(ctx, exec, conn, state, bindVars, callback)
+	return s.execute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
 // PortalStreamExecute runs the same flow on the extended-protocol path. The
@@ -129,13 +130,14 @@ func (s *ResolveTrackSetConfig) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	bindVars, err := s.bindVarsFromPortal(portalInfo)
 	if err != nil {
 		return err
 	}
-	return s.execute(ctx, exec, conn, state, bindVars, callback)
+	return s.execute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
 // execute drives resolve → apply → track. bindVars resolves any $N ParamRefs
@@ -146,9 +148,14 @@ func (s *ResolveTrackSetConfig) execute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	rows, err := s.resolve(ctx, exec, conn, state, bindVars)
+	// info (the plan's reservation directives, e.g. an advisory-lock pin) rides
+	// on the resolve projection — that's the query that actually runs the user's
+	// pg_advisory_lock call. The separate set_config apply below is auxiliary, so
+	// it carries the zero value.
+	rows, err := s.resolve(ctx, exec, conn, state, bindVars, info)
 	if err != nil {
 		return err
 	}
@@ -165,7 +172,7 @@ func (s *ResolveTrackSetConfig) execute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, PlanExecInfo{}, callback); err != nil {
 		return err
 	}
 
@@ -187,9 +194,10 @@ func (s *ResolveTrackSetConfig) resolve(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 ) ([]*sqltypes.Row, error) {
 	var rows []*sqltypes.Row
-	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars,
+	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars, info,
 		func(_ context.Context, res *sqltypes.Result) error {
 			rows = append(rows, res.Rows...)
 			return nil

@@ -56,7 +56,7 @@ func TestPlanSetConfig_GatewayManagedIsLocalTruePlan(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	sql := "SELECT set_config('statement_timeout', '5s', true)"
-	plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn)
+	plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn, PlanOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 

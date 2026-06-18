@@ -546,9 +546,9 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 
 			// MUL-389 follow-up: WITH HOLD declared via the extended query
 			// protocol (Parse/Bind/Execute) must also pin the backend.
-			// Without PlanPortal dispatch for T_DeclareCursorStmt, the
-			// extended-protocol DECLARE would land on a pooled connection
-			// and the cursor would be lost on COMMIT.
+			// Without gateway dispatch for T_DeclareCursorStmt on the
+			// extended-protocol Plan path, the DECLARE would land on a pooled
+			// connection and the cursor would be lost on COMMIT.
 			t.Run("cursor WITH HOLD via extended protocol", func(t *testing.T) {
 				tableName := fmt.Sprintf("hold_ext_test_%d", time.Now().UnixNano())
 
@@ -565,8 +565,8 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 				closeStmt := "close_hold_ext"
 
 				// Forcing Parse/Bind/Execute by prepared name routes the
-				// statement through PlanPortal — the exact code path the
-				// reviewer flagged.
+				// statement through the extended-protocol Plan path — the exact
+				// code path the reviewer flagged.
 				_, err = conn.Prepare(ctx, declStmt, fmt.Sprintf("DECLARE %s SCROLL CURSOR WITH HOLD FOR SELECT i FROM %s ORDER BY i", cursorName, tableName))
 				require.NoError(t, err)
 				_, err = conn.Prepare(ctx, closeStmt, "CLOSE "+cursorName)

@@ -146,7 +146,7 @@ func TestPlanRejectsSynchronousCommitChange(t *testing.T) {
 		"ALTER ROLE myrole SET synchronous_commit = 'off'",
 	} {
 		t.Run(sql, func(t *testing.T) {
-			plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn)
+			plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn, PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, plan)
 			var diag *mterrors.PgDiagnostic
@@ -158,7 +158,7 @@ func TestPlanRejectsSynchronousCommitChange(t *testing.T) {
 	// RESET still plans successfully.
 	t.Run("RESET allowed", func(t *testing.T) {
 		sql := "RESET synchronous_commit"
-		plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn)
+		plan, err := p.Plan(sql, parseOne(t, sql), testConn.Conn, PlanOptions{})
 		require.NoError(t, err)
 		assert.NotNil(t, plan)
 	})

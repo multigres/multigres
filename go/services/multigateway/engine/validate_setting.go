@@ -96,9 +96,10 @@ func (v *ValidateSetting) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, discardResults)
+	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, discardResults)
 }
 
 // PortalStreamExecute mirrors StreamExecute. The validation SQL carries no
@@ -111,9 +112,10 @@ func (v *ValidateSetting) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, discardResults)
+	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, discardResults)
 }
 
 // GetTableGroup returns the target tablegroup.

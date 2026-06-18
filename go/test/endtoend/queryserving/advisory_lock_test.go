@@ -314,9 +314,9 @@ func TestAdvisoryLock_XactLockDoesNotPin(t *testing.T) {
 //
 // pgx uses the extended protocol with a bound parameter for `pg_advisory_lock($1)`,
 // which exercises a different gateway path than lib/pq's simple protocol: the
-// portal is planned via resolvePortalPlan → Plan (so the AdvisoryLockRoute is
-// built) and executed through the reserved-connection portal path. These tests
-// guard that path end to end.
+// portal is planned via resolvePortalPlan → Plan (so the advisory pin is set on
+// the plan's ExecInfo) and executed through the reserved-connection portal path.
+// These tests guard that path end to end.
 
 // openGatewayPgxConn opens a single pgx connection to the multigateway. A single
 // *pgx.Conn means every query rides the same gateway session, so pinning is

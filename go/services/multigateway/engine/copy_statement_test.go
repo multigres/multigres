@@ -39,6 +39,9 @@ import (
 type mockIExecute struct {
 	// StreamExecute behavior
 	streamExecuteErr error
+	// lastStreamResv captures the reservation intent of the most recent
+	// StreamExecute call so tests can assert what a primitive forwarded.
+	lastStreamResv PlanExecInfo
 
 	// CopyInitiate behavior
 	copyInitiateErr     error
@@ -81,8 +84,10 @@ func (m *mockIExecute) StreamExecute(
 	sql string,
 	preparedStatement *query.PreparedStatement,
 	state *handler.MultiGatewayConnectionState,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	m.lastStreamResv = info
 	return m.streamExecuteErr
 }
 
@@ -95,8 +100,10 @@ func (m *mockIExecute) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	m.lastStreamResv = info
 	return nil
 }
 
@@ -238,6 +245,7 @@ func TestCopyStatement_CopyInitiateError(t *testing.T) {
 		nil, // conn not used when CopyInitiate fails
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -270,6 +278,7 @@ func TestCopyStatement_WriteCopyInResponseError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -302,6 +311,7 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -340,6 +350,7 @@ func TestCopyStatement_CopyFinalizeError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -370,6 +381,7 @@ func TestCopyStatement_CopyFailMessage(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -405,6 +417,7 @@ func TestCopyStatement_Success(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -437,6 +450,7 @@ func TestCopyStatement_UnexpectedMessageType(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
 
@@ -561,6 +575,7 @@ func TestStreamCopyOut_Success(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		recordingCallback(&got),
 	)
 	require.NoError(t, err)
@@ -598,6 +613,7 @@ func TestStreamCopyOut_InitiateError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
 	require.Error(t, err)
@@ -629,6 +645,7 @@ func TestStreamCopyOut_DeferredAbortFiresOnPreStreamFailure(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error {
 			// First (and only) callback is the pre-stream initiation
 			// notice — make it fail so the engine bails before
@@ -661,6 +678,7 @@ func TestStreamCopyOut_StreamErrorSkipsDeferredAbort(t *testing.T) {
 		testConn.Conn,
 		&handler.MultiGatewayConnectionState{},
 		nil,
+		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
 	require.ErrorIs(t, err, streamErr)

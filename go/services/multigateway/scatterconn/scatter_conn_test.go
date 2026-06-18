@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -195,7 +196,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -247,7 +248,7 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -293,6 +294,7 @@ func TestScatterConn_Portal_FirstStatementReservesViaPortalRPC(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -326,10 +328,10 @@ func TestScatterConn_Portal_TempTableReservesViaPortalRPC(t *testing.T) {
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn() // not in a transaction
-	state.PendingTempTableReservation = true
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{TempTable: true},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -337,7 +339,6 @@ func TestScatterConn_Portal_TempTableReservesViaPortalRPC(t *testing.T) {
 	require.False(t, gw.streamExecuteCalled, "must NOT issue a no-op SELECT 1 reserve")
 	require.NotNil(t, gw.portalReservationOps)
 	require.True(t, protoutil.HasTempTableReason(gw.portalReservationOps.GetReasons()))
-	require.False(t, state.PendingTempTableReservation, "one-shot flag should be cleared")
 }
 
 // TestScatterConn_Portal_ExistingReservedConnNoReserveReasons verifies that when
@@ -366,6 +367,7 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -384,7 +386,7 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 	// TxState is Idle (default)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -400,7 +402,7 @@ func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -434,7 +436,7 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -466,7 +468,7 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -875,7 +877,7 @@ func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T)
 		ReservationReasons:   protoutil.ReasonTempTable,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "the cancelled query still surfaces an error")
@@ -910,7 +912,7 @@ func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)

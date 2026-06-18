@@ -173,6 +173,7 @@ func (sc *ScatterConn) StreamExecute(
 	sql string,
 	preparedStatement *querypb.PreparedStatement,
 	state *handler.MultiGatewayConnectionState,
+	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -210,11 +211,9 @@ func (sc *ScatterConn) StreamExecute(
 	// This statement may touch a session-level advisory lock (acquire or
 	// release). When it does, ask the multipooler to re-probe pg_locks afterward
 	// and unpin if none remain — keeping that probe off the per-statement hot
-	// path. One-shot: consume it here and attach it to whichever reservation path
-	// runs below (Case 3 has no reserved connection, so there's nothing to
-	// recheck).
-	recheckAdvisory := state.PendingAdvisoryLockRecheck
-	state.PendingAdvisoryLockRecheck = false
+	// path. Attached to whichever reservation path runs below (Case 3 has no
+	// reserved connection, so there's nothing to recheck).
+	recheckAdvisory := info.RecheckAdvisoryLocks
 
 	// One-shot: a successful ROLLBACK TO SAVEPOINT reverted session GUCs on the
 	// backend without the pooler observing the exact values. Forward it so the
@@ -252,32 +251,27 @@ func (sc *ScatterConn) StreamExecute(
 
 		// If this query creates a temp table, add the reason so the
 		// multipooler tracks it on the reserved connection.
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
 		}
 
 		// If this query acquires a session-level advisory lock, add the reason
 		// so the multipooler keeps the backend pinned until the lock is
 		// released. Promotes an existing reservation (e.g. an open transaction)
 		// to also hold the advisory-lock reason.
-		if state.PendingAdvisoryLockReservation {
+		if info.AdvisoryLock {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
-			state.PendingAdvisoryLockReservation = false
 		}
 
 		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
-		// the reserved backend so the cursor survives COMMIT. Take the
-		// pending list through the mutex-protected accessor so concurrent
-		// access (e.g. a future cancellation goroutine touching state) stays
-		// race-free.
-		if pinNames := state.TakePendingPinPortals(); len(pinNames) > 0 {
+		// the reserved backend so the cursor survives COMMIT.
+		if pinNames := info.PinPortals; len(pinNames) > 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
@@ -288,7 +282,7 @@ func (sc *ScatterConn) StreamExecute(
 		// If this query closes a `WITH HOLD` cursor, unpin it after the CLOSE
 		// runs on the backend. The multipooler will drop the reservation
 		// (returning ReservedConnectionId=0) when the last reason clears.
-		if releaseNames := state.TakePendingReleasePortals(); len(releaseNames) > 0 {
+		if releaseNames := info.ReleasePortals; len(releaseNames) > 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
@@ -346,27 +340,23 @@ func (sc *ScatterConn) StreamExecute(
 	}
 
 	// Case 2: Need a new reserved connection — for transaction, temp table,
-	// portal pin (DECLARE WITH HOLD), or any combination. Take the pin
-	// list once up front so we don't double-lock the state mutex via a
-	// separate Has check.
-	pinPortalNames := state.TakePendingPinPortals()
-	if conn.IsInTransaction() || state.PendingTempTableReservation || state.PendingAdvisoryLockReservation || len(pinPortalNames) > 0 {
+	// portal pin (DECLARE WITH HOLD), or any combination.
+	pinPortalNames := info.PinPortals
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || len(pinPortalNames) > 0 {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
 		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
-		if state.PendingAdvisoryLockReservation {
+		if info.AdvisoryLock {
 			reasons |= protoutil.ReasonSessionAdvisoryLock
-			state.PendingAdvisoryLockReservation = false
 		}
 		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
@@ -433,6 +423,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -485,10 +476,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// separate no-op "SELECT 1" reserve round trip.
 	var reservationOpts *querypb.ReservationOptions
 
-	// One-shot advisory recheck signal — attached to reservationOpts after the
+	// Advisory recheck signal — attached to reservationOpts after the
 	// reservation path below is chosen (see the end of the if/else).
-	recheckAdvisory := state.PendingAdvisoryLockRecheck
-	state.PendingAdvisoryLockRecheck = false
+	recheckAdvisory := info.RecheckAdvisoryLocks
 
 	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
@@ -505,11 +495,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 		// applies the reason atomically, before running the portal, so unlike a
 		// separate promotion step there's no window for the unpin probe to see
 		// no lock and tear the reservation down — see portalExecuteWithReserved.
-		if state.PendingAdvisoryLockReservation {
+		if info.AdvisoryLock {
 			reservationOpts = &querypb.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock}
-			state.PendingAdvisoryLockReservation = false
 		}
-	} else if conn.IsInTransaction() || state.PendingTempTableReservation || state.PendingAdvisoryLockReservation {
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
@@ -518,16 +507,14 @@ func (sc *ScatterConn) PortalStreamExecute(
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
 		}
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
-		if state.PendingAdvisoryLockReservation {
+		if info.AdvisoryLock {
 			reasons |= protoutil.ReasonSessionAdvisoryLock
-			state.PendingAdvisoryLockReservation = false
 		}
 
 		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",

@@ -424,38 +424,6 @@ func TestOpenHoldCursors_AddRemoveHasNames(t *testing.T) {
 	require.Nil(t, state.OpenHoldCursorNames())
 }
 
-func TestPendingPinPortals_AppendTakeHas(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
-
-	require.False(t, state.HasPendingPinPortals())
-	require.Nil(t, state.TakePendingPinPortals(), "empty take returns nil")
-
-	state.AppendPendingPinPortals() // empty args is a no-op
-	require.False(t, state.HasPendingPinPortals())
-
-	state.AppendPendingPinPortals("c1", "c2")
-	state.AppendPendingPinPortals("c3")
-	require.True(t, state.HasPendingPinPortals())
-
-	taken := state.TakePendingPinPortals()
-	require.Equal(t, []string{"c1", "c2", "c3"}, taken)
-	require.False(t, state.HasPendingPinPortals(), "take must atomically clear the queue")
-	require.Nil(t, state.TakePendingPinPortals(), "second take returns nil")
-}
-
-func TestPendingReleasePortals_AppendTake(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
-
-	require.Nil(t, state.TakePendingReleasePortals())
-	state.AppendPendingReleasePortals() // empty no-op
-	require.Nil(t, state.TakePendingReleasePortals())
-
-	state.AppendPendingReleasePortals("c1", "c2")
-	taken := state.TakePendingReleasePortals()
-	require.Equal(t, []string{"c1", "c2"}, taken)
-	require.Nil(t, state.TakePendingReleasePortals())
-}
-
 func TestHoldCursorsDeclaredInTxn(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 
@@ -547,20 +515,4 @@ func TestRollbackToSavepoint_OpenHoldCursorsIntersection(t *testing.T) {
 		"CLOSE inside a rolled-back sub-txn is not undone by ROLLBACK TO")
 	require.False(t, state.HasOpenHoldCursor("c_inside"),
 		"cursors declared inside the rolled-back sub-txn must be dropped")
-}
-
-// Ensure mutex helpers don't deadlock under concurrent access. The protocol
-// pipeline is serial per connection, but the mutex contract on
-// MultiGatewayConnectionState is defensive — exercise it explicitly.
-func TestPendingPinPortals_ConcurrentAccess(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
-	var wg sync.WaitGroup
-	for range 16 {
-		wg.Go(func() {
-			state.AppendPendingPinPortals("c")
-			_ = state.HasPendingPinPortals()
-			_ = state.TakePendingPinPortals()
-		})
-	}
-	wg.Wait()
 }

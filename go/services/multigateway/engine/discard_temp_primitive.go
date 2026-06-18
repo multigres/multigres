@@ -55,6 +55,7 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// If the session has a temp table reservation, use the dedicated RPC
@@ -84,9 +85,10 @@ func (d *DiscardTempPrimitive) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return d.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return d.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

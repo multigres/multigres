@@ -466,9 +466,9 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 			})
 
 			t.Run("create_temp_table_as_execute", func(t *testing.T) {
-				// CREATE TEMP TABLE ... AS EXECUTE goes through TempTableRoute →
-				// reserveAndStreamExecute, which creates a brand-new reserved
-				// connection. The prepared statement must be parsed on that
+				// CREATE TEMP TABLE ... AS EXECUTE plans a Route with
+				// ExecInfo.TempTable → reserveAndStreamExecute, which creates a
+				// brand-new reserved connection. The prepared statement must be parsed on that
 				// new connection before the rewritten SQL runs — otherwise
 				// the backend errors with "prepared statement does not exist".
 				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE p_ctas_temp AS SELECT id, value FROM %s ORDER BY id", tableName))

@@ -36,7 +36,7 @@ import (
 // table, that the CREATE still succeeds, and that a permanent table is silent.
 //
 // It runs over both the simple and extended query protocols, since the warning is
-// attached on two distinct planner paths (Plan and PlanPortal respectively).
+// attached on both the simple and extended-protocol (IsPortal) Plan paths.
 func TestUnloggedTableCreateWarning(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unlogged-warning test in short mode")
@@ -49,8 +49,8 @@ func TestUnloggedTableCreateWarning(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	// default_query_exec_mode selects pgx's wire protocol: simple_protocol hits the
-	// planner's Plan path, exec (unnamed extended) hits PlanPortal.
+	// default_query_exec_mode selects pgx's wire protocol: simple_protocol hits
+	// Plan with IsPortal=false, exec (unnamed extended) hits Plan with IsPortal=true.
 	for _, mode := range []string{"simple_protocol", "exec"} {
 		t.Run(mode, func(t *testing.T) {
 			connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
