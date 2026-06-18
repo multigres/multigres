@@ -72,6 +72,10 @@ env_args+=(-e "PGREGRESS_PATCH_MODE=${PATCH_MODE}" -e TEST_PRINT_LOGS=1)
 # worktree whose real gitdir lives outside the bind mount, so `go build` can't
 # run git. The embedded version doesn't affect regression output.
 env_args+=(-e "GOFLAGS=-buildvcs=false")
+# Pass the timeout into the container as an env var so the in-container script can
+# reference it directly, instead of interpolating host values into the single-
+# quoted `bash -c` body.
+env_args+=(-e "PGREGRESS_TIMEOUT=${TIMEOUT}")
 
 # Optional debug hook: redirect the per-run cluster tempdir (shardsetup_test_*,
 # holding multipooler.log / pgctld.log / multiorch.log) to a bind-mounted host
@@ -112,8 +116,8 @@ docker run --rm -t ${run_platform[@]+"${run_platform[@]}"} \
     PP=$!
     trap "kill $PP 2>/dev/null || true" EXIT
     export MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock
-    echo "== pgregress ('"${PATCH_MODE}"') =="
-    go test -v -timeout '"${TIMEOUT}"' -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+    echo "== pgregress (${PGREGRESS_PATCH_MODE}) =="
+    go test -v -timeout "${PGREGRESS_TIMEOUT}" -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
   '
 
 echo

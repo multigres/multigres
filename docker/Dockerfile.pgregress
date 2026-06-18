@@ -83,16 +83,34 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 # Go toolchain — pinned to go.mod (keep in sync with the `go` directive there).
 # Installed under /usr/local (world-readable), usable by the non-root user below.
 ARG GO_VERSION=1.25.1
+# SHA256 of the official Go release tarball per build arch (https://go.dev/dl).
+ARG GO_SHA256_amd64=7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e
+ARG GO_SHA256_arm64=65a3e34fb2126f55b34e1edfc709121660e1be2dee6bdf405fc399a63a95a87d
 RUN ARCH="$(dpkg --print-architecture)" \
+    && case "${ARCH}" in \
+         amd64) SHA="${GO_SHA256_amd64}" ;; \
+         arm64) SHA="${GO_SHA256_arm64}" ;; \
+         *) echo "unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz \
+    && echo "${SHA}  /tmp/go.tgz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tgz \
     && rm /tmp/go.tgz
 
 # etcd — topology store the multigres cluster-under-test starts (matches the
 # version setup-test-environment.sh installs in CI).
 ARG ETCD_VERSION=v3.6.4
+# SHA256 of the etcd release tarball per build arch (matches tools/tool_checksums.sh).
+ARG ETCD_SHA256_amd64=4d5f3101daa534e45ccaf3eec8d21c19b7222db377bcfd5e5a9144155238c105
+ARG ETCD_SHA256_arm64=323421fa279f4f3d7da4c7f2dfa17d9e49529cb2b4cdf40899a7416bccdde42d
 RUN ARCH="$(dpkg --print-architecture)" \
+    && case "${ARCH}" in \
+         amd64) SHA="${ETCD_SHA256_amd64}" ;; \
+         arm64) SHA="${ETCD_SHA256_arm64}" ;; \
+         *) echo "unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-${ARCH}.tar.gz" -o /tmp/etcd.tgz \
+    && echo "${SHA}  /tmp/etcd.tgz" | sha256sum -c - \
     && tar -C /tmp -xzf /tmp/etcd.tgz \
     && cp "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}/etcd" "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}/etcdctl" /usr/local/bin/ \
     && rm -rf /tmp/etcd.tgz "/tmp/etcd-${ETCD_VERSION}-linux-${ARCH}"
@@ -122,7 +140,22 @@ ENV GOTOOLCHAIN=local
 
 # Rust toolchain — installed under the non-root user's home so the harness's
 # `cargo install cargo-pgrx` (pinned to the version pg_graphql's crate requires,
-# currently 0.16.1) can write to $CARGO_HOME/bin at runtime.
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+# currently 0.16.1) can write to $CARGO_HOME/bin at runtime. Use a pinned,
+# checksum-verified rustup-init rather than the unverifiable
+# `curl https://sh.rustup.rs | sh` bootstrap.
+ARG RUSTUP_VERSION=1.28.2
+ARG RUSTUP_SHA256_amd64=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+ARG RUSTUP_SHA256_arm64=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "${ARCH}" in \
+         amd64) TRIPLE=x86_64-unknown-linux-gnu;  SHA="${RUSTUP_SHA256_amd64}" ;; \
+         arm64) TRIPLE=aarch64-unknown-linux-gnu; SHA="${RUSTUP_SHA256_arm64}" ;; \
+         *) echo "unsupported arch: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${TRIPLE}/rustup-init" -o /tmp/rustup-init \
+    && echo "${SHA}  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --profile minimal --default-toolchain stable \
+    && rm /tmp/rustup-init
 
 WORKDIR /workspace
