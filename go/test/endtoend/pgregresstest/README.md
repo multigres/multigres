@@ -208,7 +208,7 @@ How it works, and how it differs from the contrib suite:
   extension into it. CI provisions the Rust toolchain; the from-source server
   guarantees the same ABI as the PGXS path. PostGIS (`BuildSystem: "postgis"`) is
   the exception: it uses its autotools build (`./configure
-  --with-pgconfig=<built pg_config>`, `make`, `make install`) because it builds
+--with-pgconfig=<built pg_config>`, `make`, `make install`) because it builds
   shared libraries, loader/dumper tools, and multiple extension components rather
   than a single PGXS module.
 
@@ -218,7 +218,6 @@ How it works, and how it differs from the contrib suite:
   kegs live outside the default search path; pass them with
   `PG_CONFIGURE_EXTRA_ARGS="--with-includes=/opt/homebrew/include --with-libraries=/opt/homebrew/lib"`
   (CI on Linux needs nothing).
-
 
 - **Test execution**: unlike contrib we cannot use `make installcheck`. Under
   PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
