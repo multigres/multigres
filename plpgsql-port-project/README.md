@@ -27,9 +27,10 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 See `phase-1-chunks.md` for the full chunk list. Summary:
 
-- [~] 1.1 Grammar + build scaffolding (empty plpgsql.y compiles) — code
-  complete and green in the working tree; not yet committed/merged
-- [ ] 1.2 PL/pgSQL keyword table + lexer wrapper
+- [x] 1.1 Grammar + build scaffolding (empty plpgsql.y compiles) — committed
+      on the branch
+- [~] 1.2 PL/pgSQL keyword table + lexer wrapper — code complete and green in
+  the working tree; not yet committed
 - [ ] 1.3 Core AST nodes (PLpgSQL_function, stmt_block, expr) in the
       `plpgsqlast` subpackage (separate hierarchy, not `ast.Node`)
 - [ ] 1.3a Clone/rewrite generator machinery for the `plpgsqlast` subpackage

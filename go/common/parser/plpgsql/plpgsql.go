@@ -48,10 +48,269 @@ type plpgsqlResultSetter interface {
 	SetResult(*plpgsqlast.PLpgSQL_function)
 }
 
+const (
+	IDENT                  = 57346
+	UIDENT                 = 57347
+	FCONST                 = 57348
+	SCONST                 = 57349
+	USCONST                = 57350
+	BCONST                 = 57351
+	XCONST                 = 57352
+	Op                     = 57353
+	ICONST                 = 57354
+	PARAM                  = 57355
+	TYPECAST               = 57356
+	DOT_DOT                = 57357
+	COLON_EQUALS           = 57358
+	EQUALS_GREATER         = 57359
+	LESS_EQUALS            = 57360
+	GREATER_EQUALS         = 57361
+	NOT_EQUALS             = 57362
+	T_WORD                 = 57363
+	T_CWORD                = 57364
+	T_DATUM                = 57365
+	LESS_LESS              = 57366
+	GREATER_GREATER        = 57367
+	K_ABSOLUTE             = 57368
+	K_ALIAS                = 57369
+	K_ALL                  = 57370
+	K_AND                  = 57371
+	K_ARRAY                = 57372
+	K_ASSERT               = 57373
+	K_BACKWARD             = 57374
+	K_BEGIN                = 57375
+	K_BY                   = 57376
+	K_CALL                 = 57377
+	K_CASE                 = 57378
+	K_CHAIN                = 57379
+	K_CLOSE                = 57380
+	K_COLLATE              = 57381
+	K_COLUMN               = 57382
+	K_COLUMN_NAME          = 57383
+	K_COMMIT               = 57384
+	K_CONSTANT             = 57385
+	K_CONSTRAINT           = 57386
+	K_CONSTRAINT_NAME      = 57387
+	K_CONTINUE             = 57388
+	K_CURRENT              = 57389
+	K_CURSOR               = 57390
+	K_DATATYPE             = 57391
+	K_DEBUG                = 57392
+	K_DECLARE              = 57393
+	K_DEFAULT              = 57394
+	K_DETAIL               = 57395
+	K_DIAGNOSTICS          = 57396
+	K_DO                   = 57397
+	K_DUMP                 = 57398
+	K_ELSE                 = 57399
+	K_ELSIF                = 57400
+	K_END                  = 57401
+	K_ERRCODE              = 57402
+	K_ERROR                = 57403
+	K_EXCEPTION            = 57404
+	K_EXECUTE              = 57405
+	K_EXIT                 = 57406
+	K_FETCH                = 57407
+	K_FIRST                = 57408
+	K_FOR                  = 57409
+	K_FOREACH              = 57410
+	K_FORWARD              = 57411
+	K_FROM                 = 57412
+	K_GET                  = 57413
+	K_HINT                 = 57414
+	K_IF                   = 57415
+	K_IMPORT               = 57416
+	K_IN                   = 57417
+	K_INFO                 = 57418
+	K_INSERT               = 57419
+	K_INTO                 = 57420
+	K_IS                   = 57421
+	K_LAST                 = 57422
+	K_LOG                  = 57423
+	K_LOOP                 = 57424
+	K_MERGE                = 57425
+	K_MESSAGE              = 57426
+	K_MESSAGE_TEXT         = 57427
+	K_MOVE                 = 57428
+	K_NEXT                 = 57429
+	K_NO                   = 57430
+	K_NOT                  = 57431
+	K_NOTICE               = 57432
+	K_NULL                 = 57433
+	K_OPEN                 = 57434
+	K_OPTION               = 57435
+	K_OR                   = 57436
+	K_PERFORM              = 57437
+	K_PG_CONTEXT           = 57438
+	K_PG_DATATYPE_NAME     = 57439
+	K_PG_EXCEPTION_CONTEXT = 57440
+	K_PG_EXCEPTION_DETAIL  = 57441
+	K_PG_EXCEPTION_HINT    = 57442
+	K_PG_ROUTINE_OID       = 57443
+	K_PRINT_STRICT_PARAMS  = 57444
+	K_PRIOR                = 57445
+	K_QUERY                = 57446
+	K_RAISE                = 57447
+	K_RELATIVE             = 57448
+	K_RETURN               = 57449
+	K_RETURNED_SQLSTATE    = 57450
+	K_REVERSE              = 57451
+	K_ROLLBACK             = 57452
+	K_ROW_COUNT            = 57453
+	K_ROWTYPE              = 57454
+	K_SCHEMA               = 57455
+	K_SCHEMA_NAME          = 57456
+	K_SCROLL               = 57457
+	K_SLICE                = 57458
+	K_SQLSTATE             = 57459
+	K_STACKED              = 57460
+	K_STRICT               = 57461
+	K_TABLE                = 57462
+	K_TABLE_NAME           = 57463
+	K_THEN                 = 57464
+	K_TO                   = 57465
+	K_TYPE                 = 57466
+	K_USE_COLUMN           = 57467
+	K_USE_VARIABLE         = 57468
+	K_USING                = 57469
+	K_VARIABLE_CONFLICT    = 57470
+	K_WARNING              = 57471
+	K_WHEN                 = 57472
+	K_WHILE                = 57473
+)
+
 var plpgsqlToknames = [...]string{
 	"$end",
 	"error",
 	"$unk",
+	"IDENT",
+	"UIDENT",
+	"FCONST",
+	"SCONST",
+	"USCONST",
+	"BCONST",
+	"XCONST",
+	"Op",
+	"ICONST",
+	"PARAM",
+	"TYPECAST",
+	"DOT_DOT",
+	"COLON_EQUALS",
+	"EQUALS_GREATER",
+	"LESS_EQUALS",
+	"GREATER_EQUALS",
+	"NOT_EQUALS",
+	"T_WORD",
+	"T_CWORD",
+	"T_DATUM",
+	"LESS_LESS",
+	"GREATER_GREATER",
+	"K_ABSOLUTE",
+	"K_ALIAS",
+	"K_ALL",
+	"K_AND",
+	"K_ARRAY",
+	"K_ASSERT",
+	"K_BACKWARD",
+	"K_BEGIN",
+	"K_BY",
+	"K_CALL",
+	"K_CASE",
+	"K_CHAIN",
+	"K_CLOSE",
+	"K_COLLATE",
+	"K_COLUMN",
+	"K_COLUMN_NAME",
+	"K_COMMIT",
+	"K_CONSTANT",
+	"K_CONSTRAINT",
+	"K_CONSTRAINT_NAME",
+	"K_CONTINUE",
+	"K_CURRENT",
+	"K_CURSOR",
+	"K_DATATYPE",
+	"K_DEBUG",
+	"K_DECLARE",
+	"K_DEFAULT",
+	"K_DETAIL",
+	"K_DIAGNOSTICS",
+	"K_DO",
+	"K_DUMP",
+	"K_ELSE",
+	"K_ELSIF",
+	"K_END",
+	"K_ERRCODE",
+	"K_ERROR",
+	"K_EXCEPTION",
+	"K_EXECUTE",
+	"K_EXIT",
+	"K_FETCH",
+	"K_FIRST",
+	"K_FOR",
+	"K_FOREACH",
+	"K_FORWARD",
+	"K_FROM",
+	"K_GET",
+	"K_HINT",
+	"K_IF",
+	"K_IMPORT",
+	"K_IN",
+	"K_INFO",
+	"K_INSERT",
+	"K_INTO",
+	"K_IS",
+	"K_LAST",
+	"K_LOG",
+	"K_LOOP",
+	"K_MERGE",
+	"K_MESSAGE",
+	"K_MESSAGE_TEXT",
+	"K_MOVE",
+	"K_NEXT",
+	"K_NO",
+	"K_NOT",
+	"K_NOTICE",
+	"K_NULL",
+	"K_OPEN",
+	"K_OPTION",
+	"K_OR",
+	"K_PERFORM",
+	"K_PG_CONTEXT",
+	"K_PG_DATATYPE_NAME",
+	"K_PG_EXCEPTION_CONTEXT",
+	"K_PG_EXCEPTION_DETAIL",
+	"K_PG_EXCEPTION_HINT",
+	"K_PG_ROUTINE_OID",
+	"K_PRINT_STRICT_PARAMS",
+	"K_PRIOR",
+	"K_QUERY",
+	"K_RAISE",
+	"K_RELATIVE",
+	"K_RETURN",
+	"K_RETURNED_SQLSTATE",
+	"K_REVERSE",
+	"K_ROLLBACK",
+	"K_ROW_COUNT",
+	"K_ROWTYPE",
+	"K_SCHEMA",
+	"K_SCHEMA_NAME",
+	"K_SCROLL",
+	"K_SLICE",
+	"K_SQLSTATE",
+	"K_STACKED",
+	"K_STRICT",
+	"K_TABLE",
+	"K_TABLE_NAME",
+	"K_THEN",
+	"K_TO",
+	"K_TYPE",
+	"K_USE_COLUMN",
+	"K_USE_VARIABLE",
+	"K_USING",
+	"K_VARIABLE_CONFLICT",
+	"K_WARNING",
+	"K_WHEN",
+	"K_WHILE",
 }
 
 var plpgsqlStatenames = [...]string{}
@@ -62,7 +321,7 @@ const (
 	plpgsqlInitialStackSize = 16
 )
 
-//line plpgsql.y:72
+//line plpgsql.y:120
 
 //line yacctab:1
 var plpgsqlExca = [...]int{
@@ -87,10 +346,13 @@ var plpgsqlPgo = [...]int{
 	0, 0,
 }
 
-//line plpgsql.y:72
+//line plpgsql.y:120
 type plpgsqlSymType struct {
-	union any
-	yys   int
+	union    any
+	str      string
+	ival     int
+	location int
+	yys      int
 }
 
 func (st *plpgsqlSymType) functionUnion() *plpgsqlast.PLpgSQL_function {
@@ -119,7 +381,19 @@ var plpgsqlTok1 = [...]int{
 }
 
 var plpgsqlTok2 = [...]int{
-	2, 3,
+	2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+	12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+	22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+	32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+	42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+	52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
+	62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
+	72, 73, 74, 75, 76, 77, 78, 79, 80, 81,
+	82, 83, 84, 85, 86, 87, 88, 89, 90, 91,
+	92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
+	102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+	112, 113, 114, 115, 116, 117, 118, 119, 120, 121,
+	122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
 }
 
 var plpgsqlTok3 = [...]int{
@@ -473,7 +747,7 @@ plpgsqldefault:
 	case 1:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_function
-//line plpgsql.y:64
+//line plpgsql.y:112
 		{
 			plpgsqlLOCAL = plpgsqlast.NewPLpgSQL_function()
 			if l, ok := plpgsqllex.(plpgsqlResultSetter); ok {
