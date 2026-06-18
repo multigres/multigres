@@ -33,8 +33,11 @@ type NodeTag int
 
 const (
 	// T_Invalid is the zero value; it marks an uninitialized or placeholder node.
-	T_Invalid          NodeTag = iota
-	T_PLpgSQL_function         // Root of a parsed PL/pgSQL function body
+	T_Invalid                 NodeTag = iota
+	T_PLpgSQL_function                // Root of a parsed PL/pgSQL function body
+	T_PLpgSQL_stmt_block              // BEGIN … END block
+	T_PLpgSQL_expr                    // SQL fragment (verbatim text + parsed AST)
+	T_PLpgSQL_exception_block         // EXCEPTION section of a block
 )
 
 // String returns the string representation of a NodeTag.
@@ -42,6 +45,12 @@ func (nt NodeTag) String() string {
 	switch nt {
 	case T_PLpgSQL_function:
 		return "T_PLpgSQL_function"
+	case T_PLpgSQL_stmt_block:
+		return "T_PLpgSQL_stmt_block"
+	case T_PLpgSQL_expr:
+		return "T_PLpgSQL_expr"
+	case T_PLpgSQL_exception_block:
+		return "T_PLpgSQL_exception_block"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

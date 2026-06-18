@@ -32,5 +32,5 @@ func TestParsePLpgSQL_Empty(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, fn)
 	assert.Equal(t, plpgsqlast.T_PLpgSQL_function, fn.NodeTag())
-	assert.Empty(t, fn.Actions)
+	assert.Nil(t, fn.Action)
 }

@@ -17,12 +17,12 @@ package plpgsqlast
 // PLpgSQL_function is the root of a parsed PL/pgSQL function body.
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h (PLpgSQL_function struct).
 //
-// Currently this is only the container. Statement nodes (stmt_block, stmt_if,
-// stmt_loop, stmt_execsql, stmt_dynexecute, etc.) and the datum family are
-// added incrementally as the grammar is ported.
+// As in PG, the body is a single top-level block (PG's function->action). The
+// many execution-engine fields of PG's struct (datum array, resolution flags,
+// etc.) are intentionally omitted — this is a parse tree for static analysis.
 type PLpgSQL_function struct {
 	BaseNode
-	Actions []Node `json:"actions,omitempty"` // top-level statements inside the function body
+	Action *PLpgSQL_stmt_block `json:"action,omitempty"` // the function body block
 }
 
 func (n *PLpgSQL_function) String() string {
@@ -30,7 +30,10 @@ func (n *PLpgSQL_function) String() string {
 }
 
 func (n *PLpgSQL_function) SqlString() string {
-	return ""
+	if n.Action == nil {
+		return ""
+	}
+	return n.Action.SqlString()
 }
 
 func NewPLpgSQL_function() *PLpgSQL_function {

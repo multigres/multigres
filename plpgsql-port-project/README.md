@@ -29,10 +29,9 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 
 - [x] 1.1 Grammar + build scaffolding (empty plpgsql.y compiles) — committed
       on the branch
-- [~] 1.2 PL/pgSQL keyword table + lexer wrapper — code complete and green in
-  the working tree; not yet committed
-- [ ] 1.3 Core AST nodes (PLpgSQL_function, stmt_block, expr) in the
-      `plpgsqlast` subpackage (separate hierarchy, not `ast.Node`)
+- [x] 1.2 PL/pgSQL keyword table + lexer wrapper — committed on the branch
+- [~] 1.3 Core AST nodes (Stmt iface, stmt_block, expr; function reshape) in
+  the `plpgsqlast` subpackage — code complete and green; not yet committed
 - [ ] 1.3a Clone/rewrite generator machinery for the `plpgsqlast` subpackage
       (own asthelpergen run, folded into `make parser`)
 - [ ] 1.4 Minimal block parsing (`BEGIN … END;`)

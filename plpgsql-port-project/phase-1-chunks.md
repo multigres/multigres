@@ -52,19 +52,29 @@ token).
 
 ### 1.3 Core AST nodes
 
-Hand-write the minimum vocabulary needed to represent any PL/pgSQL function,
-all in the `plpgsqlast` subpackage:
+Hand-write only the genuinely **shared** foundation nodes, all in the
+`plpgsqlast` subpackage (per-family nodes land with their grammar in later
+chunks, not as speculative stubs here):
 
-- `PLpgSQL_function` (root)
-- `PLpgSQL_stmt_block` (container)
-- `PLpgSQL_expr` (SQL fragment: raw text + parsed `ast.Stmt` — the one place
-  `plpgsqlast` references the SQL AST)
-- `PLpgSQL_condition` and exception-block scaffolding (empty for now)
-- datum family stubs (`PLpgSQL_var`, `PLpgSQL_row`, `PLpgSQL_rec`,
-  `PLpgSQL_recfield`) without full resolution semantics
+- `Stmt` marker interface (Go analogue of PG's `PLpgSQL_stmt` supertype)
+- `PLpgSQL_function` reshaped to `Action *PLpgSQL_stmt_block` (PG's
+  `function->action`)
+- `PLpgSQL_stmt_block` (container: `Label`, `Body []Stmt`, `Exceptions`)
+- `PLpgSQL_expr` (SQL fragment: `Query` text + parsed `ast.Stmt` — the one place
+  `plpgsqlast` references the SQL AST; `Parsed` is `ast.Stmt`, with bare
+  expressions wrapped as `SELECT <expr>` by chunk 1.6)
+- `PLpgSQL_exception_block` empty placeholder (real body in 1.12)
 
-All implement `plpgsqlast.Node` (NOT `ast.Node`). No grammar productions
-created yet beyond what 1.1 already has.
+Parse-level subset only — PG's execution-engine fields (SPI plans, `ExprState`,
+`stmtid`, datum-number bookkeeping) are dropped. All implement
+`plpgsqlast.Node` (statements also implement `Stmt`), NOT `ast.Node`. No grammar
+productions created yet beyond what 1.1 already has.
+
+**Deferred out of 1.3, to be DEFINED by the chunk that introduces the grammar
+that produces them:** `PLpgSQL_stmt_null` (1.4), the datum family
+`PLpgSQL_var`/`_row`/`_rec`/`_recfield` and `PLpgSQL_type` (1.5),
+`PLpgSQL_condition` and the full `PLpgSQL_exception`/`_exception_block` body
+(1.12).
 
 **Acceptance:** `go build ./...` green; no new parser behavior.
 
@@ -91,8 +101,8 @@ First real grammar work. Add productions for the outermost block: optional
 label, optional DECLARE section (parsed empty for now), `BEGIN` … `END`,
 optional label after `END`, trailing `;`. Emits a `PLpgSQL_stmt_block`.
 `ParsePLpgSQL` now parses bodies like `BEGIN END;` and
-`BEGIN NULL; END;` (NULL statement is the simplest leaf — add a trivial
-`PLpgSQL_stmt_null` node too, matching PG).
+`BEGIN NULL; END;` (NULL statement is the simplest leaf — **define** a trivial
+`PLpgSQL_stmt_null` node here, matching PG; 1.3 deliberately left it out).
 
 **Acceptance:** table-driven parse tests for empty block, NULL-only block,
 labeled block, multiple blocks; testdata JSON fixtures.
@@ -101,8 +111,10 @@ labeled block, multiple blocks; testdata JSON fixtures.
 
 Add grammar for `DECLARE var [CONSTANT] type [NOT NULL] [:= expr];` inside
 the outer block. Types are scanned until the initializer-or-terminator, the
-token slice handed to the main SQL parser for TypeName parsing.
-`PLpgSQL_var` gets populated for the first time.
+token slice handed to the main SQL parser for TypeName parsing. **Define** the
+datum family here — `PLpgSQL_var` (and `PLpgSQL_row`/`_rec`/`_recfield` and
+`PLpgSQL_type` as needed); 1.3 deferred all of them. `PLpgSQL_var` gets
+populated for the first time.
 
 **Acceptance:** parse `DECLARE i int; BEGIN END;` and variants with default
 values, CONSTANT, NOT NULL, %TYPE, %ROWTYPE. Type-resolution stubs are OK;
@@ -112,10 +124,24 @@ we only need the parse.
 
 Implement the `read_sql_construct` equivalent: scan tokens until a
 terminator set (`;`, `LOOP`, `WHEN`, `USING`, `THEN`, `ELSE`, etc.),
-stringify, call the main `ParseSQL` (or an expression-mode variant) and
-store both raw + parsed on `PLpgSQL_expr`. Then use it for the simplest
-consumer: assignment (`variable := expr;`). This is the boundary that the
-Tier 1 walker will ultimately traverse — critical to get right.
+stringify, set `PLpgSQL_expr.Query` + `ParseMode`, parse, and store the
+result in `PLpgSQL_expr.Parsed`. Then use it for the simplest consumer:
+assignment (`variable := expr;`). This is the boundary that the Tier 1 walker
+will ultimately traverse — critical to get right.
+
+**DECISION to make here — how to parse a bare expression fragment** (`ParseMode
+== RAW_PARSE_PLPGSQL_EXPR`, e.g. an IF condition or assignment RHS), since our
+`ParseSQL` only parses full statement lists (≈ PG's `RAW_PARSE_DEFAULT`):
+
+- **(a) Pragmatic:** wrap the fragment as `SELECT <expr>` and parse that, so
+  `Parsed` is always an `ast.Stmt`. Cheap; no shared-parser change; the walker
+  unwraps the single target.
+- **(b) Faithful to PG:** teach the SQL parser an expression entry mode (PG's
+  `RAW_PARSE_PLPGSQL_EXPR` / `RAW_PARSE_PLPGSQL_ASSIGN1..3` via `raw_parser`).
+  Closer to PG, but a change to the shared `go/common/parser`.
+
+`PLpgSQL_expr.ParseMode` already exists to carry the distinction; pick (a) or
+(b) when writing the chunk-06 detail doc.
 
 **Acceptance:** parse `BEGIN x := 1; END;`, `BEGIN x := (SELECT foo());
 END;`, confirm `PLpgSQL_expr.Parsed` is a valid SQL AST.
@@ -157,8 +183,9 @@ no-args re-raise form. `ASSERT expr [, message];`.
 ### 1.12 Exception blocks
 
 `EXCEPTION WHEN condition [OR condition …] THEN … [WHEN …] END;` inside a
-block. `PLpgSQL_condition` + `PLpgSQL_exception_block` get their real
-population here.
+block. **Define** `PLpgSQL_condition` and `PLpgSQL_exception` here, and flesh
+out the `PLpgSQL_exception_block` placeholder that 1.3 stubbed (add its
+`Exc_list` of WHEN clauses) — this is where they get their real population.
 
 ### 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK
 
