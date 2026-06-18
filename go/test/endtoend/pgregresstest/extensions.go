@@ -103,13 +103,16 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pg_jsonschema", KindExternal, StatusCovered, "Rust/pgrx JSON Schema validator; ships no SQL suite (upstream tests are pgrx #[pg_test] functions in a private embedded server), so the harness carries a faithful SQL translation of that corpus in-repo (LocalTestDir) and runs it through multigateway"},
 	{"pg_net", KindExternal, StatusExternal, "background worker"},
 	{"pg_partman", KindExternal, StatusCovered, "pgTAP suite run via psql (not pg_regress); needs pgtap + max_locks_per_transaction>=128 (see testdata/pg17/external/pg_partman.conf). Runs the transaction-wrapped tests only (top-level + test_pg17plus/ + test_no_search_path/); autocommit/procedure subfolders can't run through a transaction pooler — see runExternalPgTAP. Also pgmq's build dependency (pgmq.create_partitioned → create_parent)."},
+	{"pg_prewarm", KindContrib, StatusCovered, ""},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
 	{"pg_trgm", KindContrib, StatusCovered, ""},
+	{"pg_walinspect", KindContrib, StatusCovered, "WAL inspection; Makefile is NO_INSTALLCHECK (its REGRESS list lives only there) because it needs wal_level=replica — already satisfied by the multigres cluster's standby, so it runs in the stock contrib phase via an explicit REGRESS list (contribRegressTests) instead of make installcheck. The test asserts COUNT(*)>=1 booleans, not exact LSNs, so it is gateway-deterministic"},
 	{"pgaudit", KindExternal, StatusBuildOnly, "session/object audit logging; needs shared_preload_libraries (PreloadLibraries). The harness builds, preloads, and smoke-loads it, but does not run upstream's pg_regress suite because that suite asserts an exact audit-log stream (literal SET/RESET/SET ROLE/PREPARE/EXECUTE text and database DDL) that is not a valid multigateway pass/fail signal until session-state replay around SET ROLE and pgaudit.* GUCs is fixed"},
 	{"pgcrypto", KindContrib, StatusCovered, "needs --with-ssl=openssl"},
 	{"pgjwt", KindExternal, StatusCovered, "pure-SQL JWT extension; pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql. Depends on pgcrypto (contrib) and pgtap; upstream never tags releases, so it is pinned to a commit"},
 	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
 	{"pgsodium", KindExternal, StatusCovered, "libsodium crypto wrapper (needs libsodium via pkg-config to build); pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql in keyless mode — server-key/TCE tests self-skip via \\if :serverkeys since pgsodium is not in shared_preload_libraries"},
+	{"pgstattuple", KindContrib, StatusCovered, "tuple-level statistics; stock contrib installcheck suite. The foreign-data-wrapper section of its test diverges — multigateway blocks CREATE FOREIGN DATA WRAPPER / CREATE SERVER by design (see unsafe_stmt.go), so those statements and the dependent foreign-table checks fail with multigres-specific errors — captured in a per-module patch"},
 	{"pgtap", KindExternal, StatusCovered, "runs its own pg_regress suite (every test wrapped in BEGIN…ROLLBACK by test/setup.sql); extension.sql needs contrib citext/isn/ltree installed (ContribDeps). Also the test dependency of pg_partman, pgjwt, and pgsodium"},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
 	{"plpgsql_check", KindExternal, StatusCovered, "plpgsql linter/profiler; needs shared_preload_libraries (PreloadLibraries) so the passive-mode hooks and shared-memory profiler work on every pooled backend; the gateway-blocked LOAD statements its tests open with are patched"},
@@ -121,6 +124,22 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"uuid-ossp", KindContrib, StatusCovered, "needs --with-uuid"},
 	{"vector", KindExternal, StatusCovered, "pgvector; built as a PGXS module from externalSpecs"},
 	{"wrappers", KindExternal, StatusExternal, "Rust"},
+}
+
+// contribRegressTests holds the explicit pg_regress test list for covered
+// contrib modules whose Makefile is NO_INSTALLCHECK — so `make installcheck`
+// is a no-op and the harness cannot derive the list from it (the REGRESS
+// variable lives only in the Makefile). For these the contrib suite invokes
+// pg_regress directly with this list (mirroring the module's REGRESS line),
+// instead of `make installcheck`. Keyed by contrib directory (== module name).
+//
+// pg_walinspect is NO_INSTALLCHECK because it requires wal_level=replica, which
+// the multigres cluster already provides via its standby — so unlike
+// pg_stat_statements (which also needs shared_preload_libraries and a dedicated
+// preloaded phase) it runs in the stock contrib phase with no extra server
+// config. Keep each list in sync with the pinned PostgreSQL's module Makefile.
+var contribRegressTests = map[string][]string{
+	"pg_walinspect": {"pg_walinspect", "oldextversions"},
 }
 
 // TestHarness selects how an external extension is verified. The zero value

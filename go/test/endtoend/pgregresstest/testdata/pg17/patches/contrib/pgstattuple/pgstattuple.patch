@@ -1,0 +1,61 @@
+# Known divergence: multigateway blocks CREATE FOREIGN DATA WRAPPER and CREATE
+# SERVER by design (foreign-data wrappers open outbound connections, which the
+# connection pooler does not permit; see
+# go/services/multigateway/planner/unsafe_stmt.go). pgstattuple's test creates a
+# dummy FDW, server, and foreign table only to assert its functions reject
+# foreign tables; with the FDW/server creation rejected, those statements and the
+# dependent foreign-table checks instead fail with multigres-specific "does not
+# exist" errors. Not a multigres bug. The rest of the suite (tuple/index/page
+# statistics on tables, btree/GIN/hash indexes, sequences, toast tables, and
+# partitions) matches upstream.
+--- a
++++ b
+@@ -193,24 +193,30 @@
+ select pgstathashindex('test_view');
+ ERROR: relation "test_view" is not a hash index
+ create foreign data wrapper dummy;
++ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
+ create server dummy_server foreign data wrapper dummy;
++ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
+ create foreign table test_foreign_table () server dummy_server;
++ERROR: server "dummy_server" does not exist
+ -- these should all fail
+ select pgstattuple('test_foreign_table');
+-ERROR: cannot get tuple-level statistics for relation "test_foreign_table"
+-DETAIL: This operation is not supported for foreign tables.
++ERROR: relation "test_foreign_table" does not exist
+ select pgstattuple_approx('test_foreign_table');
+-ERROR: relation "test_foreign_table" is of wrong relation kind
+-DETAIL: This operation is not supported for foreign tables.
++ERROR: relation "test_foreign_table" does not exist
++LINE 1: select pgstattuple_approx('test_foreign_table');
++^
+ select pg_relpages('test_foreign_table');
+-ERROR: cannot get page count of relation "test_foreign_table"
+-DETAIL: This operation is not supported for foreign tables.
++ERROR: relation "test_foreign_table" does not exist
+ select pgstatindex('test_foreign_table');
+-ERROR: relation "test_foreign_table" is not a btree index
++ERROR: relation "test_foreign_table" does not exist
+ select pgstatginindex('test_foreign_table');
+-ERROR: relation "test_foreign_table" is not a GIN index
++ERROR: relation "test_foreign_table" does not exist
++LINE 1: select pgstatginindex('test_foreign_table');
++^
+ select pgstathashindex('test_foreign_table');
+-ERROR: relation "test_foreign_table" is not a hash index
++ERROR: relation "test_foreign_table" does not exist
++LINE 1: select pgstathashindex('test_foreign_table');
++^
+ -- a partition of a partitioned table should work though
+ create table test_partition partition of test_partitioned for values from (1) to (100);
+ select pgstattuple('test_partition');
+@@ -301,5 +307,8 @@
+ drop table test_partitioned;
+ drop view test_view;
+ drop foreign table test_foreign_table;
++ERROR: foreign table "test_foreign_table" does not exist
+ drop server dummy_server;
++ERROR: server "dummy_server" does not exist
+ drop foreign data wrapper dummy;
++ERROR: foreign-data wrapper "dummy" does not exist
