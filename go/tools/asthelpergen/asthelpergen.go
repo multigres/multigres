@@ -401,10 +401,11 @@ func GenerateASTHelpers(options *Options) (map[string]*jen.File, error) {
 
 	nt := tt.Type().(*types.Named)
 	pName := nt.Obj().Pkg().Name()
+	pPath := nt.Obj().Pkg().Path()
 	ifaceName := types.TypeString(nt, noQualifier)
 
 	generator := newGenerator(loaded[0].Module, loaded[0].TypesSizes, nt,
-		newCloneGen(pName, &options.Clone),
+		newCloneGen(pName, pPath, &options.Clone),
 		newRewriterGen(pName, ifaceName),
 	)
 
