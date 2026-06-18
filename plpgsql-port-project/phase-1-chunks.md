@@ -183,9 +183,13 @@ namespace (see the `T_DATUM` decision) and capture the statement without it.
 ### 1.8 FOR family + CASE
 
 `FOR var IN a..b [BY step] [REVERSE] LOOP` (integer),
-`FOR var [, …] IN query LOOP` (query), `FOR var IN cursor LOOP` (cursor),
-`FOREACH var [SLICE n] IN ARRAY expr LOOP`. `CASE [expr] WHEN … THEN …
-[ELSE …] END CASE`. (EXIT/CONTINUE moved to 1.7.)
+`FOR var IN query LOOP` (query), `FOREACH var [SLICE n] IN ARRAY expr LOOP`.
+`CASE [expr] WHEN … THEN … [ELSE …] END CASE`. (EXIT/CONTINUE moved to 1.7.)
+
+Divergences forced by no-resolution (see `chunk-08-for-case.md`): cursor FOR
+loops aren't distinguishable from query FOR without `T_DATUM`, so they parse as
+query FOR (no `PLpgSQL_stmt_forc`); dynamic FOR (`IN EXECUTE`) is deferred to
+1.10 (DYNFORS); comma-separated FOR target lists are deferred (corpus-driven).
 
 ### 1.9 SQL-embedding — EXECSQL, PERFORM, CALL, RETURN
 

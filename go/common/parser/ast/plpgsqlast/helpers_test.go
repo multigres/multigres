@@ -86,6 +86,34 @@ func TestRewriteVisitsControlFlow(t *testing.T) {
 	)
 }
 
+// Rewrite descends through a CASE statement and its WHEN arms, including the
+// []*PLpgSQL_case_when slice (a generated slice-of-pointer walk).
+func TestRewriteVisitsCase(t *testing.T) {
+	cs := NewPLpgSQL_stmt_case()
+	cs.TestExpr = NewPLpgSQL_expr("x")
+	cw := NewPLpgSQL_case_when()
+	cw.Expr = NewPLpgSQL_expr("1")
+	cs.WhenList = []*PLpgSQL_case_when{cw}
+
+	// Pre-order: the CASE, its test expr, then each WHEN arm and its expr.
+	assert.Equal(t,
+		[]NodeTag{T_PLpgSQL_stmt_case, T_PLpgSQL_expr, T_PLpgSQL_case_when, T_PLpgSQL_expr},
+		collectTags(cs),
+	)
+}
+
+// Rewrite descends through an integer FOR loop's bound expressions.
+func TestRewriteVisitsFori(t *testing.T) {
+	f := NewPLpgSQL_stmt_fori()
+	f.Lower = NewPLpgSQL_expr("1")
+	f.Upper = NewPLpgSQL_expr("10")
+
+	assert.Equal(t,
+		[]NodeTag{T_PLpgSQL_stmt_fori, T_PLpgSQL_expr, T_PLpgSQL_expr},
+		collectTags(f),
+	)
+}
+
 // Rewrite stops at the boundary: it never descends into PLpgSQL_expr.Parsed,
 // because an ast.Stmt is not a plpgsqlast.Node. The embedded SQL is analyzed
 // separately by the SQL-side walker.

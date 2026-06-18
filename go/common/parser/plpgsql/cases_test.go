@@ -52,6 +52,8 @@ var caseFiles = []string{
 	"declare_cases.json",
 	"assign_cases.json",
 	"control_flow_cases.json",
+	"for_cases.json",
+	"case_cases.json",
 }
 
 func TestParseCases(t *testing.T) {

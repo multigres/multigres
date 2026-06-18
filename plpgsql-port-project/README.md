@@ -40,10 +40,11 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
       (folded in) — committed. `PLpgSQL_expr.Parsed` left nil (text only).
 - [x] 1.6 Assignment (`x := expr;`) — uses `T_WORD`/`T_CWORD`, not PG's
       `T_DATUM` (see resolution note) — committed on the branch
-- [~] 1.7 Control flow: IF, LOOP, WHILE, **and EXIT/CONTINUE** (pulled in from
-  1.8 — cheap, reuses the existing scanner, ships with the loops) — code
-  complete and green; not yet committed
-- [ ] 1.8 FOR family + CASE (EXIT/CONTINUE moved to 1.7)
+- [x] 1.7 Control flow: IF, LOOP, WHILE, **and EXIT/CONTINUE** (pulled in from
+      1.8 — cheap, reuses the existing scanner, ships with the loops) — on the branch
+- [x] 1.8 FOR family + CASE (EXIT/CONTINUE moved to 1.7) — code complete and
+      green; committed. Cursor FOR loops parse as query FOR (no
+      resolution); dynamic FOR (`IN EXECUTE`) and comma-target lists deferred.
 - [ ] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY
 - [ ] 1.10 Dynamic + cursor: DYNEXECUTE, DYNFORS, OPEN, FETCH, CLOSE
 - [ ] 1.11 RAISE + ASSERT

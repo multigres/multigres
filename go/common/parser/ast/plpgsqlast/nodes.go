@@ -46,6 +46,11 @@ const (
 	T_PLpgSQL_stmt_loop               // unconditional LOOP … END LOOP
 	T_PLpgSQL_stmt_while              // WHILE cond LOOP … END LOOP
 	T_PLpgSQL_stmt_exit               // EXIT / CONTINUE [label] [WHEN cond]
+	T_PLpgSQL_stmt_fori               // integer FOR (FOR i IN a..b LOOP)
+	T_PLpgSQL_stmt_fors               // query FOR (FOR r IN query LOOP)
+	T_PLpgSQL_stmt_foreach_a          // FOREACH x IN ARRAY expr LOOP
+	T_PLpgSQL_stmt_case               // CASE … WHEN … END CASE
+	T_PLpgSQL_case_when               // one WHEN arm of a CASE statement
 )
 
 // String returns the string representation of a NodeTag.
@@ -75,6 +80,16 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_while"
 	case T_PLpgSQL_stmt_exit:
 		return "T_PLpgSQL_stmt_exit"
+	case T_PLpgSQL_stmt_fori:
+		return "T_PLpgSQL_stmt_fori"
+	case T_PLpgSQL_stmt_fors:
+		return "T_PLpgSQL_stmt_fors"
+	case T_PLpgSQL_stmt_foreach_a:
+		return "T_PLpgSQL_stmt_foreach_a"
+	case T_PLpgSQL_stmt_case:
+		return "T_PLpgSQL_stmt_case"
+	case T_PLpgSQL_case_when:
+		return "T_PLpgSQL_case_when"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

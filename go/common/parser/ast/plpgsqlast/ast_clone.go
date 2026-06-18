@@ -22,6 +22,8 @@ func CloneNode(in Node) Node {
 	switch in := in.(type) {
 	case *BaseNode:
 		return CloneRefOfBaseNode(in)
+	case *PLpgSQL_case_when:
+		return CloneRefOfPLpgSQL_case_when(in)
 	case *PLpgSQL_exception_block:
 		return CloneRefOfPLpgSQL_exception_block(in)
 	case *PLpgSQL_expr:
@@ -34,8 +36,16 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
+	case *PLpgSQL_stmt_case:
+		return CloneRefOfPLpgSQL_stmt_case(in)
 	case *PLpgSQL_stmt_exit:
 		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_foreach_a:
+		return CloneRefOfPLpgSQL_stmt_foreach_a(in)
+	case *PLpgSQL_stmt_fori:
+		return CloneRefOfPLpgSQL_stmt_fori(in)
+	case *PLpgSQL_stmt_fors:
+		return CloneRefOfPLpgSQL_stmt_fors(in)
 	case *PLpgSQL_stmt_if:
 		return CloneRefOfPLpgSQL_stmt_if(in)
 	case *PLpgSQL_stmt_loop:
@@ -75,6 +85,18 @@ func CloneDatum(in Datum) Datum {
 		// this should never happen
 		return nil
 	}
+}
+
+// CloneRefOfPLpgSQL_case_when creates a deep clone of the input.
+func CloneRefOfPLpgSQL_case_when(n *PLpgSQL_case_when) *PLpgSQL_case_when {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
+	out.Stmts = CloneSliceOfStmt(n.Stmts)
+	return &out
 }
 
 // CloneRefOfPLpgSQL_exception_block creates a deep clone of the input.
@@ -144,6 +166,19 @@ func CloneRefOfPLpgSQL_stmt_block(n *PLpgSQL_stmt_block) *PLpgSQL_stmt_block {
 	return &out
 }
 
+// CloneRefOfPLpgSQL_stmt_case creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_case(n *PLpgSQL_stmt_case) *PLpgSQL_stmt_case {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.TestExpr = CloneRefOfPLpgSQL_expr(n.TestExpr)
+	out.WhenList = CloneSliceOfRefOfPLpgSQL_case_when(n.WhenList)
+	out.ElseStmts = CloneSliceOfStmt(n.ElseStmts)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_stmt_exit creates a deep clone of the input.
 func CloneRefOfPLpgSQL_stmt_exit(n *PLpgSQL_stmt_exit) *PLpgSQL_stmt_exit {
 	if n == nil {
@@ -152,6 +187,44 @@ func CloneRefOfPLpgSQL_stmt_exit(n *PLpgSQL_stmt_exit) *PLpgSQL_stmt_exit {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_foreach_a creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_foreach_a(n *PLpgSQL_stmt_foreach_a) *PLpgSQL_stmt_foreach_a {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
+	out.Body = CloneSliceOfStmt(n.Body)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_fori creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_fori(n *PLpgSQL_stmt_fori) *PLpgSQL_stmt_fori {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Lower = CloneRefOfPLpgSQL_expr(n.Lower)
+	out.Upper = CloneRefOfPLpgSQL_expr(n.Upper)
+	out.Step = CloneRefOfPLpgSQL_expr(n.Step)
+	out.Body = CloneSliceOfStmt(n.Body)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_fors creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_fors(n *PLpgSQL_stmt_fors) *PLpgSQL_stmt_fors {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Query = CloneRefOfPLpgSQL_expr(n.Query)
+	out.Body = CloneSliceOfStmt(n.Body)
 	return &out
 }
 
@@ -229,8 +302,16 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
 		return CloneRefOfPLpgSQL_stmt_block(in)
+	case *PLpgSQL_stmt_case:
+		return CloneRefOfPLpgSQL_stmt_case(in)
 	case *PLpgSQL_stmt_exit:
 		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_foreach_a:
+		return CloneRefOfPLpgSQL_stmt_foreach_a(in)
+	case *PLpgSQL_stmt_fori:
+		return CloneRefOfPLpgSQL_stmt_fori(in)
+	case *PLpgSQL_stmt_fors:
+		return CloneRefOfPLpgSQL_stmt_fors(in)
 	case *PLpgSQL_stmt_if:
 		return CloneRefOfPLpgSQL_stmt_if(in)
 	case *PLpgSQL_stmt_loop:
@@ -268,6 +349,18 @@ func CloneSliceOfDatum(n []Datum) []Datum {
 	res := make([]Datum, len(n))
 	for i, x := range n {
 		res[i] = CloneDatum(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_case_when creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_case_when(n []*PLpgSQL_case_when) []*PLpgSQL_case_when {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_case_when, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_case_when(x)
 	}
 	return res
 }

@@ -14,7 +14,10 @@
 
 package plpgsqlast
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Stmt is implemented by every PL/pgSQL statement node. It is the Go analogue
 // of PG's PLpgSQL_stmt supertype (plpgsql.h): the common type for everything
@@ -295,6 +298,193 @@ func NewPLpgSQL_stmt_exit(isExit bool) *PLpgSQL_stmt_exit {
 	return &PLpgSQL_stmt_exit{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_exit, Loc: -1},
 		IsExit:   isExit,
+	}
+}
+
+// PLpgSQL_stmt_fori is an integer FOR loop (PG's PLpgSQL_stmt_fori):
+// `FOR var IN [REVERSE] lower .. upper [BY step] LOOP … END LOOP`. The bounds
+// are captured as expressions. Drops PG's resolved loop `var` datum — we keep
+// the target name as written.
+type PLpgSQL_stmt_fori struct {
+	BaseNode
+	Label   string        `json:"label,omitempty"`   // optional loop label
+	Var     string        `json:"var,omitempty"`     // loop variable name, as written
+	Lower   *PLpgSQL_expr `json:"lower,omitempty"`   // lower bound
+	Upper   *PLpgSQL_expr `json:"upper,omitempty"`   // upper bound
+	Step    *PLpgSQL_expr `json:"step,omitempty"`    // BY step, or nil for the default (1)
+	Reverse bool          `json:"reverse,omitempty"` // counts down when true
+	Body    []Stmt        `json:"body,omitempty"`    // loop body
+}
+
+func (s *PLpgSQL_stmt_fori) isStmt() {}
+
+func (s *PLpgSQL_stmt_fori) String() string { return "PLpgSQL_stmt_fori" }
+
+func (s *PLpgSQL_stmt_fori) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("FOR ")
+	sb.WriteString(s.Var)
+	sb.WriteString(" IN ")
+	if s.Reverse {
+		sb.WriteString("REVERSE ")
+	}
+	sb.WriteString(s.Lower.SqlString())
+	sb.WriteString(" .. ")
+	sb.WriteString(s.Upper.SqlString())
+	if s.Step != nil {
+		sb.WriteString(" BY ")
+		sb.WriteString(s.Step.SqlString())
+	}
+	sb.WriteString(" LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_fori() *PLpgSQL_stmt_fori {
+	return &PLpgSQL_stmt_fori{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_fori, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_fors is a query FOR loop (PG's PLpgSQL_stmt_fors):
+// `FOR var IN query LOOP … END LOOP`. Without variable resolution we cannot
+// distinguish a bound-cursor FOR loop from a query FOR loop, so cursor FOR loops
+// are also represented here, with the cursor name captured as the query text.
+type PLpgSQL_stmt_fors struct {
+	BaseNode
+	Label string        `json:"label,omitempty"` // optional loop label
+	Var   string        `json:"var,omitempty"`   // loop target name, as written
+	Query *PLpgSQL_expr `json:"query,omitempty"` // the query iterated over
+	Body  []Stmt        `json:"body,omitempty"`  // loop body
+}
+
+func (s *PLpgSQL_stmt_fors) isStmt() {}
+
+func (s *PLpgSQL_stmt_fors) String() string { return "PLpgSQL_stmt_fors" }
+
+func (s *PLpgSQL_stmt_fors) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("FOR ")
+	sb.WriteString(s.Var)
+	sb.WriteString(" IN ")
+	sb.WriteString(s.Query.SqlString())
+	sb.WriteString(" LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_fors() *PLpgSQL_stmt_fors {
+	return &PLpgSQL_stmt_fors{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_fors, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_foreach_a is a FOREACH-over-array loop (PG's
+// PLpgSQL_stmt_foreach_a): `FOREACH var [SLICE n] IN ARRAY expr LOOP … END LOOP`.
+// Drops PG's resolved `varno` — we keep the target name as written.
+type PLpgSQL_stmt_foreach_a struct {
+	BaseNode
+	Label string        `json:"label,omitempty"` // optional loop label
+	Var   string        `json:"var,omitempty"`   // loop variable name, as written
+	Slice int           `json:"slice,omitempty"` // SLICE dimension, or 0 for none
+	Expr  *PLpgSQL_expr `json:"expr,omitempty"`  // the array expression
+	Body  []Stmt        `json:"body,omitempty"`  // loop body
+}
+
+func (s *PLpgSQL_stmt_foreach_a) isStmt() {}
+
+func (s *PLpgSQL_stmt_foreach_a) String() string { return "PLpgSQL_stmt_foreach_a" }
+
+func (s *PLpgSQL_stmt_foreach_a) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("FOREACH ")
+	sb.WriteString(s.Var)
+	if s.Slice > 0 {
+		sb.WriteString(" SLICE ")
+		sb.WriteString(strconv.Itoa(s.Slice))
+	}
+	sb.WriteString(" IN ARRAY ")
+	sb.WriteString(s.Expr.SqlString())
+	sb.WriteString(" LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_foreach_a() *PLpgSQL_stmt_foreach_a {
+	return &PLpgSQL_stmt_foreach_a{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_foreach_a, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_case is a CASE statement (PG's PLpgSQL_stmt_case): either simple
+// (`CASE expr WHEN val THEN …`) or searched (`CASE WHEN cond THEN …`), with an
+// optional ELSE. TestExpr is nil for the searched form. Drops PG's resolved
+// `t_varno`; an empty ELSE collapses to no ELSE (ElseStmts nil), as for IF.
+type PLpgSQL_stmt_case struct {
+	BaseNode
+	TestExpr  *PLpgSQL_expr        `json:"test_expr,omitempty"`  // simple-CASE test expression, or nil
+	WhenList  []*PLpgSQL_case_when `json:"when_list,omitempty"`  // WHEN arms, in order
+	ElseStmts []Stmt               `json:"else_stmts,omitempty"` // ELSE branch, or nil
+}
+
+func (s *PLpgSQL_stmt_case) isStmt() {}
+
+func (s *PLpgSQL_stmt_case) String() string { return "PLpgSQL_stmt_case" }
+
+func (s *PLpgSQL_stmt_case) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("CASE")
+	if s.TestExpr != nil {
+		sb.WriteString(" ")
+		sb.WriteString(s.TestExpr.SqlString())
+	}
+	sb.WriteString("\n")
+	for _, cw := range s.WhenList {
+		sb.WriteString(cw.SqlString())
+	}
+	if s.ElseStmts != nil {
+		sb.WriteString("ELSE\n")
+		deparseBody(&sb, s.ElseStmts)
+	}
+	sb.WriteString("END CASE")
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_case() *PLpgSQL_stmt_case {
+	return &PLpgSQL_stmt_case{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_case, Loc: -1},
+	}
+}
+
+// PLpgSQL_case_when is one WHEN arm of a CASE statement (PG's PLpgSQL_case_when).
+// Helper node (Node, not Stmt), like PLpgSQL_if_elsif; its deparse includes the
+// leading `WHEN … THEN` so the enclosing CASE renders the arms by concatenation.
+type PLpgSQL_case_when struct {
+	BaseNode
+	Expr  *PLpgSQL_expr `json:"expr,omitempty"`  // WHEN expression
+	Stmts []Stmt        `json:"stmts,omitempty"` // statements run when Expr matches
+}
+
+func (w *PLpgSQL_case_when) String() string { return "PLpgSQL_case_when" }
+
+func (w *PLpgSQL_case_when) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("WHEN ")
+	sb.WriteString(w.Expr.SqlString())
+	sb.WriteString(" THEN\n")
+	deparseBody(&sb, w.Stmts)
+	return sb.String()
+}
+
+func NewPLpgSQL_case_when() *PLpgSQL_case_when {
+	return &PLpgSQL_case_when{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_case_when, Loc: -1},
 	}
 }
 

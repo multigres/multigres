@@ -57,9 +57,11 @@ type plpgsqlResultSetter interface {
 	datums   []plpgsqlast.Datum
 	typ      *plpgsqlast.PLpgSQL_type
 	expr     *plpgsqlast.PLpgSQL_expr
-	elsifs   []*plpgsqlast.PLpgSQL_if_elsif
-	loopbody loopBody
-	bval     bool
+	elsifs    []*plpgsqlast.PLpgSQL_if_elsif
+	loopbody  loopBody
+	casewhens []*plpgsqlast.PLpgSQL_case_when
+	casewhen  *plpgsqlast.PLpgSQL_case_when
+	bval      bool
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -118,14 +120,18 @@ type plpgsqlResultSetter interface {
 %type <typ>      decl_datatype
 %type <expr>     decl_defval
 %type <bval>     decl_const decl_notnull
-%type <stmts>    proc_sect stmt_else
+%type <stmts>    proc_sect stmt_else opt_case_else
 %type <stmt>     proc_stmt stmt_null stmt_assign stmt_if stmt_loop stmt_while stmt_exit
+%type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
 %type <elsifs>   stmt_elsifs
+%type <casewhens> case_when_list
+%type <casewhen> case_when
 %type <loopbody> loop_body
-%type <expr>     expr_until_semi expr_until_then expr_until_loop opt_exitcond
+%type <expr>     expr_until_semi expr_until_then expr_until_loop opt_exitcond opt_expr_until_when
 %type <bval>     exit_type
+%type <ival>     foreach_slice
 %type <str>      opt_block_label opt_loop_label opt_label any_identifier unreserved_keyword
-%type <str>      assign_target
+%type <str>      assign_target for_variable
 
 %start pl_function
 
@@ -327,6 +333,18 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_for
+			{
+				$$ = $1
+			}
+	|	stmt_foreach_a
+			{
+				$$ = $1
+			}
+	|	stmt_case
+			{
+				$$ = $1
+			}
 	|	stmt_exit
 			{
 				$$ = $1
@@ -453,6 +471,144 @@ loop_body:
 		proc_sect K_END K_LOOP opt_label ';'
 			{
 				$$ = loopBody{stmts: $1, endLabel: $4}
+			}
+	;
+
+/*
+ * Integer and query FOR loops. for_control does the heavy lifting in a manual
+ * scan (readForControl): integer FOR (`lower .. upper [BY step]`) vs query FOR.
+ * It returns the node sans label/body, which stmt_for fills in (PG checks
+ * cmd_type; we type-switch). Dynamic (EXECUTE) and bound-cursor FOR loops are
+ * not distinguished — see the chunk note — so for_control yields only fori/fors.
+ */
+stmt_for:
+		opt_loop_label K_FOR for_control loop_body
+			{
+				switch s := $3.(type) {
+				case *plpgsqlast.PLpgSQL_stmt_fori:
+					s.Label = $1
+					s.Body = $4.stmts
+				case *plpgsqlast.PLpgSQL_stmt_fors:
+					s.Label = $1
+					s.Body = $4.stmts
+				}
+				if err := checkLabels($1, $4.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = $3
+			}
+	;
+
+for_control:
+		for_variable K_IN
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForControl($1)
+			}
+	;
+
+/*
+ * The FOR loop target. PG uses T_DATUM/T_WORD/T_CWORD and resolves it; we have no
+ * resolution, so it is a single word or compound name captured as text.
+ * Comma-separated target lists are deferred (see the chunk note).
+ */
+for_variable:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	T_CWORD
+			{
+				$$ = $1
+			}
+	;
+
+stmt_foreach_a:
+		opt_loop_label K_FOREACH for_variable foreach_slice K_IN K_ARRAY expr_until_loop loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
+				stmt.Label = $1
+				stmt.Var = $3
+				stmt.Slice = $4
+				stmt.Expr = $7
+				stmt.Body = $8.stmts
+				if err := checkLabels($1, $8.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+foreach_slice:
+		/* empty */
+			{
+				$$ = 0
+			}
+	|	K_SLICE ICONST
+			{
+				$$ = $2
+			}
+	;
+
+/*
+ * CASE: searched (`CASE WHEN … THEN …`) or simple (`CASE expr WHEN … THEN …`).
+ * opt_expr_until_when peeks for WHEN to decide which, and leaves a WHEN token for
+ * case_when. An empty ELSE collapses to no ELSE (ElseStmts nil), as for IF.
+ */
+stmt_case:
+		K_CASE opt_expr_until_when case_when_list opt_case_else K_END K_CASE ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_case()
+				stmt.TestExpr = $2
+				stmt.WhenList = $3
+				stmt.ElseStmts = $4
+				$$ = stmt
+			}
+	;
+
+opt_expr_until_when:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readCaseTestExpr()
+			}
+	;
+
+case_when_list:
+		case_when_list case_when
+			{
+				$$ = appendCaseWhen($1, $2)
+			}
+	|	case_when
+			{
+				$$ = appendCaseWhen(nil, $1)
+			}
+	;
+
+case_when:
+		K_WHEN expr_until_then proc_sect
+			{
+				cw := plpgsqlast.NewPLpgSQL_case_when()
+				cw.Expr = $2
+				cw.Stmts = $3
+				$$ = cw
+			}
+	;
+
+opt_case_else:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	K_ELSE proc_sect
+			{
+				$$ = $2
 			}
 	;
 

@@ -130,6 +130,91 @@ func (l *lexer) readSQLExpr() *plpgsqlast.PLpgSQL_expr {
 	return l.readSQLExprUntil(';')
 }
 
+// makeExpr wraps captured fragment text in a PLpgSQL_expr with the given parse
+// mode. Parsed is left nil, as elsewhere.
+func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_expr {
+	e := plpgsqlast.NewPLpgSQL_expr(text)
+	e.ParseMode = mode
+	return e
+}
+
+// readForControl is the manual scan behind the for_control production (PG's
+// for_control action). It runs after `for_variable K_IN` and decides between an
+// integer FOR (`lower .. upper [BY step]`) and a query FOR by scanning the first
+// construct up to ".." or LOOP and seeing which terminator hit. The dynamic
+// (EXECUTE) and bound-cursor forms are not distinguished here: without variable
+// resolution a cursor FOR loop reads as a query FOR (see chunk note). varName is
+// the already-parsed loop target.
+func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
+	reverse := false
+	if tok := l.scanNext(); tok.tok == K_REVERSE {
+		reverse = true
+	} else {
+		l.pushBack(tok)
+	}
+
+	text1, term, err := l.scanFragment(DOT_DOT, K_LOOP)
+	if err != nil {
+		l.Error(err.Error())
+		return plpgsqlast.NewPLpgSQL_stmt_fors()
+	}
+
+	if term.tok == DOT_DOT {
+		// Integer FOR: lower .. upper [BY step]. Bounds are expressions.
+		fori := plpgsqlast.NewPLpgSQL_stmt_fori()
+		fori.Var = varName
+		fori.Reverse = reverse
+		fori.Lower = makeExpr(text1, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+
+		text2, term2, err := l.scanFragment(K_LOOP, K_BY)
+		if err != nil {
+			l.Error(err.Error())
+			return fori
+		}
+		fori.Upper = makeExpr(text2, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+
+		if term2.tok == K_BY {
+			text3, _, err := l.scanFragment(K_LOOP)
+			if err != nil {
+				l.Error(err.Error())
+				return fori
+			}
+			fori.Step = makeExpr(text3, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+		}
+		return fori
+	}
+
+	// Query FOR (stopped on LOOP). REVERSE is only valid for integer loops.
+	if reverse {
+		l.Error("cannot specify REVERSE in query FOR loop")
+	}
+	fors := plpgsqlast.NewPLpgSQL_stmt_fors()
+	fors.Var = varName
+	fors.Query = makeExpr(text1, plpgsqlast.RAW_PARSE_DEFAULT)
+	return fors
+}
+
+// readCaseTestExpr is the manual scan behind opt_expr_until_when (PG's action).
+// It distinguishes a searched CASE (the next token is WHEN — no test expression)
+// from a simple CASE (a test expression up to WHEN). Either way it leaves a
+// K_WHEN token for the grammar's case_when to consume.
+func (l *lexer) readCaseTestExpr() *plpgsqlast.PLpgSQL_expr {
+	tok := l.scanNext()
+	if tok.tok == K_WHEN {
+		l.pushBack(tok)
+		return nil
+	}
+	l.pushBack(tok)
+
+	text, term, err := l.scanFragment(K_WHEN)
+	if err != nil {
+		l.Error(err.Error())
+		return plpgsqlast.NewPLpgSQL_expr("")
+	}
+	l.pushBack(term) // hand the WHEN back to the grammar
+	return makeExpr(text, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+}
+
 // readSQLExprUntil scans an expression up to (and consuming) the first of the
 // given terminators at paren depth 0, returning it as a PLpgSQL_expr. It is the
 // Go analogue of PG's read_sql_expression, which takes the terminator token; the
@@ -182,4 +267,11 @@ func appendDatum(ds []plpgsqlast.Datum, d plpgsqlast.Datum) []plpgsqlast.Datum {
 // appendDatum guards against the same thing.)
 func appendElsif(es []*plpgsqlast.PLpgSQL_if_elsif, e *plpgsqlast.PLpgSQL_if_elsif) []*plpgsqlast.PLpgSQL_if_elsif {
 	return append(es, e)
+}
+
+// appendCaseWhen appends a WHEN arm to the case_when_list. Helper for the same
+// goyacc fast-append reason as appendElsif (see the comment there): never write
+// a bare `$$ = append($1, $2)` in an action.
+func appendCaseWhen(ws []*plpgsqlast.PLpgSQL_case_when, w *plpgsqlast.PLpgSQL_case_when) []*plpgsqlast.PLpgSQL_case_when {
+	return append(ws, w)
 }
