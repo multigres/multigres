@@ -139,6 +139,14 @@ type Pool[C Connection] struct {
 	// idleCount is the maximum idle connections in the pool
 	idleCount atomic.Int64
 
+	// generation is the pool's defaults-generation counter. InvalidateDefaults
+	// increments it; on borrow, any connection whose stored generation is older
+	// is reconnected (refreshIfStale) so its backend re-reads per-database/role
+	// GUC defaults. Lazy by design: only stale connections pay a reconnect, and
+	// only on their first borrow after a bump. Reads on the hot borrow path are a
+	// single atomic load plus an int compare.
+	generation atomic.Int64
+
 	// workers is a waitgroup for all the currently running worker goroutines
 	workers    sync.WaitGroup
 	close      atomic.Pointer[chan struct{}]
@@ -630,6 +638,38 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 
 	dbconn.timeCreated.set(now)
 	dbconn.timeUsed.set(now)
+	dbconn.generation = pool.generation.Load()
+	return nil
+}
+
+// InvalidateDefaults bumps the pool's defaults-generation so that every
+// currently-pooled connection is treated as stale and reconnected on its next
+// borrow (see refreshIfStale and the generation field on Pooled). Used to pick
+// up per-database/role GUC defaults changed by ALTER DATABASE/ROLE ... SET (or
+// an extension that runs one) that an already-open backend would otherwise not
+// observe until it reconnects. Cheap and non-disruptive: it never closes a
+// borrowed connection or an idle one eagerly; refresh happens lazily at borrow.
+func (pool *Pool[C]) InvalidateDefaults() {
+	pool.generation.Add(1)
+}
+
+// refreshIfStale reconnects conn with a fresh backend when its generation
+// predates the pool's current defaults-generation. A fresh backend re-reads
+// pg_db_role_setting at session start, picking up ALTER DATABASE/ROLE ... SET
+// changes. Reuses connReopen, which establishes a brand-new backend with no
+// session settings applied (the new connection reports empty Settings()), so
+// the caller's normal settings logic then applies the correct settings on top.
+// On reconnect failure the active slot is dropped (closedConn) and the error is
+// returned to the borrower.
+func (pool *Pool[C]) refreshIfStale(ctx context.Context, conn *Pooled[C]) error {
+	if conn.generation >= pool.generation.Load() {
+		return nil
+	}
+	conn.Close()
+	if err := pool.connReopen(ctx, conn, monotonicNow()); err != nil {
+		pool.closedConn()
+		return err
+	}
 	return nil
 }
 
@@ -648,6 +688,7 @@ func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
 	now := monotonicNow()
 	pooled.timeUsed.set(now)
 	pooled.timeCreated.set(now)
+	pooled.generation = pool.generation.Load()
 	return pooled, nil
 }
 
@@ -710,6 +751,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
+		if err := pool.refreshIfStale(ctx, conn); err != nil {
+			return returnErr(err)
+		}
 		pool.borrowed.Add(1)
 		if pool.config.onBorrow != nil {
 			pool.config.onBorrow()
@@ -747,6 +791,13 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 		return returnErr(ErrTimeout)
 	}
 
+	// A defaults-generation bump may have marked this connection stale; reconnect
+	// it first so the fresh backend re-reads per-database/role GUC defaults. After
+	// a reconnect the connection reports empty settings, so the reset below is a
+	// no-op for it.
+	if err := pool.refreshIfStale(ctx, conn); err != nil {
+		return returnErr(err)
+	}
 	// if the connection we've acquired has settings applied, we must reset them before returning
 	if settings := conn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
 		pool.Metrics.resetState.Add(1)
@@ -829,6 +880,13 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 		return returnErr(ErrTimeout)
 	}
 
+	// A defaults-generation bump may have marked this connection stale; reconnect
+	// it first so the fresh backend re-reads per-database/role GUC defaults. After
+	// a reconnect the connection reports empty settings, so the block below simply
+	// applies our target settings on top of the fresh backend.
+	if err := pool.refreshIfStale(ctx, conn); err != nil {
+		return returnErr(err)
+	}
 	// ensure that the settings applied to the connection matches the one we want
 	connSettings := conn.Conn.Settings()
 	if connSettings != settings {

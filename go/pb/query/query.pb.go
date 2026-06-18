@@ -1111,8 +1111,20 @@ type ExecuteOptions struct {
 	// functions can map virtual PIDs (visible to clients) back to real
 	// backend PIDs via pg_stat_activity.
 	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// invalidates_connection_defaults marks a statement that changes
+	// per-database or per-role session GUC defaults (pg_db_role_setting):
+	// ALTER DATABASE ... SET / ALTER ROLE ... SET that pins a value, or a
+	// CREATE EXTENSION on the multigateway planner's allowlist of extensions
+	// known to run such an ALTER internally (e.g. postgis_topology's
+	// AddToSearchPath). The multigateway sets it during planning. PostgreSQL
+	// applies these defaults only at session start, so already-open pooled
+	// backends would keep serving stale defaults; on success the multipooler
+	// bumps its pools' defaults generation (at COMMIT when the statement runs
+	// inside an explicit transaction) so each pooled connection reconnects on
+	// its next borrow and re-reads the new defaults.
+	InvalidatesConnectionDefaults bool `protobuf:"varint,9,opt,name=invalidates_connection_defaults,json=invalidatesConnectionDefaults,proto3" json:"invalidates_connection_defaults,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1192,6 +1204,13 @@ func (x *ExecuteOptions) GetClientConnectionId() uint32 {
 		return x.ClientConnectionId
 	}
 	return 0
+}
+
+func (x *ExecuteOptions) GetInvalidatesConnectionDefaults() bool {
+	if x != nil {
+		return x.InvalidatesConnectionDefaults
+	}
+	return false
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1469,7 +1488,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xb9\x03\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x81\x04\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1477,7 +1496,8 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12G\n" +
 	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12,\n" +
 	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
-	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x1aB\n" +
+	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12F\n" +
+	"\x1finvalidates_connection_defaults\x18\t \x01(\bR\x1dinvalidatesConnectionDefaults\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +

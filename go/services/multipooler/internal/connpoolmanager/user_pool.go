@@ -348,6 +348,15 @@ func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int6
 	return nil
 }
 
+// InvalidateDefaults marks this user's regular and reserved pooled connections
+// stale so they reconnect on their next borrow, re-reading per-database/role GUC
+// defaults changed by ALTER DATABASE/ROLE ... SET (or an extension that runs
+// one). The shared admin pool is invalidated once by the Manager, not here.
+func (p *UserPool) InvalidateDefaults() {
+	p.regularPool.InvalidateDefaults()
+	p.reservedPool.InvalidateDefaults()
+}
+
 // UserPoolStats holds statistics for a user's pools.
 type UserPoolStats struct {
 	Username       string

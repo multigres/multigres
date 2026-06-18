@@ -53,6 +53,15 @@ type Route struct {
 	// name ("p") to the canonical name and attaches the metadata here so
 	// the multipooler can ensurePrepared() on the chosen backend connection.
 	PreparedStatement *query.PreparedStatement
+
+	// InvalidatesConnectionDefaults is set by the planner for statements that
+	// change per-database/role session GUC defaults (ALTER DATABASE/ROLE ... SET,
+	// or an allowlisted CREATE EXTENSION; see
+	// planner.statementChangesConnectionDefaults). When set, execution records
+	// PendingInvalidateConnectionDefaults on the session state so ScatterConn
+	// marks the request (ExecuteOptions.InvalidatesConnectionDefaults) and the
+	// multipooler refreshes its pooled connections once the change is durable.
+	InvalidatesConnectionDefaults bool
 }
 
 // NewRoute creates a new Route primitive.
@@ -99,6 +108,9 @@ func (r *Route) StreamExecute(
 	if len(bindVars) > 0 && r.NormalizedAST != nil {
 		query = ast.ReconstructSQL(r.NormalizedAST, bindVars)
 	}
+	if r.InvalidatesConnectionDefaults {
+		state.PendingInvalidateConnectionDefaults = true
+	}
 	// Execute the query through the execution interface.
 	// We pass ctx (not conn.Context()) so that deadlines set by executeWithTimeout
 	// propagate through gRPC to the multipooler for statement timeout enforcement.
@@ -128,6 +140,9 @@ func (r *Route) PortalStreamExecute(
 	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	if r.InvalidatesConnectionDefaults {
+		state.PendingInvalidateConnectionDefaults = true
+	}
 	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, callback)
 }
 

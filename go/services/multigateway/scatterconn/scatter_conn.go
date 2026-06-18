@@ -204,6 +204,13 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings:    state.GetSessionSettings(),
 		PreparedStatement:  preparedStatement,
 	}
+	// One-shot: the planner flagged this statement as changing per-database/role
+	// session GUC defaults, so the multipooler must refresh its pooled connections
+	// once the change is durable. Consume and clear.
+	if state.PendingInvalidateConnectionDefaults {
+		eo.InvalidatesConnectionDefaults = true
+		state.PendingInvalidateConnectionDefaults = false
+	}
 
 	ss := state.GetMatchingShardState(target)
 
@@ -464,6 +471,13 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
+	}
+	// One-shot: see the matching block in StreamExecute. A flagged statement that
+	// arrives over the extended protocol routes through Route.PortalStreamExecute,
+	// which sets PendingInvalidateConnectionDefaults before we build eo here.
+	if state.PendingInvalidateConnectionDefaults {
+		eo.InvalidatesConnectionDefaults = true
+		state.PendingInvalidateConnectionDefaults = false
 	}
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask

@@ -336,6 +336,13 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 // pin intent separately so a release doesn't reserve a connection.
 func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlannerOptions) engine.Primitive {
 	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+	// Flag statements that change per-database/role session GUC defaults so the
+	// multipooler refreshes pooled connections (which otherwise keep PostgreSQL's
+	// session-start snapshot of those defaults). A statement is never both
+	// advisory-lock and defaults-changing, so setting it on the base route is
+	// correct whether or not it gets wrapped in an AdvisoryLockRoute below.
+	// See connection_defaults.go.
+	route.InvalidatesConnectionDefaults = statementChangesConnectionDefaults(stmt)
 	if opts.RecheckForAdvisoryLock {
 		return engine.NewAdvisoryLockRoute(route, opts.PinForAdvisoryLock)
 	}
@@ -470,6 +477,16 @@ func (p *Planner) PlanPortal(
 		// CLOSE / CLOSE ALL must go through CloseCursorRoute so HOLD-cursor
 		// pin bookkeeping on the multipooler stays in sync — otherwise the
 		// reserved backend would leak with a stale ReasonPortal.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
+	case ast.T_AlterDatabaseSetStmt, ast.T_AlterRoleSetStmt, ast.T_CreateExtensionStmt:
+		// Statements that may change per-database/role session GUC defaults must
+		// route through Plan (planDefault) so the resulting Route carries
+		// InvalidatesConnectionDefaults; a bare portal execute would skip the
+		// pooled-connection refresh. statementChangesConnectionDefaults filters
+		// non-flagged CREATE EXTENSIONs back to a plain forward (the Route's flag
+		// is simply false), so this only adds the gateway-local hop, not a
+		// behavior change, for those.
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
 	default:

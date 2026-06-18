@@ -69,6 +69,19 @@ type Conn struct {
 	// settings instead of trusting the stale cache.
 	sessionStateUntrusted bool
 
+	// pendingDefaultsInvalidation records that a statement which changes
+	// per-database/role GUC defaults (ALTER DATABASE/ROLE ... SET, or an
+	// allowlisted CREATE EXTENSION) executed successfully inside the current
+	// transaction. The change is durable only at COMMIT, so the pool's defaults
+	// generation must be bumped then, not when the statement runs. The executor
+	// sets this via MarkPendingDefaultsInvalidation and consumes it at COMMIT;
+	// Commit and Rollback both clear it. A ROLLBACK TO SAVEPOINT runs as an
+	// ordinary statement (not Rollback), so the flag survives it — a deliberately
+	// conservative choice: an extra refresh is harmless, a missed one leaks stale
+	// defaults. Accessed only from the executor, which the gateway serializes per
+	// reserved connection.
+	pendingDefaultsInvalidation bool
+
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
@@ -168,6 +181,11 @@ func (c *Conn) Commit(ctx context.Context) error {
 	// reflected in connstate; drop the snapshot.
 	c.txnSnapshot = nil
 
+	// The executor reads PendingDefaultsInvalidation before calling Commit and
+	// bumps the pool generation after a successful COMMIT; clear the now-consumed
+	// transaction-scoped flag.
+	c.pendingDefaultsInvalidation = false
+
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
@@ -193,8 +211,33 @@ func (c *Conn) Rollback(ctx context.Context) error {
 	}
 	c.ClearSessionStateUntrusted()
 
+	// The transaction (and any defaults-changing DDL it ran) was discarded, so no
+	// generation bump is owed; drop the transaction-scoped flag.
+	c.pendingDefaultsInvalidation = false
+
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return nil
+}
+
+// MarkPendingDefaultsInvalidation records that a statement changing
+// per-database/role GUC defaults committed-pending inside the current
+// transaction. See pendingDefaultsInvalidation.
+func (c *Conn) MarkPendingDefaultsInvalidation() {
+	c.pendingDefaultsInvalidation = true
+}
+
+// PendingDefaultsInvalidation reports whether a defaults-changing statement has
+// run in the current transaction and is awaiting a COMMIT to become durable.
+func (c *Conn) PendingDefaultsInvalidation() bool {
+	return c.pendingDefaultsInvalidation
+}
+
+// RefreshDefaultsIfStale reconnects the underlying backend when the pool's
+// defaults-generation has been bumped since this connection was established.
+// Used for checked-out reserved connections that do not go through the pool's
+// borrow-time refresh path.
+func (c *Conn) RefreshDefaultsIfStale(ctx context.Context) error {
+	return c.pooled.RefreshIfStale(ctx)
 }
 
 // IsInTransaction returns true if there's an active transaction.

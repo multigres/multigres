@@ -68,6 +68,13 @@ type PoolManager interface {
 	// GetAdminConn acquires an admin connection from the pool.
 	GetAdminConn(ctx context.Context) (admin.PooledConn, error)
 
+	// InvalidateConnectionDefaults marks every pooled connection (all user pools
+	// and the shared admin pool) stale so it reconnects on its next borrow,
+	// re-reading per-database/role GUC defaults changed by ALTER DATABASE/ROLE
+	// ... SET (or an extension that runs one). Lazy and non-disruptive: borrowed
+	// and idle connections are never closed eagerly.
+	InvalidateConnectionDefaults()
+
 	// --- Regular Pool Operations ---
 
 	// GetRegularConn acquires a regular connection for the specified user,
