@@ -235,6 +235,20 @@ How it works, and how it differs from the contrib suite:
   `--nocreate --nodrop --extensions` against the existing `postgres` database
   and parses its `ok` / `failed` / `skipped` output into the same `results.json`
   shape.
+- **PostGIS primary pre-install**: PostGIS is the one external suite whose
+  extension install intentionally bypasses multigateway. The topology component's
+  install script runs `ALTER DATABASE <db> SET search_path = ..., topology` so
+  later tests can resolve unqualified topology objects. If that install is routed
+  through the gateway, the catalog default changes, but already-open pooled
+  PostgreSQL backends keep the old startup `search_path`; subsequent statements
+  can be scattered across a mix of old and new backend defaults. The harness
+  therefore creates the PostGIS extensions directly on the primary before
+  `run_test.pl`, then terminates existing client backends for the shared
+  `postgres` database so multipooler reconnects and every backend used by the
+  suite is born with the topology-aware default. This is a test-harness
+  workaround for the current connection-start-default limitation, not a product
+  guarantee that `ALTER DATABASE/ROLE SET` changes are propagated across already
+  pooled backends.
 - **Per-extension isolation** and **verification** work exactly like contrib:
   the shared database is reset to a clean baseline on the primary between
   extensions — every extension except plpgsql is dropped, every user schema
