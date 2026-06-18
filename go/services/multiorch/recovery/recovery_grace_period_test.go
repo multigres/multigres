@@ -517,7 +517,7 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 		},
 	}
 
-	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	poolerIDStr := string(topoclient.ComponentIDString(problem.PoolerID))
 
 	// Reset should be a noop for non-tracked problem types
 	tracker.Observe(types.ProblemReplicaNotReplicating, poolerIDStr, action, true)
@@ -627,7 +627,7 @@ func TestRecoveryGracePeriod_ForceExpireAll(t *testing.T) {
 	}
 
 	// Observe both problems as unhealthy using the same entity IDs as the recovery loop
-	// (string(commontypes.FormatShardKey(shardKey) for shard-wide, MultiPoolerIDString for pooler-scoped).
+	// (string(commontypes.FormatShardKey(shardKey) for shard-wide, ComponentIDString for pooler-scoped).
 	tracker.Observe(types.ProblemLeaderIsDead, problemA.EntityID(), action, false)
 	tracker.Observe(types.ProblemStaleLeader, problemB.EntityID(), action, false)
 

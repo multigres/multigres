@@ -23,8 +23,17 @@ Go has evolved with newer constructs, and we prefer using such newer constructs
 where possible. Most code editors automatically recommend such modernizations.
 
 We have a few pre-commit hooks that perform some basic checks at commit time.
-When a pull request is created, we have a more elaborate set of linters that
-ensure that the code is up to standards.
+Run `make tools` to install them (it symlinks `misc/git/pre-commit` and
+`misc/git/commit-msg` into `.git/hooks/`). When a pull request is created, we
+have a more elaborate set of linters that ensure that the code is up to
+standards.
+
+## Sign Your Commits
+
+All commits must be signed off under the
+[Developer Certificate of Origin](https://developercertificate.org/). Use
+`git commit -s` (or configure `git config commit.gpgsign` and add a
+`Signed-off-by:` trailer) — unsigned commits will be rejected by CI.
 
 ## Testing
 

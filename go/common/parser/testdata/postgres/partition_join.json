@@ -138,33 +138,33 @@
   },
   {
     "comment": "partition_join - Statement 30",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1, prt2 t2 WHERE t1.a = t2.b AND t1.a \u003c 450 AND t2.b \u003e 250 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1, prt2 AS t2 WHERE t1.a = t2.b AND t1.a \u003c 450 AND t2.b \u003e 250 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1, prt2 t2 WHERE t1.a = t2.b AND t1.a < 450 AND t2.b > 250 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1, prt2 AS t2 WHERE t1.a = t2.b AND t1.a < 450 AND t2.b > 250 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 31",
-    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1, prt2 t2 WHERE t1.a = t2.b AND t1.a \u003c 450 AND t2.b \u003e 250 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1, prt2 AS t2 WHERE t1.a = t2.b AND t1.a \u003c 450 AND t2.b \u003e 250 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1, prt2 t2 WHERE t1.a = t2.b AND t1.a < 450 AND t2.b > 250 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1, prt2 AS t2 WHERE t1.a = t2.b AND t1.a < 450 AND t2.b > 250 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 32",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 33",
-    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 34",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 FULL JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 FULL OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) t1 FULL JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 FULL OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 35",
-    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 FULL JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 FULL OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) t1 FULL JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 FULL OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 OR t2.a = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 36",
@@ -433,13 +433,13 @@
   },
   {
     "comment": "partition_join - Statement 91",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a < 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 92",
-    "query": "SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a \u003c 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b \u003e 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a \u003c 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b \u003e 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a < 450) t1 LEFT JOIN (SELECT * FROM prt2 WHERE b > 250) t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t2.b FROM (SELECT * FROM prt1 WHERE a < 450) AS t1 LEFT OUTER JOIN (SELECT * FROM prt2 WHERE b > 250) AS t2 ON t1.a = t2.b WHERE t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 93",
@@ -1025,8 +1025,8 @@
   },
   {
     "comment": "partition_join - Statement 221",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1 LEFT JOIN prt2 t2 ON (t1.a \u003c t2.b)",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1 LEFT OUTER JOIN prt2 AS t2 ON (t1.a \u003c t2.b)"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 t1 LEFT JOIN prt2 t2 ON (t1.a < t2.b)",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1 AS t1 LEFT OUTER JOIN prt2 AS t2 ON (t1.a < t2.b)"
   },
   {
     "comment": "partition_join - Statement 222",
@@ -1130,23 +1130,23 @@
   },
   {
     "comment": "partition_join - Statement 242",
-    "query": "explain (costs off) select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and prtx2.b=prtx1.b and prtx2.c=123) and a\u003c20 and c=120",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND prtx2.b = prtx1.b AND prtx2.c = 123) AND a \u003c 20 AND c = 120"
+    "query": "explain (costs off) select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and prtx2.b=prtx1.b and prtx2.c=123) and a<20 and c=120",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND prtx2.b = prtx1.b AND prtx2.c = 123) AND a < 20 AND c = 120"
   },
   {
     "comment": "partition_join - Statement 243",
-    "query": "select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and prtx2.b=prtx1.b and prtx2.c=123) and a\u003c20 and c=120",
-    "expected": "SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND prtx2.b = prtx1.b AND prtx2.c = 123) AND a \u003c 20 AND c = 120"
+    "query": "select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and prtx2.b=prtx1.b and prtx2.c=123) and a<20 and c=120",
+    "expected": "SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND prtx2.b = prtx1.b AND prtx2.c = 123) AND a < 20 AND c = 120"
   },
   {
     "comment": "partition_join - Statement 244",
-    "query": "explain (costs off) select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and (prtx2.b=prtx1.b+1 or prtx2.c=99)) and a\u003c20 and c=91",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND (prtx2.b = prtx1.b + 1 OR prtx2.c = 99)) AND a \u003c 20 AND c = 91"
+    "query": "explain (costs off) select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and (prtx2.b=prtx1.b+1 or prtx2.c=99)) and a<20 and c=91",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND (prtx2.b = prtx1.b + 1 OR prtx2.c = 99)) AND a < 20 AND c = 91"
   },
   {
     "comment": "partition_join - Statement 245",
-    "query": "select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and (prtx2.b=prtx1.b+1 or prtx2.c=99)) and a\u003c20 and c=91",
-    "expected": "SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND (prtx2.b = prtx1.b + 1 OR prtx2.c = 99)) AND a \u003c 20 AND c = 91"
+    "query": "select * from prtx1 where not exists (select 1 from prtx2 where prtx2.a=prtx1.a and (prtx2.b=prtx1.b+1 or prtx2.c=99)) and a<20 and c=91",
+    "expected": "SELECT * FROM prtx1 WHERE NOT EXISTS (SELECT 1 FROM prtx2 WHERE prtx2.a = prtx1.a AND (prtx2.b = prtx1.b + 1 OR prtx2.c = 99)) AND a < 20 AND c = 91"
   },
   {
     "comment": "partition_join - Statement 246",
@@ -1425,13 +1425,13 @@
   },
   {
     "comment": "partition_join - Statement 307",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 308",
-    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 309",
@@ -1443,13 +1443,13 @@
   },
   {
     "comment": "partition_join - Statement 311",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a \u003e= 100 AND t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a \u003e= 100 AND t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a >= 100 AND t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a >= 100 AND t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 312",
-    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a \u003e= 100 AND t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
-    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a \u003e= 100 AND t1.a \u003c 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
+    "query": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv t1 INNER JOIN prt2_adv t2 ON (t1.a = t2.b) WHERE t1.a >= 100 AND t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b",
+    "expected": "SELECT t1.a, t1.c, t2.b, t2.c FROM prt1_adv AS t1 INNER JOIN prt2_adv AS t2 ON (t1.a = t2.b) WHERE t1.a >= 100 AND t1.a < 300 AND t1.b = 0 ORDER BY t1.a, t2.b"
   },
   {
     "comment": "partition_join - Statement 313",
@@ -1505,53 +1505,53 @@
   },
   {
     "comment": "partition_join - Statement 325",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 326",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 327",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt1_adv t1 WHERE EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt1_adv AS t1 WHERE EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt1_adv t1 WHERE EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt1_adv AS t1 WHERE EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 328",
-    "query": "SELECT t1.* FROM plt1_adv t1 WHERE EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.* FROM plt1_adv AS t1 WHERE EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.* FROM plt1_adv t1 WHERE EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.* FROM plt1_adv AS t1 WHERE EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 329",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 330",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 331",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt1_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt1_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt1_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt1_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 332",
-    "query": "SELECT t1.* FROM plt1_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.* FROM plt1_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.* FROM plt1_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.* FROM plt1_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt2_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 333",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 FULL JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE coalesce(t1.b, 0) \u003c 10 AND coalesce(t2.b, 0) \u003c 10 ORDER BY t1.a, t2.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 FULL OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE COALESCE(t1.b, 0) \u003c 10 AND COALESCE(t2.b, 0) \u003c 10 ORDER BY t1.a, t2.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 FULL JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE coalesce(t1.b, 0) < 10 AND coalesce(t2.b, 0) < 10 ORDER BY t1.a, t2.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 FULL OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE COALESCE(t1.b, 0) < 10 AND COALESCE(t2.b, 0) < 10 ORDER BY t1.a, t2.a"
   },
   {
     "comment": "partition_join - Statement 334",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 FULL JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE coalesce(t1.b, 0) \u003c 10 AND coalesce(t2.b, 0) \u003c 10 ORDER BY t1.a, t2.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 FULL OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE COALESCE(t1.b, 0) \u003c 10 AND COALESCE(t2.b, 0) \u003c 10 ORDER BY t1.a, t2.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 FULL JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE coalesce(t1.b, 0) < 10 AND coalesce(t2.b, 0) < 10 ORDER BY t1.a, t2.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 FULL OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE COALESCE(t1.b, 0) < 10 AND COALESCE(t2.b, 0) < 10 ORDER BY t1.a, t2.a"
   },
   {
     "comment": "partition_join - Statement 335",
@@ -1563,13 +1563,13 @@
   },
   {
     "comment": "partition_join - Statement 337",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt2_adv t1 LEFT JOIN plt1_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt2_adv AS t1 LEFT OUTER JOIN plt1_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt2_adv t1 LEFT JOIN plt1_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt2_adv AS t1 LEFT OUTER JOIN plt1_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 338",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt2_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt1_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt2_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt1_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.* FROM plt2_adv t1 WHERE NOT EXISTS (SELECT 1 FROM plt1_adv t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.* FROM plt2_adv AS t1 WHERE NOT EXISTS (SELECT 1 FROM plt1_adv AS t2 WHERE t1.a = t2.a AND t1.c = t2.c) AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 339",
@@ -1664,13 +1664,13 @@
   },
   {
     "comment": "partition_join - Statement 361",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt1_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt1_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt1_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt1_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 362",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt1_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt1_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt1_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt1_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 363",
@@ -1733,13 +1733,13 @@
   },
   {
     "comment": "partition_join - Statement 377",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt3_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt3_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt3_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt3_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 378",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt3_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt3_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT JOIN plt3_adv t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) LEFT OUTER JOIN plt3_adv AS t3 ON (t1.a = t3.a AND t1.c = t3.c) WHERE t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 379",
@@ -1818,23 +1818,23 @@
   },
   {
     "comment": "partition_join - Statement 397",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 398",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 INNER JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 INNER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IN ('0003', '0004', '0005') AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 399",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b < 10 ORDER BY t1.a",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 400",
-    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b \u003c 10 ORDER BY t1.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b \u003c 10 ORDER BY t1.a"
+    "query": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b < 10 ORDER BY t1.a",
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c FROM plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE t1.c IS NULL AND t1.b < 10 ORDER BY t1.a"
   },
   {
     "comment": "partition_join - Statement 401",
@@ -1886,12 +1886,12 @@
   {
     "comment": "partition_join - Statement 412",
     "query": "EXPLAIN (COSTS OFF) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.c = t2.c)) FULL JOIN plt3_adv t3 ON (t1.c = t3.c) WHERE coalesce(t1.a, 0) % 5 != 3 AND coalesce(t1.a, 0) % 5 != 4 ORDER BY t1.c, t1.a, t2.a, t3.a",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.c = t2.c)) FULL OUTER JOIN plt3_adv AS t3 ON (t1.c = t3.c) WHERE COALESCE(t1.a, 0) % 5 \u003c\u003e 3 AND COALESCE(t1.a, 0) % 5 \u003c\u003e 4 ORDER BY t1.c, t1.a, t2.a, t3.a"
+    "expected": "EXPLAIN (COSTS false) SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.c = t2.c)) FULL OUTER JOIN plt3_adv AS t3 ON (t1.c = t3.c) WHERE COALESCE(t1.a, 0) % 5 <> 3 AND COALESCE(t1.a, 0) % 5 <> 4 ORDER BY t1.c, t1.a, t2.a, t3.a"
   },
   {
     "comment": "partition_join - Statement 413",
     "query": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv t1 LEFT JOIN plt2_adv t2 ON (t1.c = t2.c)) FULL JOIN plt3_adv t3 ON (t1.c = t3.c) WHERE coalesce(t1.a, 0) % 5 != 3 AND coalesce(t1.a, 0) % 5 != 4 ORDER BY t1.c, t1.a, t2.a, t3.a",
-    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.c = t2.c)) FULL OUTER JOIN plt3_adv AS t3 ON (t1.c = t3.c) WHERE COALESCE(t1.a, 0) % 5 \u003c\u003e 3 AND COALESCE(t1.a, 0) % 5 \u003c\u003e 4 ORDER BY t1.c, t1.a, t2.a, t3.a"
+    "expected": "SELECT t1.a, t1.c, t2.a, t2.c, t3.a, t3.c FROM (plt1_adv AS t1 LEFT OUTER JOIN plt2_adv AS t2 ON (t1.c = t2.c)) FULL OUTER JOIN plt3_adv AS t3 ON (t1.c = t3.c) WHERE COALESCE(t1.a, 0) % 5 <> 3 AND COALESCE(t1.a, 0) % 5 <> 4 ORDER BY t1.c, t1.a, t2.a, t3.a"
   },
   {
     "comment": "partition_join - Statement 414",
@@ -2021,33 +2021,33 @@
   },
   {
     "comment": "partition_join - Statement 442",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b \u003e= 125 AND t1.b \u003c 225 ORDER BY t1.a, t1.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b \u003e= 125 AND t1.b \u003c 225 ORDER BY t1.a, t1.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b >= 125 AND t1.b < 225 ORDER BY t1.a, t1.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b >= 125 AND t1.b < 225 ORDER BY t1.a, t1.b"
   },
   {
     "comment": "partition_join - Statement 443",
-    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b \u003e= 125 AND t1.b \u003c 225 ORDER BY t1.a, t1.b",
-    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b \u003e= 125 AND t1.b \u003c 225 ORDER BY t1.a, t1.b"
+    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b >= 125 AND t1.b < 225 ORDER BY t1.a, t1.b",
+    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b) WHERE t1.b >= 125 AND t1.b < 225 ORDER BY t1.a, t1.b"
   },
   {
     "comment": "partition_join - Statement 444",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b"
   },
   {
     "comment": "partition_join - Statement 445",
-    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b",
-    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b"
+    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b",
+    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b, t2.b"
   },
   {
     "comment": "partition_join - Statement 446",
-    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b",
-    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b"
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b"
   },
   {
     "comment": "partition_join - Statement 447",
-    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b",
-    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b \u003e= 100 AND t1.b \u003c 110) OR (t1.b \u003e= 200 AND t1.b \u003c 210)) AND ((t2.b \u003e= 100 AND t2.b \u003c 110) OR (t2.b \u003e= 200 AND t2.b \u003c 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b"
+    "query": "SELECT t1.*, t2.* FROM alpha t1 INNER JOIN beta t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b",
+    "expected": "SELECT t1.*, t2.* FROM alpha AS t1 INNER JOIN beta AS t2 ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c) WHERE ((t1.b >= 100 AND t1.b < 110) OR (t1.b >= 200 AND t1.b < 210)) AND ((t2.b >= 100 AND t2.b < 110) OR (t2.b >= 200 AND t2.b < 210)) AND t1.c IN ('0004', '0009') ORDER BY t1.a, t1.b"
   },
   {
     "comment": "partition_join - Statement 448",

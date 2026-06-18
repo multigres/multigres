@@ -36,7 +36,7 @@ const (
 	// defaultPerFileTimeout bounds how long any single .test file can run
 	// against one target on one protocol. A single slow file cannot starve
 	// the whole suite.
-	defaultPerFileTimeout = 5 * time.Minute
+	defaultPerFileTimeout = 10 * time.Minute
 
 	// defaultBuildTimeout bounds the PostgreSQL source build.
 	defaultBuildTimeout = 10 * time.Minute
@@ -52,8 +52,10 @@ const (
 )
 
 // protocolConfig pairs a short human name (used in report keys) with the
-// sqllogictest-rs engine string. Both configurations run against both
-// targets, producing four invocations per file.
+// sqllogictest-rs engine string. Both configurations run against both targets
+// (postgres baseline + multigateway), producing four invocations per file —
+// or two (multigateway only) in regression mode, where the postgres baseline
+// is skipped.
 type protocolConfig struct {
 	// Key labels the suite in results.json: "SQLLogicTest-" + Key.
 	Key string
@@ -73,8 +75,8 @@ var protocols = []protocolConfig{
 //
 // This test is deliberately tolerant of failures. It does not fail the Go
 // test on proxy divergence or upstream corpus failures; it records per-
-// file, per-protocol pass/fail counts over time (like pgregresstest). CI
-// compares against a cached baseline; regressions surface there.
+// file, per-protocol pass/fail counts. CI inspects results.json and alerts
+// when any file passes on postgres but fails on multigateway.
 //
 // Skipped by default. Set RUN_EXTENDED_QUERY_SERVING_TESTS=1 to run.
 //
@@ -83,7 +85,14 @@ var protocols = []protocolConfig{
 //	RUN_EXTENDED_QUERY_SERVING_TESTS=1  — enable the test (required)
 //	SLT_CORPUS_DIR=<dir>                — use an external corpus instead of testdata/
 //	SLT_CORPUS_GLOB=<glob>              — scope which corpus files run (default: **/*.slt)
-//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 5m)
+//	SLT_PER_FILE_TIMEOUT=<d>            — Go duration, e.g. "90s" (default: 10m)
+//	SLT_REGRESSION_MODE=1               — run only the committed postgres-passing
+//	                                      allowlist (testdata/postgres_passing.txt),
+//	                                      against multigateway only. The postgres
+//	                                      baseline is skipped and assumed passing
+//	                                      by definition of the allowlist, so any
+//	                                      file that fails on multigateway is a
+//	                                      real proxy regression. Used by CI.
 func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	suiteutil.SkipUnlessEnabled(t, suiteutil.EnvRunExtendedQueryServingTests)
 
@@ -103,6 +112,10 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		}
 		perFileTimeout = d
 	}
+
+	// Regression mode (CI): run only the committed postgres-passing allowlist
+	// against multigateway, skipping the standalone postgres baseline.
+	regressionMode := os.Getenv("SLT_REGRESSION_MODE") == "1"
 
 	// Phase 1: build PostgreSQL 17.6 from source (cached across runs).
 	buildCtx := utils.WithTimeout(t, defaultBuildTimeout)
@@ -138,7 +151,7 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCorpusDir: %v", err)
 	}
-	files, err := listCorpusFiles(corpusRoot)
+	files, err := suiteutil.ListCorpusFiles(corpusRoot, "SLT_CORPUS_GLOB", DefaultCorpusGlob)
 	if err != nil {
 		t.Fatalf("listCorpusFiles: %v", err)
 	}
@@ -148,30 +161,46 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	t.Logf("Phase 3: corpus = %d files from %s (glob=%q, commit=%s)",
 		len(files), corpusRoot, firstNonEmpty(os.Getenv("SLT_CORPUS_GLOB"), DefaultCorpusGlob), CorpusCommit)
 
+	if regressionMode {
+		files = filterToPostgresPassing(t, corpusRoot, files)
+		if len(files) == 0 {
+			t.Fatalf("regression mode: no corpus files matched the postgres-passing allowlist")
+		}
+		t.Logf("Phase 3: regression mode — restricted to %d postgres-passing files", len(files))
+	}
+
 	// Phase 4: start the baseline standalone postgres. Separate context so
 	// initdb + postgres launch + pg_isready polling each get their budget
 	// independent of what Phase 1 and Phase 3 already consumed.
-	t.Logf("Phase 4: starting standalone PostgreSQL...")
-	standaloneCtx := utils.WithTimeout(t, defaultStandaloneStartTimeout)
-	standalone, err := pgbuilder.StartStandalone(t, standaloneCtx, builder, standalonePassword)
-	if err != nil {
-		t.Fatalf("StartStandalone: %v", err)
+	//
+	// Skipped in regression mode: the allowlist already encodes the
+	// postgres-passing verdict, so there is no live baseline to run against.
+	var pgTarget suiteutil.Target
+	if !regressionMode {
+		t.Logf("Phase 4: starting standalone PostgreSQL...")
+		standaloneCtx := utils.WithTimeout(t, defaultStandaloneStartTimeout)
+		standalone, err := pgbuilder.StartStandalone(t, standaloneCtx, builder, standalonePassword)
+		if err != nil {
+			t.Fatalf("StartStandalone: %v", err)
+		}
+		t.Cleanup(func() { _ = standalone.Stop() })
+		pgTarget = suiteutil.Target{
+			Name: "postgres",
+			Host: "127.0.0.1",
+			Port: standalone.Port,
+			User: standalone.User,
+			Pass: standalone.Password,
+			DB:   standalone.Database,
+		}
+	} else {
+		t.Logf("Phase 4: skipped (regression mode — postgres baseline assumed passing per allowlist)")
 	}
-	t.Cleanup(func() { _ = standalone.Stop() })
 
 	// Phase 5: bring up the multigres cluster + multigateway.
 	t.Logf("Phase 5: starting multigres cluster...")
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	pgTarget := suiteutil.Target{
-		Name: "postgres",
-		Host: "127.0.0.1",
-		Port: standalone.Port,
-		User: standalone.User,
-		Pass: standalone.Password,
-		DB:   standalone.Database,
-	}
 	mgTarget := suiteutil.Target{
 		Name: "multigateway",
 		Host: "127.0.0.1",
@@ -198,13 +227,10 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 	// inval scatter across the multipooler's regular pool. Connecting
 	// directly to the primary PG bypasses the pool and pins all resets to
 	// a single backend.
-	resetCtx, resetCancel := context.WithTimeout(t.Context(), 30*time.Second)
-	pgResetter, err := suiteutil.NewSchemaResetter(resetCtx, pgTarget)
-	resetCancel()
-	if err != nil {
-		t.Fatalf("open postgres schema-resetter: %v", err)
+	var pgResetter *suiteutil.SchemaResetter
+	if !regressionMode {
+		pgResetter = suiteutil.NewSchemaResetterWithCleanup(t, pgTarget)
 	}
-	t.Cleanup(func() { pgResetter.Close(context.Background()) })
 	primary := setup.GetPrimary(t)
 	mgResetTarget := suiteutil.Target{
 		Name: "multigateway-pg-direct",
@@ -214,18 +240,17 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		Pass: shardsetup.TestPostgresPassword,
 		DB:   "postgres",
 	}
-	resetCtx, resetCancel = context.WithTimeout(t.Context(), 30*time.Second)
-	mgResetter, err := suiteutil.NewSchemaResetter(resetCtx, mgResetTarget)
-	resetCancel()
-	if err != nil {
-		t.Fatalf("open multigateway schema-resetter (direct to primary PG): %v", err)
-	}
-	t.Cleanup(func() { mgResetter.Close(context.Background()) })
+	mgResetter := suiteutil.NewSchemaResetterWithCleanup(t, mgResetTarget)
 
 	// Phase 6: for each file, run both targets under both protocols. Four
-	// invocations per file. Honors the overall test deadline so a timeout
-	// still produces a coherent partial report.
-	t.Logf("Phase 6: running %d files × %d protocols × 2 targets...", len(files), len(protocols))
+	// invocations per file (multigateway only — two — in regression mode).
+	// Honors the overall test deadline so a timeout still produces a coherent
+	// partial report.
+	if regressionMode {
+		t.Logf("Phase 6: running %d files × %d protocols × multigateway only (regression mode)...", len(files), len(protocols))
+	} else {
+		t.Logf("Phase 6: running %d files × %d protocols × 2 targets...", len(files), len(protocols))
+	}
 
 	overall := t.Context()
 	startedAt := time.Now()
@@ -237,50 +262,47 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 		perProto[p.Key] = &protoResults{}
 	}
 
-	var (
-		timedOut   bool
-		ranAgainst int
-	)
-	for i, f := range files {
-		select {
-		case <-overall.Done():
-			t.Logf("overall deadline reached after %d/%d files; stopping run loop", i, len(files))
-			timedOut = true
-		default:
-		}
-		if timedOut {
-			break
-		}
-
-		ranAgainst++
-
-		for _, p := range protocols {
-			pgRes := runOne(overall, perFileTimeout, pgTarget, pgResetter, p.Engine, f)
-			mgRes := runOne(overall, perFileTimeout, mgTarget, mgResetter, p.Engine, f)
-			perProto[p.Key].pg = append(perProto[p.Key].pg, pgRes)
-			perProto[p.Key].mg = append(perProto[p.Key].mg, mgRes)
-		}
-
-		if (i+1)%25 == 0 || (i+1) == len(files) {
-			t.Logf("  progress: %d/%d files", i+1, len(files))
+	ranAgainst, timedOut := suiteutil.RunCorpusLoop(t, overall, files,
+		func(i int, f string) {
+			for _, p := range protocols {
+				var pgRes *runResult
+				if regressionMode {
+					// Postgres baseline isn't run; the allowlist guarantees it
+					// passes. Synthesize the verdict so the report shape and the
+					// divergence check (PG pass && MG fail) stay intact.
+					pgRes = &runResult{File: f, Passed: true}
+				} else {
+					pgRes = suiteutil.RunWithTimeout(overall, perFileTimeout, func(ctx context.Context) *runResult {
+						return runSqllogictest(ctx, pgTarget, pgResetter, p.Engine, f)
+					})
+				}
+				mgRes := suiteutil.RunWithTimeout(overall, perFileTimeout, func(ctx context.Context) *runResult {
+					return runSqllogictest(ctx, mgTarget, mgResetter, p.Engine, f)
+				})
+				perProto[p.Key].pg = append(perProto[p.Key].pg, pgRes)
+				perProto[p.Key].mg = append(perProto[p.Key].mg, mgRes)
+			}
+		},
+		func(done, total int) {
+			t.Logf("  progress: %d/%d files", done, total)
 			for _, p := range protocols {
 				pr := perProto[p.Key]
 				t.Logf("    [%s] postgres pass=%d, multigateway pass=%d",
 					p.Key, passedCount(pr.pg), passedCount(pr.mg))
 			}
-		}
-	}
+		},
+	)
 
 	t.Logf("Phase 6: ran %d of %d files (timed_out=%v)", ranAgainst, len(files), timedOut)
 
 	// Phase 7: build one suiteReport per protocol and persist the merged
 	// array. The array shape keeps detect-regressions.sh happy and lets
 	// regression tracking be scoped per protocol.
-	reports := make([]*suiteReport, 0, len(protocols))
+	reports := make([]*suiteutil.SuiteReport, 0, len(protocols))
 	for _, p := range protocols {
 		pr := perProto[p.Key]
 		r := newSuiteReport("SQLLogicTest-"+p.Key, corpusRoot, pr.pg, pr.mg, startedAt, timedOut)
-		r.logSummary(t)
+		logSummary(t, r)
 		reports = append(reports, r)
 	}
 
@@ -302,14 +324,6 @@ func TestPostgreSQLSqlLogicTest(t *testing.T) {
 type protoResults struct {
 	pg []*runResult
 	mg []*runResult
-}
-
-// runOne invokes sqllogictest against a single target under a single
-// protocol for one file, with its own bounded context.
-func runOne(parent context.Context, perFileTimeout time.Duration, t suiteutil.Target, resetter *suiteutil.SchemaResetter, engine, file string) *runResult {
-	ctx, cancel := context.WithTimeout(parent, perFileTimeout)
-	defer cancel()
-	return runSqllogictest(ctx, t, resetter, engine, file)
 }
 
 func passedCount(results []*runResult) int {

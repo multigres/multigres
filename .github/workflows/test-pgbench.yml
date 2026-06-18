@@ -30,6 +30,9 @@ jobs:
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Benchmarks')
     runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -69,6 +72,7 @@ jobs:
       - name: Run pgbench benchmarks
         env:
           RUN_BENCHMARKS: "1"
+          PGBENCH_TARGETS: "postgres,multigateway"
           PGBENCH_DURATION: "30"
           PGBENCH_CLIENTS: "1,10,50"
           TEST_PRINT_LOGS: "1"
@@ -208,14 +212,27 @@ jobs:
               "| \(.scenario) | \(.pg_tps) | \(.mgw_tps) | \(.overhead)% |"
             ) | join("\n")) as $table_rows |
 
-            {blocks: [
-              {type: "header", text: {type: "plain_text",
-                text: ("Weekly pgbench: multigateway overhead " + ($avg_overhead | tostring) + "% avg")}},
-              {type: "section", text: {type: "mrkdwn",
-                text: ("*Sustained Load Results*\n| Scenario | PG TPS | MGW TPS | Overhead |\n|---|---|---|---|\n" + $table_rows)}},
-              {type: "section", text: {type: "mrkdwn",
-                text: ("<" + $url + "|View CI run>")}}
-            ]}
+            # Detect which targets the run actually produced, so a misconfigured
+            # target matrix surfaces loudly instead of posting a silent "0% avg".
+            ([$sustained[].target] | unique) as $targets |
+
+            {blocks: (
+              if ($comparisons | length) > 0 then [
+                {type: "header", text: {type: "plain_text",
+                  text: ("Weekly pgbench: multigateway overhead " + ($avg_overhead | tostring) + "% avg")}},
+                {type: "section", text: {type: "mrkdwn",
+                  text: ("*Sustained Load Results*\n| Scenario | PG TPS | MGW TPS | Overhead |\n|---|---|---|---|\n" + $table_rows)}},
+                {type: "section", text: {type: "mrkdwn",
+                  text: ("<" + $url + "|View CI run>")}}
+              ] else [
+                {type: "header", text: {type: "plain_text",
+                  text: ":warning: Weekly pgbench: no overhead comparison produced"}},
+                {type: "section", text: {type: "mrkdwn",
+                  text: ("No postgres-vs-multigateway comparison could be built — the run is missing a `postgres` baseline.\nTargets present in results: `" + ($targets | join(", ")) + "`\nCheck `PGBENCH_TARGETS` in the workflow.")}},
+                {type: "section", text: {type: "mrkdwn",
+                  text: ("<" + $url + "|View CI run>")}}
+              ] end
+            )}
             ')
 
           curl -sf -X POST -H 'Content-type: application/json' \
@@ -249,7 +266,10 @@ jobs:
             "$SLACK_WEBHOOK_URL"
 
       - name: Prepare baseline for cache save
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: >-
+          !cancelled() &&
+          github.event_name != 'pull_request' &&
+          steps.results.outputs.path != ''
         env:
           RESULTS_PATH: ${{ steps.results.outputs.path }}
         run: |
@@ -257,7 +277,10 @@ jobs:
           cp "$RESULTS_PATH" /tmp/pgbench-baseline/results.json
 
       - name: Save current results as new baseline
-        if: ${{ !cancelled() && steps.results.outputs.path != '' }}
+        if: >-
+          !cancelled() &&
+          github.event_name != 'pull_request' &&
+          steps.results.outputs.path != ''
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: /tmp/pgbench-baseline/results.json

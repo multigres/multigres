@@ -25,12 +25,17 @@ ETCD_VER = v3.6.4
 export ETCD_VER
 SQLLOGICTEST_VER = v0.29.1
 export SQLLOGICTEST_VER
+# pgproto is built from source from the pgpool-II release tarball (it lives in
+# the pgpool2 tree under src/tools/pgproto). PGPROTO_VER is the pgpool-II
+# release version.
+PGPROTO_VER = 4.6.6
+export PGPROTO_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
 
 ##@ General
 
@@ -77,14 +82,20 @@ parser: ## Generate PostgreSQL parser from grammar.
 	go generate ./go/common/parser/...
 	@echo "Parser and ast helpers generation completed"
 
-generate: parser ## Alias for parser.
+generate: parser metrics ## Alias for parser and metrics catalog.
+
+# Generate the metric catalog (go/observability/metriccatalog) from OpenTelemetry
+# instrument definitions across the codebase.
+metrics: ## Generate the Prometheus metric catalog/keep-list.
+	@echo "$$(date): Generating metric catalog"
+	go run ./go/tools/metricsgen/main
+	@echo "Metric catalog generation completed"
 
 ##@ Build
 
 # Build Go binaries only (debug, with symbols)
 build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (debug)"; \
 		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
@@ -93,7 +104,6 @@ build: ## Build Go binaries (debug, with symbols).
 # Build Go binaries with coverage
 build-coverage:
 	mkdir -p bin/cov/
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (coverage)"; \
 		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
@@ -102,14 +112,13 @@ build-coverage:
 # Build Go binaries only (release, static, stripped)
 build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
-	cp external/pico/pico.* go/common/web/templates/css/
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd (release)"; \
 		CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
 # Build everything (proto + parser + binaries)
-build-all: proto parser build ## Build everything (proto + parser + binaries).
+build-all: proto parser metrics build ## Build everything (proto + parser + metrics + binaries).
 
 # TODO(sougou): images is a temporary convenience target for a demo.
 # To run it, you need to have Docker installed.
@@ -162,11 +171,78 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 	RUN_PGREGRESS=1 PGREGRESS_PATCH_MODE=generate \
 	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
+# Run the external extension suite (e.g. pgvector). Clones and builds each
+# external extension as a PGXS module against the from-source PostgreSQL, then
+# runs its shipped pg_regress suite through multigateway with patch-based
+# verification. Known divergences are recorded under
+# testdata/pg17/patches/external/<ext>/.
+pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch-based verification.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=verify \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Re-run the external extension suite in generate mode: any residual diff between
+# actual output and patched-expected output is absorbed by (re)writing
+# testdata/pg17/patches/external/<ext>/<name>.patch. Review the resulting patches
+# in the PR diff before merging.
+pgexternal-update-patches: build ## Regenerate testdata/pg17/patches/external/*.patch from the current run.
+	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate \
+	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Regenerate the FULL pgregress patch set (regression + isolation + contrib +
+# external) inside an ubuntu-24.04 container that mirrors CI. The patch set is
+# platform-sensitive (locale collation, timezone formatting, error-cursor
+# positions), so it MUST be regenerated on Linux — running the targets above
+# directly on macOS produces patches that fail CI verification. Patches are
+# written back into the working tree via a bind mount. Requires Docker.
+pgregress-update-patches-docker: ## Regenerate ALL pgregress patches in a CI-matching Linux container (Docker).
+	./docker/pgregress-generate.sh
+
+# Run the pgproto wire-protocol conformance suite (patch-verify mode). Requires
+# `make build` and `make tools` (builds the pgproto binary); clones/builds
+# PostgreSQL on first run. Known divergences are recorded as patches under
+# go/test/endtoend/queryserving/pgproto/testdata/patches/.
+pgproto: build ## Run the pgproto wire-protocol conformance suite with patch-based verification.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=verify \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
+
+# Re-run the pgproto suite in generate mode: any residual divergence between the
+# multigateway and PostgreSQL is absorbed by (re)writing
+# go/test/endtoend/queryserving/pgproto/testdata/patches/<name>.patch. Review the
+# resulting patches in the PR diff before merging.
+pgproto-update-patches: build ## Regenerate pgproto testdata/patches/*.patch from the current run.
+	RUN_EXTENDED_QUERY_SERVING_TESTS=1 PGPROTO_PATCH_MODE=generate \
+	go test -v -timeout 30m -run TestPgProtoConformance ./go/test/endtoend/queryserving/pgproto/...
+# Path to the supabase/postgres checkout. Override with SUPABASE_POSTGRES_DIR=... if needed.
+SUPABASE_POSTGRES_DIR ?= $(HOME)/repos/supabase/postgres
+
+docker-supabase-postgres: ## Build the supabase Postgres base image from Dockerfile-17.
+	docker build \
+	  -f $(SUPABASE_POSTGRES_DIR)/Dockerfile-17 \
+	  -t supabase-postgres:local \
+	  $(SUPABASE_POSTGRES_DIR)
+
+docker-supabase-postgres-test: docker-supabase-postgres ## Build the integration test runner image (supabase Postgres + Go + etcd).
+	docker build \
+	  -f Dockerfile.integration-test \
+	  --build-arg SUPABASE_IMAGE=supabase-postgres:local \
+	  -t supabase-postgres-test:local \
+	  .
+
+test-integration-supabase: docker-supabase-postgres-test ## Run integration tests inside the supabase Postgres container.
+	docker run --rm \
+	  --name multigres-integration-test \
+	  -v $(CURDIR):/multigres \
+	  -v /tmp/go-cache:/home/postgres/.cache \
+	  -w /multigres \
+	  -e TEST_PRINT_LOGS=1 \
+	  -e AWS_ACCESS_KEY_ID=test-access-key \
+	  -e AWS_SECRET_ACCESS_KEY=test-secret-key \
+	  supabase-postgres-test:local
+
 ##@ Maintenance
 
 # Clean build artifacts
 clean: ## Remove build artifacts and temp files.
-	rm -f go/common/web/templates/css/pico.*
 	go clean -i ./go/...
 	@for cmd in $(CMDS); do \
 		echo "Removing $(BIN_DIR)/$$cmd"; \

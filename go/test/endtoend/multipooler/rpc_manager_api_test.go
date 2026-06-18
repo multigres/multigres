@@ -21,14 +21,60 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// TestManagerStatus_NodeIdentityAndConsensus verifies that MultiPoolerManager.Status
+// reports the right node identity (cell, name) plus consensus role (term,
+// IsLeader) for both primary and standby. ConsensusStatus rides on the
+// manager-service StatusResponse since the dedicated MultiPoolerConsensus.Status
+// RPC was removed.
+func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+	setupPoolerTest(t, setup, WithoutReplication())
+
+	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryClient.Close() })
+
+	standbyClient, err := shardsetup.NewMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyClient.Close() })
+
+	t.Run("primary", func(t *testing.T) {
+		resp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Status should succeed on primary")
+		require.NotNil(t, resp, "Response should not be nil")
+
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.GetConsensusStatus().GetId().GetName(), "PoolerId should match")
+		assert.Equal(t, "test-cell", resp.GetConsensusStatus().GetId().GetCell(), "Cell should match")
+		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
+		assert.True(t, consensus.NamesSelfAsLeader(resp.GetConsensusStatus()), "Primary should be consensus primary")
+	})
+
+	t.Run("standby", func(t *testing.T) {
+		resp, err := standbyClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Status should succeed on standby")
+		require.NotNil(t, resp, "Response should not be nil")
+
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.GetConsensusStatus().GetId().GetName(), "PoolerId should match")
+		assert.Equal(t, "test-cell", resp.GetConsensusStatus().GetId().GetCell(), "Cell should match")
+		assert.False(t, consensus.NamesSelfAsLeader(resp.GetConsensusStatus()), "Standby should not be consensus primary")
+	})
+}
+
 // TestMultipoolerPrimaryLSN verifies that a primary pooler reports a valid WAL position
-// via the consensus Status RPC.
+// via the manager Status RPC.
 func TestMultipoolerPrimaryLSN(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -43,7 +89,7 @@ func TestMultipoolerPrimaryLSN(t *testing.T) {
 	t.Cleanup(func() { primaryClient.Close() })
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
-	statusResp, err := primaryClient.Consensus.Status(ctx, &consensusdatapb.StatusRequest{})
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "Primary LSN should not be empty")
 	assert.Contains(t, statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn(), "/", "LSN should be in PostgreSQL format (e.g., 0/1234ABCD)")

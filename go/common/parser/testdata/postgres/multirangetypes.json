@@ -429,59 +429,59 @@
   },
   {
     "comment": "multirangetypes - Statement 88",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c '{}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{}'"
   },
   {
     "comment": "multirangetypes - Statement 89",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c '{[-1000.0, -1000.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[-1000.0, -1000.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 90",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c '{[0.0, 1.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[0.0, 1.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 91",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c '{[1000.0, 1001.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[1000.0, 1001.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 92",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c= '{}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <= '{}'"
   },
   {
     "comment": "multirangetypes - Statement 93",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c= '{[3,)}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <= '{[3,)}'"
   },
   {
     "comment": "multirangetypes - Statement 94",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e= '{}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr >= '{}'"
   },
   {
     "comment": "multirangetypes - Statement 95",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e= '{[3,)}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr >= '{[3,)}'"
   },
   {
     "comment": "multirangetypes - Statement 96",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e '{}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{}'"
   },
   {
     "comment": "multirangetypes - Statement 97",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e '{[-1000.0, -1000.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[-1000.0, -1000.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 98",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e '{[0.0, 1.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[0.0, 1.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 99",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003e '{[1000.0, 1001.0]}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[1000.0, 1001.0]}'"
   },
   {
     "comment": "multirangetypes - Statement 100",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c\u003e '{}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <> '{}'"
   },
   {
     "comment": "multirangetypes - Statement 101",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u003c\u003e '{(,5)}'"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <> '{(,5)}'"
   },
   {
     "comment": "multirangetypes - Statement 102",
@@ -504,7 +504,7 @@
   },
   {
     "comment": "multirangetypes - Statement 106",
-    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) \u0026\u0026 nmr"
+    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) && nmr"
   },
   {
     "comment": "multirangetypes - Statement 107",
@@ -512,7 +512,7 @@
   },
   {
     "comment": "multirangetypes - Statement 108",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u0026\u0026 numrange(4.0, 4.2)"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && numrange(4.0, 4.2)"
   },
   {
     "comment": "multirangetypes - Statement 109",
@@ -520,15 +520,15 @@
   },
   {
     "comment": "multirangetypes - Statement 110",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u0026\u0026 nummultirange(numrange(4.0, 4.2), numrange(6.0, 7.0))"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(4.0, 4.2), numrange(6.0, 7.0))"
   },
   {
     "comment": "multirangetypes - Statement 111",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u0026\u0026 nummultirange(numrange(6.0, 7.0))"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(6.0, 7.0))"
   },
   {
     "comment": "multirangetypes - Statement 112",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr \u0026\u0026 nummultirange(numrange(6.0, 7.0), numrange(8.0, 9.0))"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(6.0, 7.0), numrange(8.0, 9.0))"
   },
   {
     "comment": "multirangetypes - Statement 113",
@@ -536,7 +536,7 @@
   },
   {
     "comment": "multirangetypes - Statement 114",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr @\u003e 4.0"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> 4.0"
   },
   {
     "comment": "multirangetypes - Statement 115",
@@ -544,7 +544,7 @@
   },
   {
     "comment": "multirangetypes - Statement 116",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr @\u003e numrange(4.0, 4.2)"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> numrange(4.0, 4.2)"
   },
   {
     "comment": "multirangetypes - Statement 117",
@@ -552,8 +552,8 @@
   },
   {
     "comment": "multirangetypes - Statement 118",
-    "query": "SELECT * FROM nummultirange_test WHERE nmr @\u003e '{[4.0,4.2), [6.0, 8.0)}'::nummultirange",
-    "expected": "SELECT * FROM nummultirange_test WHERE nmr @\u003e CAST('{[4.0,4.2), [6.0, 8.0)}' AS nummultirange)"
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> '{[4.0,4.2), [6.0, 8.0)}'::nummultirange",
+    "expected": "SELECT * FROM nummultirange_test WHERE nmr @> CAST('{[4.0,4.2), [6.0, 8.0)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 119",
@@ -561,7 +561,7 @@
   },
   {
     "comment": "multirangetypes - Statement 120",
-    "query": "SELECT * FROM nummultirange_test WHERE 4.0 \u003c@ nmr"
+    "query": "SELECT * FROM nummultirange_test WHERE 4.0 <@ nmr"
   },
   {
     "comment": "multirangetypes - Statement 121",
@@ -569,7 +569,7 @@
   },
   {
     "comment": "multirangetypes - Statement 122",
-    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) \u003c@ nmr"
+    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) <@ nmr"
   },
   {
     "comment": "multirangetypes - Statement 123",
@@ -577,713 +577,713 @@
   },
   {
     "comment": "multirangetypes - Statement 124",
-    "query": "SELECT * FROM nummultirange_test WHERE '{[4.0,4.2), [6.0, 8.0)}'::nummultirange \u003c@ nmr",
-    "expected": "SELECT * FROM nummultirange_test WHERE CAST('{[4.0,4.2), [6.0, 8.0)}' AS nummultirange) \u003c@ nmr"
+    "query": "SELECT * FROM nummultirange_test WHERE '{[4.0,4.2), [6.0, 8.0)}'::nummultirange <@ nmr",
+    "expected": "SELECT * FROM nummultirange_test WHERE CAST('{[4.0,4.2), [6.0, 8.0)}' AS nummultirange) <@ nmr"
   },
   {
     "comment": "multirangetypes - Statement 125",
-    "query": "SELECT 'empty'::numrange \u0026\u0026 nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u0026 nummultirange()"
+    "query": "SELECT 'empty'::numrange && nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) && nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 126",
-    "query": "SELECT 'empty'::numrange \u0026\u0026 nummultirange(numrange(1,2))",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u0026 nummultirange(numrange(1, 2))"
+    "query": "SELECT 'empty'::numrange && nummultirange(numrange(1,2))",
+    "expected": "SELECT CAST('empty' AS numrange) && nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 127",
-    "query": "SELECT nummultirange() \u0026\u0026 'empty'::numrange",
-    "expected": "SELECT nummultirange() \u0026\u0026 CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange() && 'empty'::numrange",
+    "expected": "SELECT nummultirange() && CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 128",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u0026 'empty'::numrange",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u0026 CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange(numrange(1,2)) && 'empty'::numrange",
+    "expected": "SELECT nummultirange(numrange(1, 2)) && CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 129",
-    "query": "SELECT nummultirange() \u0026\u0026 nummultirange()"
+    "query": "SELECT nummultirange() && nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 130",
-    "query": "SELECT nummultirange() \u0026\u0026 nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange() \u0026\u0026 nummultirange(numrange(1, 2))"
+    "query": "SELECT nummultirange() && nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange() && nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 131",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u0026 nummultirange()",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u0026 nummultirange()"
+    "query": "SELECT nummultirange(numrange(1,2)) && nummultirange()",
+    "expected": "SELECT nummultirange(numrange(1, 2)) && nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 132",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u0026 nummultirange(numrange(1,2), numrange(7,8))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u0026 nummultirange(numrange(1, 2), numrange(7, 8))"
+    "query": "SELECT nummultirange(numrange(3,4)) && nummultirange(numrange(1,2), numrange(7,8))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) && nummultirange(numrange(1, 2), numrange(7, 8))"
   },
   {
     "comment": "multirangetypes - Statement 133",
-    "query": "SELECT nummultirange(numrange(1,2), numrange(7,8)) \u0026\u0026 nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 2), numrange(7, 8)) \u0026\u0026 nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(1,2), numrange(7,8)) && nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 2), numrange(7, 8)) && nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 134",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u0026 nummultirange(numrange(1,2), numrange(3.5,8))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u0026 nummultirange(numrange(1, 2), numrange(3.5, 8))"
+    "query": "SELECT nummultirange(numrange(3,4)) && nummultirange(numrange(1,2), numrange(3.5,8))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) && nummultirange(numrange(1, 2), numrange(3.5, 8))"
   },
   {
     "comment": "multirangetypes - Statement 135",
-    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) \u0026\u0026 numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(1, 2), numrange(3.5, 8)) \u0026\u0026 numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) && numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(1, 2), numrange(3.5, 8)) && numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 136",
-    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) \u0026\u0026 nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 2), numrange(3.5, 8)) \u0026\u0026 nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) && nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 2), numrange(3.5, 8)) && nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 137",
-    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange \u0026\u0026 '(42,92)'::numrange",
-    "expected": "SELECT CAST('{(10,20),(30,40),(50,60)}' AS nummultirange) \u0026\u0026 CAST('(42,92)' AS numrange)"
+    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange && '(42,92)'::numrange",
+    "expected": "SELECT CAST('{(10,20),(30,40),(50,60)}' AS nummultirange) && CAST('(42,92)' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 138",
-    "query": "SELECT nummultirange() @\u003e nummultirange()"
+    "query": "SELECT nummultirange() @> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 139",
-    "query": "SELECT nummultirange() @\u003e 'empty'::numrange",
-    "expected": "SELECT nummultirange() @\u003e CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange() @> 'empty'::numrange",
+    "expected": "SELECT nummultirange() @> CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 140",
-    "query": "SELECT nummultirange(numrange(null,null)) @\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @\u003e numrange(1, 2)"
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(1,2)",
+    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 141",
-    "query": "SELECT nummultirange(numrange(null,null)) @\u003e numrange(null,2)",
-    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @\u003e numrange(NULL, 2)"
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(null,2)",
+    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @> numrange(NULL, 2)"
   },
   {
     "comment": "multirangetypes - Statement 142",
-    "query": "SELECT nummultirange(numrange(null,null)) @\u003e numrange(2,null)",
-    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @\u003e numrange(2, NULL)"
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(2,null)",
+    "expected": "SELECT nummultirange(numrange(NULL, NULL)) @> numrange(2, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 143",
-    "query": "SELECT nummultirange(numrange(null,5)) @\u003e numrange(null,3)",
-    "expected": "SELECT nummultirange(numrange(NULL, 5)) @\u003e numrange(NULL, 3)"
+    "query": "SELECT nummultirange(numrange(null,5)) @> numrange(null,3)",
+    "expected": "SELECT nummultirange(numrange(NULL, 5)) @> numrange(NULL, 3)"
   },
   {
     "comment": "multirangetypes - Statement 144",
-    "query": "SELECT nummultirange(numrange(null,5)) @\u003e numrange(null,8)",
-    "expected": "SELECT nummultirange(numrange(NULL, 5)) @\u003e numrange(NULL, 8)"
+    "query": "SELECT nummultirange(numrange(null,5)) @> numrange(null,8)",
+    "expected": "SELECT nummultirange(numrange(NULL, 5)) @> numrange(NULL, 8)"
   },
   {
     "comment": "multirangetypes - Statement 145",
-    "query": "SELECT nummultirange(numrange(5,null)) @\u003e numrange(8,null)",
-    "expected": "SELECT nummultirange(numrange(5, NULL)) @\u003e numrange(8, NULL)"
+    "query": "SELECT nummultirange(numrange(5,null)) @> numrange(8,null)",
+    "expected": "SELECT nummultirange(numrange(5, NULL)) @> numrange(8, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 146",
-    "query": "SELECT nummultirange(numrange(5,null)) @\u003e numrange(3,null)",
-    "expected": "SELECT nummultirange(numrange(5, NULL)) @\u003e numrange(3, NULL)"
+    "query": "SELECT nummultirange(numrange(5,null)) @> numrange(3,null)",
+    "expected": "SELECT nummultirange(numrange(5, NULL)) @> numrange(3, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 147",
-    "query": "SELECT nummultirange(numrange(1,5)) @\u003e numrange(8,9)",
-    "expected": "SELECT nummultirange(numrange(1, 5)) @\u003e numrange(8, 9)"
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(8,9)",
+    "expected": "SELECT nummultirange(numrange(1, 5)) @> numrange(8, 9)"
   },
   {
     "comment": "multirangetypes - Statement 148",
-    "query": "SELECT nummultirange(numrange(1,5)) @\u003e numrange(3,9)",
-    "expected": "SELECT nummultirange(numrange(1, 5)) @\u003e numrange(3, 9)"
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(3,9)",
+    "expected": "SELECT nummultirange(numrange(1, 5)) @> numrange(3, 9)"
   },
   {
     "comment": "multirangetypes - Statement 149",
-    "query": "SELECT nummultirange(numrange(1,5)) @\u003e numrange(1,4)",
-    "expected": "SELECT nummultirange(numrange(1, 5)) @\u003e numrange(1, 4)"
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(1,4)",
+    "expected": "SELECT nummultirange(numrange(1, 5)) @> numrange(1, 4)"
   },
   {
     "comment": "multirangetypes - Statement 150",
-    "query": "SELECT nummultirange(numrange(1,5)) @\u003e numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(1, 5)) @\u003e numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(1, 5)) @> numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 151",
-    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) @\u003e numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(1, 5)) @\u003e numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) @> numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(1, 5)) @> numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 152",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @\u003e numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) @\u003e numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @> numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) @> numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 153",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @\u003e numrange(6,7)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) @\u003e numrange(6, 7)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @> numrange(6,7)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) @> numrange(6, 7)"
   },
   {
     "comment": "multirangetypes - Statement 154",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) @\u003e numrange(6,7)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 9)) @\u003e numrange(6, 7)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) @> numrange(6,7)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 9)) @> numrange(6, 7)"
   },
   {
     "comment": "multirangetypes - Statement 155",
-    "query": "SELECT '{[1,5)}'::nummultirange @\u003e '{[1,5)}'",
-    "expected": "SELECT CAST('{[1,5)}' AS nummultirange) @\u003e '{[1,5)}'"
+    "query": "SELECT '{[1,5)}'::nummultirange @> '{[1,5)}'",
+    "expected": "SELECT CAST('{[1,5)}' AS nummultirange) @> '{[1,5)}'"
   },
   {
     "comment": "multirangetypes - Statement 156",
-    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange @\u003e '{[1,5)}'",
-    "expected": "SELECT CAST('{[-4,-2), [1,5)}' AS nummultirange) @\u003e '{[1,5)}'"
+    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange @> '{[1,5)}'",
+    "expected": "SELECT CAST('{[-4,-2), [1,5)}' AS nummultirange) @> '{[1,5)}'"
   },
   {
     "comment": "multirangetypes - Statement 157",
-    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @\u003e '{[1,5)}'",
-    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) @\u003e '{[1,5)}'"
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @> '{[1,5)}'",
+    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) @> '{[1,5)}'"
   },
   {
     "comment": "multirangetypes - Statement 158",
-    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @\u003e '{[6,7)}'",
-    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) @\u003e '{[6,7)}'"
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @> '{[6,7)}'",
+    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) @> '{[6,7)}'"
   },
   {
     "comment": "multirangetypes - Statement 159",
-    "query": "SELECT '{[1,5), [6,9)}'::nummultirange @\u003e '{[6,7)}'",
-    "expected": "SELECT CAST('{[1,5), [6,9)}' AS nummultirange) @\u003e '{[6,7)}'"
+    "query": "SELECT '{[1,5), [6,9)}'::nummultirange @> '{[6,7)}'",
+    "expected": "SELECT CAST('{[1,5), [6,9)}' AS nummultirange) @> '{[6,7)}'"
   },
   {
     "comment": "multirangetypes - Statement 160",
-    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange @\u003e '(52,56)'::numrange",
-    "expected": "SELECT CAST('{(10,20),(30,40),(50,60)}' AS nummultirange) @\u003e CAST('(52,56)' AS numrange)"
+    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange @> '(52,56)'::numrange",
+    "expected": "SELECT CAST('{(10,20),(30,40),(50,60)}' AS nummultirange) @> CAST('(52,56)' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 161",
-    "query": "SELECT numrange(null,null) @\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT numrange(NULL, NULL) @\u003e nummultirange(numrange(1, 2))"
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(1,2))",
+    "expected": "SELECT numrange(NULL, NULL) @> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 162",
-    "query": "SELECT numrange(null,null) @\u003e nummultirange(numrange(null,2))",
-    "expected": "SELECT numrange(NULL, NULL) @\u003e nummultirange(numrange(NULL, 2))"
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(null,2))",
+    "expected": "SELECT numrange(NULL, NULL) @> nummultirange(numrange(NULL, 2))"
   },
   {
     "comment": "multirangetypes - Statement 163",
-    "query": "SELECT numrange(null,null) @\u003e nummultirange(numrange(2,null))",
-    "expected": "SELECT numrange(NULL, NULL) @\u003e nummultirange(numrange(2, NULL))"
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(2,null))",
+    "expected": "SELECT numrange(NULL, NULL) @> nummultirange(numrange(2, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 164",
-    "query": "SELECT numrange(null,5) @\u003e nummultirange(numrange(null,3))",
-    "expected": "SELECT numrange(NULL, 5) @\u003e nummultirange(numrange(NULL, 3))"
+    "query": "SELECT numrange(null,5) @> nummultirange(numrange(null,3))",
+    "expected": "SELECT numrange(NULL, 5) @> nummultirange(numrange(NULL, 3))"
   },
   {
     "comment": "multirangetypes - Statement 165",
-    "query": "SELECT numrange(null,5) @\u003e nummultirange(numrange(null,8))",
-    "expected": "SELECT numrange(NULL, 5) @\u003e nummultirange(numrange(NULL, 8))"
+    "query": "SELECT numrange(null,5) @> nummultirange(numrange(null,8))",
+    "expected": "SELECT numrange(NULL, 5) @> nummultirange(numrange(NULL, 8))"
   },
   {
     "comment": "multirangetypes - Statement 166",
-    "query": "SELECT numrange(5,null) @\u003e nummultirange(numrange(8,null))",
-    "expected": "SELECT numrange(5, NULL) @\u003e nummultirange(numrange(8, NULL))"
+    "query": "SELECT numrange(5,null) @> nummultirange(numrange(8,null))",
+    "expected": "SELECT numrange(5, NULL) @> nummultirange(numrange(8, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 167",
-    "query": "SELECT numrange(5,null) @\u003e nummultirange(numrange(3,null))",
-    "expected": "SELECT numrange(5, NULL) @\u003e nummultirange(numrange(3, NULL))"
+    "query": "SELECT numrange(5,null) @> nummultirange(numrange(3,null))",
+    "expected": "SELECT numrange(5, NULL) @> nummultirange(numrange(3, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 168",
-    "query": "SELECT numrange(1,5) @\u003e nummultirange(numrange(8,9))",
-    "expected": "SELECT numrange(1, 5) @\u003e nummultirange(numrange(8, 9))"
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(8,9))",
+    "expected": "SELECT numrange(1, 5) @> nummultirange(numrange(8, 9))"
   },
   {
     "comment": "multirangetypes - Statement 169",
-    "query": "SELECT numrange(1,5) @\u003e nummultirange(numrange(3,9))",
-    "expected": "SELECT numrange(1, 5) @\u003e nummultirange(numrange(3, 9))"
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(3,9))",
+    "expected": "SELECT numrange(1, 5) @> nummultirange(numrange(3, 9))"
   },
   {
     "comment": "multirangetypes - Statement 170",
-    "query": "SELECT numrange(1,5) @\u003e nummultirange(numrange(1,4))",
-    "expected": "SELECT numrange(1, 5) @\u003e nummultirange(numrange(1, 4))"
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(1,4))",
+    "expected": "SELECT numrange(1, 5) @> nummultirange(numrange(1, 4))"
   },
   {
     "comment": "multirangetypes - Statement 171",
-    "query": "SELECT numrange(1,5) @\u003e nummultirange(numrange(1,5))",
-    "expected": "SELECT numrange(1, 5) @\u003e nummultirange(numrange(1, 5))"
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(1,5))",
+    "expected": "SELECT numrange(1, 5) @> nummultirange(numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 172",
-    "query": "SELECT numrange(1,9) @\u003e nummultirange(numrange(-4,-2), numrange(1,5))",
-    "expected": "SELECT numrange(1, 9) @\u003e nummultirange(numrange(-4, -2), numrange(1, 5))"
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(-4,-2), numrange(1,5))",
+    "expected": "SELECT numrange(1, 9) @> nummultirange(numrange(-4, -2), numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 173",
-    "query": "SELECT numrange(1,9) @\u003e nummultirange(numrange(1,5), numrange(8,9))",
-    "expected": "SELECT numrange(1, 9) @\u003e nummultirange(numrange(1, 5), numrange(8, 9))"
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(8,9))",
+    "expected": "SELECT numrange(1, 9) @> nummultirange(numrange(1, 5), numrange(8, 9))"
   },
   {
     "comment": "multirangetypes - Statement 174",
-    "query": "SELECT numrange(1,9) @\u003e nummultirange(numrange(1,5), numrange(6,9))",
-    "expected": "SELECT numrange(1, 9) @\u003e nummultirange(numrange(1, 5), numrange(6, 9))"
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(6,9))",
+    "expected": "SELECT numrange(1, 9) @> nummultirange(numrange(1, 5), numrange(6, 9))"
   },
   {
     "comment": "multirangetypes - Statement 175",
-    "query": "SELECT numrange(1,9) @\u003e nummultirange(numrange(1,5), numrange(6,10))",
-    "expected": "SELECT numrange(1, 9) @\u003e nummultirange(numrange(1, 5), numrange(6, 10))"
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(6,10))",
+    "expected": "SELECT numrange(1, 9) @> nummultirange(numrange(1, 5), numrange(6, 10))"
   },
   {
     "comment": "multirangetypes - Statement 176",
-    "query": "SELECT '{[1,9)}' @\u003e '{[1,5)}'::nummultirange",
-    "expected": "SELECT '{[1,9)}' @\u003e CAST('{[1,5)}' AS nummultirange)"
+    "query": "SELECT '{[1,9)}' @> '{[1,5)}'::nummultirange",
+    "expected": "SELECT '{[1,9)}' @> CAST('{[1,5)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 177",
-    "query": "SELECT '{[1,9)}' @\u003e '{[-4,-2), [1,5)}'::nummultirange",
-    "expected": "SELECT '{[1,9)}' @\u003e CAST('{[-4,-2), [1,5)}' AS nummultirange)"
+    "query": "SELECT '{[1,9)}' @> '{[-4,-2), [1,5)}'::nummultirange",
+    "expected": "SELECT '{[1,9)}' @> CAST('{[-4,-2), [1,5)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 178",
-    "query": "SELECT '{[1,9)}' @\u003e '{[1,5), [8,9)}'::nummultirange",
-    "expected": "SELECT '{[1,9)}' @\u003e CAST('{[1,5), [8,9)}' AS nummultirange)"
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [8,9)}'::nummultirange",
+    "expected": "SELECT '{[1,9)}' @> CAST('{[1,5), [8,9)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 179",
-    "query": "SELECT '{[1,9)}' @\u003e '{[1,5), [6,9)}'::nummultirange",
-    "expected": "SELECT '{[1,9)}' @\u003e CAST('{[1,5), [6,9)}' AS nummultirange)"
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [6,9)}'::nummultirange",
+    "expected": "SELECT '{[1,9)}' @> CAST('{[1,5), [6,9)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 180",
-    "query": "SELECT '{[1,9)}' @\u003e '{[1,5), [6,10)}'::nummultirange",
-    "expected": "SELECT '{[1,9)}' @\u003e CAST('{[1,5), [6,10)}' AS nummultirange)"
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [6,10)}'::nummultirange",
+    "expected": "SELECT '{[1,9)}' @> CAST('{[1,5), [6,10)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 181",
-    "query": "SELECT nummultirange() \u003c@ nummultirange()"
+    "query": "SELECT nummultirange() <@ nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 182",
-    "query": "SELECT 'empty'::numrange \u003c@ nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u003c@ nummultirange()"
+    "query": "SELECT 'empty'::numrange <@ nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) <@ nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 183",
-    "query": "SELECT numrange(1,2) \u003c@ nummultirange(numrange(null,null))",
-    "expected": "SELECT numrange(1, 2) \u003c@ nummultirange(numrange(NULL, NULL))"
+    "query": "SELECT numrange(1,2) <@ nummultirange(numrange(null,null))",
+    "expected": "SELECT numrange(1, 2) <@ nummultirange(numrange(NULL, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 184",
-    "query": "SELECT numrange(null,2) \u003c@ nummultirange(numrange(null,null))",
-    "expected": "SELECT numrange(NULL, 2) \u003c@ nummultirange(numrange(NULL, NULL))"
+    "query": "SELECT numrange(null,2) <@ nummultirange(numrange(null,null))",
+    "expected": "SELECT numrange(NULL, 2) <@ nummultirange(numrange(NULL, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 185",
-    "query": "SELECT numrange(2,null) \u003c@ nummultirange(numrange(null,null))",
-    "expected": "SELECT numrange(2, NULL) \u003c@ nummultirange(numrange(NULL, NULL))"
+    "query": "SELECT numrange(2,null) <@ nummultirange(numrange(null,null))",
+    "expected": "SELECT numrange(2, NULL) <@ nummultirange(numrange(NULL, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 186",
-    "query": "SELECT numrange(null,3) \u003c@ nummultirange(numrange(null,5))",
-    "expected": "SELECT numrange(NULL, 3) \u003c@ nummultirange(numrange(NULL, 5))"
+    "query": "SELECT numrange(null,3) <@ nummultirange(numrange(null,5))",
+    "expected": "SELECT numrange(NULL, 3) <@ nummultirange(numrange(NULL, 5))"
   },
   {
     "comment": "multirangetypes - Statement 187",
-    "query": "SELECT numrange(null,8) \u003c@ nummultirange(numrange(null,5))",
-    "expected": "SELECT numrange(NULL, 8) \u003c@ nummultirange(numrange(NULL, 5))"
+    "query": "SELECT numrange(null,8) <@ nummultirange(numrange(null,5))",
+    "expected": "SELECT numrange(NULL, 8) <@ nummultirange(numrange(NULL, 5))"
   },
   {
     "comment": "multirangetypes - Statement 188",
-    "query": "SELECT numrange(8,null) \u003c@ nummultirange(numrange(5,null))",
-    "expected": "SELECT numrange(8, NULL) \u003c@ nummultirange(numrange(5, NULL))"
+    "query": "SELECT numrange(8,null) <@ nummultirange(numrange(5,null))",
+    "expected": "SELECT numrange(8, NULL) <@ nummultirange(numrange(5, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 189",
-    "query": "SELECT numrange(3,null) \u003c@ nummultirange(numrange(5,null))",
-    "expected": "SELECT numrange(3, NULL) \u003c@ nummultirange(numrange(5, NULL))"
+    "query": "SELECT numrange(3,null) <@ nummultirange(numrange(5,null))",
+    "expected": "SELECT numrange(3, NULL) <@ nummultirange(numrange(5, NULL))"
   },
   {
     "comment": "multirangetypes - Statement 190",
-    "query": "SELECT numrange(8,9) \u003c@ nummultirange(numrange(1,5))",
-    "expected": "SELECT numrange(8, 9) \u003c@ nummultirange(numrange(1, 5))"
+    "query": "SELECT numrange(8,9) <@ nummultirange(numrange(1,5))",
+    "expected": "SELECT numrange(8, 9) <@ nummultirange(numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 191",
-    "query": "SELECT numrange(3,9) \u003c@ nummultirange(numrange(1,5))",
-    "expected": "SELECT numrange(3, 9) \u003c@ nummultirange(numrange(1, 5))"
+    "query": "SELECT numrange(3,9) <@ nummultirange(numrange(1,5))",
+    "expected": "SELECT numrange(3, 9) <@ nummultirange(numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 192",
-    "query": "SELECT numrange(1,4) \u003c@ nummultirange(numrange(1,5))",
-    "expected": "SELECT numrange(1, 4) \u003c@ nummultirange(numrange(1, 5))"
+    "query": "SELECT numrange(1,4) <@ nummultirange(numrange(1,5))",
+    "expected": "SELECT numrange(1, 4) <@ nummultirange(numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 193",
-    "query": "SELECT numrange(1,5) \u003c@ nummultirange(numrange(1,5))",
-    "expected": "SELECT numrange(1, 5) \u003c@ nummultirange(numrange(1, 5))"
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(1,5))",
+    "expected": "SELECT numrange(1, 5) <@ nummultirange(numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 194",
-    "query": "SELECT numrange(1,5) \u003c@ nummultirange(numrange(-4,-2), numrange(1,5))",
-    "expected": "SELECT numrange(1, 5) \u003c@ nummultirange(numrange(-4, -2), numrange(1, 5))"
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(-4,-2), numrange(1,5))",
+    "expected": "SELECT numrange(1, 5) <@ nummultirange(numrange(-4, -2), numrange(1, 5))"
   },
   {
     "comment": "multirangetypes - Statement 195",
-    "query": "SELECT numrange(1,5) \u003c@ nummultirange(numrange(1,5), numrange(8,9))",
-    "expected": "SELECT numrange(1, 5) \u003c@ nummultirange(numrange(1, 5), numrange(8, 9))"
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(1,5), numrange(8,9))",
+    "expected": "SELECT numrange(1, 5) <@ nummultirange(numrange(1, 5), numrange(8, 9))"
   },
   {
     "comment": "multirangetypes - Statement 196",
-    "query": "SELECT numrange(6,7) \u003c@ nummultirange(numrange(1,5), numrange(8,9))",
-    "expected": "SELECT numrange(6, 7) \u003c@ nummultirange(numrange(1, 5), numrange(8, 9))"
+    "query": "SELECT numrange(6,7) <@ nummultirange(numrange(1,5), numrange(8,9))",
+    "expected": "SELECT numrange(6, 7) <@ nummultirange(numrange(1, 5), numrange(8, 9))"
   },
   {
     "comment": "multirangetypes - Statement 197",
-    "query": "SELECT numrange(6,7) \u003c@ nummultirange(numrange(1,5), numrange(6,9))",
-    "expected": "SELECT numrange(6, 7) \u003c@ nummultirange(numrange(1, 5), numrange(6, 9))"
+    "query": "SELECT numrange(6,7) <@ nummultirange(numrange(1,5), numrange(6,9))",
+    "expected": "SELECT numrange(6, 7) <@ nummultirange(numrange(1, 5), numrange(6, 9))"
   },
   {
     "comment": "multirangetypes - Statement 198",
-    "query": "SELECT '{[1,5)}' \u003c@ '{[1,5)}'::nummultirange",
-    "expected": "SELECT '{[1,5)}' \u003c@ CAST('{[1,5)}' AS nummultirange)"
+    "query": "SELECT '{[1,5)}' <@ '{[1,5)}'::nummultirange",
+    "expected": "SELECT '{[1,5)}' <@ CAST('{[1,5)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 199",
-    "query": "SELECT '{[1,5)}' \u003c@ '{[-4,-2), [1,5)}'::nummultirange",
-    "expected": "SELECT '{[1,5)}' \u003c@ CAST('{[-4,-2), [1,5)}' AS nummultirange)"
+    "query": "SELECT '{[1,5)}' <@ '{[-4,-2), [1,5)}'::nummultirange",
+    "expected": "SELECT '{[1,5)}' <@ CAST('{[-4,-2), [1,5)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 200",
-    "query": "SELECT '{[1,5)}' \u003c@ '{[1,5), [8,9)}'::nummultirange",
-    "expected": "SELECT '{[1,5)}' \u003c@ CAST('{[1,5), [8,9)}' AS nummultirange)"
+    "query": "SELECT '{[1,5)}' <@ '{[1,5), [8,9)}'::nummultirange",
+    "expected": "SELECT '{[1,5)}' <@ CAST('{[1,5), [8,9)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 201",
-    "query": "SELECT '{[6,7)}' \u003c@ '{[1,5), [8,9)}'::nummultirange",
-    "expected": "SELECT '{[6,7)}' \u003c@ CAST('{[1,5), [8,9)}' AS nummultirange)"
+    "query": "SELECT '{[6,7)}' <@ '{[1,5), [8,9)}'::nummultirange",
+    "expected": "SELECT '{[6,7)}' <@ CAST('{[1,5), [8,9)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 202",
-    "query": "SELECT '{[6,7)}' \u003c@ '{[1,5), [6,9)}'::nummultirange",
-    "expected": "SELECT '{[6,7)}' \u003c@ CAST('{[1,5), [6,9)}' AS nummultirange)"
+    "query": "SELECT '{[6,7)}' <@ '{[1,5), [6,9)}'::nummultirange",
+    "expected": "SELECT '{[6,7)}' <@ CAST('{[1,5), [6,9)}' AS nummultirange)"
   },
   {
     "comment": "multirangetypes - Statement 203",
-    "query": "SELECT nummultirange(numrange(1,2)) \u003c@ numrange(null,null)",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003c@ numrange(NULL, NULL)"
+    "query": "SELECT nummultirange(numrange(1,2)) <@ numrange(null,null)",
+    "expected": "SELECT nummultirange(numrange(1, 2)) <@ numrange(NULL, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 204",
-    "query": "SELECT nummultirange(numrange(null,2)) \u003c@ numrange(null,null)",
-    "expected": "SELECT nummultirange(numrange(NULL, 2)) \u003c@ numrange(NULL, NULL)"
+    "query": "SELECT nummultirange(numrange(null,2)) <@ numrange(null,null)",
+    "expected": "SELECT nummultirange(numrange(NULL, 2)) <@ numrange(NULL, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 205",
-    "query": "SELECT nummultirange(numrange(2,null)) \u003c@ numrange(null,null)",
-    "expected": "SELECT nummultirange(numrange(2, NULL)) \u003c@ numrange(NULL, NULL)"
+    "query": "SELECT nummultirange(numrange(2,null)) <@ numrange(null,null)",
+    "expected": "SELECT nummultirange(numrange(2, NULL)) <@ numrange(NULL, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 206",
-    "query": "SELECT nummultirange(numrange(null,3)) \u003c@ numrange(null,5)",
-    "expected": "SELECT nummultirange(numrange(NULL, 3)) \u003c@ numrange(NULL, 5)"
+    "query": "SELECT nummultirange(numrange(null,3)) <@ numrange(null,5)",
+    "expected": "SELECT nummultirange(numrange(NULL, 3)) <@ numrange(NULL, 5)"
   },
   {
     "comment": "multirangetypes - Statement 207",
-    "query": "SELECT nummultirange(numrange(null,8)) \u003c@ numrange(null,5)",
-    "expected": "SELECT nummultirange(numrange(NULL, 8)) \u003c@ numrange(NULL, 5)"
+    "query": "SELECT nummultirange(numrange(null,8)) <@ numrange(null,5)",
+    "expected": "SELECT nummultirange(numrange(NULL, 8)) <@ numrange(NULL, 5)"
   },
   {
     "comment": "multirangetypes - Statement 208",
-    "query": "SELECT nummultirange(numrange(8,null)) \u003c@ numrange(5,null)",
-    "expected": "SELECT nummultirange(numrange(8, NULL)) \u003c@ numrange(5, NULL)"
+    "query": "SELECT nummultirange(numrange(8,null)) <@ numrange(5,null)",
+    "expected": "SELECT nummultirange(numrange(8, NULL)) <@ numrange(5, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 209",
-    "query": "SELECT nummultirange(numrange(3,null)) \u003c@ numrange(5,null)",
-    "expected": "SELECT nummultirange(numrange(3, NULL)) \u003c@ numrange(5, NULL)"
+    "query": "SELECT nummultirange(numrange(3,null)) <@ numrange(5,null)",
+    "expected": "SELECT nummultirange(numrange(3, NULL)) <@ numrange(5, NULL)"
   },
   {
     "comment": "multirangetypes - Statement 210",
-    "query": "SELECT nummultirange(numrange(8,9)) \u003c@ numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(8, 9)) \u003c@ numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(8,9)) <@ numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(8, 9)) <@ numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 211",
-    "query": "SELECT nummultirange(numrange(3,9)) \u003c@ numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(3, 9)) \u003c@ numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(3,9)) <@ numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(3, 9)) <@ numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 212",
-    "query": "SELECT nummultirange(numrange(1,4)) \u003c@ numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(1, 4)) \u003c@ numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(1,4)) <@ numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(1, 4)) <@ numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 213",
-    "query": "SELECT nummultirange(numrange(1,5)) \u003c@ numrange(1,5)",
-    "expected": "SELECT nummultirange(numrange(1, 5)) \u003c@ numrange(1, 5)"
+    "query": "SELECT nummultirange(numrange(1,5)) <@ numrange(1,5)",
+    "expected": "SELECT nummultirange(numrange(1, 5)) <@ numrange(1, 5)"
   },
   {
     "comment": "multirangetypes - Statement 214",
-    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) \u003c@ numrange(1,9)",
-    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(1, 5)) \u003c@ numrange(1, 9)"
+    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) <@ numrange(1,9)",
+    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(1, 5)) <@ numrange(1, 9)"
   },
   {
     "comment": "multirangetypes - Statement 215",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) \u003c@ numrange(1,9)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) \u003c@ numrange(1, 9)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) <@ numrange(1,9)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(8, 9)) <@ numrange(1, 9)"
   },
   {
     "comment": "multirangetypes - Statement 216",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) \u003c@ numrange(1,9)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 9)) \u003c@ numrange(1, 9)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) <@ numrange(1,9)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 9)) <@ numrange(1, 9)"
   },
   {
     "comment": "multirangetypes - Statement 217",
-    "query": "SELECT nummultirange(numrange(1,5), numrange(6,10)) \u003c@ numrange(1,9)",
-    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 10)) \u003c@ numrange(1, 9)"
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,10)) <@ numrange(1,9)",
+    "expected": "SELECT nummultirange(numrange(1, 5), numrange(6, 10)) <@ numrange(1, 9)"
   },
   {
     "comment": "multirangetypes - Statement 218",
-    "query": "SELECT '{[1,5)}'::nummultirange \u003c@ '{[1,9)}'",
-    "expected": "SELECT CAST('{[1,5)}' AS nummultirange) \u003c@ '{[1,9)}'"
+    "query": "SELECT '{[1,5)}'::nummultirange <@ '{[1,9)}'",
+    "expected": "SELECT CAST('{[1,5)}' AS nummultirange) <@ '{[1,9)}'"
   },
   {
     "comment": "multirangetypes - Statement 219",
-    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange \u003c@ '{[1,9)}'",
-    "expected": "SELECT CAST('{[-4,-2), [1,5)}' AS nummultirange) \u003c@ '{[1,9)}'"
+    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange <@ '{[1,9)}'",
+    "expected": "SELECT CAST('{[-4,-2), [1,5)}' AS nummultirange) <@ '{[1,9)}'"
   },
   {
     "comment": "multirangetypes - Statement 220",
-    "query": "SELECT '{[1,5), [8,9)}'::nummultirange \u003c@ '{[1,9)}'",
-    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) \u003c@ '{[1,9)}'"
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange <@ '{[1,9)}'",
+    "expected": "SELECT CAST('{[1,5), [8,9)}' AS nummultirange) <@ '{[1,9)}'"
   },
   {
     "comment": "multirangetypes - Statement 221",
-    "query": "SELECT '{[1,5), [6,9)}'::nummultirange \u003c@ '{[1,9)}'",
-    "expected": "SELECT CAST('{[1,5), [6,9)}' AS nummultirange) \u003c@ '{[1,9)}'"
+    "query": "SELECT '{[1,5), [6,9)}'::nummultirange <@ '{[1,9)}'",
+    "expected": "SELECT CAST('{[1,5), [6,9)}' AS nummultirange) <@ '{[1,9)}'"
   },
   {
     "comment": "multirangetypes - Statement 222",
-    "query": "SELECT '{[1,5), [6,10)}'::nummultirange \u003c@ '{[1,9)}'",
-    "expected": "SELECT CAST('{[1,5), [6,10)}' AS nummultirange) \u003c@ '{[1,9)}'"
+    "query": "SELECT '{[1,5), [6,10)}'::nummultirange <@ '{[1,9)}'",
+    "expected": "SELECT CAST('{[1,5), [6,10)}' AS nummultirange) <@ '{[1,9)}'"
   },
   {
     "comment": "multirangetypes - Statement 223",
-    "query": "SELECT 'empty'::numrange \u0026\u003c nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u003c nummultirange()"
+    "query": "SELECT 'empty'::numrange &< nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) &< nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 224",
-    "query": "SELECT 'empty'::numrange \u0026\u003c nummultirange(numrange(1,2))",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u003c nummultirange(numrange(1, 2))"
+    "query": "SELECT 'empty'::numrange &< nummultirange(numrange(1,2))",
+    "expected": "SELECT CAST('empty' AS numrange) &< nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 225",
-    "query": "SELECT nummultirange() \u0026\u003c 'empty'::numrange",
-    "expected": "SELECT nummultirange() \u0026\u003c CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange() &< 'empty'::numrange",
+    "expected": "SELECT nummultirange() &< CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 226",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003c 'empty'::numrange",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003c CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange(numrange(1,2)) &< 'empty'::numrange",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &< CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 227",
-    "query": "SELECT nummultirange() \u0026\u003c nummultirange()"
+    "query": "SELECT nummultirange() &< nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 228",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003c nummultirange()",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003c nummultirange()"
+    "query": "SELECT nummultirange(numrange(1,2)) &< nummultirange()",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &< nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 229",
-    "query": "SELECT nummultirange() \u0026\u003c nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange() \u0026\u003c nummultirange(numrange(1, 2))"
+    "query": "SELECT nummultirange() &< nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange() &< nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 230",
-    "query": "SELECT numrange(6,7) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(6, 7) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT numrange(6,7) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(6, 7) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 231",
-    "query": "SELECT numrange(1,2) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(1, 2) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT numrange(1,2) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(1, 2) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 232",
-    "query": "SELECT numrange(1,4) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(1, 4) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT numrange(1,4) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(1, 4) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 233",
-    "query": "SELECT numrange(1,6) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(1, 6) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT numrange(1,6) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(1, 6) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 234",
-    "query": "SELECT numrange(3.5,6) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(3.5, 6) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT numrange(3.5,6) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(3.5, 6) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 235",
-    "query": "SELECT nummultirange(numrange(6,7)) \u0026\u003c numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(6, 7)) \u0026\u003c numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(6,7)) &< numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(6, 7)) &< numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 236",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003c numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003c numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(1,2)) &< numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &< numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 237",
-    "query": "SELECT nummultirange(numrange(1,4)) \u0026\u003c numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(1, 4)) \u0026\u003c numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(1,4)) &< numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(1, 4)) &< numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 238",
-    "query": "SELECT nummultirange(numrange(1,6)) \u0026\u003c numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(1, 6)) \u0026\u003c numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(1,6)) &< numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(1, 6)) &< numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 239",
-    "query": "SELECT nummultirange(numrange(3.5,6)) \u0026\u003c numrange(3,4)",
-    "expected": "SELECT nummultirange(numrange(3.5, 6)) \u0026\u003c numrange(3, 4)"
+    "query": "SELECT nummultirange(numrange(3.5,6)) &< numrange(3,4)",
+    "expected": "SELECT nummultirange(numrange(3.5, 6)) &< numrange(3, 4)"
   },
   {
     "comment": "multirangetypes - Statement 240",
-    "query": "SELECT nummultirange(numrange(6,7)) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(6, 7)) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(6,7)) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(6, 7)) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 241",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(1,2)) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 242",
-    "query": "SELECT nummultirange(numrange(1,4)) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 4)) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(1,4)) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 4)) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 243",
-    "query": "SELECT nummultirange(numrange(1,6)) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 6)) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(1,6)) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 6)) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 244",
-    "query": "SELECT nummultirange(numrange(3.5,6)) \u0026\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(3.5, 6)) \u0026\u003c nummultirange(numrange(3, 4))"
+    "query": "SELECT nummultirange(numrange(3.5,6)) &< nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(3.5, 6)) &< nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 245",
-    "query": "SELECT nummultirange() \u0026\u003e 'empty'::numrange",
-    "expected": "SELECT nummultirange() \u0026\u003e CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange() &> 'empty'::numrange",
+    "expected": "SELECT nummultirange() &> CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 246",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003e 'empty'::numrange",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003e CAST('empty' AS numrange)"
+    "query": "SELECT nummultirange(numrange(1,2)) &> 'empty'::numrange",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &> CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 247",
-    "query": "SELECT 'empty'::numrange \u0026\u003e nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u003e nummultirange()"
+    "query": "SELECT 'empty'::numrange &> nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) &> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 248",
-    "query": "SELECT 'empty'::numrange \u0026\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT CAST('empty' AS numrange) \u0026\u003e nummultirange(numrange(1, 2))"
+    "query": "SELECT 'empty'::numrange &> nummultirange(numrange(1,2))",
+    "expected": "SELECT CAST('empty' AS numrange) &> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 249",
-    "query": "SELECT nummultirange() \u0026\u003e nummultirange()"
+    "query": "SELECT nummultirange() &> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 250",
-    "query": "SELECT nummultirange() \u0026\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange() \u0026\u003e nummultirange(numrange(1, 2))"
+    "query": "SELECT nummultirange() &> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange() &> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 251",
-    "query": "SELECT nummultirange(numrange(1,2)) \u0026\u003e nummultirange()",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u0026\u003e nummultirange()"
+    "query": "SELECT nummultirange(numrange(1,2)) &> nummultirange()",
+    "expected": "SELECT nummultirange(numrange(1, 2)) &> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 252",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e numrange(6,7)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e numrange(6, 7)"
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(6,7)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> numrange(6, 7)"
   },
   {
     "comment": "multirangetypes - Statement 253",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e numrange(1, 2)"
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,2)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 254",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e numrange(1,4)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e numrange(1, 4)"
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,4)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> numrange(1, 4)"
   },
   {
     "comment": "multirangetypes - Statement 255",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e numrange(1,6)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e numrange(1, 6)"
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,6)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> numrange(1, 6)"
   },
   {
     "comment": "multirangetypes - Statement 256",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e numrange(3.5,6)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e numrange(3.5, 6)"
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(3.5,6)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> numrange(3.5, 6)"
   },
   {
     "comment": "multirangetypes - Statement 257",
-    "query": "SELECT numrange(3,4) \u0026\u003e nummultirange(numrange(6,7))",
-    "expected": "SELECT numrange(3, 4) \u0026\u003e nummultirange(numrange(6, 7))"
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(6,7))",
+    "expected": "SELECT numrange(3, 4) &> nummultirange(numrange(6, 7))"
   },
   {
     "comment": "multirangetypes - Statement 258",
-    "query": "SELECT numrange(3,4) \u0026\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT numrange(3, 4) \u0026\u003e nummultirange(numrange(1, 2))"
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,2))",
+    "expected": "SELECT numrange(3, 4) &> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 259",
-    "query": "SELECT numrange(3,4) \u0026\u003e nummultirange(numrange(1,4))",
-    "expected": "SELECT numrange(3, 4) \u0026\u003e nummultirange(numrange(1, 4))"
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,4))",
+    "expected": "SELECT numrange(3, 4) &> nummultirange(numrange(1, 4))"
   },
   {
     "comment": "multirangetypes - Statement 260",
-    "query": "SELECT numrange(3,4) \u0026\u003e nummultirange(numrange(1,6))",
-    "expected": "SELECT numrange(3, 4) \u0026\u003e nummultirange(numrange(1, 6))"
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,6))",
+    "expected": "SELECT numrange(3, 4) &> nummultirange(numrange(1, 6))"
   },
   {
     "comment": "multirangetypes - Statement 261",
-    "query": "SELECT numrange(3,4) \u0026\u003e nummultirange(numrange(3.5,6))",
-    "expected": "SELECT numrange(3, 4) \u0026\u003e nummultirange(numrange(3.5, 6))"
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(3.5,6))",
+    "expected": "SELECT numrange(3, 4) &> nummultirange(numrange(3.5, 6))"
   },
   {
     "comment": "multirangetypes - Statement 262",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e nummultirange(numrange(6,7))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e nummultirange(numrange(6, 7))"
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(6,7))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> nummultirange(numrange(6, 7))"
   },
   {
     "comment": "multirangetypes - Statement 263",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e nummultirange(numrange(1, 2))"
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 264",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e nummultirange(numrange(1,4))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e nummultirange(numrange(1, 4))"
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,4))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> nummultirange(numrange(1, 4))"
   },
   {
     "comment": "multirangetypes - Statement 265",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e nummultirange(numrange(1,6))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e nummultirange(numrange(1, 6))"
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,6))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> nummultirange(numrange(1, 6))"
   },
   {
     "comment": "multirangetypes - Statement 266",
-    "query": "SELECT nummultirange(numrange(3,4)) \u0026\u003e nummultirange(numrange(3.5,6))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u0026\u003e nummultirange(numrange(3.5, 6))"
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(3.5,6))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) &> nummultirange(numrange(3.5, 6))"
   },
   {
     "comment": "multirangetypes - Statement 267",
@@ -1371,183 +1371,183 @@
   },
   {
     "comment": "multirangetypes - Statement 284",
-    "query": "select 'empty'::numrange \u003c\u003c nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u003c\u003c nummultirange()"
+    "query": "select 'empty'::numrange << nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) << nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 285",
-    "query": "select numrange(1,2) \u003c\u003c nummultirange()",
-    "expected": "SELECT numrange(1, 2) \u003c\u003c nummultirange()"
+    "query": "select numrange(1,2) << nummultirange()",
+    "expected": "SELECT numrange(1, 2) << nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 286",
-    "query": "select numrange(1,2) \u003c\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(1, 2) \u003c\u003c nummultirange(numrange(3, 4))"
+    "query": "select numrange(1,2) << nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(1, 2) << nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 287",
-    "query": "select numrange(1,2) \u003c\u003c nummultirange(numrange(0,4))",
-    "expected": "SELECT numrange(1, 2) \u003c\u003c nummultirange(numrange(0, 4))"
+    "query": "select numrange(1,2) << nummultirange(numrange(0,4))",
+    "expected": "SELECT numrange(1, 2) << nummultirange(numrange(0, 4))"
   },
   {
     "comment": "multirangetypes - Statement 288",
-    "query": "select numrange(1,2) \u003c\u003c nummultirange(numrange(0,4), numrange(7,8))",
-    "expected": "SELECT numrange(1, 2) \u003c\u003c nummultirange(numrange(0, 4), numrange(7, 8))"
+    "query": "select numrange(1,2) << nummultirange(numrange(0,4), numrange(7,8))",
+    "expected": "SELECT numrange(1, 2) << nummultirange(numrange(0, 4), numrange(7, 8))"
   },
   {
     "comment": "multirangetypes - Statement 289",
-    "query": "select nummultirange() \u003c\u003c 'empty'::numrange",
-    "expected": "SELECT nummultirange() \u003c\u003c CAST('empty' AS numrange)"
+    "query": "select nummultirange() << 'empty'::numrange",
+    "expected": "SELECT nummultirange() << CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 290",
-    "query": "select nummultirange() \u003c\u003c numrange(1,2)",
-    "expected": "SELECT nummultirange() \u003c\u003c numrange(1, 2)"
+    "query": "select nummultirange() << numrange(1,2)",
+    "expected": "SELECT nummultirange() << numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 291",
-    "query": "select nummultirange(numrange(3,4)) \u003c\u003c numrange(3,6)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u003c\u003c numrange(3, 6)"
+    "query": "select nummultirange(numrange(3,4)) << numrange(3,6)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) << numrange(3, 6)"
   },
   {
     "comment": "multirangetypes - Statement 292",
-    "query": "select nummultirange(numrange(0,2)) \u003c\u003c numrange(3,6)",
-    "expected": "SELECT nummultirange(numrange(0, 2)) \u003c\u003c numrange(3, 6)"
+    "query": "select nummultirange(numrange(0,2)) << numrange(3,6)",
+    "expected": "SELECT nummultirange(numrange(0, 2)) << numrange(3, 6)"
   },
   {
     "comment": "multirangetypes - Statement 293",
-    "query": "select nummultirange(numrange(0,2), numrange(7,8)) \u003c\u003c numrange(3,6)",
-    "expected": "SELECT nummultirange(numrange(0, 2), numrange(7, 8)) \u003c\u003c numrange(3, 6)"
+    "query": "select nummultirange(numrange(0,2), numrange(7,8)) << numrange(3,6)",
+    "expected": "SELECT nummultirange(numrange(0, 2), numrange(7, 8)) << numrange(3, 6)"
   },
   {
     "comment": "multirangetypes - Statement 294",
-    "query": "select nummultirange(numrange(-4,-2), numrange(0,2)) \u003c\u003c numrange(3,6)",
-    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(0, 2)) \u003c\u003c numrange(3, 6)"
+    "query": "select nummultirange(numrange(-4,-2), numrange(0,2)) << numrange(3,6)",
+    "expected": "SELECT nummultirange(numrange(-4, -2), numrange(0, 2)) << numrange(3, 6)"
   },
   {
     "comment": "multirangetypes - Statement 295",
-    "query": "select nummultirange() \u003c\u003c nummultirange()",
-    "expected": "SELECT nummultirange() \u003c\u003c nummultirange()"
+    "query": "select nummultirange() << nummultirange()",
+    "expected": "SELECT nummultirange() << nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 296",
-    "query": "select nummultirange() \u003c\u003c nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange() \u003c\u003c nummultirange(numrange(1, 2))"
+    "query": "select nummultirange() << nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange() << nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 297",
-    "query": "select nummultirange(numrange(1,2)) \u003c\u003c nummultirange()",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003c\u003c nummultirange()"
+    "query": "select nummultirange(numrange(1,2)) << nummultirange()",
+    "expected": "SELECT nummultirange(numrange(1, 2)) << nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 298",
-    "query": "select nummultirange(numrange(1,2)) \u003c\u003c nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003c\u003c nummultirange(numrange(1, 2))"
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange(numrange(1, 2)) << nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 299",
-    "query": "select nummultirange(numrange(1,2)) \u003c\u003c nummultirange(numrange(3,4))",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003c\u003c nummultirange(numrange(3, 4))"
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(3,4))",
+    "expected": "SELECT nummultirange(numrange(1, 2)) << nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 300",
-    "query": "select nummultirange(numrange(1,2)) \u003c\u003c nummultirange(numrange(3,4), numrange(7,8))",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003c\u003c nummultirange(numrange(3, 4), numrange(7, 8))"
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(3,4), numrange(7,8))",
+    "expected": "SELECT nummultirange(numrange(1, 2)) << nummultirange(numrange(3, 4), numrange(7, 8))"
   },
   {
     "comment": "multirangetypes - Statement 301",
-    "query": "select nummultirange(numrange(1,2), numrange(4,5)) \u003c\u003c nummultirange(numrange(3,4), numrange(7,8))",
-    "expected": "SELECT nummultirange(numrange(1, 2), numrange(4, 5)) \u003c\u003c nummultirange(numrange(3, 4), numrange(7, 8))"
+    "query": "select nummultirange(numrange(1,2), numrange(4,5)) << nummultirange(numrange(3,4), numrange(7,8))",
+    "expected": "SELECT nummultirange(numrange(1, 2), numrange(4, 5)) << nummultirange(numrange(3, 4), numrange(7, 8))"
   },
   {
     "comment": "multirangetypes - Statement 302",
-    "query": "select nummultirange() \u003e\u003e 'empty'::numrange",
-    "expected": "SELECT nummultirange() \u003e\u003e CAST('empty' AS numrange)"
+    "query": "select nummultirange() >> 'empty'::numrange",
+    "expected": "SELECT nummultirange() >> CAST('empty' AS numrange)"
   },
   {
     "comment": "multirangetypes - Statement 303",
-    "query": "select nummultirange() \u003e\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange() \u003e\u003e numrange(1, 2)"
+    "query": "select nummultirange() >> numrange(1,2)",
+    "expected": "SELECT nummultirange() >> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 304",
-    "query": "select nummultirange(numrange(3,4)) \u003e\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u003e\u003e numrange(1, 2)"
+    "query": "select nummultirange(numrange(3,4)) >> numrange(1,2)",
+    "expected": "SELECT nummultirange(numrange(3, 4)) >> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 305",
-    "query": "select nummultirange(numrange(0,4)) \u003e\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange(numrange(0, 4)) \u003e\u003e numrange(1, 2)"
+    "query": "select nummultirange(numrange(0,4)) >> numrange(1,2)",
+    "expected": "SELECT nummultirange(numrange(0, 4)) >> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 306",
-    "query": "select nummultirange(numrange(0,4), numrange(7,8)) \u003e\u003e numrange(1,2)",
-    "expected": "SELECT nummultirange(numrange(0, 4), numrange(7, 8)) \u003e\u003e numrange(1, 2)"
+    "query": "select nummultirange(numrange(0,4), numrange(7,8)) >> numrange(1,2)",
+    "expected": "SELECT nummultirange(numrange(0, 4), numrange(7, 8)) >> numrange(1, 2)"
   },
   {
     "comment": "multirangetypes - Statement 307",
-    "query": "select 'empty'::numrange \u003e\u003e nummultirange()",
-    "expected": "SELECT CAST('empty' AS numrange) \u003e\u003e nummultirange()"
+    "query": "select 'empty'::numrange >> nummultirange()",
+    "expected": "SELECT CAST('empty' AS numrange) >> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 308",
-    "query": "select numrange(1,2) \u003e\u003e nummultirange()",
-    "expected": "SELECT numrange(1, 2) \u003e\u003e nummultirange()"
+    "query": "select numrange(1,2) >> nummultirange()",
+    "expected": "SELECT numrange(1, 2) >> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 309",
-    "query": "select numrange(3,6) \u003e\u003e nummultirange(numrange(3,4))",
-    "expected": "SELECT numrange(3, 6) \u003e\u003e nummultirange(numrange(3, 4))"
+    "query": "select numrange(3,6) >> nummultirange(numrange(3,4))",
+    "expected": "SELECT numrange(3, 6) >> nummultirange(numrange(3, 4))"
   },
   {
     "comment": "multirangetypes - Statement 310",
-    "query": "select numrange(3,6) \u003e\u003e nummultirange(numrange(0,2))",
-    "expected": "SELECT numrange(3, 6) \u003e\u003e nummultirange(numrange(0, 2))"
+    "query": "select numrange(3,6) >> nummultirange(numrange(0,2))",
+    "expected": "SELECT numrange(3, 6) >> nummultirange(numrange(0, 2))"
   },
   {
     "comment": "multirangetypes - Statement 311",
-    "query": "select numrange(3,6) \u003e\u003e nummultirange(numrange(0,2), numrange(7,8))",
-    "expected": "SELECT numrange(3, 6) \u003e\u003e nummultirange(numrange(0, 2), numrange(7, 8))"
+    "query": "select numrange(3,6) >> nummultirange(numrange(0,2), numrange(7,8))",
+    "expected": "SELECT numrange(3, 6) >> nummultirange(numrange(0, 2), numrange(7, 8))"
   },
   {
     "comment": "multirangetypes - Statement 312",
-    "query": "select numrange(3,6) \u003e\u003e nummultirange(numrange(-4,-2), numrange(0,2))",
-    "expected": "SELECT numrange(3, 6) \u003e\u003e nummultirange(numrange(-4, -2), numrange(0, 2))"
+    "query": "select numrange(3,6) >> nummultirange(numrange(-4,-2), numrange(0,2))",
+    "expected": "SELECT numrange(3, 6) >> nummultirange(numrange(-4, -2), numrange(0, 2))"
   },
   {
     "comment": "multirangetypes - Statement 313",
-    "query": "select nummultirange() \u003e\u003e nummultirange()",
-    "expected": "SELECT nummultirange() \u003e\u003e nummultirange()"
+    "query": "select nummultirange() >> nummultirange()",
+    "expected": "SELECT nummultirange() >> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 314",
-    "query": "select nummultirange(numrange(1,2)) \u003e\u003e nummultirange()",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003e\u003e nummultirange()"
+    "query": "select nummultirange(numrange(1,2)) >> nummultirange()",
+    "expected": "SELECT nummultirange(numrange(1, 2)) >> nummultirange()"
   },
   {
     "comment": "multirangetypes - Statement 315",
-    "query": "select nummultirange() \u003e\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange() \u003e\u003e nummultirange(numrange(1, 2))"
+    "query": "select nummultirange() >> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange() >> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 316",
-    "query": "select nummultirange(numrange(1,2)) \u003e\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange(numrange(1, 2)) \u003e\u003e nummultirange(numrange(1, 2))"
+    "query": "select nummultirange(numrange(1,2)) >> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange(numrange(1, 2)) >> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 317",
-    "query": "select nummultirange(numrange(3,4)) \u003e\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange(numrange(3, 4)) \u003e\u003e nummultirange(numrange(1, 2))"
+    "query": "select nummultirange(numrange(3,4)) >> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange(numrange(3, 4)) >> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 318",
-    "query": "select nummultirange(numrange(3,4), numrange(7,8)) \u003e\u003e nummultirange(numrange(1,2))",
-    "expected": "SELECT nummultirange(numrange(3, 4), numrange(7, 8)) \u003e\u003e nummultirange(numrange(1, 2))"
+    "query": "select nummultirange(numrange(3,4), numrange(7,8)) >> nummultirange(numrange(1,2))",
+    "expected": "SELECT nummultirange(numrange(3, 4), numrange(7, 8)) >> nummultirange(numrange(1, 2))"
   },
   {
     "comment": "multirangetypes - Statement 319",
-    "query": "select nummultirange(numrange(3,4), numrange(7,8)) \u003e\u003e nummultirange(numrange(1,2), numrange(4,5))",
-    "expected": "SELECT nummultirange(numrange(3, 4), numrange(7, 8)) \u003e\u003e nummultirange(numrange(1, 2), numrange(4, 5))"
+    "query": "select nummultirange(numrange(3,4), numrange(7,8)) >> nummultirange(numrange(1,2), numrange(4,5))",
+    "expected": "SELECT nummultirange(numrange(3, 4), numrange(7, 8)) >> nummultirange(numrange(1, 2), numrange(4, 5))"
   },
   {
     "comment": "multirangetypes - Statement 320",
@@ -1832,38 +1832,38 @@
   },
   {
     "comment": "multirangetypes - Statement 377",
-    "query": "select count(*) from test_multirange_gist where mr @\u003e 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @\u003e CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr @> 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @> CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 378",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u0026 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u0026 CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr && 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr && CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 379",
-    "query": "select count(*) from test_multirange_gist where mr \u003c@ 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c@ CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr <@ 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr <@ CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 380",
-    "query": "select count(*) from test_multirange_gist where mr \u003c\u003c 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c\u003c CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr << 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr << CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 381",
-    "query": "select count(*) from test_multirange_gist where mr \u003e\u003e 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003e\u003e CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr >> 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr >> CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 382",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003c 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003c CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr &< 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &< CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 383",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003e 'empty'::int4range",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003e CAST('empty' AS int4range)"
+    "query": "select count(*) from test_multirange_gist where mr &> 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &> CAST('empty' AS int4range)"
   },
   {
     "comment": "multirangetypes - Statement 384",
@@ -1872,38 +1872,38 @@
   },
   {
     "comment": "multirangetypes - Statement 385",
-    "query": "select count(*) from test_multirange_gist where mr @\u003e '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @\u003e CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr @> '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @> CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 386",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u0026 '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u0026 CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr && '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr && CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 387",
-    "query": "select count(*) from test_multirange_gist where mr \u003c@ '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c@ CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr <@ '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr <@ CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 388",
-    "query": "select count(*) from test_multirange_gist where mr \u003c\u003c '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c\u003c CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr << '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr << CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 389",
-    "query": "select count(*) from test_multirange_gist where mr \u003e\u003e '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003e\u003e CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr >> '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr >> CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 390",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003c '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003c CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr &< '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &< CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 391",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003e '{}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003e CAST('{}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr &> '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &> CAST('{}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 392",
@@ -1917,43 +1917,43 @@
   },
   {
     "comment": "multirangetypes - Statement 394",
-    "query": "select count(*) from test_multirange_gist where mr @\u003e 10",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @\u003e 10"
+    "query": "select count(*) from test_multirange_gist where mr @> 10",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @> 10"
   },
   {
     "comment": "multirangetypes - Statement 395",
-    "query": "select count(*) from test_multirange_gist where mr @\u003e int4range(10,20)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @\u003e int4range(10, 20)"
+    "query": "select count(*) from test_multirange_gist where mr @> int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @> int4range(10, 20)"
   },
   {
     "comment": "multirangetypes - Statement 396",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u0026 int4range(10,20)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u0026 int4range(10, 20)"
+    "query": "select count(*) from test_multirange_gist where mr && int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr && int4range(10, 20)"
   },
   {
     "comment": "multirangetypes - Statement 397",
-    "query": "select count(*) from test_multirange_gist where mr \u003c@ int4range(10,50)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c@ int4range(10, 50)"
+    "query": "select count(*) from test_multirange_gist where mr <@ int4range(10,50)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr <@ int4range(10, 50)"
   },
   {
     "comment": "multirangetypes - Statement 398",
-    "query": "select count(*) from test_multirange_gist where mr \u003c\u003c int4range(100,500)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c\u003c int4range(100, 500)"
+    "query": "select count(*) from test_multirange_gist where mr << int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr << int4range(100, 500)"
   },
   {
     "comment": "multirangetypes - Statement 399",
-    "query": "select count(*) from test_multirange_gist where mr \u003e\u003e int4range(100,500)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003e\u003e int4range(100, 500)"
+    "query": "select count(*) from test_multirange_gist where mr >> int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr >> int4range(100, 500)"
   },
   {
     "comment": "multirangetypes - Statement 400",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003c int4range(100,500)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003c int4range(100, 500)"
+    "query": "select count(*) from test_multirange_gist where mr &< int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &< int4range(100, 500)"
   },
   {
     "comment": "multirangetypes - Statement 401",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003e int4range(100,500)",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003e int4range(100, 500)"
+    "query": "select count(*) from test_multirange_gist where mr &> int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &> int4range(100, 500)"
   },
   {
     "comment": "multirangetypes - Statement 402",
@@ -1962,38 +1962,38 @@
   },
   {
     "comment": "multirangetypes - Statement 403",
-    "query": "select count(*) from test_multirange_gist where mr @\u003e int4multirange(int4range(10,20), int4range(30,40))",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @\u003e int4multirange(int4range(10, 20), int4range(30, 40))"
+    "query": "select count(*) from test_multirange_gist where mr @> int4multirange(int4range(10,20), int4range(30,40))",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr @> int4multirange(int4range(10, 20), int4range(30, 40))"
   },
   {
     "comment": "multirangetypes - Statement 404",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u0026 '{(10,20),(30,40),(50,60)}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u0026 CAST('{(10,20),(30,40),(50,60)}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr && '{(10,20),(30,40),(50,60)}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr && CAST('{(10,20),(30,40),(50,60)}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 405",
-    "query": "select count(*) from test_multirange_gist where mr \u003c@ '{(10,30),(40,60),(70,90)}'::int4multirange",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c@ CAST('{(10,30),(40,60),(70,90)}' AS int4multirange)"
+    "query": "select count(*) from test_multirange_gist where mr <@ '{(10,30),(40,60),(70,90)}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr <@ CAST('{(10,30),(40,60),(70,90)}' AS int4multirange)"
   },
   {
     "comment": "multirangetypes - Statement 406",
-    "query": "select count(*) from test_multirange_gist where mr \u003c\u003c int4multirange(int4range(100,200), int4range(400,500))",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003c\u003c int4multirange(int4range(100, 200), int4range(400, 500))"
+    "query": "select count(*) from test_multirange_gist where mr << int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr << int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "multirangetypes - Statement 407",
-    "query": "select count(*) from test_multirange_gist where mr \u003e\u003e int4multirange(int4range(100,200), int4range(400,500))",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u003e\u003e int4multirange(int4range(100, 200), int4range(400, 500))"
+    "query": "select count(*) from test_multirange_gist where mr >> int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr >> int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "multirangetypes - Statement 408",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003c int4multirange(int4range(100,200), int4range(400,500))",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003c int4multirange(int4range(100, 200), int4range(400, 500))"
+    "query": "select count(*) from test_multirange_gist where mr &< int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &< int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "multirangetypes - Statement 409",
-    "query": "select count(*) from test_multirange_gist where mr \u0026\u003e int4multirange(int4range(100,200), int4range(400,500))",
-    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr \u0026\u003e int4multirange(int4range(100, 200), int4range(400, 500))"
+    "query": "select count(*) from test_multirange_gist where mr &> int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_multirange_gist WHERE mr &> int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "multirangetypes - Statement 410",
@@ -2132,8 +2132,8 @@
   },
   {
     "comment": "multirangetypes - Statement 437",
-    "query": "select range_intersect_agg(nmr) from nummultirange_test where nmr @\u003e 4.0",
-    "expected": "SELECT range_intersect_agg(nmr) FROM nummultirange_test WHERE nmr @\u003e 4.0"
+    "query": "select range_intersect_agg(nmr) from nummultirange_test where nmr @> 4.0",
+    "expected": "SELECT range_intersect_agg(nmr) FROM nummultirange_test WHERE nmr @> 4.0"
   },
   {
     "comment": "multirangetypes - Statement 438",
@@ -2236,8 +2236,8 @@
   },
   {
     "comment": "multirangetypes - Statement 458",
-    "query": "select '{[123.001, 5.e9)}'::float8multirange @\u003e 888.882::float8",
-    "expected": "SELECT CAST('{[123.001, 5.e9)}' AS float8multirange) @\u003e CAST(888.882 AS FLOAT8)"
+    "query": "select '{[123.001, 5.e9)}'::float8multirange @> 888.882::float8",
+    "expected": "SELECT CAST('{[123.001, 5.e9)}' AS float8multirange) @> CAST(888.882 AS FLOAT8)"
   },
   {
     "comment": "multirangetypes - Statement 459",
@@ -2271,8 +2271,8 @@
   },
   {
     "comment": "multirangetypes - Statement 465",
-    "query": "select '{[4,50)}'::mydomainmultirange @\u003e 7::mydomain",
-    "expected": "SELECT CAST('{[4,50)}' AS mydomainmultirange) @\u003e CAST(7 AS mydomain)"
+    "query": "select '{[4,50)}'::mydomainmultirange @> 7::mydomain",
+    "expected": "SELECT CAST('{[4,50)}' AS mydomainmultirange) @> CAST(7 AS mydomain)"
   },
   {
     "comment": "multirangetypes - Statement 466",
@@ -2281,18 +2281,18 @@
   },
   {
     "comment": "multirangetypes - Statement 467",
-    "query": "create domain restrictedmultirange as int4multirange check (upper(value) \u003c 10)",
-    "expected": "CREATE DOMAIN restrictedmultirange AS int4multirange CHECK (upper(value) \u003c 10)"
+    "query": "create domain restrictedmultirange as int4multirange check (upper(value) < 10)",
+    "expected": "CREATE DOMAIN restrictedmultirange AS int4multirange CHECK (upper(value) < 10)"
   },
   {
     "comment": "multirangetypes - Statement 468",
-    "query": "select '{[4,5)}'::restrictedmultirange @\u003e 7",
-    "expected": "SELECT CAST('{[4,5)}' AS restrictedmultirange) @\u003e 7"
+    "query": "select '{[4,5)}'::restrictedmultirange @> 7",
+    "expected": "SELECT CAST('{[4,5)}' AS restrictedmultirange) @> 7"
   },
   {
     "comment": "multirangetypes - Statement 469",
-    "query": "select '{[4,50)}'::restrictedmultirange @\u003e 7",
-    "expected": "SELECT CAST('{[4,50)}' AS restrictedmultirange) @\u003e 7"
+    "query": "select '{[4,50)}'::restrictedmultirange @> 7",
+    "expected": "SELECT CAST('{[4,50)}' AS restrictedmultirange) @> 7"
   },
   {
     "comment": "multirangetypes - Statement 470",
@@ -2361,8 +2361,8 @@
   },
   {
     "comment": "multirangetypes - Statement 483",
-    "query": "select multirange_of_text(textrange1('a','Z')) @\u003e 'b'::text",
-    "expected": "SELECT multirange_of_text(textrange1('a', 'Z')) @\u003e CAST('b' AS TEXT)"
+    "query": "select multirange_of_text(textrange1('a','Z')) @> 'b'::text",
+    "expected": "SELECT multirange_of_text(textrange1('a', 'Z')) @> CAST('b' AS TEXT)"
   },
   {
     "comment": "multirangetypes - Statement 484",
@@ -2371,8 +2371,8 @@
   },
   {
     "comment": "multirangetypes - Statement 485",
-    "query": "select _textrange1(textrange2('a','z')) @\u003e 'b'::text",
-    "expected": "SELECT _textrange1(textrange2('a', 'z')) @\u003e CAST('b' AS TEXT)"
+    "query": "select _textrange1(textrange2('a','z')) @> 'b'::text",
+    "expected": "SELECT _textrange1(textrange2('a', 'z')) @> CAST('b' AS TEXT)"
   },
   {
     "comment": "multirangetypes - Statement 486",
@@ -2591,13 +2591,13 @@
   },
   {
     "comment": "multirangetypes - Statement 529",
-    "query": "select array[1,1] \u003c@ arraymultirange(arrayrange(array[1,2], array[2,1]))",
-    "expected": "SELECT ARRAY[1,1] \u003c@ arraymultirange(arrayrange(ARRAY[1,2], ARRAY[2,1]))"
+    "query": "select array[1,1] <@ arraymultirange(arrayrange(array[1,2], array[2,1]))",
+    "expected": "SELECT ARRAY[1,1] <@ arraymultirange(arrayrange(ARRAY[1,2], ARRAY[2,1]))"
   },
   {
     "comment": "multirangetypes - Statement 530",
-    "query": "select array[1,3] \u003c@ arraymultirange(arrayrange(array[1,2], array[2,1]))",
-    "expected": "SELECT ARRAY[1,3] \u003c@ arraymultirange(arrayrange(ARRAY[1,2], ARRAY[2,1]))"
+    "query": "select array[1,3] <@ arraymultirange(arrayrange(array[1,2], array[2,1]))",
+    "expected": "SELECT ARRAY[1,3] <@ arraymultirange(arrayrange(ARRAY[1,2], ARRAY[2,1]))"
   },
   {
     "comment": "multirangetypes - Statement 531",

@@ -1,3 +1,8 @@
+# Known divergences, both by design:
+#  1. DROP DATABASE is blocked through the connection pooler.
+#  2. Single-database model: references to other databases report
+#     "database \"...\" does not exist" instead of PostgreSQL's messages.
+# See docs/query_serving/unsafe_statement_rejection.md.
 --- a
 +++ b
 @@ -333,10 +333,10 @@

@@ -16,10 +16,14 @@ package server
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -30,6 +34,55 @@ import (
 type StartupMessage struct {
 	ProtocolVersion uint32
 	Parameters      map[string]string
+}
+
+// ReplicationMode captures the value of the `replication` startup parameter
+// per PostgreSQL's replication protocol. The default (parameter omitted or
+// "false") is ReplicationOff: a normal SQL connection.
+//
+// See: https://www.postgresql.org/docs/17/protocol-replication.html
+type ReplicationMode int
+
+const (
+	// ReplicationOff means the client did not request a replication
+	// connection, or sent replication=false. The session uses the standard
+	// extended-query / simple-query protocol.
+	ReplicationOff ReplicationMode = iota
+
+	// ReplicationPhysical (replication=true / on / 1 / yes) opens a physical
+	// walsender stream. The role must have rolreplication=true (or
+	// rolsuper=true) in pg_authid.
+	ReplicationPhysical
+
+	// ReplicationLogical (replication=database) opens a logical-replication
+	// walsender connected to a specific database. Same role requirement as
+	// physical replication.
+	ReplicationLogical
+)
+
+// parseReplicationMode interprets the `replication` startup parameter using
+// PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
+// single-character abbreviations t/f/y/n, plus the literal "database" for
+// logical-replication connections.
+//
+// Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
+// the gateway can reject them at the same protocol stage PostgreSQL would.
+func parseReplicationMode(value string) (ReplicationMode, error) {
+	switch strings.ToLower(value) {
+	case "", "false", "off", "no", "0", "f", "n":
+		return ReplicationOff, nil
+	case "true", "on", "yes", "1", "t", "y":
+		return ReplicationPhysical, nil
+	case "database":
+		return ReplicationLogical, nil
+	default:
+		return ReplicationOff, mterrors.NewPgError(
+			"FATAL", mterrors.PgSSInvalidParameterValue,
+			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+			"Valid values are: \"false\", \"true\", \"database\".",
+		)
+	}
 }
 
 // handleStartup handles the initial connection startup phase.
@@ -74,6 +127,25 @@ func (c *Conn) readAndDispatchStartup() error {
 		return c.handleCancelRequest(&reader)
 
 	case protocol.ProtocolVersionNumber:
+		if c.requireTLS && !c.tlsHandshakeComplete {
+			c.logger.Warn("rejecting plaintext connection: TLS required",
+				"remote_addr", c.RemoteAddr())
+			// Distinguish the two ways a client can hit this gate so the
+			// fleet-validation alert (MUL-420) can tell "client never
+			// asked for TLS" from "server declined the SSLRequest" — the
+			// latter would indicate misconfiguration that --pg-require-ssl
+			// alone won't catch.
+			reason := PlaintextRejectedReasonNoSSLRequest
+			if c.sslDone {
+				reason = PlaintextRejectedReasonTLSDisabledByServer
+			}
+			c.metrics().RecordPlaintextRejected(c.ctx, reason)
+			// Returning a *PgDiagnostic lets serve() emit the FATAL
+			// ErrorResponse via its standard startup-error path (which
+			// also clears the auth deadline and closes the connection).
+			return mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec,
+				"no encryption: TLS is required for this connection", "")
+		}
 		return c.handleStartupMessage(protocolCode, &reader)
 
 	default:
@@ -92,6 +164,7 @@ func (c *Conn) handleSSLRequest() error {
 	if c.tlsConfig == nil {
 		// No TLS configured, decline SSL.
 		c.logger.Debug("client requested SSL, declining (no TLS config)")
+		c.metrics().RecordSSLRequestDeclined(c.ctx)
 		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
@@ -118,11 +191,31 @@ func (c *Conn) handleSSLRequest() error {
 		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
-	// Perform TLS handshake.
-	tlsConn := tls.Server(c.conn, c.tlsConfig)
+	// Wrap the TLS config so dynamic-cert deployments (GetCertificate /
+	// GetConfigForClient, typical for SNI multi-tenant edges) capture the
+	// actually-selected leaf cert into c.tlsServerCert during the handshake.
+	// Static Certificates[0] deployments are handled by the post-handshake
+	// fallback below and skip the wrapper.
+	handshakeCfg := wrapTLSConfigForCertCapture(c.tlsConfig, c.captureTLSServerCert)
+
+	// Perform TLS handshake. Time it for mg.gateway.tls.handshake.duration
+	// and classify the outcome so the fleet-validation alert can tell a
+	// crypto failure from a client tear-down. net.ErrClosed / io.EOF map
+	// to client_aborted; everything else is treated as a handshake_failure.
+	tlsConn := tls.Server(c.conn, handshakeCfg)
+	handshakeStart := time.Now()
 	if err := tlsConn.Handshake(); err != nil {
+		outcome := TLSOutcomeHandshakeFailure
+		if isClientAbortError(err) {
+			outcome = TLSOutcomeClientAborted
+		}
+		c.metrics().RecordTLSHandshake(c.ctx, outcome, time.Since(handshakeStart))
 		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
+	handshakeDuration := time.Since(handshakeStart)
+	c.metrics().RecordTLSHandshake(c.ctx, TLSOutcomeSuccess, handshakeDuration)
+	connState := tlsConn.ConnectionState()
+	c.metrics().RecordTLSConnection(c.ctx, connState.Version, connState.CipherSuite)
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
@@ -131,6 +224,25 @@ func (c *Conn) handleSSLRequest() error {
 	// through TLS.
 	c.conn = tlsConn
 	c.bufferedReader.Reset(tlsConn)
+	c.tlsHandshakeComplete = true
+
+	// Static-cert fallback: when the deployment only populates Certificates,
+	// the dynamic wrapper above is a no-op and the cert was not captured.
+	// Recover it from Certificates[0] here. A parse failure is non-fatal —
+	// auth simply falls back to SCRAM-SHA-256 without channel binding.
+	if c.tlsServerCert == nil && len(c.tlsConfig.Certificates) > 0 {
+		cert := &c.tlsConfig.Certificates[0]
+		switch {
+		case cert.Leaf != nil:
+			c.tlsServerCert = cert.Leaf
+		case len(cert.Certificate) > 0:
+			if parsed, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
+				c.tlsServerCert = parsed
+			} else {
+				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "err", err)
+			}
+		}
+	}
 
 	c.logger.Info("TLS connection established",
 		"version", tlsConn.ConnectionState().Version,
@@ -308,6 +420,12 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		if err != nil {
 			return fmt.Errorf("failed to parse options: %w", err)
 		}
+		// `replication` is a startup-phase-only protocol parameter; PG does
+		// not accept it as a `-c replication=...` GUC inside PGOPTIONS.
+		// Drop it here so the gateway doesn't honor a source PG would
+		// reject. The auth gate is unaffected either way (rolreplication
+		// is enforced when the direct startup field is set).
+		delete(parsed, "replication")
 		maps.Copy(c.params, parsed)
 		delete(c.params, "options")
 	}
@@ -321,30 +439,147 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		c.database = c.user
 	}
 
-	c.logger.Info("startup message parsed", "user", c.user, "database", c.database)
+	// Parse the optional `replication` startup parameter. Replication
+	// connections (physical or logical) follow the same auth path but the
+	// role must additionally satisfy pg_authid.rolreplication=true.
+	// On parse failure, return the PgDiagnostic; serve()'s startup-error
+	// path writes it to the client and closes the connection — matching
+	// PG's behavior of rejecting unrecognized `replication` values before
+	// authentication runs.
+	//
+	// Strip the key from c.params after parsing: `replication` is a
+	// protocol-only startup parameter, not a GUC. Leaving it in the map
+	// would let it flow through GetStartupParams → session settings →
+	// `SET SESSION "replication" = ...` on the backend, which PG rejects
+	// as unrecognized. The same reason `options` is deleted just above.
+	replicationMode, err := parseReplicationMode(c.params["replication"])
+	if err != nil {
+		return err
+	}
+	delete(c.params, "replication")
+	c.replicationMode = replicationMode
+
+	c.logger.Info("startup message parsed",
+		"user", c.user,
+		"database", c.database,
+		"replication", c.replicationMode != ReplicationOff)
 
 	// Now perform authentication.
 	return c.authenticate()
 }
 
+// errAuthRejected signals that the auth flow rejected the client and a FATAL
+// message has already been written. The error propagates up to serve(),
+// which recognizes it and closes the connection cleanly without entering
+// the command loop or writing a second error frame. Without this propagation
+// the connection would proceed to the command loop after a rejection — a
+// well-behaved client closes after FATAL and the next read returns EOF, but
+// a malicious or buggy client could attempt to send messages on a session
+// where AuthenticationOk was never emitted and RegisterConn was never called.
+//
+// All sendAuthError-style helpers return this on a successful FATAL write so
+// the post-auth completion sequence is skipped uniformly.
+var errAuthRejected = errors.New("auth rejected; FATAL already sent")
+
 // authenticate performs authentication with the client.
 // If a TrustAuthProvider is configured and allows the user, trust auth is used.
 // Otherwise, SCRAM-SHA-256 authentication is performed.
-func (c *Conn) authenticate() error {
-	// Check if trust auth is allowed for this connection
+//
+// On success, this also enforces post-auth role attribute checks (today
+// rolreplication for replication startup connections) and emits the
+// AuthenticationOk → BackendKeyData → ParameterStatus → ReadyForQuery
+// completion sequence. The role-attribute check runs *before*
+// AuthenticationOk; native PostgreSQL sequences the same check as
+// SASLFinal → AuthenticationOk → (InitPostgres rolreplication check) → FATAL,
+// so multigres collapses two server-to-client frames into one for rejected
+// replication clients. libpq, pgx, and JDBC all accept ErrorResponse at this
+// stage either way — the wire-visible difference is one fewer frame and no
+// successful-handshake-then-rejection optic for the client.
+func (c *Conn) authenticate() (err error) {
+	// Track the outcome label for mg.gateway.auth.attempts. Each rejection
+	// site below assigns a specific value before returning so we don't lose
+	// the cause when sendAuthError-style helpers fold it into errAuthRejected.
+	outcome := AuthOutcomeSuccess
+	defer func() {
+		c.metrics().RecordAuthAttempt(c.ctx, outcome)
+	}()
+
+	// Check if trust auth is allowed for this connection. errAuthRejected
+	// is propagated unchanged so serve() can short-circuit out of the
+	// startup phase without entering the command loop.
 	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
-		return c.authenticateTrust()
+		if err = c.authenticateTrust(); err != nil {
+			outcome = classifyAuthError(err)
+			return err
+		}
+	} else {
+		// authenticateSCRAM returns a specific outcome label alongside
+		// the error so this caller doesn't have to reverse-engineer it
+		// from errAuthRejected (which folds the cause).
+		var scramOutcome string
+		scramOutcome, err = c.authenticateSCRAM()
+		outcome = scramOutcome
+		if err != nil {
+			return err
+		}
 	}
 
-	return c.authenticateSCRAM()
+	// Replication startup parameter requires rolreplication=true on the role.
+	// Done post-auth so we don't leak which roles exist for unauthenticated
+	// clients.
+	if err = c.verifyReplicationRole(); err != nil {
+		// SCRAM succeeded but the role lacks rolreplication. Tagged as
+		// its own outcome so MUL-420's fleet validation alert can
+		// distinguish role-attribute rejections from login_disabled
+		// without scanning logs.
+		outcome = AuthOutcomeReplicationRoleRequired
+		return err
+	}
+
+	return c.finishAuth()
+}
+
+// classifyAuthError maps an auth-path error to the closed set of outcome
+// labels used by mg.gateway.auth.attempts and mg.gateway.auth.scram.duration.
+// Order matters: the SCRAM sentinels must be checked before the generic
+// errAuthRejected fallback so cause-specific labels survive the wrapping
+// done by sendAuthError / sendScramFatal.
+func classifyAuthError(err error) string {
+	switch {
+	case err == nil:
+		return AuthOutcomeSuccess
+	case errors.Is(err, scram.ErrAuthenticationFailed):
+		return AuthOutcomeBadPassword
+	case errors.Is(err, scram.ErrUserNotFound):
+		return AuthOutcomeUserNotFound
+	case errors.Is(err, scram.ErrLoginDisabled):
+		return AuthOutcomeLoginDisabled
+	case errors.Is(err, scram.ErrPasswordExpired):
+		return AuthOutcomePasswordExpired
+	case errors.Is(err, scram.ErrSASLProtocol),
+		errors.Is(err, scram.ErrChannelBindingNegotiation),
+		errors.Is(err, scram.ErrChannelBindingCheck),
+		errors.Is(err, scram.ErrAuthzidNotSupported):
+		return AuthOutcomeProtocolError
+	default:
+		return AuthOutcomeInternal
+	}
 }
 
 // authenticateTrust performs trust authentication (no password required).
 // This is used in tests to simulate Unix socket trust authentication.
+//
+// Trust auth has no over-the-wire negotiation step before AuthenticationOk
+// — the caller (authenticate) is responsible for the success sequence.
 func (c *Conn) authenticateTrust() error {
 	c.logger.Debug("authenticating client", "method", "trust")
+	return nil
+}
 
-	// For trust auth, we just send AuthenticationOk immediately.
+// finishAuth emits the post-authentication completion sequence shared by
+// both trust and SCRAM paths: AuthenticationOk, BackendKeyData, the
+// initial ParameterStatus run, and ReadyForQuery.
+func (c *Conn) finishAuth() error {
 	if err := c.sendAuthenticationOk(); err != nil {
 		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
 	}
@@ -362,74 +597,237 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
 	}
 
+	// Notify handlers that opted into the established hook *before*
+	// sending ReadyForQuery. Otherwise the client returns from Connect
+	// as soon as it sees ReadyForQuery, races ahead, and may observe
+	// the conn before the hook records per-connection startup state.
+	if h, ok := c.handler.(ConnectionEstablishedHandler); ok {
+		h.ConnectionEstablished(c)
+	}
+
 	// Send ReadyForQuery to indicate we're ready to receive commands.
 	if err := c.sendReadyForQuery(); err != nil {
 		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
 	}
 
-	c.logger.Info("authentication complete", "user", c.user, "method", "trust")
+	c.logger.Info("authentication complete", "user", c.user)
 	return nil
 }
 
-// authenticateSCRAM performs SCRAM-SHA-256 authentication with the client.
-func (c *Conn) authenticateSCRAM() error {
-	c.logger.Debug("authenticating client", "method", "scram-sha-256")
+// verifyReplicationRole enforces pg_authid.rolreplication for clients that
+// requested a replication startup connection (replication=true /
+// replication=database). Skipped for normal sessions.
+//
+// The flag was fetched alongside the SCRAM hash during authenticateSCRAM
+// and cached on c.credentials, so this gate is a constant-time field
+// check rather than a second pooler round-trip.
+//
+// For the trust-auth path c.credentials is unset, so we fall back to
+// fetching from the credential provider here. Trust auth is test-only.
+//
+// Mismatches produce PG's exact wording with SQLSTATE 42501, matching
+// what native PostgreSQL emits in walsender startup. The error is sent
+// FATAL so libpq tears down the connection.
+func (c *Conn) verifyReplicationRole() error {
+	if c.replicationMode == ReplicationOff {
+		return nil
+	}
 
-	// Create the SCRAM authenticator.
-	auth := scram.NewScramAuthenticator(c.hashProvider, c.database)
+	// Use cached credentials from SCRAM if available.
+	if c.credentials != nil {
+		if !c.credentials.IsReplicationRole {
+			c.logger.Warn("authentication failed: role lacks rolreplication",
+				"user", c.user)
+			return c.sendReplicationRoleError()
+		}
+		return nil
+	}
 
-	// Send AuthenticationSASL with supported mechanisms.
-	mechanisms := auth.StartAuthentication()
-	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASL: %w", err)
+	// Trust-auth path: no SCRAM lookup happened, so we need to fetch the
+	// flag here. Without a credential provider configured, fail closed.
+	if c.credentialProvider == nil {
+		c.logger.Warn("rejecting replication connection: no credential provider configured",
+			"user", c.user)
+		return c.sendReplicationRoleError()
+	}
+
+	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
+	if err != nil {
+		// Lookup failure (including ErrUserNotFound / ErrLoginDisabled /
+		// ErrPasswordExpired): fail closed with a generic FATAL so we
+		// don't leak which roles exist. Operators see the underlying
+		// error in the logs.
+		c.logger.Error("replication role verification failed",
+			"user", c.user, "error", err)
+		return c.sendReplicationRoleError()
+	}
+	if !creds.IsReplicationRole {
+		c.logger.Warn("authentication failed: role lacks rolreplication",
+			"user", c.user)
+		return c.sendReplicationRoleError()
+	}
+	c.credentials = creds
+	return nil
+}
+
+// sendReplicationRoleError emits PG's exact wording for a replication-role
+// rejection. SQLSTATE 42501 (insufficient_privilege) matches the error
+// PostgreSQL raises in walsender setup when the role lacks rolreplication
+// and is not a superuser. Returns errAuthRejected on success.
+func (c *Conn) sendReplicationRoleError() error {
+	if err := c.writeError(mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInsufficientPrivilege,
+		"must be superuser or replication role to start walsender",
+		"",
+	)); err != nil {
+		return err
 	}
 	if err := c.flush(); err != nil {
-		return fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
+		return err
 	}
+	return errAuthRejected
+}
 
-	// Read SASLInitialResponse (contains client-first-message).
-	clientFirstMessage, err := c.readSASLInitialResponse()
-	if err != nil {
-		return fmt.Errorf("failed to read SASLInitialResponse: %w", err)
-	}
+// authenticateSCRAM performs SCRAM-SHA-256 authentication with the client.
+//
+// Credentials are fetched once up front via the credential provider; the
+// SCRAM hash drives the handshake and the IsReplicationRole flag is cached
+// on the connection for the later post-auth gate, so one lookup suffices
+// for both. Lookup-time sentinels (login-disabled, expired, missing user)
+// are mapped to the matching native-PG error here, before any SASL frames
+// are emitted, so we don't reveal which case applied.
+//
+// Returns the outcome label for mg.gateway.auth.attempts alongside the
+// error. The label survives the errAuthRejected wrapping that
+// sendAuthError-style helpers apply, so the caller does not have to
+// reverse-engineer the cause from the returned error. The SCRAM handshake
+// duration (client-first to server-final) is recorded only on paths that
+// actually exchange SASL frames; credential-lookup failures exit before
+// any frame is emitted and are observed via the separate
+// mg.gateway.auth.credential_lookup.duration metric.
+func (c *Conn) authenticateSCRAM() (outcome string, err error) {
+	c.logger.Debug("authenticating client", "method", "scram-sha-256")
 
-	// Process client-first-message and generate server-first-message.
-	// Pass the username from the startup message as fallback for clients that
-	// send empty username in SCRAM (like pgx).
-	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage, c.user)
+	creds, err := c.credentialProvider.GetCredentials(c.ctx, c.user, c.database)
 	if err != nil {
 		// rolcanlogin=false: emit PG's exact wording with SQLSTATE 28000
 		// (invalid_authorization_specification), matching native PG.
 		if errors.Is(err, scram.ErrLoginDisabled) {
 			c.logger.Warn("authentication failed: role not permitted to log in", "user", c.user)
-			return c.sendLoginDisabledError()
+			return AuthOutcomeLoginDisabled, c.sendLoginDisabledError()
 		}
 		// Expired rolvaliduntil and unknown-user both surface as the opaque
 		// "password authentication failed" message (28P01), matching PG's
 		// convention of not disclosing why auth failed.
 		if errors.Is(err, scram.ErrUserNotFound) {
 			c.logger.Warn("authentication failed: user not found", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomeUserNotFound, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if errors.Is(err, scram.ErrPasswordExpired) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		return fmt.Errorf("failed to handle client-first-message: %w", err)
+		// Generic credential-lookup failure. If the upstream returned a
+		// PgDiagnostic (e.g. "planned failover in progress" from the
+		// pooler), forward it so the client can distinguish a transient
+		// cluster condition from a wrong password and act accordingly
+		// (retry, alert, etc.). For all other errors (transport, parse,
+		// pooler unreachable) fail closed with the opaque password-auth
+		// message so the client does not learn whether the user exists.
+		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			// Auth-phase errors must be FATAL to signal connection teardown.
+			fatal := *pgDiag
+			fatal.Severity = "FATAL"
+			if werr := c.writeError(&fatal); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			if werr := c.flush(); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			return AuthOutcomeLookupError, errAuthRejected
+		}
+		return AuthOutcomeLookupError, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+	}
+	c.credentials = creds
+
+	// Start the SCRAM handshake timer here so the histogram captures only
+	// the SASL exchange (client-first → server-final), not the upstream
+	// credential lookup which has its own metric.
+	scramStart := time.Now()
+	defer func() {
+		c.metrics().RecordSCRAMDuration(c.ctx, outcome, time.Since(scramStart))
+	}()
+
+	// Create the SCRAM authenticator with the pre-fetched hash.
+	auth := scram.NewScramAuthenticator(creds.Hash, c.database)
+
+	// Tell the authenticator whether we're over TLS regardless of whether
+	// we manage to compute a cbind hash — the downgrade-attempt detection
+	// (gs2 flag "y") must fire on any TLS connection.
+	auth.SetOverTLS(c.tlsHandshakeComplete)
+
+	// Attach channel binding context when the connection is over TLS so the
+	// authenticator advertises SCRAM-SHA-256-PLUS in addition to SCRAM-SHA-256.
+	// Plaintext sessions skip this and continue to advertise SCRAM-SHA-256 only.
+	if c.tlsServerCert != nil {
+		cbHash, hashErr := scram.ComputeTLSServerEndPointHash(c.tlsServerCert)
+		if hashErr != nil {
+			// Don't fail the connection — log and fall back to plain
+			// SCRAM-SHA-256 so unusual certs (e.g. unsupported signature
+			// algorithms) still permit auth, matching PG's permissive
+			// behavior. The downgrade-detection gate on overTLS still
+			// fires here.
+			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "err", hashErr)
+		} else {
+			auth.SetChannelBinding(&scram.ChannelBinding{TLSServerEndPointHash: cbHash})
+		}
+	}
+
+	// Send AuthenticationSASL with supported mechanisms.
+	mechanisms := auth.StartAuthentication()
+	advertised := make(map[string]struct{}, len(mechanisms))
+	for _, m := range mechanisms {
+		advertised[m] = struct{}{}
+	}
+	if err := c.sendAuthenticationSASL(mechanisms); err != nil {
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASL: %w", err)
+	}
+	if err := c.flush(); err != nil {
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASL: %w", err)
+	}
+
+	// Read SASLInitialResponse (chosen mechanism + client-first-message).
+	selectedMechanism, clientFirstMessage, err := c.readSASLInitialResponse(advertised)
+	if err != nil {
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to read SASLInitialResponse: %w", err)
+	}
+
+	// Process client-first-message and generate server-first-message.
+	// Pass the username from the startup message as fallback for clients that
+	// send empty username in SCRAM (like pgx).
+	serverFirstMessage, err := auth.HandleClientFirst(selectedMechanism, clientFirstMessage, c.user)
+	if err != nil {
+		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "err", err)
+			return AuthOutcomeProtocolError, ferr
+		}
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-first-message: %w", err)
 	}
 
 	// Send AuthenticationSASLContinue with server-first-message.
 	if err := c.sendAuthenticationSASLContinue(serverFirstMessage); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLContinue: %w", err)
 	}
 	if err := c.flush(); err != nil {
-		return fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to flush AuthenticationSASLContinue: %w", err)
 	}
 
 	// Read SASLResponse (contains client-final-message).
 	clientFinalMessage, err := c.readSASLResponse()
 	if err != nil {
-		return fmt.Errorf("failed to read SASLResponse: %w", err)
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to read SASLResponse: %w", err)
 	}
 
 	// Verify client proof and generate server signature.
@@ -437,44 +835,27 @@ func (c *Conn) authenticateSCRAM() error {
 	if err != nil {
 		if errors.Is(err, scram.ErrAuthenticationFailed) {
 			c.logger.Warn("authentication failed: invalid password", "user", c.user)
-			return c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
+			return AuthOutcomeBadPassword, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		return fmt.Errorf("failed to handle client-final-message: %w", err)
+		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "err", err)
+			return AuthOutcomeProtocolError, ferr
+		}
+		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-final-message: %w", err)
 	}
 
 	// Capture keys for SCRAM passthrough to the backing PostgreSQL.
 	c.scramClientKey, c.scramServerKey = auth.ExtractedKeys()
 
-	// Send AuthenticationSASLFinal with server signature.
+	// Send AuthenticationSASLFinal with server signature. SCRAM ends here;
+	// the caller (authenticate) continues with the post-auth role-attribute
+	// check and the AuthenticationOk → ReadyForQuery completion sequence.
 	if err := c.sendAuthenticationSASLFinal(serverFinalMessage); err != nil {
-		return fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
+		return AuthOutcomeInternal, fmt.Errorf("failed to send AuthenticationSASLFinal: %w", err)
 	}
 
-	// Send AuthenticationOk.
-	if err := c.sendAuthenticationOk(); err != nil {
-		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
-	}
-
-	// Send BackendKeyData for query cancellation.
-	if err := c.sendBackendKeyData(); err != nil {
-		return fmt.Errorf("failed to send BackendKeyData: %w", err)
-	}
-
-	// Register connection for cancel request lookup now that the client knows the PID.
-	c.listener.RegisterConn(c)
-
-	// Send initial ParameterStatus messages.
-	if err := c.sendParameterStatuses(); err != nil {
-		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
-	}
-
-	// Send ReadyForQuery to indicate we're ready to receive commands.
-	if err := c.sendReadyForQuery(); err != nil {
-		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
-	}
-
-	c.logger.Info("authentication complete", "user", c.user, "method", "scram-sha-256")
-	return nil
+	c.logger.Debug("scram authentication succeeded", "user", c.user)
+	return AuthOutcomeSuccess, nil
 }
 
 // sendAuthenticationSASL sends AuthenticationSASL message with supported mechanisms.
@@ -512,24 +893,27 @@ func (c *Conn) sendAuthenticationSASLFinal(data string) error {
 }
 
 // readSASLInitialResponse reads SASLInitialResponse from the client.
-// Returns the SASL data (client-first-message for SCRAM).
-func (c *Conn) readSASLInitialResponse() (string, error) {
+// Returns the SASL mechanism the client picked and the SASL data
+// (client-first-message for SCRAM). The mechanism is validated against the
+// set the server advertised — anything else is rejected so a malicious or
+// confused client can't downgrade past what was offered.
+func (c *Conn) readSASLInitialResponse(advertised map[string]struct{}) (string, string, error) {
 	msgType, err := c.ReadMessageType()
 	if err != nil {
-		return "", fmt.Errorf("failed to read message type: %w", err)
+		return "", "", fmt.Errorf("failed to read message type: %w", err)
 	}
 	if msgType != protocol.MsgPasswordMsg {
-		return "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
+		return "", "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
 	}
 
 	length, err := c.ReadMessageLength()
 	if err != nil {
-		return "", fmt.Errorf("failed to read message length: %w", err)
+		return "", "", fmt.Errorf("failed to read message length: %w", err)
 	}
 
 	body, err := c.readMessageBody(length)
 	if err != nil {
-		return "", fmt.Errorf("failed to read message body: %w", err)
+		return "", "", fmt.Errorf("failed to read message body: %w", err)
 	}
 	defer c.returnReadBuffer()
 
@@ -538,34 +922,34 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	// Read mechanism name.
 	mechanism, err := reader.ReadString()
 	if err != nil {
-		return "", fmt.Errorf("failed to read mechanism: %w", err)
+		return "", "", fmt.Errorf("failed to read mechanism: %w", err)
 	}
-	if mechanism != scram.ScramSHA256Mechanism {
-		return "", fmt.Errorf("unsupported SASL mechanism: %s", mechanism)
+	if _, ok := advertised[mechanism]; !ok {
+		return "", "", fmt.Errorf("unsupported SASL mechanism: %s", mechanism)
 	}
 
 	// Read data length.
 	dataLen, err := reader.ReadInt32()
 	if err != nil {
-		return "", fmt.Errorf("failed to read data length: %w", err)
+		return "", "", fmt.Errorf("failed to read data length: %w", err)
 	}
 
 	// Handle case where client sends no initial data (length = -1).
 	// This shouldn't happen for SCRAM-SHA-256, but some clients may do this.
 	if dataLen == -1 {
-		return "", errors.New("client sent SASLInitialResponse with no initial data (length=-1)")
+		return "", "", errors.New("client sent SASLInitialResponse with no initial data (length=-1)")
 	}
 	if dataLen < 0 {
-		return "", fmt.Errorf("invalid SASL data length: %d", dataLen)
+		return "", "", fmt.Errorf("invalid SASL data length: %d", dataLen)
 	}
 
 	// Read SASL data.
 	data, err := reader.ReadBytes(int(dataLen))
 	if err != nil {
-		return "", fmt.Errorf("failed to read SASL data: %w", err)
+		return "", "", fmt.Errorf("failed to read SASL data: %w", err)
 	}
 
-	return string(data), nil
+	return mechanism, string(data), nil
 }
 
 // readSASLResponse reads SASLResponse from the client.
@@ -594,24 +978,87 @@ func (c *Conn) readSASLResponse() (string, error) {
 	return string(body), nil
 }
 
-// sendAuthError sends an authentication error to the client.
+// sendAuthError sends a FATAL authentication-failure response. On a successful
+// write it returns errAuthRejected so authenticate() short-circuits the
+// post-auth completion sequence; an actual write/flush error is propagated.
 func (c *Conn) sendAuthError(message string) error {
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, message, "")); err != nil {
 		return err
 	}
-	return c.flush()
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
 }
 
 // sendLoginDisabledError sends the FATAL error PostgreSQL emits when a role
 // with rolcanlogin=false attempts to authenticate (SQLSTATE 28000). The
 // message format matches native PG verbatim so libpq-compatible clients
-// parse it identically.
+// parse it identically. Returns errAuthRejected on success.
 func (c *Conn) sendLoginDisabledError() error {
 	msg := "role \"" + c.user + "\" is not permitted to log in"
 	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec, msg, "")); err != nil {
 		return err
 	}
-	return c.flush()
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
+}
+
+// mapSCRAMProtocolError converts a SCRAM authenticator error into the exact
+// PostgreSQL-style FATAL the client expects to see on the wire.
+//
+// Returns handled=true iff the error matched a SCRAM protocol class and a
+// FATAL has been written. The caller MUST then return ferr up the stack so
+// authenticate() short-circuits — ferr is errAuthRejected on success, or the
+// underlying write error on failure.
+//
+// Returns handled=false, nil when the error is not a SCRAM protocol error
+// — caller should continue with other classifications.
+//
+// SQLSTATE + message mapping comes straight from PG17 auth-scram.c so libpq
+// and any other PG-compatible client see identical diagnostics.
+func (c *Conn) mapSCRAMProtocolError(err error) (handled bool, ferr error) {
+	if err == nil {
+		return false, nil
+	}
+	switch {
+	case errors.Is(err, scram.ErrChannelBindingNegotiation):
+		return true, c.sendScramFatal(mterrors.PgSSInvalidAuthSpec,
+			"SCRAM channel binding negotiation error",
+			"The client supports SCRAM channel binding but thinks the server does not.  However, this server does support channel binding.")
+	case errors.Is(err, scram.ErrChannelBindingCheck):
+		return true, c.sendScramFatal(mterrors.PgSSInvalidAuthSpec,
+			"SCRAM channel binding check failed", "")
+	case errors.Is(err, scram.ErrAuthzidNotSupported):
+		return true, c.sendScramFatal(mterrors.PgSSFeatureNotSupported,
+			"client uses authorization identity, but it is not supported", "")
+	case errors.Is(err, scram.ErrSASLProtocol):
+		var sp *scram.SASLProtocolError
+		if errors.As(err, &sp) {
+			msg := sp.Msg
+			if msg == "" {
+				msg = "malformed SCRAM message"
+			}
+			return true, c.sendScramFatal(mterrors.PgSSProtocolViolation, msg, sp.Detail)
+		}
+		return true, c.sendScramFatal(mterrors.PgSSProtocolViolation, "malformed SCRAM message", "")
+	}
+	return false, nil
+}
+
+// sendScramFatal emits a FATAL ErrorResponse with the supplied SQLSTATE,
+// errmsg, and (optional) errdetail. Returns errAuthRejected on success so
+// authenticate() short-circuits, matching the sendAuthError pattern.
+func (c *Conn) sendScramFatal(sqlState, msg, detail string) error {
+	if err := c.writeError(mterrors.NewPgError("FATAL", sqlState, msg, detail)); err != nil {
+		return err
+	}
+	if err := c.flush(); err != nil {
+		return err
+	}
+	return errAuthRejected
 }
 
 // sendAuthenticationOk sends an AuthenticationOk message to the client.
@@ -660,6 +1107,28 @@ func (c *Conn) sendParameterStatus(name, value string) error {
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
 	return c.writePacket(buf, pos)
+}
+
+// isClientAbortError reports whether a TLS handshake error looks like the
+// client closed the connection (network teardown, EOF, or use of an already-
+// closed socket) rather than a server-side or crypto failure. Used to split
+// the tls.handshake.duration outcome label so the fleet-validation alert
+// can suppress noise from clients that hang up mid-handshake.
+//
+// Timeouts are intentionally excluded: a deadline-exceeded error during
+// the TLS handshake is ambiguous between a stalled client and the server's
+// own authentication_timeout firing on c.conn. Tagging timeouts as
+// handshake_failure (the default) is more accurate than blaming the
+// client; operators alerting on a sustained handshake_failure rate will
+// still spot stalled-client patterns via the timing distribution.
+func isClientAbortError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return false
 }
 
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.

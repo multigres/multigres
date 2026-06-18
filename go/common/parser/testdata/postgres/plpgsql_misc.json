@@ -1,0 +1,67 @@
+[
+  {
+    "comment": "plpgsql_misc - Statement 1",
+    "query": "do $$ declare procedure int; begin create function test1() returns int begin atomic select 2 + 2; end; create or replace procedure test2(x int) begin atomic select x + 2; end; end $$",
+    "expected": "DO ' declare procedure int; begin create function test1() returns int begin atomic select 2 + 2; end; create or replace procedure test2(x int) begin atomic select x + 2; end; end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 2",
+    "query": "do $$ declare x foo%type; begin end $$",
+    "expected": "DO ' declare x foo%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 3",
+    "query": "do $$ declare x notice%type; begin end $$",
+    "expected": "DO ' declare x notice%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 4",
+    "query": "do $$ declare x foo.bar%type; begin end $$",
+    "expected": "DO ' declare x foo.bar%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 5",
+    "query": "do $$ declare x foo.bar.baz%type; begin end $$",
+    "expected": "DO ' declare x foo.bar.baz%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 6",
+    "query": "do $$ declare x public.foo.bar%type; begin end $$",
+    "expected": "DO ' declare x public.foo.bar%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 7",
+    "query": "do $$ declare x public.misc_table.zed%type; begin end $$",
+    "expected": "DO ' declare x public.misc_table.zed%type; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 8",
+    "query": "do $$ declare x foo%rowtype; begin end $$",
+    "expected": "DO ' declare x foo%rowtype; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 9",
+    "query": "do $$ declare x notice%rowtype; begin end $$",
+    "expected": "DO ' declare x notice%rowtype; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 10",
+    "query": "do $$ declare x foo.bar%rowtype; begin end $$",
+    "expected": "DO ' declare x foo.bar%rowtype; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 11",
+    "query": "do $$ declare x foo.bar.baz%rowtype; begin end $$",
+    "expected": "DO ' declare x foo.bar.baz%rowtype; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 12",
+    "query": "do $$ declare x public.foo%rowtype; begin end $$",
+    "expected": "DO ' declare x public.foo%rowtype; begin end '"
+  },
+  {
+    "comment": "plpgsql_misc - Statement 13",
+    "query": "do $$ declare x public.misc_table%rowtype; begin end $$",
+    "expected": "DO ' declare x public.misc_table%rowtype; begin end '"
+  }
+]

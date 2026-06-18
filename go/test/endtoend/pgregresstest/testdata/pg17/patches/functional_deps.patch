@@ -1,3 +1,6 @@
+# Known divergence: multigateway manages SQL-level PREPARE/EXECUTE, so an error
+# raised while running `EXECUTE foo` is reported with a "LINE 1: EXECUTE foo;\n ^"
+# source cursor that stock PostgreSQL omits for the EXECUTE statement.
 --- a
 +++ b
 @@ -230,3 +230,5 @@

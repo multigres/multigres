@@ -429,10 +429,11 @@ func TestGRPCPortableConfig(t *testing.T) {
 		service, err := command.NewPgCtldService(
 			slog.Default(),
 			command.PgCtldServiceConfig{
-				Port:     5432,
-				User:     constants.DefaultPostgresUser,
-				Database: constants.DefaultPostgresDatabase,
-				Password: shardsetup.TestPostgresPassword,
+				Port:           5432,
+				User:           constants.DefaultPostgresUser,
+				Database:       constants.DefaultPostgresDatabase,
+				Password:       shardsetup.TestPostgresPassword,
+				PasswordSource: command.PasswordSourceEnv,
 			},
 			30,
 			dataDir,
@@ -452,10 +453,11 @@ func TestGRPCPortableConfig(t *testing.T) {
 		service2, err := command.NewPgCtldService(
 			slog.Default(),
 			command.PgCtldServiceConfig{
-				Port:     5433,
-				User:     constants.DefaultPostgresUser,
-				Database: constants.DefaultPostgresDatabase,
-				Password: shardsetup.TestPostgresPassword,
+				Port:           5433,
+				User:           constants.DefaultPostgresUser,
+				Database:       constants.DefaultPostgresDatabase,
+				Password:       shardsetup.TestPostgresPassword,
+				PasswordSource: command.PasswordSourceEnv,
 			},
 			30,
 			dataDir,
@@ -486,10 +488,11 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 
 	// Create the pgctld service with mock environment
 	cfg := command.PgCtldServiceConfig{
-		Port:     5432,
-		User:     constants.DefaultPostgresUser,
-		Database: constants.DefaultPostgresDatabase,
-		Password: shardsetup.TestPostgresPassword,
+		Port:           5432,
+		User:           constants.DefaultPostgresUser,
+		Database:       constants.DefaultPostgresDatabase,
+		Password:       shardsetup.TestPostgresPassword,
+		PasswordSource: command.PasswordSourceEnv,
 	}
 	service, err := command.NewPgCtldService(
 		slog.Default(),

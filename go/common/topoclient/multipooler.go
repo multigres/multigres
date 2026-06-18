@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -35,9 +36,23 @@ func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadata
 			Cell:      cell,
 			Name:      name,
 		},
-		Hostname:   host,
-		TableGroup: tableGroup,
-		PortMap:    make(map[string]int32),
+		Hostname: host,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+		},
+		PortMap: make(map[string]int32),
+		// The pooler process is up but postgres readiness has not yet been
+		// confirmed; the manager transitions this to ACTIVE once the
+		// pgMonitor observes postgres responding. The timestamp is set at
+		// construction time rather than at write time — the caller
+		// (registerFunc) invokes RegisterMultiPooler within microseconds
+		// of the factory call, so the difference is negligible and avoids
+		// plumbing a clock through the factory's call sites.
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+			Reason:  "process starting",
+			Updated: timestamppb.Now(),
+		},
 	}
 }
 
@@ -49,12 +64,7 @@ type MultiPoolerInfo struct {
 
 // String returns a string describing the multipooler.
 func (mpi *MultiPoolerInfo) String() string {
-	return fmt.Sprintf("MultiPooler{%v}", MultiPoolerIDString(mpi.Id))
-}
-
-// IDString returns the string representation of the multipooler id
-func (mpi *MultiPoolerInfo) IDString() string {
-	return MultiPoolerIDString(mpi.Id)
+	return fmt.Sprintf("MultiPooler{%v}", ComponentIDString(mpi.Id))
 }
 
 // Addr returns hostname:grpc port.
@@ -77,9 +87,17 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 	return &MultiPoolerInfo{version: version, MultiPooler: multipooler}
 }
 
-// MultiPoolerIDString returns the string representation of a MultiPooler ID
-func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
+// PoolerAddressFor projects a MultiPooler into the contact-info subset the
+// consensus RPCs (SetPrimary, Promote) take. Returns nil if mp is nil.
+func PoolerAddressFor(mp *clustermetadatapb.MultiPooler) *clustermetadatapb.PoolerAddress {
+	if mp == nil {
+		return nil
+	}
+	return &clustermetadatapb.PoolerAddress{
+		Id:           mp.GetId(),
+		Host:         mp.GetHostname(),
+		PostgresPort: mp.GetPortMap()["postgres"],
+	}
 }
 
 // GetMultiPooler is a high level function to read multipooler data.
@@ -89,7 +107,7 @@ func (ts *store) GetMultiPooler(ctx context.Context, id *clustermetadatapb.ID) (
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get connection for cell %q", id.Cell))
 	}
 
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile)
 	data, version, err := conn.Get(ctx, poolerPath)
 	if err != nil {
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get multipooler %q", id))
@@ -198,16 +216,17 @@ func (ts *store) GetMultiPoolersByCell(ctx context.Context, cellName string, opt
 			return nil, err
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
+			sk := multipooler.GetShardKey()
 			// Database must match
-			if opt.DatabaseShard.Database != multipooler.Database {
+			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue
 			}
 			// If TableGroup is specified, it must match
-			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != multipooler.TableGroup {
+			if opt.DatabaseShard.TableGroup != "" && opt.DatabaseShard.TableGroup != sk.GetTableGroup() {
 				continue
 			}
 			// If Shard is specified, it must match
-			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != multipooler.Shard {
+			if opt.DatabaseShard.Shard != "" && opt.DatabaseShard.Shard != sk.GetShard() {
 				continue
 			}
 		}
@@ -227,7 +246,7 @@ func (ts *store) UpdateMultiPooler(ctx context.Context, mpi *MultiPoolerInfo) er
 	if err != nil {
 		return err
 	}
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(mpi.Id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(mpi.Id)), PoolerFile)
 	newVersion, err := conn.Update(ctx, poolerPath, data, mpi.version)
 	if err != nil {
 		return err
@@ -272,7 +291,7 @@ func (ts *store) CreateMultiPooler(ctx context.Context, mtpooler *clustermetadat
 	if err != nil {
 		return err
 	}
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(mtpooler.Id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(mtpooler.Id)), PoolerFile)
 	if _, err := conn.Create(ctx, poolerPath, data); err != nil {
 		return err
 	}
@@ -287,7 +306,7 @@ func (ts *store) UnregisterMultiPooler(ctx context.Context, id *clustermetadatap
 		return err
 	}
 
-	poolerPath := path.Join(PoolersPath, MultiPoolerIDString(id), PoolerFile)
+	poolerPath := path.Join(PoolersPath, string(ComponentIDString(id)), PoolerFile)
 	if err := conn.Delete(ctx, poolerPath, nil); err != nil {
 		return err
 	}
@@ -303,11 +322,11 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		// Try to update then
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
-			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed reading existing mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {
-			return fmt.Errorf("failed updating mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
+			return fmt.Errorf("failed updating mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
 		}
 		return nil
 	}

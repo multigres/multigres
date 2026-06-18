@@ -69,10 +69,12 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 			Cell:      "test-cell",
 			Name:      "test-pooler",
 		},
-		Hostname:   "127.0.0.1",
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname: "127.0.0.1",
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
+		},
+		Type: clustermetadatapb.PoolerType_PRIMARY,
 		PortMap: map[string]int32{
 			"grpc": int32(lis.Addr().(*net.TCPAddr).Port),
 		},
@@ -101,11 +103,11 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	// Other tests in this package may also produce spans with different pooler IDs,
 	// so we only check that at least one span has our expected value.
 	var foundMatchingAttr bool
-	expectedPoolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	expectedPoolerID := topoclient.ComponentIDString(pooler.Id)
 
 	for _, span := range spans {
 		for _, attr := range span.Attributes {
-			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == expectedPoolerID {
+			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == string(expectedPoolerID) {
 				foundMatchingAttr = true
 				break
 			}
@@ -135,9 +137,9 @@ func TestNewPoolerConnection(t *testing.T) {
 	defer conn.Close()
 
 	// Verify basic properties
-	assert.Equal(t, "multipooler-zone1-pooler1", conn.ID())
+	assert.Equal(t, "multipooler-zone1-pooler1", string(conn.ID()))
 	assert.Equal(t, "zone1", conn.Cell())
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type())
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.PoolerInfo().Type)
 }
 
 // TestPoolerConnection_ID verifies ID generation for different pooler configurations.
@@ -162,7 +164,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 			require.NoError(t, err)
 			defer conn.Close()
 
-			assert.Equal(t, tt.expected, conn.ID())
+			assert.Equal(t, tt.expected, string(conn.ID()))
 		})
 	}
 }

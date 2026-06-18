@@ -70,13 +70,13 @@
   },
   {
     "comment": "matview - Statement 16",
-    "query": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm ((grandtot \u003e 0))",
-    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm USING btree ( (grandtot \u003e 0) )"
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm ((grandtot > 0))",
+    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm USING btree ( (grandtot > 0) )"
   },
   {
     "comment": "matview - Statement 17",
-    "query": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm (grandtot) WHERE grandtot \u003c 0",
-    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm USING btree ( grandtot ) WHERE grandtot \u003c 0"
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm (grandtot) WHERE grandtot < 0",
+    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm USING btree ( grandtot ) WHERE grandtot < 0"
   },
   {
     "comment": "matview - Statement 18",
@@ -453,7 +453,7 @@
   },
   {
     "comment": "matview - Statement 104",
-    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a \u003c= 5"
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a <= 5"
   },
   {
     "comment": "matview - Statement 105",

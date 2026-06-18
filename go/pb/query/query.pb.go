@@ -759,6 +759,7 @@ type Target struct {
 	Shard string `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
 	// pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
 	// If not specified (UNKNOWN), defaults to PRIMARY
+	// TODO: Change from PoolerType something else, like a TargetType or ServingType enum.
 	PoolerType    clustermetadata.PoolerType `protobuf:"varint,3,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -996,8 +997,15 @@ type ReservedState struct {
 	// reservation_reasons is a bitmask of ReservationReason values indicating why the connection
 	// is still reserved. Zero means the connection was released.
 	ReservationReasons uint32 `protobuf:"varint,3,opt,name=reservation_reasons,json=reservationReasons,proto3" json:"reservation_reasons,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// backend_process_id is the real PostgreSQL backend process ID for this
+	// reserved connection — the PID visible in pg_stat_activity / pg_locks.
+	// Used to bridge the gap between multigateway's virtual PIDs and
+	// PostgreSQL's real PIDs so lock-detection functions like
+	// pg_isolation_test_session_is_blocked() can map vpid → real pid through
+	// the proxy.
+	BackendProcessId uint32 `protobuf:"varint,4,opt,name=backend_process_id,json=backendProcessId,proto3" json:"backend_process_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ReservedState) Reset() {
@@ -1051,6 +1059,13 @@ func (x *ReservedState) GetReservationReasons() uint32 {
 	return 0
 }
 
+func (x *ReservedState) GetBackendProcessId() uint32 {
+	if x != nil {
+		return x.BackendProcessId
+	}
+	return 0
+}
+
 // ExecuteOptions contains execution options for query execution.
 // This includes session state like prepared statements and portals that
 // need to be available on the connection where the query is executed.
@@ -1089,9 +1104,15 @@ type ExecuteOptions struct {
 	// authenticate to the backing PostgreSQL as the session's real user
 	// instead of relying on trust on the local connection. Unset for
 	// sessions that did not authenticate via SCRAM.
-	UserAuth      *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	UserAuth *UserAuth `protobuf:"bytes,7,opt,name=user_auth,json=userAuth,proto3" json:"user_auth,omitempty"`
+	// client_connection_id is the multigateway's virtual PID for this client
+	// connection. The multipooler stamps it onto the underlying PostgreSQL
+	// backend's application_name as `multigres_vpid:<id>` so lock-detection
+	// functions can map virtual PIDs (visible to clients) back to real
+	// backend PIDs via pg_stat_activity.
+	ClientConnectionId uint32 `protobuf:"varint,8,opt,name=client_connection_id,json=clientConnectionId,proto3" json:"client_connection_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1164,6 +1185,13 @@ func (x *ExecuteOptions) GetUserAuth() *UserAuth {
 		return x.UserAuth
 	}
 	return nil
+}
+
+func (x *ExecuteOptions) GetClientConnectionId() uint32 {
+	if x != nil {
+		return x.ClientConnectionId
+	}
+	return 0
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1250,9 +1278,37 @@ type ReservationOptions struct {
 	// or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
 	// multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
 	// If empty and transaction reason is set, defaults to "BEGIN".
-	BeginQuery    string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BeginQuery string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
+	// pin_portal_names lists named portals (cursors) that must be pinned to the
+	// reserved connection for the lifetime of the named portal — used for
+	// DECLARE ... WITH HOLD, where the cursor must survive COMMIT. The
+	// multipooler calls ReserveForPortal(name) for each entry, which adds
+	// ReasonPortal to the reservation bitmask and registers the name in the
+	// per-connection portal set. Independent of `reasons` — the multipooler
+	// sets ReasonPortal implicitly when this list is non-empty.
+	PinPortalNames []string `protobuf:"bytes,3,rep,name=pin_portal_names,json=pinPortalNames,proto3" json:"pin_portal_names,omitempty"`
+	// release_portal_names lists named portals (cursors) to unpin from the
+	// reserved connection — used for CLOSE <name> / CLOSE ALL on a WITH HOLD
+	// cursor. The multipooler calls ReleasePortal(name) for each entry; if
+	// the call drains the final ReasonPortal bit AND no other reasons remain,
+	// the connection is released back to the pool and the returned
+	// ReservedState has connection_id == 0.
+	ReleasePortalNames []string `protobuf:"bytes,4,rep,name=release_portal_names,json=releasePortalNames,proto3" json:"release_portal_names,omitempty"`
+	// recheck_advisory_locks asks the multipooler to re-probe pg_locks after
+	// running this statement and drop ReasonSessionAdvisoryLock (releasing the
+	// connection if no other reason remains) when the session no longer holds any
+	// advisory lock. The gateway sets it only for statements that touch
+	// session-level advisory locks (an acquire — to catch a failed
+	// pg_try_advisory_lock — or a release), so the probe runs only when it can
+	// matter rather than after every query on a pinned connection.
+	RecheckAdvisoryLocks bool `protobuf:"varint,5,opt,name=recheck_advisory_locks,json=recheckAdvisoryLocks,proto3" json:"recheck_advisory_locks,omitempty"`
+	// mark_session_state_untrusted asks the multipooler to mark the reserved
+	// connection's cached session state as maybe-diverged after this statement
+	// succeeds. Used for ROLLBACK TO SAVEPOINT, where PostgreSQL can revert GUCs
+	// on the backend without the pooler knowing the exact reverted state.
+	MarkSessionStateUntrusted bool `protobuf:"varint,6,opt,name=mark_session_state_untrusted,json=markSessionStateUntrusted,proto3" json:"mark_session_state_untrusted,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ReservationOptions) Reset() {
@@ -1297,6 +1353,34 @@ func (x *ReservationOptions) GetBeginQuery() string {
 		return x.BeginQuery
 	}
 	return ""
+}
+
+func (x *ReservationOptions) GetPinPortalNames() []string {
+	if x != nil {
+		return x.PinPortalNames
+	}
+	return nil
+}
+
+func (x *ReservationOptions) GetReleasePortalNames() []string {
+	if x != nil {
+		return x.ReleasePortalNames
+	}
+	return nil
+}
+
+func (x *ReservationOptions) GetRecheckAdvisoryLocks() bool {
+	if x != nil {
+		return x.RecheckAdvisoryLocks
+	}
+	return false
+}
+
+func (x *ReservationOptions) GetMarkSessionStateUntrusted() bool {
+	if x != nil {
+		return x.MarkSessionStateUntrusted
+	}
+	return false
 }
 
 var File_query_proto protoreflect.FileDescriptor
@@ -1380,18 +1464,20 @@ const file_query_proto_rawDesc = "" +
 	"\rparam_lengths\x18\x03 \x03(\x12R\fparamLengths\x12!\n" +
 	"\fparam_values\x18\x04 \x01(\fR\vparamValues\x12#\n" +
 	"\rparam_formats\x18\x05 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\xa8\x01\n" +
+	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\xd6\x01\n" +
 	"\rReservedState\x124\n" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
-	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x87\x03\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xb9\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12G\n" +
 	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12,\n" +
-	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x1aB\n" +
+	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
+	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
@@ -1399,11 +1485,15 @@ const file_query_proto_rawDesc = "" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
 	"\n" +
-	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"O\n" +
+	"server_key\x18\x02 \x01(\fB\x03\x80\x01\x01R\tserverKey\"\xa2\x02\n" +
 	"\x12ReservationOptions\x12\x18\n" +
 	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
 	"\vbegin_query\x18\x02 \x01(\tR\n" +
-	"beginQueryB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
+	"beginQuery\x12(\n" +
+	"\x10pin_portal_names\x18\x03 \x03(\tR\x0epinPortalNames\x120\n" +
+	"\x14release_portal_names\x18\x04 \x03(\tR\x12releasePortalNames\x124\n" +
+	"\x16recheck_advisory_locks\x18\x05 \x01(\bR\x14recheckAdvisoryLocks\x12?\n" +
+	"\x1cmark_session_state_untrusted\x18\x06 \x01(\bR\x19markSessionStateUntrustedB,Z*github.com/multigres/multigres/go/pb/queryb\x06proto3"
 
 var (
 	file_query_proto_rawDescOnce sync.Once

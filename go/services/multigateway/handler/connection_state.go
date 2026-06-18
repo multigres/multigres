@@ -16,6 +16,8 @@ package handler
 
 import (
 	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +41,18 @@ const (
 
 // MultiGatewayConnectionState keeps track of the information specific
 // to each connection.
+// MultiGatewayConnectionState holds all per-connection gateway state. A
+// MultiGatewayConnectionState is created once when a client connects and
+// destroyed when the connection ends — its lifetime exactly matches the
+// PostgreSQL wire-protocol session.
+//
+// Concurrency: the PG wire protocol is strictly serial per connection (one
+// request, one response, no overlap), so every method on this type is
+// effectively called from a single goroutine in production. The `mu`
+// mutex is defensive — it guards against future async helpers (cancellation
+// goroutines, background ticker callbacks, fan-out fan-in primitives) that
+// might touch state concurrently. Callers must not rely on the mutex for
+// cross-statement atomicity; that's the protocol's job.
 type MultiGatewayConnectionState struct {
 	mu sync.Mutex
 	// NOTE: We are not storing the map of Prepared Statements even though
@@ -70,13 +84,33 @@ type MultiGatewayConnectionState struct {
 	// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE") when a transaction is started
 	// with deferred execution. This is consumed when creating the first reserved
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
+	//
+	// Unlike the single-query reservation signals (which ride on the
+	// engine.PlanExecInfo passed to IExecute), this spans statements: it is
+	// set at the deferred BEGIN and consumed by a *later* statement's reservation,
+	// so it genuinely belongs to connection state.
 	PendingBeginQuery string
 
-	// PendingTempTableReservation is set by the planner (via TempTableRoute)
-	// when the current query creates a temporary object. ScatterConn consumes
-	// it to create a reserved connection with ReasonTempTable. One-shot:
-	// cleared after the reservation is created.
-	PendingTempTableReservation bool
+	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
+	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
+	// on the backend without the pooler observing the exact reverted values, so
+	// ScatterConn forwards it as ReservationOptions.MarkSessionStateUntrusted,
+	// asking the multipooler to force reconciliation before the next reserved
+	// user SQL or at release. One-shot: cleared after it is consumed.
+	//
+	// Like PendingBeginQuery (and unlike the single-query reservation signals
+	// that ride on engine.PlanExecInfo), this spans statements: it is set on the
+	// ROLLBACK TO and consumed by a *later* statement's reservation, so it
+	// genuinely belongs to connection state.
+	PendingMarkSessionStateUntrusted bool
+
+	// OpenHoldCursors tracks the names of currently-open `DECLARE ... WITH HOLD`
+	// cursors on this gateway session. Used to compute `CLOSE ALL` membership
+	// and as a single-source-of-truth refcount so the gateway can answer
+	// "do we still have any HOLD cursor open" without round-tripping to the
+	// multipooler. Membership mirrors the per-conn `reservedProps.Portals`
+	// set on the multipooler side for HOLD entries.
+	OpenHoldCursors map[string]bool
 
 	// TxnStartTime records when the current transaction began (set at BEGIN,
 	// read at COMMIT/ROLLBACK to compute transaction duration). Zero value
@@ -101,26 +135,30 @@ type MultiGatewayConnectionState struct {
 	// to apply subscription changes before reporting success to the client.
 	SubSync SubscriptionSync
 
-	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
-	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
-	// The default is initialized from startup params (if present) or the --statement-timeout flag.
-	// Parsed at SET time to avoid repeated parsing on every query.
+	// statementTimeout is managed entirely by the gateway and is NOT forwarded
+	// to PostgreSQL. The default is initialized from startup params (if
+	// present) or the --statement-timeout flag. Parsed at SET time to avoid
+	// repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
 
 	// savepoints is the stack of per-savepoint snapshots driving GUC revert
-	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings;
-	// gateway-managed variables maintain parallel snapshot stacks of equal depth
-	// (lockstep invariant). Index 0, when present, is the BEGIN-level frame
-	// (name=""); indices 1+ correspond to user SAVEPOINTs.
+	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings
+	// and OpenHoldCursors; gateway-managed variables maintain parallel
+	// snapshot stacks of equal depth (lockstep invariant). Index 0, when
+	// present, is the BEGIN-level frame (name=""); indices 1+ correspond to
+	// user SAVEPOINTs.
 	//
-	// MAINTENANCE CONTRACT: every gateway-managed variable on this struct (e.g.
-	// statementTimeout) must be wired into all six lifecycle methods —
-	// pushFrameLocked, ReleaseSavepoint, RollbackToSavepoint, BeginTransaction,
-	// CommitTransaction, RollbackTransaction — or revert semantics break for
-	// the missing variable. When a second GMV is added, refactor to a
-	// non-generic `gmvLifecycle` interface ({Snapshot, RestoreFromDepth(int),
-	// PopFrom(int), ClearSnapshots}) and iterate a `[]gmvLifecycle` registry
-	// instead of naming each variable explicitly.
+	// MAINTENANCE CONTRACT: every gateway-managed variable must be returned by
+	// gatewayManagedVariablesLocked so all transaction/savepoint lifecycle
+	// methods keep its snapshot stack in lockstep with savepoints. The
+	// gmvLifecycle interface (Snapshot/RestoreFromDepth/PopFrom/ClearSnapshots
+	// and ResetLocal) is the complete set of operations those methods need, so
+	// adding a GMV requires only extending gatewayManagedVariablesLocked — no
+	// per-variable wiring in the lifecycle methods themselves. Every non-GMV
+	// snapshot field stored on savepointFrame (currently `openHoldCursors`)
+	// must still be wired into pushFrameLocked, ReleaseSavepoint,
+	// RollbackToSavepoint, BeginTransaction, CommitTransaction, and
+	// RollbackTransaction.
 	savepoints []savepointFrame
 
 	// targetReplica is true when this connection arrived on the replica-reads
@@ -135,6 +173,13 @@ type MultiGatewayConnectionState struct {
 type savepointFrame struct {
 	name            string
 	sessionSettings map[string]string
+	// openHoldCursors snapshots the names of `DECLARE … WITH HOLD`
+	// cursors that were open at the moment the savepoint was pushed.
+	// Used so that `ROLLBACK TO <name>` can compute the set of cursors
+	// declared in the rolled-back sub-transaction and unpin them on the
+	// multipooler — PG closes those cursors server-side on
+	// ROLLBACK TO, and our reservation bookkeeping must follow.
+	openHoldCursors map[string]bool
 }
 
 type ShardState struct {
@@ -149,9 +194,123 @@ type ShardState struct {
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
 func NewMultiGatewayConnectionState() *MultiGatewayConnectionState {
 	return &MultiGatewayConnectionState{
-		mu:      sync.Mutex{},
-		Portals: make(map[string]*preparedstatement.PortalInfo),
+		mu:              sync.Mutex{},
+		Portals:         make(map[string]*preparedstatement.PortalInfo),
+		OpenHoldCursors: make(map[string]bool),
 	}
+}
+
+// AddOpenHoldCursor records a `DECLARE ... WITH HOLD` cursor as currently open
+// on this gateway session. Idempotent.
+func (m *MultiGatewayConnectionState) AddOpenHoldCursor(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.OpenHoldCursors == nil {
+		m.OpenHoldCursors = make(map[string]bool)
+	}
+	m.OpenHoldCursors[name] = true
+}
+
+// RemoveOpenHoldCursor drops the named HOLD cursor from the open set.
+// Returns true if the entry existed.
+func (m *MultiGatewayConnectionState) RemoveOpenHoldCursor(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.OpenHoldCursors[name]; !ok {
+		return false
+	}
+	delete(m.OpenHoldCursors, name)
+	return true
+}
+
+// HasOpenHoldCursor reports whether the named HOLD cursor is open.
+func (m *MultiGatewayConnectionState) HasOpenHoldCursor(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.OpenHoldCursors[name]
+}
+
+// OpenHoldCursorNames returns a snapshot of the open HOLD cursor names.
+// Used to materialise the target list for `CLOSE ALL`.
+func (m *MultiGatewayConnectionState) OpenHoldCursorNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.OpenHoldCursors) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(m.OpenHoldCursors))
+	for name := range m.OpenHoldCursors {
+		names = append(names, name)
+	}
+	return names
+}
+
+// HasAnyOpenHoldCursor reports whether the session is holding at least one
+// `DECLARE ... WITH HOLD` cursor open. Used by ScatterConn to keep
+// ReasonPortal applied on follow-up queries while any HOLD cursor remains.
+func (m *MultiGatewayConnectionState) HasAnyOpenHoldCursor() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.OpenHoldCursors) > 0
+}
+
+// ClearOpenHoldCursors drops every tracked HOLD cursor. Called at ROLLBACK,
+// when PostgreSQL closes all open cursors regardless of WITH HOLD.
+func (m *MultiGatewayConnectionState) ClearOpenHoldCursors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.OpenHoldCursors = make(map[string]bool)
+}
+
+// HoldCursorsDeclaredInTxn returns the names of HOLD cursors that were
+// declared after the BEGIN-level frame was pushed — i.e., the cursors
+// PostgreSQL would close at ROLLBACK of the outer transaction. Cursors
+// that existed before BEGIN (autocommit DECLAREs prior to the explicit
+// block) are *not* included: PG keeps them across ROLLBACK and the
+// multipooler must not unpin them.
+//
+// Returns nil if no BEGIN-level frame is present (no active txn) or the
+// set is empty. State is not mutated.
+func (m *MultiGatewayConnectionState) HoldCursorsDeclaredInTxn() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 || m.savepoints[0].name != "" {
+		// No explicit transaction in progress — every open HOLD cursor
+		// pre-dates this code path. Caller must not rely on the result
+		// to drive a ROLLBACK release.
+		return nil
+	}
+	snapshot := m.savepoints[0].openHoldCursors
+	var inTxn []string
+	for cur := range m.OpenHoldCursors {
+		if !snapshot[cur] {
+			inTxn = append(inTxn, cur)
+		}
+	}
+	return inTxn
+}
+
+// RestoreOpenHoldCursorsToBeginSnapshot restores the OpenHoldCursors set
+// to the snapshot captured by BeginTransaction at the depth-0 frame.
+// Cursors declared after BEGIN are dropped (PG closed them at ROLLBACK);
+// cursors that existed before BEGIN are kept (PG preserves them).
+//
+// Falls back to clearing the set entirely when there is no BEGIN-level
+// frame on the stack — matches the previous ClearOpenHoldCursors behavior
+// for the no-txn path.
+func (m *MultiGatewayConnectionState) RestoreOpenHoldCursorsToBeginSnapshot() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 || m.savepoints[0].name != "" {
+		m.OpenHoldCursors = make(map[string]bool)
+		return
+	}
+	snapshot := m.savepoints[0].openHoldCursors
+	restored := make(map[string]bool, len(snapshot))
+	for cur := range snapshot {
+		restored[cur] = true
+	}
+	m.OpenHoldCursors = restored
 }
 
 // StorePortalInfo stores the portal information.
@@ -262,6 +421,18 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.SessionSettings = nil
 }
 
+// gatewayManagedVariablesLocked returns every gateway-managed variable for the
+// transaction/savepoint lifecycle methods to iterate. It returns a fixed-size
+// array (not a slice) so the result stays on the caller's stack — these are hot
+// transaction-boundary paths and a slice literal would escape to the heap on
+// every call. Adding a GMV means bumping the array size and adding the element
+// here; the compiler flags a size mismatch if you forget one.
+func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [1]gmvLifecycle {
+	return [1]gmvLifecycle{
+		&m.statementTimeout,
+	}
+}
+
 // SetStatementTimeout sets the session-level statement timeout override.
 func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.mu.Lock()
@@ -299,13 +470,75 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 	m.statementTimeout.SetLocalToDefault()
 }
 
+// gatewayManagedVariableNames is the canonical set of session variables the
+// gateway manages itself: SET / SHOW / RESET are handled locally and the value
+// is never written to SessionSettings (so it is not replayed to backends on
+// pool rotation). This is the single source of truth consulted by the planner
+// (routing decisions) and the engine (set_config execution). Names compare
+// case-insensitively.
+var gatewayManagedVariableNames = map[string]struct{}{
+	"statement_timeout": {},
+}
+
+// IsGatewayManagedVariable reports whether name (case-insensitive) is a session
+// variable managed entirely by the gateway and not forwarded to PostgreSQL.
+func IsGatewayManagedVariable(name string) bool {
+	_, ok := gatewayManagedVariableNames[strings.ToLower(name)]
+	return ok
+}
+
+// ApplyGatewayManagedVariable applies a SET / set_config(...) of a
+// gateway-managed variable to gateway-local state instead of the
+// SessionSettings map. Routing here (rather than SetSessionVariable) is what
+// keeps SHOW consistent and keeps the variable out of GetSessionSettings, so it
+// is never replayed to a backend on pool rotation.
+//
+// Returns (handled, err): handled is false when name is not gateway-managed and
+// the caller must fall back to SessionSettings. err is non-nil when value is
+// invalid for the variable (e.g. an unparsable statement_timeout), mirroring
+// PostgreSQL's set-time validation.
+//
+// isLocal selects the transaction-local override (SET LOCAL / set_config(...,
+// true)) over the session-level override.
+func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
+	switch strings.ToLower(name) {
+	case "statement_timeout":
+		d, err := ParsePostgresInterval("statement_timeout", value)
+		if err != nil {
+			return true, err
+		}
+		if isLocal {
+			m.SetLocalStatementTimeout(d)
+		} else {
+			m.SetStatementTimeout(d)
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
 // variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
 // observes the session-level (or default) value.
 func (m *MultiGatewayConnectionState) ResetAllLocalGUCs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ResetLocal()
+	}
+}
+
+// ResetGatewayManagedVariables reverts every gateway-managed variable to its
+// startup/default value (session and transaction-local overrides both
+// cleared). Called by RESET ALL, which must cover GMVs in addition to the
+// SessionSettings map since they live outside it.
+func (m *MultiGatewayConnectionState) ResetGatewayManagedVariables() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.Reset()
+	}
 }
 
 // snapshotSessionSettingsLocked returns a copy of SessionSettings (or nil if
@@ -324,8 +557,8 @@ func (m *MultiGatewayConnectionState) snapshotSessionSettingsLocked() map[string
 // case-folded identifiers, which the parser already canonicalizes). Returns
 // -1 if not found. Caller must hold m.mu.
 func (m *MultiGatewayConnectionState) findSavepointLocked(name string) int {
-	for i := len(m.savepoints) - 1; i >= 0; i-- {
-		if m.savepoints[i].name == name {
+	for i, v := range slices.Backward(m.savepoints) {
+		if v.name == name {
 			return i
 		}
 	}
@@ -338,8 +571,25 @@ func (m *MultiGatewayConnectionState) pushFrameLocked(name string) {
 	m.savepoints = append(m.savepoints, savepointFrame{
 		name:            name,
 		sessionSettings: m.snapshotSessionSettingsLocked(),
+		openHoldCursors: m.snapshotOpenHoldCursorsLocked(),
 	})
-	m.statementTimeout.Snapshot()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.Snapshot()
+	}
+}
+
+// snapshotOpenHoldCursorsLocked returns a copy of the current OpenHoldCursors
+// set. Caller must hold m.mu. Used by pushFrameLocked / BeginTransaction so a
+// later ROLLBACK TO can compute the cursors declared after the savepoint.
+func (m *MultiGatewayConnectionState) snapshotOpenHoldCursorsLocked() map[string]bool {
+	if len(m.OpenHoldCursors) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(m.OpenHoldCursors))
+	for name := range m.OpenHoldCursors {
+		out[name] = true
+	}
+	return out
 }
 
 // BeginTransaction pushes a BEGIN-level snapshot frame so that a subsequent
@@ -356,7 +606,9 @@ func (m *MultiGatewayConnectionState) BeginTransaction() {
 		return
 	}
 	m.savepoints = m.savepoints[:0]
-	m.statementTimeout.ClearSnapshots()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ClearSnapshots()
+	}
 	m.pushFrameLocked("")
 }
 
@@ -381,7 +633,34 @@ func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
 		return
 	}
 	m.savepoints = m.savepoints[:idx]
-	m.statementTimeout.PopFrom(idx)
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.PopFrom(idx)
+	}
+}
+
+// HoldCursorsDeclaredAfterSavepoint returns the names of `DECLARE … WITH HOLD`
+// cursors that were declared after the named savepoint was pushed (i.e.,
+// would be closed by ROLLBACK TO). The state is not mutated. Returns nil if
+// the savepoint isn't on the stack or no qualifying cursors exist.
+//
+// Used by executeRollbackToSavepoint to enqueue release_portal_names ahead of
+// forwarding the ROLLBACK TO statement to the multipooler — PG closes those
+// cursors server-side and the reservation pin set must follow suit.
+func (m *MultiGatewayConnectionState) HoldCursorsDeclaredAfterSavepoint(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.findSavepointLocked(name)
+	if idx < 0 {
+		return nil
+	}
+	snapshot := m.savepoints[idx].openHoldCursors
+	var lost []string
+	for cur := range m.OpenHoldCursors {
+		if !snapshot[cur] {
+			lost = append(lost, cur)
+		}
+	}
+	return lost
 }
 
 // RollbackToSavepoint restores SessionSettings and every gateway-managed
@@ -389,6 +668,19 @@ func (m *MultiGatewayConnectionState) ReleaseSavepoint(name string) {
 // The named frame stays on the stack so a subsequent ROLLBACK TO `name` can
 // be issued again — matching PostgreSQL's behavior of leaving the savepoint
 // active after rollback.
+//
+// OpenHoldCursors is restored to the *intersection* of the snapshot with
+// the current open set. This drops:
+//   - cursors declared inside the sub-transaction (snapshot doesn't have
+//     them — they're closed by ROLLBACK TO), and
+//   - cursors that were explicitly CLOSE'd inside the sub-transaction
+//     (current set doesn't have them — CLOSE is not transactional in
+//     PostgreSQL, so they stay closed after ROLLBACK TO).
+//
+// The names lost to the first case are returned ahead of time by
+// HoldCursorsDeclaredAfterSavepoint so the caller can enqueue
+// release_portal_names; the multipooler-side portal pin for the second
+// case was already dropped by the original CLOSE.
 func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -401,8 +693,18 @@ func (m *MultiGatewayConnectionState) RollbackToSavepoint(name string) {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[idx].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[idx].sessionSettings)
 	}
+	snapshot := m.savepoints[idx].openHoldCursors
+	surviving := make(map[string]bool, len(snapshot))
+	for cur := range snapshot {
+		if m.OpenHoldCursors[cur] {
+			surviving[cur] = true
+		}
+	}
+	m.OpenHoldCursors = surviving
 	m.savepoints = m.savepoints[:idx+1]
-	m.statementTimeout.RestoreFromDepth(idx)
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.RestoreFromDepth(idx)
+	}
 }
 
 // CommitTransaction drops all savepoint frames (current values become
@@ -412,8 +714,10 @@ func (m *MultiGatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.savepoints = nil
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.ClearSnapshots()
+		gmv.ResetLocal()
+	}
 }
 
 // RollbackTransaction reverts all SET / RESET commands issued inside the
@@ -424,7 +728,9 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.savepoints) == 0 {
-		m.statementTimeout.ResetLocal()
+		for _, gmv := range m.gatewayManagedVariablesLocked() {
+			gmv.ResetLocal()
+		}
 		return
 	}
 	m.SessionSettings = nil
@@ -432,9 +738,11 @@ func (m *MultiGatewayConnectionState) RollbackTransaction() {
 		m.SessionSettings = make(map[string]string, len(m.savepoints[0].sessionSettings))
 		maps.Copy(m.SessionSettings, m.savepoints[0].sessionSettings)
 	}
-	m.statementTimeout.RestoreFromDepth(0)
-	m.statementTimeout.ClearSnapshots()
-	m.statementTimeout.ResetLocal()
+	for _, gmv := range m.gatewayManagedVariablesLocked() {
+		gmv.RestoreFromDepth(0)
+		gmv.ClearSnapshots()
+		gmv.ResetLocal()
+	}
 	m.savepoints = nil
 }
 

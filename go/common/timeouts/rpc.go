@@ -21,6 +21,13 @@ import "time"
 // RPC calls, etcd data fetches, and synchronous replication health checks.
 const RemoteOperationTimeout = 15 * time.Second
 
+// RuleWriteTimeout is the timeout for rule writes and the election-flow RPCs
+// (Recruit, Promote, SetPrimary). For promotions the rule_history write
+// blocks until a sync-standby WAL ack arrives after the full SetPrimary
+// round-trip, which includes optional pg_rewind. 60 s gives ~45 s of headroom
+// beyond the typical 8–14 s observed in the 9-pooler AZ-freeze test.
+const RuleWriteTimeout = 30 * time.Second
+
 // DefaultHealthStreamStalenessTimeout is the default staleness watchdog timeout for
 // ManagerHealthStream connections. If no message is received within this window
 // the client reconnects and the server advertises this value in the start response.

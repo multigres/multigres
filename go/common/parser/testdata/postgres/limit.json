@@ -1,33 +1,33 @@
 [
   {
     "comment": "limit - Statement 1",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 ORDER BY unique1 LIMIT 2",
-    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 ORDER BY unique1 LIMIT 2"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 ORDER BY unique1 LIMIT 2",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 ORDER BY unique1 LIMIT 2"
   },
   {
     "comment": "limit - Statement 2",
-    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 ORDER BY unique1 LIMIT 5",
-    "expected": "SELECT CAST('' AS TEXT) AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 ORDER BY unique1 LIMIT 5"
+    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 ORDER BY unique1 LIMIT 5",
+    "expected": "SELECT CAST('' AS TEXT) AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 ORDER BY unique1 LIMIT 5"
   },
   {
     "comment": "limit - Statement 3",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 AND unique1 \u003c 63 ORDER BY unique1 LIMIT 5",
-    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 AND unique1 \u003c 63 ORDER BY unique1 LIMIT 5"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 AND unique1 < 63 ORDER BY unique1 LIMIT 5",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 AND unique1 < 63 ORDER BY unique1 LIMIT 5"
   },
   {
     "comment": "limit - Statement 4",
-    "query": "SELECT ''::text AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 100 ORDER BY unique1 LIMIT 3 OFFSET 20",
-    "expected": "SELECT CAST('' AS TEXT) AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 100 ORDER BY unique1 LIMIT 3 OFFSET 20"
+    "query": "SELECT ''::text AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 > 100 ORDER BY unique1 LIMIT 3 OFFSET 20",
+    "expected": "SELECT CAST('' AS TEXT) AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 > 100 ORDER BY unique1 LIMIT 3 OFFSET 20"
   },
   {
     "comment": "limit - Statement 5",
-    "query": "SELECT ''::text AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99",
-    "expected": "SELECT CAST('' AS TEXT) AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99"
+    "query": "SELECT ''::text AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99",
+    "expected": "SELECT CAST('' AS TEXT) AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99"
   },
   {
     "comment": "limit - Statement 6",
-    "query": "SELECT ''::text AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39",
-    "expected": "SELECT CAST('' AS TEXT) AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39"
+    "query": "SELECT ''::text AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39",
+    "expected": "SELECT CAST('' AS TEXT) AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39"
   },
   {
     "comment": "limit - Statement 7",
@@ -46,13 +46,13 @@
   },
   {
     "comment": "limit - Statement 10",
-    "query": "select * from int8_tbl limit (case when random() \u003c 0.5 then null::bigint end)",
-    "expected": "SELECT * FROM int8_tbl LIMIT (CASE WHEN random() \u003c 0.5 THEN CAST(NULL AS BIGINT) END)"
+    "query": "select * from int8_tbl limit (case when random() < 0.5 then null::bigint end)",
+    "expected": "SELECT * FROM int8_tbl LIMIT (CASE WHEN random() < 0.5 THEN CAST(NULL AS BIGINT) END)"
   },
   {
     "comment": "limit - Statement 11",
-    "query": "select * from int8_tbl offset (case when random() \u003c 0.5 then null::bigint end)",
-    "expected": "SELECT * FROM int8_tbl OFFSET (CASE WHEN random() \u003c 0.5 THEN CAST(NULL AS BIGINT) END)"
+    "query": "select * from int8_tbl offset (case when random() < 0.5 then null::bigint end)",
+    "expected": "SELECT * FROM int8_tbl OFFSET (CASE WHEN random() < 0.5 THEN CAST(NULL AS BIGINT) END)"
   },
   {
     "comment": "limit - Statement 12",
@@ -197,7 +197,7 @@
   {
     "comment": "limit - Statement 40",
     "query": "create temp sequence testseq",
-    "expected": "CREATE SEQUENCE testseq"
+    "expected": "CREATE TEMPORARY SEQUENCE testseq"
   },
   {
     "comment": "limit - Statement 41",
@@ -276,41 +276,41 @@
   },
   {
     "comment": "limit - Statement 56",
-    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROW WITH TIES",
-    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROWS WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 2 ROW WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 2 ROWS WITH TIES"
   },
   {
     "comment": "limit - Statement 57",
-    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROWS WITH TIES",
-    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST ROWS WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
   },
   {
     "comment": "limit - Statement 58",
-    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES",
-    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
   },
   {
     "comment": "limit - Statement 59",
-    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROW ONLY",
-    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand LIMIT 2"
+    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 2 ROW ONLY",
+    "expected": "SELECT thousand FROM onek WHERE thousand < 5 ORDER BY thousand LIMIT 2"
   },
   {
     "comment": "limit - Statement 60",
-    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES FOR UPDATE SKIP LOCKED",
-    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES FOR UPDATE SKIP LOCKED"
+    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES FOR UPDATE SKIP LOCKED",
+    "expected": "SELECT thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST ROW WITH TIES FOR UPDATE SKIP LOCKED"
   },
   {
     "comment": "limit - Statement 61",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 FETCH FIRST 2 ROW WITH TIES",
-    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 FETCH FIRST 2 ROWS WITH TIES"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 FETCH FIRST 2 ROW WITH TIES",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 FETCH FIRST 2 ROWS WITH TIES"
   },
   {
     "comment": "limit - Statement 62",
-    "query": "CREATE VIEW limit_thousand_v_1 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST 5 ROWS WITH TIES OFFSET 10"
+    "query": "CREATE VIEW limit_thousand_v_1 AS SELECT thousand FROM onek WHERE thousand < 995 ORDER BY thousand FETCH FIRST 5 ROWS WITH TIES OFFSET 10"
   },
   {
     "comment": "limit - Statement 63",
-    "query": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST (NULL+1) ROWS WITH TIES",
-    "expected": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST (NULL + 1) ROWS WITH TIES"
+    "query": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand < 995 ORDER BY thousand FETCH FIRST (NULL+1) ROWS WITH TIES",
+    "expected": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand < 995 ORDER BY thousand FETCH FIRST (NULL + 1) ROWS WITH TIES"
   }
 ]

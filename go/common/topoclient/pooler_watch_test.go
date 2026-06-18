@@ -24,7 +24,7 @@ func TestExtractPoolerIDFromPath(t *testing.T) {
 	tests := []struct {
 		name     string
 		path     string
-		expected string
+		expected ComponentID
 	}{
 		{"relative path", "poolers/multipooler-cell1-pooler1/Pooler", "multipooler-cell1-pooler1"},
 		{"simple id", "poolers/some-complex-id/Pooler", "some-complex-id"},

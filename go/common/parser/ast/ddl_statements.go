@@ -625,7 +625,7 @@ func (r *RoleSpec) String() string {
 func (r *RoleSpec) SqlString() string {
 	switch r.Roletype {
 	case ROLESPEC_CSTRING:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	case ROLESPEC_CURRENT_USER:
 		return "CURRENT_USER"
 	case ROLESPEC_SESSION_USER:
@@ -635,7 +635,7 @@ func (r *RoleSpec) SqlString() string {
 	case ROLESPEC_PUBLIC:
 		return "PUBLIC"
 	default:
-		return r.Rolename
+		return QuoteIdentifier(r.Rolename)
 	}
 }
 
@@ -743,7 +743,7 @@ func normalizeTypeName(nameParts []string) string {
 		// Strip pg_catalog or public schema for built-in types only
 		if len(nameParts) == 2 && (nameParts[0] == "pg_catalog" || nameParts[0] == "public") {
 			typeName := nameParts[1]
-			if isBuiltInType(typeName) {
+			if IsBuiltInType(typeName) {
 				return normalizeSingleTypeName(typeName)
 			}
 		}
@@ -760,8 +760,11 @@ func normalizeTypeName(nameParts []string) string {
 	return normalizeSingleTypeName(nameParts[0])
 }
 
-// isBuiltInType checks if a type name is a built-in PostgreSQL type
-func isBuiltInType(typeName string) bool {
+// IsBuiltInType checks if a type name is a built-in PostgreSQL type. These are
+// the keyword types the deparser renders with bespoke syntax (interval-field
+// masks, char/varchar length, the one-byte "char" type) rather than as plain
+// quoted identifiers.
+func IsBuiltInType(typeName string) bool {
 	switch strings.ToLower(typeName) {
 	case "int4", "int", "int8", "bigint", "int2", "smallint",
 		"float", "float4", "real", "float8", "double precision",
@@ -794,8 +797,12 @@ func normalizeSingleTypeName(typeName string) string {
 		return "DOUBLE PRECISION"
 	case "bool", "boolean":
 		return "BOOLEAN"
-	case "bpchar", "char":
-		return "CHAR"
+	case "bpchar":
+		return "bpchar"
+	case "char":
+		// pg_catalog."char" is a one-byte ad-hoc type distinct from bpchar/CHAR;
+		// preserve the quoting so it does not collapse to bpchar(1) on the wire.
+		return `"char"`
 	case "varchar":
 		return "VARCHAR"
 	case "text":
@@ -897,6 +904,16 @@ func (t *TypeName) SqlString() string {
 		}
 	}
 
+	// `col%TYPE` references the type of an existing column. The qualified name is
+	// kept verbatim (not alias-normalized) with the %TYPE suffix.
+	if t.PctType {
+		quoted := make([]string, len(nameParts))
+		for i, p := range nameParts {
+			quoted[i] = QuoteIdentifier(p)
+		}
+		return result + strings.Join(quoted, ".") + "%TYPE"
+	}
+
 	// Use normalizeTypeName to handle both single and qualified names
 	typeName := normalizeTypeName(nameParts)
 
@@ -970,7 +987,7 @@ func (t *TypeName) SqlString() string {
 				if intBound.IVal == -1 {
 					boundsBuilder.WriteString("[]")
 				} else {
-					boundsBuilder.WriteString(fmt.Sprintf("[%d]", intBound.IVal))
+					fmt.Fprintf(&boundsBuilder, "[%d]", intBound.IVal)
 				}
 			}
 		}
@@ -1078,11 +1095,16 @@ func (d *DefElem) String() string {
 
 // SqlString returns the SQL representation of DefElem
 func (d *DefElem) SqlString() string {
-	if d.Arg != nil {
-		argStr := d.Arg.SqlString()
-		return fmt.Sprintf("%s = %s", QuoteIdentifier(d.Defname), argStr)
+	name := QuoteIdentifier(d.Defname)
+	// A namespace qualifies the option (e.g. the toast.* storage parameters);
+	// dropping it would collide with the un-namespaced option of the same name.
+	if d.Defnamespace != "" {
+		name = QuoteIdentifier(d.Defnamespace) + "." + name
 	}
-	return QuoteIdentifier(d.Defname)
+	if d.Arg != nil {
+		return fmt.Sprintf("%s = %s", name, d.Arg.SqlString())
+	}
+	return name
 }
 
 // SqlStringForFunction returns the SQL representation of DefElem for function options
@@ -1131,18 +1153,18 @@ func (d *DefElem) SqlStringForFunction() string {
 		}
 	case "support":
 		if d.Arg != nil {
-			// For SUPPORT, we want the unquoted function name
+			// SUPPORT names a function (qualified identifier), which must be quoted.
 			if nodeList, ok := d.Arg.(*NodeList); ok && nodeList.Len() > 0 {
 				// Handle qualified names like schema.func_name
 				nameStrs := make([]string, 0, nodeList.Len())
 				for i := 0; i < nodeList.Len(); i++ {
 					if strNode, ok := nodeList.Items[i].(*String); ok {
-						nameStrs = append(nameStrs, strNode.SVal)
+						nameStrs = append(nameStrs, QuoteIdentifier(strNode.SVal))
 					}
 				}
 				return "SUPPORT " + strings.Join(nameStrs, ".")
 			} else if strNode, ok := d.Arg.(*String); ok {
-				return "SUPPORT " + strNode.SVal
+				return "SUPPORT " + QuoteIdentifier(strNode.SVal)
 			} else {
 				return "SUPPORT " + d.Arg.SqlString()
 			}
@@ -1214,10 +1236,48 @@ func (c *Constraint) String() string {
 	return fmt.Sprintf("Constraint(%s %s)@%d", c.Contype, name, c.Location())
 }
 
+// indexConstraintTail renders the trailing clauses shared by PRIMARY KEY and
+// UNIQUE table constraints: INCLUDE non-key columns, an adopted index or index
+// tablespace, and deferrability.
+func (c *Constraint) indexConstraintTail() string {
+	result := ""
+	if c.Including != nil && c.Including.Len() > 0 {
+		result += " INCLUDE (" + strings.Join(nodeListToStrings(c.Including), ", ") + ")"
+	}
+	// WITH (reloptions) for the underlying index, e.g. UNIQUE (a) WITH (fillfactor=70).
+	if c.Options != nil && c.Options.Len() > 0 {
+		opts := make([]string, 0, c.Options.Len())
+		for _, item := range c.Options.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				opts = append(opts, defElem.SqlString())
+			}
+		}
+		if len(opts) > 0 {
+			result += " WITH (" + strings.Join(opts, ", ") + ")"
+		}
+	}
+	if c.Indexname != "" {
+		result += " USING INDEX " + QuoteIdentifier(c.Indexname)
+	}
+	if c.Indexspace != "" {
+		result += " USING INDEX TABLESPACE " + QuoteIdentifier(c.Indexspace)
+	}
+	if c.Deferrable {
+		result += " DEFERRABLE"
+	}
+	if c.Initdeferred {
+		result += " INITIALLY DEFERRED"
+	}
+	return result
+}
+
 // SqlString generates SQL representation of a constraint
 func (c *Constraint) SqlString() string {
 	switch c.Contype {
 	case CONSTR_NOTNULL:
+		if c.Conname != "" {
+			return "CONSTRAINT " + QuoteIdentifier(c.Conname) + " NOT NULL"
+		}
 		return "NOT NULL"
 	case CONSTR_NULL:
 		return "NULL"
@@ -1285,7 +1345,12 @@ func (c *Constraint) SqlString() string {
 		}
 		return result.String()
 	case CONSTR_GENERATED:
+		// Almost always ALWAYS, but preserve BY DEFAULT if that is what was
+		// parsed (round-trip; PG itself rejects BY DEFAULT for STORED columns).
 		result := "GENERATED ALWAYS AS"
+		if c.GeneratedWhen == ATTRIBUTE_IDENTITY_BY_DEFAULT {
+			result = "GENERATED BY DEFAULT AS"
+		}
 		if c.RawExpr != nil {
 			result += " (" + c.RawExpr.SqlString() + ")"
 		}
@@ -1294,33 +1359,33 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_PRIMARY:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "PRIMARY KEY"
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
-		if c.Indexname != "" {
-			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
-		}
+		result += c.indexConstraintTail()
 		return result
 	case CONSTR_UNIQUE:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "UNIQUE"
+		// NULLS DISTINCT is the default; only the NOT form needs rendering.
+		if c.NullsNotDistinct {
+			result += " NULLS NOT DISTINCT"
+		}
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
-		if c.Indexname != "" {
-			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
-		}
+		result += c.indexConstraintTail()
 		return result
 	case CONSTR_CHECK:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "CHECK"
 		if c.RawExpr != nil {
@@ -1341,7 +1406,7 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_FOREIGN:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 
 		// For column-level constraints, don't include "FOREIGN KEY"
@@ -1424,13 +1489,13 @@ func (c *Constraint) SqlString() string {
 	case CONSTR_EXCLUSION:
 		result := ""
 		if c.Conname != "" {
-			result = "CONSTRAINT " + c.Conname + " "
+			result = "CONSTRAINT " + QuoteIdentifier(c.Conname) + " "
 		}
 		result += "EXCLUDE"
 
 		// Add access method if specified
 		if c.AccessMethod != "" {
-			result += " USING " + c.AccessMethod
+			result += " USING " + QuoteIdentifier(c.AccessMethod)
 		}
 
 		// Add exclusion elements (column WITH operator pairs)
@@ -1456,12 +1521,37 @@ func (c *Constraint) SqlString() string {
 			}
 		}
 
+		// Add INCLUDE non-key columns if specified
+		if c.Including != nil && c.Including.Len() > 0 {
+			result += " INCLUDE (" + strings.Join(nodeListToStrings(c.Including), ", ") + ")"
+		}
+
 		// Add WHERE clause if specified
 		if c.WhereClause != nil {
 			result += " WHERE " + c.WhereClause.SqlString()
 		}
 
+		// Add deferrability
+		if c.Deferrable {
+			result += " DEFERRABLE"
+		}
+		if c.Initdeferred {
+			result += " INITIALLY DEFERRED"
+		}
+
 		return result
+
+	// Constraint attributes parsed as standalone nodes for column constraints
+	// (PostgreSQL merges these into the preceding constraint during analysis;
+	// at raw-parse time they are separate Constraint nodes).
+	case CONSTR_ATTR_DEFERRABLE:
+		return "DEFERRABLE"
+	case CONSTR_ATTR_NOT_DEFERRABLE:
+		return "NOT DEFERRABLE"
+	case CONSTR_ATTR_DEFERRED:
+		return "INITIALLY DEFERRED"
+	case CONSTR_ATTR_IMMEDIATE:
+		return "INITIALLY IMMEDIATE"
 	}
 	return ""
 }
@@ -1535,7 +1625,7 @@ func (r *ReplicaIdentityStmt) SqlString() string {
 	case REPLICA_IDENTITY_DEFAULT:
 		return "REPLICA IDENTITY DEFAULT"
 	case REPLICA_IDENTITY_INDEX:
-		return "REPLICA IDENTITY USING INDEX " + r.Name
+		return "REPLICA IDENTITY USING INDEX " + QuoteIdentifier(r.Name)
 	default:
 		return "REPLICA IDENTITY"
 	}
@@ -1592,36 +1682,22 @@ func (a *AlterTableMoveAllStmt) SqlString() string {
 	}
 
 	// Add ALL IN TABLESPACE
-	parts = append(parts, "ALL IN TABLESPACE", a.OrigTablespacename)
+	parts = append(parts, "ALL IN TABLESPACE", QuoteIdentifier(a.OrigTablespacename))
 
 	// Add OWNED BY if roles specified
 	if a.Roles != nil && a.Roles.Len() > 0 {
 		parts = append(parts, "OWNED BY")
-		// Extract role names from the NodeList
 		roleNames := make([]string, 0, a.Roles.Len())
 		for _, item := range a.Roles.Items {
 			if roleSpec, ok := item.(*RoleSpec); ok {
-				// Handle different role types
-				if roleSpec.Rolename != "" {
-					roleNames = append(roleNames, roleSpec.Rolename)
-				} else {
-					// Handle special roles like CURRENT_USER, etc.
-					switch roleSpec.Roletype {
-					case ROLESPEC_CURRENT_USER:
-						roleNames = append(roleNames, "CURRENT_USER")
-					case ROLESPEC_CURRENT_ROLE:
-						roleNames = append(roleNames, "CURRENT_ROLE")
-					case ROLESPEC_SESSION_USER:
-						roleNames = append(roleNames, "SESSION_USER")
-					}
-				}
+				roleNames = append(roleNames, roleSpec.SqlString())
 			}
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
 
 	// Add SET TABLESPACE
-	parts = append(parts, "SET TABLESPACE", a.NewTablespacename)
+	parts = append(parts, "SET TABLESPACE", QuoteIdentifier(a.NewTablespacename))
 
 	// Add NOWAIT if specified
 	if a.Nowait {
@@ -1783,6 +1859,10 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "SET STATISTICS")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
+		} else {
+			// A nil value is the DEFAULT form (SET STATISTICS DEFAULT); the
+			// grammar's set_statistics_value maps DEFAULT to a nil node.
+			parts = append(parts, "DEFAULT")
 		}
 
 	case AT_SetExpression:
@@ -1976,78 +2056,52 @@ func (a *AlterTableCmd) SqlString() string {
 		}
 
 	case AT_SetIdentity:
-		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name))
 		if a.Def != nil {
 			// Handle identity specifications - could be a Constraint or DefElems
 			if constraint, ok := a.Def.(*Constraint); ok {
-				parts = append(parts, constraint.SqlString())
+				parts = append(parts, "SET", constraint.SqlString())
 			} else if nodeList, ok := a.Def.(*NodeList); ok {
-				// Handle NodeList of DefElems for identity options
-				var identityParts []string
-				var hasGenerated bool
-
-				// First pass - check for 'generated' option to determine ALWAYS vs BY DEFAULT
+				// Each option is self-contained: "SET GENERATED ...", a "SET
+				// <seqopt>", or a bare "RESTART". Earlier code prepended a global
+				// SET and a "GENERATED BY DEFAULT" even when neither was present,
+				// which corrupted e.g. "SET INCREMENT BY 2".
 				for _, item := range nodeList.Items {
-					if defElem, ok := item.(*DefElem); ok && defElem.Defname == "generated" {
-						hasGenerated = true
-						// For SET IDENTITY, we typically want BY DEFAULT unless specified otherwise
-						identityParts = append(identityParts, "GENERATED BY DEFAULT")
-						break
+					defElem, ok := item.(*DefElem)
+					if !ok {
+						continue
 					}
-				}
-
-				if !hasGenerated {
-					// Default to BY DEFAULT if no generated option specified
-					identityParts = append(identityParts, "GENERATED BY DEFAULT")
-				}
-
-				// Second pass - handle sequence options
-				for _, item := range nodeList.Items {
-					if defElem, ok := item.(*DefElem); ok {
-						switch defElem.Defname {
-						case "increment":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET INCREMENT BY "+defElem.Arg.SqlString())
-							}
-						case "start":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET START WITH "+defElem.Arg.SqlString())
-							}
-						case "restart":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET RESTART WITH "+defElem.Arg.SqlString())
-							} else {
-								identityParts = append(identityParts, "RESTART")
-							}
-						case "maxvalue":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET MAXVALUE "+defElem.Arg.SqlString())
-							}
-						case "minvalue":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET MINVALUE "+defElem.Arg.SqlString())
-							}
-						case "cache":
-							if defElem.Arg != nil {
-								identityParts = append(identityParts, "SET CACHE "+defElem.Arg.SqlString())
-							}
-						case "cycle":
-							if defElem.Arg != nil {
-								if boolNode, ok := defElem.Arg.(*Boolean); ok {
-									if boolNode.BoolVal {
-										identityParts = append(identityParts, "SET CYCLE")
-									} else {
-										identityParts = append(identityParts, "SET NO CYCLE")
-									}
-								}
-							}
-						// Skip the 'generated' option as it's handled above
-						case "generated":
-							// Already handled in first pass
+					switch defElem.Defname {
+					case "generated":
+						if intNode, ok := defElem.Arg.(*Integer); ok && byte(intNode.IVal) == ATTRIBUTE_IDENTITY_ALWAYS {
+							parts = append(parts, "SET GENERATED ALWAYS")
+						} else {
+							parts = append(parts, "SET GENERATED BY DEFAULT")
+						}
+					case "restart":
+						if defElem.Arg != nil {
+							parts = append(parts, "RESTART WITH "+defElem.Arg.SqlString())
+						} else {
+							parts = append(parts, "RESTART")
+						}
+					case "increment":
+						parts = append(parts, "SET INCREMENT BY "+defElem.Arg.SqlString())
+					case "start":
+						parts = append(parts, "SET START WITH "+defElem.Arg.SqlString())
+					case "maxvalue":
+						parts = append(parts, "SET MAXVALUE "+defElem.Arg.SqlString())
+					case "minvalue":
+						parts = append(parts, "SET MINVALUE "+defElem.Arg.SqlString())
+					case "cache":
+						parts = append(parts, "SET CACHE "+defElem.Arg.SqlString())
+					case "cycle":
+						if boolNode, ok := defElem.Arg.(*Boolean); ok && !boolNode.BoolVal {
+							parts = append(parts, "SET NO CYCLE")
+						} else {
+							parts = append(parts, "SET CYCLE")
 						}
 					}
 				}
-				parts = append(parts, strings.Join(identityParts, " "))
 			} else {
 				// Fallback to default SqlString
 				parts = append(parts, a.Def.SqlString())
@@ -2056,12 +2110,15 @@ func (a *AlterTableCmd) SqlString() string {
 
 	case AT_DropIdentity:
 		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "DROP IDENTITY")
+		if a.MissingOk {
+			parts = append(parts, "IF EXISTS")
+		}
 
 	case AT_ReplicaIdentity:
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		} else if a.Name != "" {
-			parts = append(parts, "REPLICA IDENTITY USING INDEX", a.Name)
+			parts = append(parts, "REPLICA IDENTITY USING INDEX", QuoteIdentifier(a.Name))
 		} else {
 			parts = append(parts, "REPLICA IDENTITY")
 		}
@@ -2070,7 +2127,7 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "ALTER CONSTRAINT")
 		if constraint, ok := a.Def.(*Constraint); ok && constraint != nil {
 			if constraint.Conname != "" {
-				parts = append(parts, constraint.Conname)
+				parts = append(parts, QuoteIdentifier(constraint.Conname))
 			}
 			// Add DEFERRABLE and INITIALLY DEFERRED attributes
 			if constraint.Deferrable {
@@ -2082,6 +2139,9 @@ func (a *AlterTableCmd) SqlString() string {
 				}
 			} else {
 				parts = append(parts, "NOT DEFERRABLE")
+				if constraint.Initdeferred {
+					parts = append(parts, "INITIALLY DEFERRED")
+				}
 			}
 		}
 
@@ -2124,7 +2184,7 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_SetAccessMethod:
 		parts = append(parts, "SET ACCESS METHOD")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		} else {
 			// When Name is empty, it means DEFAULT was explicitly specified
 			parts = append(parts, "DEFAULT")
@@ -2528,7 +2588,7 @@ func (i *IndexElem) SqlString() string {
 		var opclassParts []string
 		for _, item := range i.Opclass.Items {
 			if strNode, ok := item.(*String); ok {
-				opclassParts = append(opclassParts, strNode.SVal)
+				opclassParts = append(opclassParts, QuoteIdentifier(strNode.SVal))
 			} else if item != nil {
 				opclassParts = append(opclassParts, item.SqlString())
 			}
@@ -2650,7 +2710,7 @@ func (v *ViewStmt) SqlString() string {
 		var aliasStrs []string
 		for _, item := range v.Aliases.Items {
 			if alias, ok := item.(*String); ok {
-				aliasStrs = append(aliasStrs, alias.SVal)
+				aliasStrs = append(aliasStrs, QuoteIdentifier(alias.SVal))
 			}
 		}
 		if len(aliasStrs) > 0 {
@@ -2739,7 +2799,7 @@ func (a *AlterDomainStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range a.TypeName.Items {
 			if str, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, str.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -2773,7 +2833,7 @@ func (a *AlterDomainStmt) SqlString() string {
 			parts = append(parts, "IF EXISTS")
 		}
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
@@ -2781,7 +2841,7 @@ func (a *AlterDomainStmt) SqlString() string {
 	case 'V': // VALIDATE CONSTRAINT
 		parts = append(parts, "VALIDATE CONSTRAINT")
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 	}
 
@@ -2831,7 +2891,7 @@ func (c *CreateDomainStmt) SqlString() string {
 		var nameStrs []string
 		for _, item := range c.Domainname.Items {
 			if str, ok := item.(*String); ok {
-				nameStrs = append(nameStrs, str.SVal)
+				nameStrs = append(nameStrs, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
@@ -3108,10 +3168,25 @@ func (a *AlterExtensionContentsStmt) String() string {
 	return fmt.Sprintf("AlterExtensionContentsStmt(%s %s)@%d", a.Extname, action, a.Location())
 }
 
-// SqlString returns the SQL representation of AlterExtensionContentsStmt
+// identifierFromNode renders a node that names an identifier. A String node is
+// quoted as an identifier (not as a string literal); any other node falls back
+// to its own SqlString.
+func identifierFromNode(n Node) string {
+	if s, ok := n.(*String); ok {
+		return QuoteIdentifier(s.SVal)
+	}
+	return n.SqlString()
+}
+
+// SqlString returns the SQL representation of AlterExtensionContentsStmt.
+// Mirrors PostgreSQL's deparseAlterExtensionContentsStmt: the object type
+// keyword is emitted, then the member object is rendered according to its
+// grammar shape (a bare name, a qualified any_name, a function/operator with
+// argtypes, a type name, a cast, an operator class/family with USING, or a
+// transform).
 func (a *AlterExtensionContentsStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER EXTENSION", a.Extname)
+	parts = append(parts, "ALTER EXTENSION", QuoteIdentifier(a.Extname))
 
 	if a.Action {
 		parts = append(parts, "ADD")
@@ -3119,71 +3194,117 @@ func (a *AlterExtensionContentsStmt) SqlString() string {
 		parts = append(parts, "DROP")
 	}
 
-	// Add object type and handle special formatting cases
-	switch a.Objtype {
-	case int(OBJECT_AGGREGATE):
+	// Object type keyword.
+	switch ObjectType(a.Objtype) {
+	case OBJECT_ACCESS_METHOD:
+		parts = append(parts, "ACCESS METHOD")
+	case OBJECT_AGGREGATE:
 		parts = append(parts, "AGGREGATE")
-	case int(OBJECT_CAST):
+	case OBJECT_CAST:
 		parts = append(parts, "CAST")
-		// For CAST, the object is a NodeList with two TypeNames
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			parts = append(parts, "(", nodeList.Items[0].SqlString(), "AS", nodeList.Items[1].SqlString(), ")")
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_DOMAIN):
+	case OBJECT_COLLATION:
+		parts = append(parts, "COLLATION")
+	case OBJECT_CONVERSION:
+		parts = append(parts, "CONVERSION")
+	case OBJECT_DOMAIN:
 		parts = append(parts, "DOMAIN")
-	case int(OBJECT_FUNCTION):
+	case OBJECT_FUNCTION:
 		parts = append(parts, "FUNCTION")
-	case int(OBJECT_OPCLASS):
+	case OBJECT_LANGUAGE:
+		parts = append(parts, "LANGUAGE")
+	case OBJECT_OPERATOR:
+		parts = append(parts, "OPERATOR")
+	case OBJECT_OPCLASS:
 		parts = append(parts, "OPERATOR CLASS")
-		// For OPERATOR CLASS, need to handle "name USING method" format
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			// First item is method name, rest are class name parts
-			methodStr := nodeList.Items[0].SqlString()
-			var nameStr strings.Builder
-			for i := 1; i < nodeList.Len(); i++ {
-				if i > 1 {
-					nameStr.WriteString(".")
-				}
-				nameStr.WriteString(nodeList.Items[i].SqlString())
-			}
-			parts = append(parts, nameStr.String(), "USING", methodStr)
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_OPFAMILY):
+	case OBJECT_OPFAMILY:
 		parts = append(parts, "OPERATOR FAMILY")
-		// For OPERATOR FAMILY, need to handle "name USING method" format
-		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
-			// First item is method name, rest are family name parts
-			methodStr := nodeList.Items[0].SqlString()
-			var nameStr strings.Builder
-			for i := 1; i < nodeList.Len(); i++ {
-				if i > 1 {
-					nameStr.WriteString(".")
-				}
-				nameStr.WriteString(nodeList.Items[i].SqlString())
-			}
-			parts = append(parts, nameStr.String(), "USING", methodStr)
-			return strings.Join(parts, " ")
-		}
-	case int(OBJECT_PROCEDURE):
+	case OBJECT_PROCEDURE:
 		parts = append(parts, "PROCEDURE")
-	case int(OBJECT_ROUTINE):
+	case OBJECT_ROUTINE:
 		parts = append(parts, "ROUTINE")
-	case int(OBJECT_TYPE):
-		parts = append(parts, "TYPE")
-	case int(OBJECT_TABLE):
+	case OBJECT_SCHEMA:
+		parts = append(parts, "SCHEMA")
+	case OBJECT_EVENT_TRIGGER:
+		parts = append(parts, "EVENT TRIGGER")
+	case OBJECT_TABLE:
 		parts = append(parts, "TABLE")
-	case int(OBJECT_VIEW):
+	case OBJECT_TSPARSER:
+		parts = append(parts, "TEXT SEARCH PARSER")
+	case OBJECT_TSDICTIONARY:
+		parts = append(parts, "TEXT SEARCH DICTIONARY")
+	case OBJECT_TSTEMPLATE:
+		parts = append(parts, "TEXT SEARCH TEMPLATE")
+	case OBJECT_TSCONFIGURATION:
+		parts = append(parts, "TEXT SEARCH CONFIGURATION")
+	case OBJECT_SEQUENCE:
+		parts = append(parts, "SEQUENCE")
+	case OBJECT_VIEW:
 		parts = append(parts, "VIEW")
-	default:
-		// For other object types, use simple case conversion
-		parts = append(parts, "OBJECT")
+	case OBJECT_MATVIEW:
+		parts = append(parts, "MATERIALIZED VIEW")
+	case OBJECT_FOREIGN_TABLE:
+		parts = append(parts, "FOREIGN TABLE")
+	case OBJECT_FDW:
+		parts = append(parts, "FOREIGN DATA WRAPPER")
+	case OBJECT_FOREIGN_SERVER:
+		parts = append(parts, "SERVER")
+	case OBJECT_TRANSFORM:
+		parts = append(parts, "TRANSFORM")
+	case OBJECT_TYPE:
+		parts = append(parts, "TYPE")
 	}
 
-	// Add object name for simple cases (non-special formatting)
-	if a.Object != nil && a.Objtype != int(OBJECT_CAST) && a.Objtype != int(OBJECT_OPCLASS) && a.Objtype != int(OBJECT_OPFAMILY) {
-		parts = append(parts, a.Object.SqlString())
+	// Member object, rendered by its grammar shape.
+	switch ObjectType(a.Objtype) {
+	case OBJECT_COLLATION, OBJECT_CONVERSION, OBJECT_TABLE, OBJECT_TSPARSER,
+		OBJECT_TSDICTIONARY, OBJECT_TSTEMPLATE, OBJECT_TSCONFIGURATION,
+		OBJECT_SEQUENCE, OBJECT_VIEW, OBJECT_MATVIEW, OBJECT_FOREIGN_TABLE:
+		// any_name: a possibly-qualified name held as a NodeList of String parts.
+		if nodeList, ok := a.Object.(*NodeList); ok {
+			parts = append(parts, nodeListToQualifiedName(nodeList))
+		}
+	case OBJECT_ACCESS_METHOD, OBJECT_LANGUAGE, OBJECT_SCHEMA,
+		OBJECT_EVENT_TRIGGER, OBJECT_FDW, OBJECT_FOREIGN_SERVER:
+		// name: a single identifier held as a String node.
+		if s, ok := a.Object.(*String); ok {
+			parts = append(parts, QuoteIdentifier(s.SVal))
+		}
+	case OBJECT_AGGREGATE, OBJECT_FUNCTION, OBJECT_PROCEDURE, OBJECT_ROUTINE,
+		OBJECT_OPERATOR, OBJECT_DOMAIN, OBJECT_TYPE:
+		// ObjectWithArgs (aggregate/function/operator) or a TypeName
+		// (domain/type); both render themselves.
+		if a.Object != nil {
+			parts = append(parts, a.Object.SqlString())
+		}
+	case OBJECT_CAST:
+		// A NodeList of two TypeNames: (source AS target).
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			parts = append(parts, "(", nodeList.Items[0].SqlString(), "AS", nodeList.Items[1].SqlString(), ")")
+		}
+	case OBJECT_OPCLASS, OBJECT_OPFAMILY:
+		// A NodeList of [method, name parts...]; rendered as "name USING method".
+		// Every element is an identifier (the method name and the qualified
+		// class/family name parts), so each must be quoted as an identifier
+		// rather than rendered as a String literal.
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			methodStr := identifierFromNode(nodeList.Items[0])
+			var nameStr strings.Builder
+			for i := 1; i < nodeList.Len(); i++ {
+				if i > 1 {
+					nameStr.WriteString(".")
+				}
+				nameStr.WriteString(identifierFromNode(nodeList.Items[i]))
+			}
+			parts = append(parts, nameStr.String(), "USING", methodStr)
+		}
+	case OBJECT_TRANSFORM:
+		// A NodeList of [TypeName, language String]: "FOR <type> LANGUAGE <lang>".
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			parts = append(parts, "FOR", nodeList.Items[0].SqlString())
+			if lang, ok := nodeList.Items[1].(*String); ok {
+				parts = append(parts, "LANGUAGE", QuoteIdentifier(lang.SVal))
+			}
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -3333,7 +3454,7 @@ func (i *IndexStmt) SqlString() string {
 
 	// Add access method if specified
 	if i.AccessMethod != "" {
-		parts = append(parts, "USING", i.AccessMethod)
+		parts = append(parts, "USING", QuoteIdentifier(i.AccessMethod))
 	}
 
 	// Add index columns
@@ -3423,7 +3544,7 @@ func (c *CreateFdwStmt) String() string {
 // SqlString returns the SQL representation of CreateFdwStmt
 func (c *CreateFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", c.FdwName)
+	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", QuoteIdentifier(c.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if c.FuncOptions != nil && c.FuncOptions.Len() > 0 {
@@ -3438,7 +3559,7 @@ func (c *CreateFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
@@ -3453,7 +3574,7 @@ func (c *CreateFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
@@ -3518,7 +3639,7 @@ func (a *AlterFdwStmt) String() string {
 // SqlString returns the SQL representation of AlterFdwStmt
 func (a *AlterFdwStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", a.FdwName)
+	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", QuoteIdentifier(a.FdwName))
 
 	// Add HANDLER/VALIDATOR options
 	if a.FuncOptions != nil && a.FuncOptions.Len() > 0 {
@@ -3533,7 +3654,7 @@ func (a *AlterFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
@@ -3551,7 +3672,7 @@ func (a *AlterFdwStmt) SqlString() string {
 							var funcParts []string
 							for _, funcItem := range nodeList.Items {
 								if strNode, ok := funcItem.(*String); ok {
-									funcParts = append(funcParts, strNode.SVal)
+									funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 								}
 							}
 							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
@@ -3641,10 +3762,10 @@ func (a *AlterForeignServerStmt) String() string {
 // SqlString returns the SQL representation of AlterForeignServerStmt
 func (a *AlterForeignServerStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER SERVER", a.Servername)
+	parts = append(parts, "ALTER SERVER", QuoteIdentifier(a.Servername))
 
 	if a.HasVersion && a.Version != "" {
-		parts = append(parts, "VERSION", "'"+a.Version+"'")
+		parts = append(parts, "VERSION", QuoteStringLiteral(a.Version))
 	}
 
 	// Add OPTIONS clause
@@ -3716,7 +3837,7 @@ func (a *AlterUserMappingStmt) String() string {
 // SqlString returns the SQL representation of AlterUserMappingStmt
 func (a *AlterUserMappingStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", a.Servername)
+	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", QuoteIdentifier(a.Servername))
 
 	// Add OPTIONS clause
 	if a.Options != nil && a.Options.Len() > 0 {
@@ -3793,7 +3914,7 @@ func (d *DropUserMappingStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", d.Servername)
+	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", QuoteIdentifier(d.Servername))
 
 	return strings.Join(parts, " ")
 }
@@ -3844,7 +3965,7 @@ func (c *CreateEventTrigStmt) String() string {
 // SqlString returns the SQL representation of CreateEventTrigStmt
 func (c *CreateEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE EVENT TRIGGER", c.TrigName, "ON", c.EventName)
+	parts = append(parts, "CREATE EVENT TRIGGER", QuoteIdentifier(c.TrigName), "ON", QuoteIdentifier(c.EventName))
 
 	// Add WHEN clause if present
 	if c.WhenClause != nil && c.WhenClause.Len() > 0 {
@@ -3875,7 +3996,7 @@ func (c *CreateEventTrigStmt) SqlString() string {
 		var funcParts []string
 		for _, item := range c.FuncName.Items {
 			if strNode, ok := item.(*String); ok {
-				funcParts = append(funcParts, strNode.SVal)
+				funcParts = append(funcParts, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, strings.Join(funcParts, ".")+"()")
@@ -3912,7 +4033,7 @@ func (a *AlterEventTrigStmt) String() string {
 // SqlString returns the SQL representation of AlterEventTrigStmt
 func (a *AlterEventTrigStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "ALTER EVENT TRIGGER", a.TrigName)
+	parts = append(parts, "ALTER EVENT TRIGGER", QuoteIdentifier(a.TrigName))
 
 	switch a.TgEnabled {
 	case TRIGGER_FIRES_ON_ORIGIN:
@@ -3960,7 +4081,7 @@ func (c *CreatedbStmt) String() string {
 // SqlString returns the SQL representation of CreatedbStmt
 func (c *CreatedbStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE DATABASE", c.Dbname)
+	parts = append(parts, "CREATE DATABASE", QuoteIdentifier(c.Dbname))
 
 	// Add options if present
 	if c.Options != nil && c.Options.Len() > 0 {
@@ -4014,7 +4135,9 @@ func (c *CreatedbStmt) formatDatabaseOption(opt *DefElem) string {
 		}
 		return fmt.Sprintf("%s = %s", optName, argStr)
 	}
-	return optName
+	// A nil arg is the DEFAULT form (e.g. LOCATION DEFAULT, TABLESPACE DEFAULT);
+	// emit the keyword so the option re-parses as a valid createdb_opt_item.
+	return optName + " DEFAULT"
 }
 
 // DropdbStmt represents a DROP DATABASE statement.
@@ -4057,7 +4180,7 @@ func (d *DropdbStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Dbname)
+	parts = append(parts, QuoteIdentifier(d.Dbname))
 
 	// Add options if present (e.g., FORCE)
 	if d.Options != nil && d.Options.Len() > 0 {
@@ -4115,7 +4238,7 @@ func (d *DropTableSpaceStmt) SqlString() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	parts = append(parts, d.Tablespacename)
+	parts = append(parts, QuoteIdentifier(d.Tablespacename))
 
 	return strings.Join(parts, " ")
 }

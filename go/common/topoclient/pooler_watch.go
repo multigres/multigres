@@ -34,15 +34,47 @@ import (
 // onDeleted is called with the pooler ID string when a pooler is removed from the topology.
 //
 // watchPoolersWithRetry returns when ctx is cancelled.
+//
+// syncReq is an optional channel for in-band sync requests. When a function is
+// received on syncReq, the watch loop first drains every event currently
+// available in `changes` (so onUpserted/onDeleted have fired for them) and then
+// invokes the received function. This lets callers build a barrier that waits
+// for the watch loop to "catch up" to a known point. Pass nil to disable.
 func watchPoolersWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	cell string,
 	logger *slog.Logger,
+	syncReq <-chan func(),
 	onInitial func([]*clustermetadatapb.MultiPooler),
 	onUpserted func(*clustermetadatapb.MultiPooler),
-	onDeleted func(poolerID string),
+	onDeleted func(poolerID ComponentID),
 ) {
+	processOne := func(wd *WatchDataRecursive) {
+		pooler, poolerID, isDelete, ok := parsePoolerWatchEntry(wd, logger)
+		if !ok {
+			return
+		}
+		if isDelete {
+			onDeleted(poolerID)
+		} else {
+			onUpserted(pooler)
+		}
+	}
+	drainPending := func(changes <-chan *WatchDataRecursive) bool {
+		for {
+			select {
+			case wd, ok := <-changes:
+				if !ok {
+					return false
+				}
+				processOne(wd)
+			default:
+				return true
+			}
+		}
+	}
+
 	watchPathWithRetry(ctx, store, cell, PoolersPath, logger,
 		func(initial []*WatchDataRecursive) {
 			poolers := make([]*clustermetadatapb.MultiPooler, 0, len(initial))
@@ -64,15 +96,18 @@ func watchPoolersWithRetry(
 					if !ok {
 						return
 					}
-					pooler, poolerID, isDelete, ok := parsePoolerWatchEntry(wd, logger)
-					if !ok {
-						continue
+					processOne(wd)
+				case fn := <-syncReq:
+					// Drain everything currently in changes before acking.
+					// processOne does not block, so the drain is bounded by
+					// what was already buffered at the time syncReq fired.
+					if !drainPending(changes) {
+						// changes closed mid-drain; ack so the caller doesn't
+						// hang, then loop will exit via the next iteration.
+						fn()
+						return
 					}
-					if isDelete {
-						onDeleted(poolerID)
-					} else {
-						onUpserted(pooler)
-					}
+					fn()
 				}
 			}
 		},
@@ -92,14 +127,88 @@ func watchPoolersWithRetry(
 // be called only after all onInitial/onUpserted/onDeleted callbacks for that cell have
 // completed, so callers can safely clean up per-cell state.
 //
-// watchAllPoolersWithRetry returns when ctx is cancelled.
+// cellSyncBroadcaster coordinates in-band sync barriers across the per-cell
+// watcher goroutines started by watchAllPoolersWithRetry. Callers create one
+// (newCellSyncBroadcaster), pass it to watchAllPoolersWithRetry, and call
+// syncAll() to wait for every active cell watcher to drain its pending events.
+//
+// Internally each cell watcher owns a syncReq channel that its select loop
+// reads from with drain-first semantics: on receipt of a sync function, the
+// watcher first drains every event already buffered in `changes` (firing
+// onUpserted/onDeleted for each) and then invokes the function as ack. By the
+// time syncAll returns, every cell watcher has observed and emitted every
+// event that was in flight when syncAll was called.
+type cellSyncBroadcaster struct {
+	mu       sync.Mutex
+	syncReqs map[string]chan func()
+}
+
+func newCellSyncBroadcaster() *cellSyncBroadcaster {
+	return &cellSyncBroadcaster{syncReqs: make(map[string]chan func())}
+}
+
+func (b *cellSyncBroadcaster) register(cell string) chan func() {
+	ch := make(chan func(), 1)
+	b.mu.Lock()
+	b.syncReqs[cell] = ch
+	b.mu.Unlock()
+	return ch
+}
+
+func (b *cellSyncBroadcaster) deregister(cell string) {
+	b.mu.Lock()
+	delete(b.syncReqs, cell)
+	b.mu.Unlock()
+}
+
+// syncAll sends a sync function to each currently-registered cell watcher and
+// waits for every one to ack (or ctx to cancel). Watchers registered AFTER
+// syncAll snapshots the set do not participate in this call.
+func (b *cellSyncBroadcaster) syncAll(ctx context.Context) error {
+	b.mu.Lock()
+	chans := make([]chan func(), 0, len(b.syncReqs))
+	for _, ch := range b.syncReqs {
+		chans = append(chans, ch)
+	}
+	b.mu.Unlock()
+
+	if len(chans) == 0 {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(chans))
+	for _, ch := range chans {
+		select {
+		case ch <- wg.Done:
+		case <-ctx.Done():
+			// Decrement remaining counters for chans we never sent to, so
+			// Wait() can complete even though we're returning early.
+			return ctx.Err()
+		}
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// watchAllPoolersWithRetry returns when ctx is cancelled. If broadcaster is
+// non-nil, it is populated with sync channels as cells start/stop, enabling
+// cross-goroutine sync barriers (see cellSyncBroadcaster.syncAll).
 func watchAllPoolersWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	logger *slog.Logger,
+	broadcaster *cellSyncBroadcaster,
 	onInitial func(cell string, poolers []*clustermetadatapb.MultiPooler),
 	onUpserted func(*clustermetadatapb.MultiPooler),
-	onDeleted func(poolerID string),
+	onDeleted func(poolerID ComponentID),
 	onCellRemoved func(cell string),
 ) {
 	type cellEntry struct {
@@ -120,9 +229,17 @@ func watchAllPoolersWithRetry(
 		cellCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		cellEntries[cell] = &cellEntry{cancel: cancel, done: done}
+		var syncReq <-chan func()
+		if broadcaster != nil {
+			syncReq = broadcaster.register(cell)
+		}
 		wg.Go(func() {
 			defer close(done)
+			if broadcaster != nil {
+				defer broadcaster.deregister(cell)
+			}
 			watchPoolersWithRetry(cellCtx, store, cell, logger.With("cell", cell),
+				syncReq,
 				func(poolers []*clustermetadatapb.MultiPooler) { onInitial(cell, poolers) },
 				onUpserted,
 				onDeleted,
@@ -169,7 +286,7 @@ func watchAllPoolersWithRetry(
 //   - (nil, poolerID, true, true) for a deletion event
 //   - (nil, "", false, false)     when the entry should be ignored (wrong path, unmarshal error, etc.)
 func parsePoolerWatchEntry(wd *WatchDataRecursive, logger *slog.Logger) (
-	pooler *clustermetadatapb.MultiPooler, poolerID string, isDelete bool, ok bool,
+	pooler *clustermetadatapb.MultiPooler, poolerID ComponentID, isDelete bool, ok bool,
 ) {
 	if !strings.HasSuffix(wd.Path, "/"+PoolerFile) {
 		return nil, "", false, false
@@ -204,7 +321,7 @@ func parsePoolerWatchEntry(wd *WatchDataRecursive, logger *slog.Logger) (
 
 // extractPoolerIDFromPath extracts the pooler ID from a poolers-directory watch path.
 // The path format is: "[prefix/]poolers/{poolerID}/Pooler"
-func extractPoolerIDFromPath(watchPath string) string {
+func extractPoolerIDFromPath(watchPath string) ComponentID {
 	_, after, found := strings.Cut(watchPath, PoolersPath+"/")
 	if !found {
 		return ""
@@ -213,5 +330,5 @@ func extractPoolerIDFromPath(watchPath string) string {
 	if name == after {
 		return ""
 	}
-	return name
+	return ComponentID(name)
 }

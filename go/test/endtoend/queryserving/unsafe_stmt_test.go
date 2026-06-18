@@ -158,7 +158,7 @@ func TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 
 	// pgx uses the extended query protocol by default for parameterized
 	// queries. Using pgx.QueryExecModeDescribeExec forces Parse/Describe
-	// before Execute, exercising the PlanPortal path.
+	// before Execute, exercising the extended-protocol (IsPortal) Plan path.
 	tests := []struct {
 		name    string
 		sql     string

@@ -20,6 +20,7 @@ import (
 	"strconv"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -107,6 +108,7 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch p.kind {
@@ -124,11 +126,19 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 }
 
 // executePrepare delegates to HandleParse to register the statement in the consolidator.
+//
+// Unlike the extended Parse message, SQL-level PREPARE must reject a name that is
+// already in use on this session. HandleParse silently replaces existing entries
+// (to tolerate Parse retries after a failed Describe), so we check for the name
+// here before delegating.
 func (p *PreparedStatementPrimitive) executePrepare(
 	ctx context.Context,
 	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	if conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName) != nil {
+		return mterrors.NewDuplicatePreparedStatementError(p.stmtName)
+	}
 	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, p.paramTypes); err != nil {
 		return err
 	}
@@ -180,7 +190,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return callback(ctx, result)
 	}
 
-	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, false, wrappedCallback)
+	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, false, PlanExecInfo{}, wrappedCallback)
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
@@ -208,10 +218,10 @@ func (p *PreparedStatementPrimitive) executeDeallocateAll(
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE statements come in
-// via the simple protocol (PlanPortal returns nil for them); the
-// EXECUTE form has its own internal portal-style flow that already
-// reuses HandleBind / PortalStreamExecute on the backend. Delegate.
+// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE are gateway-managed
+// identically on both protocols, so the portal binds carry no extra meaning
+// here — the EXECUTE form already runs its own internal portal-style flow,
+// reusing HandleBind / PortalStreamExecute on the backend. Delegate.
 func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -220,9 +230,10 @@ func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }

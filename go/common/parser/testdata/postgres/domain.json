@@ -131,13 +131,13 @@
   },
   {
     "comment": "domain - Statement 27",
-    "query": "create domain positiveint int4 check(value \u003e 0)",
-    "expected": "CREATE DOMAIN positiveint AS INT CHECK (value \u003e 0)"
+    "query": "create domain positiveint int4 check(value > 0)",
+    "expected": "CREATE DOMAIN positiveint AS INT CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 28",
-    "query": "create domain weirdfloat float8 check((1 / value) \u003c 10)",
-    "expected": "CREATE DOMAIN weirdfloat AS FLOAT8 CHECK ((1 / value) \u003c 10)"
+    "query": "create domain weirdfloat float8 check((1 / value) < 10)",
+    "expected": "CREATE DOMAIN weirdfloat AS FLOAT8 CHECK ((1 / value) < 10)"
   },
   {
     "comment": "domain - Statement 29",
@@ -366,18 +366,18 @@
   },
   {
     "comment": "domain - Statement 74",
-    "query": "update dcomptable set d1.r = (d1).r + 1 where (d1).i \u003e 0",
-    "expected": "UPDATE dcomptable SET d1.r = (d1).r + 1 WHERE (d1).i \u003e 0"
+    "query": "update dcomptable set d1.r = (d1).r + 1 where (d1).i > 0",
+    "expected": "UPDATE dcomptable SET d1.r = (d1).r + 1 WHERE (d1).i > 0"
   },
   {
     "comment": "domain - Statement 75",
-    "query": "alter domain dcomptype add constraint c1 check ((value).r \u003c= (value).i)",
-    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c1 CHECK ((value).r \u003c= (value).i)"
+    "query": "alter domain dcomptype add constraint c1 check ((value).r <= (value).i)",
+    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c1 CHECK ((value).r <= (value).i)"
   },
   {
     "comment": "domain - Statement 76",
-    "query": "alter domain dcomptype add constraint c2 check ((value).r \u003e (value).i)",
-    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c2 CHECK ((value).r \u003e (value).i)"
+    "query": "alter domain dcomptype add constraint c2 check ((value).r > (value).i)",
+    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c2 CHECK ((value).r > (value).i)"
   },
   {
     "comment": "domain - Statement 77",
@@ -411,18 +411,18 @@
   },
   {
     "comment": "domain - Statement 83",
-    "query": "update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i \u003e 0",
-    "expected": "UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i \u003e 0"
+    "query": "update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0",
+    "expected": "UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i > 0"
   },
   {
     "comment": "domain - Statement 84",
-    "query": "explain (verbose, costs off) update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i \u003e 0",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i \u003e 0"
+    "query": "explain (verbose, costs off) update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i > 0"
   },
   {
     "comment": "domain - Statement 85",
-    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i \u003e 0",
-    "expected": "CREATE RULE silly AS ON DELETE TO dcomptable DO INSTEAD UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i \u003e 0"
+    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0",
+    "expected": "CREATE RULE silly AS ON DELETE TO dcomptable DO INSTEAD UPDATE dcomptable SET d1.r = (d1).r - 1, d1.i = (d1).i + 1 WHERE (d1).i > 0"
   },
   {
     "comment": "domain - Statement 86",
@@ -461,8 +461,8 @@
   },
   {
     "comment": "domain - Statement 93",
-    "query": "alter domain dcomptype add constraint c1 check ((value).r \u003e 0)",
-    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c1 CHECK ((value).r \u003e 0)"
+    "query": "alter domain dcomptype add constraint c1 check ((value).r > 0)",
+    "expected": "ALTER DOMAIN dcomptype ADD CONSTRAINT c1 CHECK ((value).r > 0)"
   },
   {
     "comment": "domain - Statement 94",
@@ -546,18 +546,18 @@
   },
   {
     "comment": "domain - Statement 110",
-    "query": "update dcomptable set d1[1].r = d1[1].r + 1 where d1[1].i \u003e 0",
-    "expected": "UPDATE dcomptable SET d1[1].r = d1[1].r + 1 WHERE d1[1].i \u003e 0"
+    "query": "update dcomptable set d1[1].r = d1[1].r + 1 where d1[1].i > 0",
+    "expected": "UPDATE dcomptable SET d1[1].r = d1[1].r + 1 WHERE d1[1].i > 0"
   },
   {
     "comment": "domain - Statement 111",
-    "query": "alter domain dcomptypea add constraint c1 check (value[1].r \u003c= value[1].i)",
-    "expected": "ALTER DOMAIN dcomptypea ADD CONSTRAINT c1 CHECK (value[1].r \u003c= value[1].i)"
+    "query": "alter domain dcomptypea add constraint c1 check (value[1].r <= value[1].i)",
+    "expected": "ALTER DOMAIN dcomptypea ADD CONSTRAINT c1 CHECK (value[1].r <= value[1].i)"
   },
   {
     "comment": "domain - Statement 112",
-    "query": "alter domain dcomptypea add constraint c2 check (value[1].r \u003e value[1].i)",
-    "expected": "ALTER DOMAIN dcomptypea ADD CONSTRAINT c2 CHECK (value[1].r \u003e value[1].i)"
+    "query": "alter domain dcomptypea add constraint c2 check (value[1].r > value[1].i)",
+    "expected": "ALTER DOMAIN dcomptypea ADD CONSTRAINT c2 CHECK (value[1].r > value[1].i)"
   },
   {
     "comment": "domain - Statement 113",
@@ -591,23 +591,23 @@
   },
   {
     "comment": "domain - Statement 119",
-    "query": "update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i \u003e 0",
-    "expected": "UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i \u003e 0"
+    "query": "update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0",
+    "expected": "UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i > 0"
   },
   {
     "comment": "domain - Statement 120",
-    "query": "explain (verbose, costs off) update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i \u003e 0",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i \u003e 0"
+    "query": "explain (verbose, costs off) update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i > 0"
   },
   {
     "comment": "domain - Statement 121",
-    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i \u003e 0",
-    "expected": "CREATE RULE silly AS ON DELETE TO dcomptable DO INSTEAD UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i \u003e 0"
+    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0",
+    "expected": "CREATE RULE silly AS ON DELETE TO dcomptable DO INSTEAD UPDATE dcomptable SET d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 WHERE d1[1].i > 0"
   },
   {
     "comment": "domain - Statement 122",
-    "query": "create domain posint as int check (value \u003e 0)",
-    "expected": "CREATE DOMAIN posint AS INT CHECK (value \u003e 0)"
+    "query": "create domain posint as int check (value > 0)",
+    "expected": "CREATE DOMAIN posint AS INT CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 123",
@@ -771,8 +771,8 @@
   },
   {
     "comment": "domain - Statement 155",
-    "query": "create domain dcomptype as comptype check ((value).cf1 \u003e 0)",
-    "expected": "CREATE DOMAIN dcomptype AS comptype CHECK ((value).cf1 \u003e 0)"
+    "query": "create domain dcomptype as comptype check ((value).cf1 > 0)",
+    "expected": "CREATE DOMAIN dcomptype AS comptype CHECK ((value).cf1 > 0)"
   },
   {
     "comment": "domain - Statement 156",
@@ -1041,7 +1041,7 @@
   {
     "comment": "domain - Statement 209",
     "query": "alter domain dnotnulltest add constraint dnotnulltest_notnull not null",
-    "expected": "ALTER DOMAIN dnotnulltest ADD NOT NULL"
+    "expected": "ALTER DOMAIN dnotnulltest ADD CONSTRAINT dnotnulltest_notnull NOT NULL"
   },
   {
     "comment": "domain - Statement 210",
@@ -1110,18 +1110,18 @@
   },
   {
     "comment": "domain - Statement 223",
-    "query": "alter domain con add constraint t check (VALUE \u003c 1)",
-    "expected": "ALTER DOMAIN con ADD CONSTRAINT t CHECK (value \u003c 1)"
+    "query": "alter domain con add constraint t check (VALUE < 1)",
+    "expected": "ALTER DOMAIN con ADD CONSTRAINT t CHECK (value < 1)"
   },
   {
     "comment": "domain - Statement 224",
-    "query": "alter domain con add constraint t check (VALUE \u003c 34)",
-    "expected": "ALTER DOMAIN con ADD CONSTRAINT t CHECK (value \u003c 34)"
+    "query": "alter domain con add constraint t check (VALUE < 34)",
+    "expected": "ALTER DOMAIN con ADD CONSTRAINT t CHECK (value < 34)"
   },
   {
     "comment": "domain - Statement 225",
-    "query": "alter domain con add check (VALUE \u003e 0)",
-    "expected": "ALTER DOMAIN con ADD CHECK (value \u003e 0)"
+    "query": "alter domain con add check (VALUE > 0)",
+    "expected": "ALTER DOMAIN con ADD CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 226",
@@ -1186,7 +1186,7 @@
   {
     "comment": "domain - Statement 238",
     "query": "alter domain connotnull add constraint constr1 not null",
-    "expected": "ALTER DOMAIN connotnull ADD NOT NULL"
+    "expected": "ALTER DOMAIN connotnull ADD CONSTRAINT constr1 NOT NULL"
   },
   {
     "comment": "domain - Statement 239",
@@ -1196,7 +1196,7 @@
   {
     "comment": "domain - Statement 240",
     "query": "alter domain connotnull add constraint constr1bis not null",
-    "expected": "ALTER DOMAIN connotnull ADD NOT NULL"
+    "expected": "ALTER DOMAIN connotnull ADD CONSTRAINT constr1bis NOT NULL"
   },
   {
     "comment": "domain - Statement 241",
@@ -1233,13 +1233,13 @@
   },
   {
     "comment": "domain - Statement 248",
-    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE \u003c 11)",
-    "expected": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (value \u003c 11)"
+    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE < 11)",
+    "expected": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (value < 11)"
   },
   {
     "comment": "domain - Statement 249",
-    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE \u003c 11) NOT VALID",
-    "expected": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (value \u003c 11) NOT VALID"
+    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE < 11) NOT VALID",
+    "expected": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (value < 11) NOT VALID"
   },
   {
     "comment": "domain - Statement 250",
@@ -1291,8 +1291,8 @@
   },
   {
     "comment": "domain - Statement 260",
-    "query": "alter domain dom add constraint domchkgt6 check(value \u003e 6)",
-    "expected": "ALTER DOMAIN dom ADD CONSTRAINT domchkgt6 CHECK (value \u003e 6)"
+    "query": "alter domain dom add constraint domchkgt6 check(value > 6)",
+    "expected": "ALTER DOMAIN dom ADD CONSTRAINT domchkgt6 CHECK (value > 6)"
   },
   {
     "comment": "domain - Statement 261",
@@ -1441,8 +1441,8 @@
   },
   {
     "comment": "domain - Statement 290",
-    "query": "create domain str_domain2 as text check (value \u003c\u003e 'foo') default 'foo'",
-    "expected": "CREATE DOMAIN str_domain2 AS TEXT CHECK (value \u003c\u003e 'foo') DEFAULT 'foo'"
+    "query": "create domain str_domain2 as text check (value <> 'foo') default 'foo'",
+    "expected": "CREATE DOMAIN str_domain2 AS TEXT CHECK (value <> 'foo') DEFAULT 'foo'"
   },
   {
     "comment": "domain - Statement 291",
@@ -1451,8 +1451,8 @@
   },
   {
     "comment": "domain - Statement 292",
-    "query": "create domain pos_int as int4 check (value \u003e 0) not null",
-    "expected": "CREATE DOMAIN pos_int AS INT CHECK (value \u003e 0) NOT NULL"
+    "query": "create domain pos_int as int4 check (value > 0) not null",
+    "expected": "CREATE DOMAIN pos_int AS INT CHECK (value > 0) NOT NULL"
   },
   {
     "comment": "domain - Statement 293",
@@ -1536,8 +1536,8 @@
   },
   {
     "comment": "domain - Statement 313",
-    "query": "alter domain posint add constraint c1 check(value \u003e= 0)",
-    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c1 CHECK (value \u003e= 0)"
+    "query": "alter domain posint add constraint c1 check(value >= 0)",
+    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c1 CHECK (value >= 0)"
   },
   {
     "comment": "domain - Statement 314",
@@ -1626,13 +1626,13 @@
   },
   {
     "comment": "domain - Statement 331",
-    "query": "alter domain posint add constraint c2 check(value \u003e= 10)",
-    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c2 CHECK (value \u003e= 10)"
+    "query": "alter domain posint add constraint c2 check(value >= 10)",
+    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c2 CHECK (value >= 10)"
   },
   {
     "comment": "domain - Statement 332",
-    "query": "alter domain posint add constraint c2 check(value \u003e 0)",
-    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c2 CHECK (value \u003e 0)"
+    "query": "alter domain posint add constraint c2 check(value > 0)",
+    "expected": "ALTER DOMAIN posint ADD CONSTRAINT c2 CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 333",
@@ -1681,8 +1681,8 @@
   },
   {
     "comment": "domain - Statement 344",
-    "query": "create domain orderedpair as int[2] check (value[1] \u003c value[2])",
-    "expected": "CREATE DOMAIN orderedpair AS INT[2] CHECK (value[1] \u003c value[2])"
+    "query": "create domain orderedpair as int[2] check (value[1] < value[2])",
+    "expected": "CREATE DOMAIN orderedpair AS INT[2] CHECK (value[1] < value[2])"
   },
   {
     "comment": "domain - Statement 345",
@@ -1761,8 +1761,8 @@
   },
   {
     "comment": "domain - Statement 365",
-    "query": "alter domain di add constraint pos check (value \u003e 0)",
-    "expected": "ALTER DOMAIN di ADD CONSTRAINT pos CHECK (value \u003e 0)"
+    "query": "alter domain di add constraint pos check (value > 0)",
+    "expected": "ALTER DOMAIN di ADD CONSTRAINT pos CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 366",
@@ -1861,8 +1861,8 @@
   },
   {
     "comment": "domain - Statement 386",
-    "query": "create domain testdomain1 as int constraint unsigned check (value \u003e 0)",
-    "expected": "CREATE DOMAIN testdomain1 AS INT CONSTRAINT unsigned CHECK (value \u003e 0)"
+    "query": "create domain testdomain1 as int constraint unsigned check (value > 0)",
+    "expected": "CREATE DOMAIN testdomain1 AS INT CONSTRAINT unsigned CHECK (value > 0)"
   },
   {
     "comment": "domain - Statement 387",

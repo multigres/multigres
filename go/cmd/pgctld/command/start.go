@@ -39,8 +39,13 @@ type StartResult struct {
 	Message        string
 }
 
-// NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using command-line parameters
-// Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file
+// NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using
+// command-line parameters. Port, listen_addresses, and
+// unix_socket_directories come from CLI flags, not from the config file.
+//
+// Password is intentionally left unset — callers that need it (start, stop)
+// resolve it via PgCtlCommand.GetPostgresPassword so the file/env precedence
+// stays in one place.
 func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddresses string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
 	postgresConfigFile := pgctld.PostgresConfigFile()
 
@@ -101,6 +106,11 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	password, _, _, err := s.pgCtlCmd.GetPostgresPassword()
+	if err != nil {
+		return err
+	}
+	config.Password = password
 
 	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {

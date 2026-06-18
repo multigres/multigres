@@ -9,7 +9,13 @@ Prerequisites
 
 Step 1: Build Docker images
 
-Build the multigres images before starting (from the repo root — the scripts assume they already exist in your local Docker daemon).
+From the repo root:
+
+```bash
+make images
+```
+
+This builds the three required images (`multigres/multigres:latest`, `multigres/pgctld-postgres:latest`, `multigres/multiadmin-web:latest`) into your local Docker daemon. The scripts that follow assume they already exist there.
 
 Step 2: Create a data/ directory
 
@@ -39,18 +45,28 @@ Step 4: Launch the multigres cluster
 
 This deploys multipooler, multiorch, and multigateway, waits for them to be ready, then starts port-forwards for the cluster.
 
+The script also applies `k8s-postgres-password-secret.yaml`, which holds the plaintext PostgreSQL superuser password each multipooler/pgctld container reads via `POSTGRES_PASSWORD_FILE`. The committed value (`postgres`) is for the demo only — replace it before reusing this manifest anywhere real.
+
 Step 5 (optional): Load demo data with supafirehose
 
-# First build the supafirehose image (in the supafirehose directory):
+> **Note:** `supafirehose` is maintained in a separate repository and is not
+> included in this tree. Skip this step unless you have already cloned and
+> built it elsewhere.
 
+```bash
+# In a clone of the supafirehose repo:
 docker build -t supafirehose:latest .
 
-# Then run from demo/k8s/:
-
+# Then, from demo/k8s/ in this repo:
 ./start-qs.sh
+```
 
-This loads the image into kind, initializes the DB with 100k users, and deploys supafirehose. Port-forward to access its UI:
+This loads the `supafirehose:latest` image into kind, initializes the DB with
+100k users, and deploys supafirehose. Port-forward to access its UI:
+
+```bash
 kubectl port-forward svc/supafirehose 8080:8080
+```
 
 Access URLs (after port-forwards start)
 

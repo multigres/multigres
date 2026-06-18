@@ -151,9 +151,9 @@ func TestCredentialRefreshIntegration(t *testing.T) {
 	t.Log("Step 3: Changing AWS credentials in environment...")
 
 	// Example credentials from AWS documentation (not real credentials)
-	newAccessKey := "AKIAIOSFODNN7EXAMPLE"                     //nolint:gosec // Example credential from AWS docs
-	newSecretKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" //nolint:gosec // Example credential from AWS docs
-	newSessionToken := "FwoGZXIvYXdzEBQaDEXAMPLETOKEN123456"   //nolint:gosec // Example credential from AWS docs
+	newAccessKey := "AKIAIOSFODNN7EXAMPLE"
+	newSecretKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	newSessionToken := "FwoGZXIvYXdzEBQaDEXAMPLETOKEN123456"
 
 	os.Setenv("AWS_ACCESS_KEY_ID", newAccessKey)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", newSecretKey)

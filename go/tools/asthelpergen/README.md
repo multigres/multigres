@@ -76,15 +76,15 @@ go generate
 This executes the `//go:generate` directive in `generate.go`, which runs:
 
 ```bash
-go run ../../tools/asthelpergen/main \
+go run ../../../tools/asthelpergen/main \
   --in . \
-  --iface github.com/supabase/multigres/go/common/parser/ast.Node
+  --iface github.com/multigres/multigres/go/common/parser/ast.Node
 ```
 
 ### Command-Line Flags
 
 - `--in <package>`: Package(s) to analyze (default: current directory)
-- `--iface <interface>`: Fully qualified root interface name (e.g., `github.com/supabase/multigres/go/parser/ast.Node`)
+- `--iface <interface>`: Fully qualified root interface name (e.g., `github.com/multigres/multigres/go/common/parser/ast.Node`)
 - `--clone_exclude <types>`: Comma-separated list of types to exclude from deep cloning
 
 ## Generated Files

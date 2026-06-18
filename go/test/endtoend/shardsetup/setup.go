@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -35,6 +36,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend/testconst"
+
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
@@ -43,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
@@ -58,6 +62,7 @@ type SetupConfig struct {
 	MultipoolerCount                   int
 	MultiOrchCount                     int
 	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
+	EnableMultiadmin                   bool // Enable multiadmin (opt-in, default: false)
 	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
 	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
 	Database                           string
@@ -74,10 +79,15 @@ type SetupConfig struct {
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
+	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
 	OTelCollectorEndpoint              string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 	EnableMetricsExport                bool     // Enable Prometheus metrics export on all services
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
-	InitDbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
+	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
+	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
+	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
+	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -88,6 +98,17 @@ type SetupOption func(*SetupConfig)
 func WithMultipoolerCount(count int) SetupOption {
 	return func(c *SetupConfig) {
 		c.MultipoolerCount = count
+	}
+}
+
+// WithMultipoolerExtraArgs appends extra CLI flags to every multipooler in the
+// setup. Use for connpool tuning that has no dedicated option yet, e.g.
+// shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=4",
+// "--connpool-user-reserved-inactivity-timeout=2s"). Flags are appended last,
+// so they override the multipooler defaults.
+func WithMultipoolerExtraArgs(args ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.MultipoolerExtraArgs = append(c.MultipoolerExtraArgs, args...)
 	}
 }
 
@@ -147,6 +168,17 @@ func WithMultigateway() SetupOption {
 	}
 }
 
+// WithMultiadmin enables multiadmin in the test setup (default: disabled).
+// Multiadmin is started after shard bootstrap and exposes HTTP + gRPC APIs
+// against the same etcd topology used by the rest of the cluster. The
+// Next.js web UI in web/multiadmin/ can be pointed at the resulting HTTP
+// port via MULTIADMIN_API_URL=http://localhost:<port> pnpm dev.
+func WithMultiadmin() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultiadmin = true
+	}
+}
+
 // WithMultigatewayReplicaPort enables the replica-reads listener port on multigateway.
 // Connections on this port target replicas. Implies WithMultigateway().
 func WithMultigatewayReplicaPort() SetupOption {
@@ -162,6 +194,18 @@ func WithMultigatewayTLS() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMultigatewayTLS = true
+	}
+}
+
+// WithMultigatewayRequireSSL enables TLS for the multigateway PostgreSQL
+// listener AND sets --pg-require-ssl=true, so plaintext StartupMessage is
+// rejected. Implies WithMultigatewayTLS(). Exercises the hostssl-equivalent
+// posture end-to-end.
+func WithMultigatewayRequireSSL() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayTLS = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, "--pg-require-ssl=true")
 	}
 }
 
@@ -248,13 +292,59 @@ func WithMetricsExport() SetupOption {
 	}
 }
 
-// WithInitDbSQLFiles forwards the given SQL file paths to every pgctld in the
-// shard via --init-db-sql-file. pgctld runs each file against the target
+// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
+// the setup. Tags each PostgreSQL backend's application_name with
+// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
+// virtual PID back to its real backend PID via pg_stat_activity. Required by
+// the pgregress isolation harness shim and harmless elsewhere, but kept
+// opt-in so tests that probe application_name as a generic GUC aren't
+// accidentally shadowed.
+func WithVpidStamping() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableVpidStamping = true
+	}
+}
+
+// WithInitdbSQLFiles forwards the given SQL file paths to every pgctld in the
+// shard via --pg-initdb-sql-files. pgctld runs each file against the target
 // database after initdb completes (during the InitDataDir RPC triggered by
 // shard bootstrap). Files run in the order provided.
-func WithInitDbSQLFiles(files ...string) SetupOption {
+func WithInitdbSQLFiles(files ...string) SetupOption {
 	return func(c *SetupConfig) {
-		c.InitDbSQLFiles = files
+		c.InitdbSQLFiles = files
+	}
+}
+
+// WithInitdbSQLDirs forwards role:path entries to every pgctld via --pg-initdb-sql-dirs.
+// pgctld runs all .sql files in each directory (lexicographic order) under
+// SET SESSION AUTHORIZATION <role> after initdb completes.
+func WithInitdbSQLDirs(dirs ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.InitdbSQLDirs = dirs
+	}
+}
+
+// WithPgInitdbArgs forwards the given args verbatim to every pgctld via
+// --pg-initdb-args. Used by the pgregress harness to invoke initdb with
+// `--no-locale --encoding=UTF8`, matching the locale pg_regress uses
+// upstream so locale-sensitive output (char/varchar sort order, to_char
+// 'L' currency symbol, etc.) reproduces the expected fixtures.
+func WithPgInitdbArgs(args string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PgInitdbArgs = args
+	}
+}
+
+// WithPgInitdbExtraConfFiles appends the given postgresql.conf snippet paths
+// to every pgctld via --pg-initdb-extra-conf. Files are concatenated onto the
+// generated postgresql.conf at init time; postgres applies last-write-wins so
+// settings here override the template defaults. Used by the pgregress harness
+// to force `lc_messages/lc_monetary/lc_numeric/lc_time = 'C'` (the template
+// otherwise hard-codes en_US.UTF-8, which makes locale-sensitive output
+// diverge from upstream `pg_regress --no-locale` expected fixtures).
+func WithPgInitdbExtraConfFiles(paths ...string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PgInitdbExtraConfFiles = append(c.PgInitdbExtraConfFiles, paths...)
 	}
 }
 
@@ -366,6 +456,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		attribute.String("shard", config.Shard),
 		attribute.String("cell", config.CellName),
 		attribute.Bool("enable.multigateway", config.EnableMultigateway),
+		attribute.Bool("enable.multiadmin", config.EnableMultiadmin),
 		attribute.Bool("enable.multigateway.tls", config.EnableMultigatewayTLS),
 		attribute.Bool("skip.initialization", config.SkipInitialization),
 	)
@@ -500,6 +591,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		multipoolerPort := utils.GetFreePort(t)
 
 		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
 			// Append SSL config to postgresql.conf at init time.
@@ -528,7 +620,11 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		}
 
 		inst.Multipooler.LogLevel = config.LogLevel
-		inst.Pgctld.InitDbSQLFiles = config.InitDbSQLFiles
+		inst.Pgctld.InitdbSQLFiles = config.InitdbSQLFiles
+		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
+		inst.Pgctld.PgInitdbArgs = config.PgInitdbArgs
+		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, config.PgInitdbExtraConfFiles...)
+		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -594,6 +690,24 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			t.Fatalf("failed to start multigateway: %v", err)
 		}
 		t.Logf("Started multigateway")
+	}
+
+	// Start multiadmin (if enabled). Like multigateway, this is started after
+	// the multipooler instances exist so it can read them from topology.
+	// Multiadmin is a passive observer of topology — order vs. bootstrap
+	// doesn't matter the way it does for multigateway query serving.
+	if config.EnableMultiadmin {
+		httpPort := utils.GetFreePort(t)
+		grpcPort := utils.GetFreePort(t)
+
+		ma := setup.CreateMultiadminInstance(t, "multiadmin", httpPort, grpcPort)
+		ma.LogLevel = config.LogLevel
+		t.Logf("Created multiadmin instance: HTTP=%d, gRPC=%d", httpPort, grpcPort)
+
+		if err := ma.Start(runningCtx, t); err != nil {
+			t.Fatalf("failed to start multiadmin: %v", err)
+		}
+		t.Logf("Started multiadmin (UI base URL: http://localhost:%d)", httpPort)
 	}
 
 	// For uninitialized mode (bootstrap tests), we're done - leave nodes uninitialized
@@ -730,6 +844,7 @@ func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout 
 func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
 
+	start := time.Now()
 	conn := s.connectToMultiOrch(t, orchName)
 	defer conn.Close()
 
@@ -784,7 +899,74 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 		t.Fatalf("RequireRecovery: recovery did not complete within %s", timeout)
 	}
 
+	testtiming.Record(t, "recovery: "+orchName, time.Since(start), timeout)
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
+}
+
+// WaitForHealthStreamsEstablished blocks until the named multiorch instance
+// reports `Reachable=true` for every pooler in this shard, indicating it has
+// received at least one snapshot from each pooler over the ManagerHealthStream
+// — i.e. the stream is dialled, handshaked, and exchanging data.
+//
+// Tests should call this after StartMultiOrchs (and RequireRecovery, if used)
+// but before any test action that depends on the orchestrator observing a
+// pooler-side event (notably SIGTERM-triggered failover, which only fires
+// quickly when the orchestrator is already subscribed to receive the
+// REQUESTING_DEMOTION snapshot). RequireRecovery's "no problems" condition
+// can be satisfied by topology state alone — before any health stream is up
+// — and that gap is the source of the stream-establishment flake under
+// CPU-overhead conditions (subprocess-coverage CI, busy runners).
+func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
+	t.Helper()
+
+	conn := s.connectToMultiOrch(t, orchName)
+	defer conn.Close()
+	client := multiorchpb.NewMultiOrchServiceClient(conn)
+
+	expected := len(s.Multipoolers)
+	require.NotZero(t, expected, "WaitForHealthStreamsEstablished: no multipoolers registered")
+
+	t.Logf("Waiting for multiorch '%s' to establish health streams to all %d poolers (timeout=%s)",
+		orchName, expected, timeout)
+
+	deadline := time.Now().Add(timeout)
+	var lastSummary string
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+		})
+		cancel()
+
+		if err == nil {
+			reachable := 0
+			missing := make([]string, 0, expected)
+			for _, ph := range resp.PoolerHealths {
+				if ph.Reachable {
+					reachable++
+					continue
+				}
+				missing = append(missing, ph.PoolerId.GetName())
+			}
+			if reachable == expected {
+				t.Logf("All %d health streams established on '%s'", expected, orchName)
+				return
+			}
+			lastSummary = fmt.Sprintf("%d/%d reachable, missing: %v", reachable, expected, missing)
+		} else {
+			lastSummary = fmt.Sprintf("GetShardStatus failed: %v", err)
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("WaitForHealthStreamsEstablished: streams not established within %s (last status: %s)",
+				timeout, lastSummary)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // connectToMultiOrch creates a gRPC client connection to the named multiorch instance.
@@ -920,9 +1102,10 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
 	defer cancel()
 
+	start := time.Now()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -930,8 +1113,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "timeout after 60s")
-			return "", errors.New("timeout waiting for shard bootstrap after 60s")
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -939,6 +1122,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
+				testtiming.Record(t, "shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1165,8 +1349,10 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			t.Fatalf("failed to start multipooler for %s: %v", inst.Name, err)
 		}
 
-		// Wait for multipooler to be ready
+		// Wait for multipooler to be ready, recording how long it took.
+		start := time.Now()
 		WaitForManagerReady(t, multipooler)
+		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1331,7 +1517,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 		}
 
 		// Note: We intentionally don't validate term here.
-		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// Term can increase across tests (e.g., when Recruit is called) and
 		// there's no safe way to reset it without an RPC. Tests should work with
 		// whatever term they start with and use relative term values.
 	}
@@ -1370,19 +1556,6 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 
 		isPrimary := name == s.PrimaryName
 
-		// Check if primary was demoted and restore if needed
-		if isPrimary {
-			inRecovery, err := QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
-			if err != nil {
-				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
-			} else if inRecovery == "t" {
-				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, t, client); err != nil {
-					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
-				}
-			}
-		}
-
 		// Restore GUCs to baseline values
 		if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
 			RestoreGUCs(ctx, t, client.Pooler, baselineGucs, name)
@@ -1397,6 +1570,24 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
+	}
+}
+
+// AddPgInitdbExtraConfFiles appends postgresql.conf snippet paths to every
+// pgctld instance's --pg-initdb-extra-conf list. The snippets take effect when
+// PostgreSQL is next initialized — i.e. on the next ReinitializeCluster (pgctld
+// rebuilds its args from the instance state on every Start) — not on the
+// running cluster.
+//
+// Use this for server config that only one test phase needs: pgregresstest's
+// external extension suite preloads libraries (pg_cron, plpgsql_check) that
+// must not be active while the core regression/isolation/contrib suites run
+// (preloads are not always inert — plpgsql_check's cursor-leak detection emits
+// WARNINGs stock PostgreSQL doesn't), so it appends them here right before the
+// reinit that precedes the external phase.
+func (s *ShardSetup) AddPgInitdbExtraConfFiles(paths ...string) {
+	for _, inst := range s.Multipoolers {
+		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths...)
 	}
 }
 
@@ -1500,13 +1691,24 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 
 	// 4. Start pgctld + multipooler for all nodes
 	for name, inst := range s.Multipoolers {
+		// Immediate shutdown (step 3) is best-effort and returns before the OS
+		// has released the postmaster's listen socket — under CI load the old
+		// postmaster can still own the pg-port when we get here. Restarting now
+		// makes the new postmaster fail to bind ("could not create any TCP/IP
+		// sockets: address already in use"), so it never reaches PostgresReady
+		// and WaitForManagerReady times out with an opaque error. Wait for the
+		// port to actually free first.
+		waitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
+
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
 		}
 		if err := inst.Multipooler.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start multipooler %s: %v", name, err)
 		}
+		start := time.Now()
 		WaitForManagerReady(t, inst.Multipooler)
+		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 
@@ -1533,6 +1735,32 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
+// waitForPortFree blocks until no process is listening on localhost:port, or
+// the timeout elapses. It is used between stopping postgres and restarting it
+// on the same port during ReinitializeCluster, so the new postmaster can bind.
+//
+// A successful net.Listen means the port is free (an active listener on the
+// same port — e.g. a not-yet-exited postmaster — makes Listen fail even with
+// SO_REUSEADDR). If the port never frees we log and return rather than fail
+// here; the subsequent start surfaces a precise bind error.
+func waitForPortFree(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	addr := fmt.Sprintf(":%d", port)
+	deadline := time.Now().Add(timeout)
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			_ = ln.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Logf("ReinitializeCluster: warning: port %d still in use after %s (%v); proceeding anyway", port, timeout, err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // wipeTopologyForReinit removes the etcd keys that would otherwise carry
@@ -1662,19 +1890,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			}
 
 			isPrimary := name == s.PrimaryName
-
-			// Check if primary was demoted and restore if needed
-			if isPrimary {
-				inRecovery, err := QueryStringValue(cleanupCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-				if err != nil {
-					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
-				} else if inRecovery == "t" {
-					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client); err != nil {
-						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
-					}
-				}
-			}
 
 			// Restore GUCs to baseline values
 			if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {

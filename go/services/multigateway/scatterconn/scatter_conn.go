@@ -33,6 +33,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -108,6 +109,25 @@ func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.Mult
 	}
 }
 
+// isCancellationError reports whether err is a query cancellation: an explicit
+// cancel or statement_timeout (PostgreSQL SQLSTATE 57014, query_canceled) or a
+// context cancellation/deadline. After such a cancellation the backend has
+// rolled back the cancelled statement and returned to an idle, reusable state,
+// so a reserved connection that hit it is still valid and must not be dropped.
+func isCancellationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var pgDiag *mterrors.PgDiagnostic
+	if errors.As(err, &pgDiag) {
+		return pgDiag.Code == mterrors.PgSSQueryCanceled
+	}
+	return false
+}
+
 // applyReservedState replaces independent bookkeeping with the authoritative reservation
 // state from the multipooler. If the reserved connection ID is zero, the connection was
 // destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
@@ -153,6 +173,7 @@ func (sc *ScatterConn) StreamExecute(
 	sql string,
 	preparedStatement *querypb.PreparedStatement,
 	state *handler.MultiGatewayConnectionState,
+	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -178,13 +199,27 @@ func (sc *ScatterConn) StreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:          userAuthFrom(conn),
-		User:              conn.User(),
-		SessionSettings:   state.GetSessionSettings(),
-		PreparedStatement: preparedStatement,
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
+		PreparedStatement:  preparedStatement,
 	}
 
 	ss := state.GetMatchingShardState(target)
+
+	// This statement may touch a session-level advisory lock (acquire or
+	// release). When it does, ask the multipooler to re-probe pg_locks afterward
+	// and unpin if none remain — keeping that probe off the per-statement hot
+	// path. Attached to whichever reservation path runs below (Case 3 has no
+	// reserved connection, so there's nothing to recheck).
+	recheckAdvisory := info.RecheckAdvisoryLocks
+
+	// One-shot: a successful ROLLBACK TO SAVEPOINT reverted session GUCs on the
+	// backend without the pooler observing the exact values. Forward it so the
+	// multipooler marks the reserved connection's session state untrusted.
+	markUntrusted := state.PendingMarkSessionStateUntrusted
+	state.PendingMarkSessionStateUntrusted = false
 
 	// Case 1: Already have reserved connection - use it
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
@@ -216,16 +251,87 @@ func (sc *ScatterConn) StreamExecute(
 
 		// If this query creates a temp table, add the reason so the
 		// multipooler tracks it on the reserved connection.
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.Reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
+		}
+
+		// If this query acquires a session-level advisory lock, add the reason
+		// so the multipooler keeps the backend pinned until the lock is
+		// released. Promotes an existing reservation (e.g. an open transaction)
+		// to also hold the advisory-lock reason.
+		if info.AdvisoryLock {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
+
+		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
+		// the reserved backend so the cursor survives COMMIT.
+		if pinNames := info.PinPortals; len(pinNames) > 0 {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.Reasons |= protoutil.ReasonPortal
+			reservationOpts.PinPortalNames = append(reservationOpts.PinPortalNames, pinNames...)
+		}
+
+		// If this query closes a `WITH HOLD` cursor, unpin it after the CLOSE
+		// runs on the backend. The multipooler will drop the reservation
+		// (returning ReservedConnectionId=0) when the last reason clears.
+		if releaseNames := info.ReleasePortals; len(releaseNames) > 0 {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.ReleasePortalNames = append(reservationOpts.ReleasePortalNames, releaseNames...)
+		}
+
+		// If this statement touched an advisory lock, ask for a post-statement
+		// pg_locks recheck so the multipooler unpins once the last lock is gone.
+		if recheckAdvisory {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.RecheckAdvisoryLocks = true
+		}
+
+		// ROLLBACK TO SAVEPOINT reverted session state invisibly to the pooler.
+		if markUntrusted {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.MarkSessionStateUntrusted = true
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
-		sc.applyReservedState(conn, state, target, reservedState)
+
+		// A query error on an existing reserved connection does not, by itself, mean
+		// the reserved backend is gone. The pooler returns a non-zero reserved state
+		// whenever it can still vouch for the connection (the common error case). But
+		// the gateway enforces statement_timeout with a context deadline, and when
+		// that fires mid-stream the RPC can return before the reserved-state trailer
+		// arrives, yielding a zero reserved state even though the backend — and the
+		// session's temp tables — are still alive. Clearing the reservation here would
+		// route the next statement to a different pooled backend and lose those temp
+		// tables (the PostGIS interrupt tests' CREATE TEMP TABLE ... AS + statement
+		// timeout reproduce this).
+		//
+		// Keep the existing reservation only when all of these hold: the query failed,
+		// no fresh reserved state came back, we are NOT inside an explicit transaction,
+		// and the failure was a cancellation (statement_timeout / context cancel, after
+		// which the backend has returned to an idle, reusable state). Every other case
+		// — all in-transaction behaviour, genuine connection loss, and ordinary query
+		// errors — is handled exactly as before via applyReservedState.
+		keepReservation := err != nil &&
+			reservedState.GetReservedConnectionId() == 0 &&
+			conn.TxnStatus() != protocol.TxnStatusInBlock &&
+			isCancellationError(err)
+		if !keepReservation {
+			sc.applyReservedState(conn, state, target, reservedState)
+		}
 
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
@@ -233,32 +339,45 @@ func (sc *ScatterConn) StreamExecute(
 		return nil
 	}
 
-	// Case 2: Need a new reserved connection — for transaction, temp table, or both.
-	if conn.IsInTransaction() || state.PendingTempTableReservation {
+	// Case 2: Need a new reserved connection — for transaction, temp table,
+	// portal pin (DECLARE WITH HOLD), or any combination.
+	pinPortalNames := info.PinPortals
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || len(pinPortalNames) > 0 {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
 		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
+		if info.AdvisoryLock {
+			reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
+		if len(pinPortalNames) > 0 {
+			reasons |= protoutil.ReasonPortal
+		}
 
 		sc.logger.DebugContext(ctx, "creating reserved connection",
 			"reasons", protoutil.ReasonsString(reasons))
 
 		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
+		if len(pinPortalNames) > 0 {
+			reservationOpts.PinPortalNames = pinPortalNames
+		}
 		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
 		// so the multipooler preserves transaction options instead of using plain "BEGIN".
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
 		}
+		// A new reservation created by an advisory acquire also wants a recheck
+		// (so a failed pg_try_advisory_lock unpins immediately).
+		reservationOpts.RecheckAdvisoryLocks = recheckAdvisory
 		reservedState, err := sc.gateway.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
@@ -304,6 +423,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -330,10 +450,11 @@ func (sc *ScatterConn) PortalStreamExecute(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		MaxRows:         uint64(maxRows),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		MaxRows:            uint64(maxRows),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
@@ -349,6 +470,16 @@ func (sc *ScatterConn) PortalStreamExecute(
 	var qs queryservice.QueryService = sc.gateway
 	var err error
 
+	// reservationOpts carries the reservation reasons for this portal. When the
+	// portal needs a fresh reservation (Case 2), the multipooler reserves a
+	// backend with these reasons and runs the portal on it atomically — no
+	// separate no-op "SELECT 1" reserve round trip.
+	var reservationOpts *querypb.ReservationOptions
+
+	// Advisory recheck signal — attached to reservationOpts after the
+	// reservation path below is chosen (see the end of the if/else).
+	recheckAdvisory := info.RecheckAdvisoryLocks
+
 	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, we have to ensure
 	// we are routing the query to the pooler where we got the reserved
@@ -357,45 +488,58 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
-	} else if conn.IsInTransaction() || state.PendingTempTableReservation {
-		// Case 2: Need a new reserved connection — for transaction, temp table, or both.
-		// We use StreamExecute with reservation options and a no-op "SELECT 1" query
-		// rather than adding a dedicated ReservePortalStreamExecute RPC.
+
+		// If this portal acquires a session-level advisory lock, OR the reason
+		// onto the existing reservation so the lock keeps the backend pinned and
+		// survives the other reason ending (e.g. a COMMIT). The multipooler
+		// applies the reason atomically, before running the portal, so unlike a
+		// separate promotion step there's no window for the unpin probe to see
+		// no lock and tear the reservation down — see portalExecuteWithReserved.
+		if info.AdvisoryLock {
+			reservationOpts = &querypb.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock}
+		}
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock {
+		// Case 2: Need a new reserved connection — for transaction, temp table,
+		// advisory lock, or a combination. Build reservation options the same way
+		// the simple StreamExecute path does and pass them on the portal RPC; the
+		// multipooler reserves-and-runs atomically.
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if state.PendingTempTableReservation {
+		if info.TempTable {
 			reasons |= protoutil.ReasonTempTable
-			state.PendingTempTableReservation = false
 		}
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
 		}
+		if info.AdvisoryLock {
+			reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
 
-		sc.logger.DebugContext(ctx, "creating reserved connection for portal",
+		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",
 			"reasons", protoutil.ReasonsString(reasons))
 
-		noopEo := &querypb.ExecuteOptions{
-			UserAuth:        userAuthFrom(conn),
-			User:            conn.User(),
-			SessionSettings: state.GetSessionSettings(),
-		}
-		reservationOpts := &querypb.ReservationOptions{Reasons: reasons}
+		reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
+		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
+		// so the multipooler preserves transaction options instead of plain "BEGIN".
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
 		}
-		noopCallback := func(context.Context, *sqltypes.Result) error { return nil }
-		reservedState, reserveErr := sc.gateway.StreamExecute(
-			ctx, target, "SELECT 1", noopEo, reservationOpts, noopCallback)
-		if reserveErr != nil {
-			return fmt.Errorf("reserve connection for portal failed: %w", reserveErr)
-		}
-		sc.applyReservedState(conn, state, target, reservedState)
-		eo.ReservedConnectionId = reservedState.GetReservedConnectionId()
-		qs, err = sc.gateway.QueryServiceByID(ctx, reservedState.GetPoolerId(), target)
 	}
+
+	// If this portal touched an advisory lock, ask for a post-statement
+	// pg_locks recheck (covers both the existing-reservation and new-reservation
+	// paths above). A bare release on an already-pinned session needs options
+	// allocated just to carry the flag.
+	if recheckAdvisory {
+		if reservationOpts == nil {
+			reservationOpts = &querypb.ReservationOptions{}
+		}
+		reservationOpts.RecheckAdvisoryLocks = true
+	}
+
 	if err != nil {
 		return err
 	}
@@ -408,7 +552,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	// Use the query from the prepared statement
-	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, callback)
+	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
@@ -453,9 +597,10 @@ func (sc *ScatterConn) Describe(
 	target := sc.buildTarget(tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 	var preparedStatement *querypb.PreparedStatement
 	var portal *querypb.Portal
@@ -512,6 +657,8 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
@@ -561,6 +708,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
@@ -573,7 +721,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
@@ -666,6 +814,7 @@ func (sc *ScatterConn) DiscardTempTables(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
@@ -726,6 +875,124 @@ func (sc *ScatterConn) DiscardTempTables(
 
 // --- COPY FROM STDIN methods ---
 
+// CopyOutInitiate initiates a COPY ... TO STDOUT operation using
+// bidirectional streaming. Stores reserved connection info in
+// state.ShardStates for the given tableGroup/shard. Returns format,
+// columnFormats, and any NoticeResponse diagnostics that arrived before
+// the CopyOutResponse (e.g. BEFORE STATEMENT trigger output). The caller
+// then drives the data stream with CopyOutStream.
+func (sc *ScatterConn) CopyOutInitiate(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	queryStr string,
+	state *handler.MultiGatewayConnectionState,
+) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_initiate",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	target := &querypb.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
+	}
+
+	execOptions := &querypb.ExecuteOptions{
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
+	}
+
+	// Reuse an existing reserved connection (e.g. one already held by a
+	// transaction or temp-table reservation) so the COPY runs on the same
+	// backend that owns the in-flight session state. Otherwise pass deferred
+	// BEGIN options so the new connection enters the transaction before
+	// starting COPY. Mirrors CopyInitiate (FROM STDIN).
+	var reservationOpts *querypb.ReservationOptions
+	ss := state.GetMatchingShardState(target)
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
+		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+	} else if conn.IsInTransaction() {
+		reservationOpts = protoutil.NewTransactionReservationOptions()
+		if state.HasTempTableReservation() {
+			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		}
+		if state.PendingBeginQuery != "" {
+			reservationOpts.BeginQuery = state.PendingBeginQuery
+			state.PendingBeginQuery = ""
+		}
+	}
+
+	format, columnFormats, notices, reservedState, err := sc.gateway.CopyOutReady(ctx, target, queryStr, execOptions, reservationOpts)
+	if err != nil {
+		sc.applyReservedState(conn, state, target, reservedState)
+		// Surface the PG error un-wrapped — see the comment on CopyInitiate
+		// below for the rationale.
+		return 0, nil, notices, err
+	}
+
+	sc.applyReservedState(conn, state, target, reservedState)
+	return format, columnFormats, notices, nil
+}
+
+// CopyOutStream drives the COPY ... TO STDOUT data stream, invoking
+// onMessage for each CopyData chunk / NoticeResponse pumped by the
+// multipooler. Returns the final Result (CommandTag, RowsAffected, plus any
+// trailing notices in result.Notices) and applies the authoritative
+// ReservedState to shard tracking on completion. PG ErrorResponse mid-stream
+// surfaces un-wrapped so the gateway re-emits a verbatim ErrorResponse.
+func (sc *ScatterConn) CopyOutStream(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
+	onMessage func(pgClient.CopyOutMessage) error,
+) (*sqltypes.Result, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_stream",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	target := &querypb.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
+	}
+
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || ss.ReservedState.GetReservedConnectionId() == 0 {
+		return nil, errors.New("no active COPY connection")
+	}
+
+	copyOptions := &querypb.ExecuteOptions{
+		UserAuth:             userAuthFrom(conn),
+		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
+		SessionSettings:      state.GetSessionSettings(),
+		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
+	}
+
+	result, reservedState, err := sc.gateway.CopyOutStream(ctx, target, copyOptions, onMessage)
+	sc.applyReservedState(conn, state, target, reservedState)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
 // Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
 // Returns: format, columnFormats, error
@@ -763,9 +1030,10 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create execute options
 	execOptions := &querypb.ExecuteOptions{
-		UserAuth:        userAuthFrom(conn),
-		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		UserAuth:           userAuthFrom(conn),
+		User:               conn.User(),
+		ClientConnectionId: conn.ConnectionID(),
+		SessionSettings:    state.GetSessionSettings(),
 	}
 
 	// If there's already a reserved connection for this target (e.g., in a transaction),
@@ -792,7 +1060,19 @@ func (sc *ScatterConn) CopyInitiate(
 	// Call CopyReady on gateway to initiate the COPY and get format info
 	format, columnFormats, reservedState, err := sc.gateway.CopyReady(ctx, target, queryStr, execOptions, reservationOpts)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
+		// When init fails, the multipooler may still have a live reserved
+		// connection (e.g., it was already held for a transaction or temp
+		// tables and only the COPY query itself was rejected). Apply whatever
+		// state came back: a non-nil ReservedState keeps the gateway pointed
+		// at the surviving conn, while a nil/zero state clears the tracking
+		// so we don't end up sending future statements to a connection that
+		// no longer exists.
+		sc.applyReservedState(conn, state, target, reservedState)
+		// Surface the PG error un-wrapped: the gateway re-emits a verbatim
+		// ErrorResponse to the client. Wrapping here with
+		// "failed to initiate COPY:" would diverge from upstream PG output
+		// that regression-test fixtures match against.
+		return 0, nil, err
 	}
 
 	// Use authoritative state from multipooler (reasons already include copy + transaction if applicable)
@@ -838,13 +1118,15 @@ func (sc *ScatterConn) CopySendData(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
 	// Send data via gateway
 	if err := sc.gateway.CopySendData(ctx, target, data, copyOptions); err != nil {
-		return fmt.Errorf("failed to send COPY data: %w", err)
+		// Surface PG errors un-wrapped — see CopyInitiate comment above.
+		return err
 	}
 
 	sc.logger.DebugContext(ctx, "sent COPY data", "size", len(data))
@@ -894,6 +1176,7 @@ func (sc *ScatterConn) CopyFinalize(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
@@ -901,12 +1184,16 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Every error path in executor.CopyFinalize destroys the connection via
-		// Release(ReleaseError), so the multipooler no longer has it. Pass a zero
-		// ReservedState to applyReservedState so it clears state and (if in a transaction)
-		// marks TxnStatusFailed as defense-in-depth.
-		sc.applyReservedState(conn, state, target, nil)
-		return fmt.Errorf("failed to finalize COPY: %w", err)
+		// CopyFinalize returns a non-nil ReservedState when a PG-level error
+		// (e.g., constraint violation) left the underlying reserved connection
+		// alive because it is still holding another reason such as a
+		// transaction. A nil state means the connection was released. Either
+		// way, applyReservedState does the right thing: keep tracking if the
+		// state has a non-zero conn ID, clear it and mark the transaction
+		// failed if not.
+		sc.applyReservedState(conn, state, target, reservedState)
+		// Surface PG errors un-wrapped — see CopyInitiate comment above.
+		return err
 	}
 
 	sc.logger.DebugContext(ctx, "COPY finalized successfully",
@@ -958,6 +1245,7 @@ func (sc *ScatterConn) CopyAbort(
 	copyOptions := &querypb.ExecuteOptions{
 		UserAuth:             userAuthFrom(conn),
 		User:                 conn.User(),
+		ClientConnectionId:   conn.ConnectionID(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
@@ -994,6 +1282,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		eo := &querypb.ExecuteOptions{
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
+			ClientConnectionId:   conn.ConnectionID(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}

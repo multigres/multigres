@@ -1,0 +1,67 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package serviceinfo;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/serviceinfo";
+
+// ServiceInfo exposes process-level metadata about a running multigres
+// service. Every multigres binary that hosts a servenv gRPC server
+// registers this service automatically, so callers (e.g. multiadmin) can
+// retrieve build identity from any reachable process without per-service
+// proto changes.
+service ServiceInfo {
+  // GetBuildInfo returns the VCS revision and build metadata embedded in
+  // the running binary.
+  rpc GetBuildInfo(GetBuildInfoRequest) returns (GetBuildInfoResponse) {}
+}
+
+message GetBuildInfoRequest {
+}
+
+message GetBuildInfoResponse {
+  BuildInfo build_info = 1;
+}
+
+// BuildInfo describes the source revision and build settings of the
+// running binary. Fields are populated from runtime/debug.BuildInfo,
+// which Go injects automatically when -buildvcs is true (the default).
+message BuildInfo {
+  // revision is the VCS commit SHA (e.g. "60c52835c693523...").
+  // Empty if the binary was built outside a VCS or with -buildvcs=false.
+  string revision = 1;
+
+  // modified is true if the working tree contained uncommitted changes
+  // when the binary was built. In dev environments this is often true
+  // due to untracked files; treat it as informational, not a warning.
+  bool modified = 2;
+
+  // commit_time is the timestamp of the revision commit (not the build
+  // time). May be unset if VCS info is unavailable.
+  google.protobuf.Timestamp commit_time = 3;
+
+  // go_version is the Go toolchain version that built the binary
+  // (e.g. "go1.23.4"). Useful for diagnosing toolchain-skew issues.
+  string go_version = 4;
+
+  // main_path is the Go module path of the main package (e.g.
+  // "github.com/multigres/multigres/go/cmd/multipooler"). Identifies
+  // which binary is responding when callers proxy through a discovery
+  // layer.
+  string main_path = 5;
+}

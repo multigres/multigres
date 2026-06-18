@@ -386,7 +386,7 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 2) // pool1 and pool2
 		for _, pooler := range resp.Poolers {
-			assert.Equal(t, "db1", pooler.Database)
+			assert.Equal(t, "db1", pooler.GetShardKey().GetDatabase())
 		}
 	})
 
@@ -401,7 +401,7 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 1) // only pool2
 		assert.Equal(t, "cell2", resp.Poolers[0].Id.Cell)
-		assert.Equal(t, "db1", resp.Poolers[0].Database)
+		assert.Equal(t, "db1", resp.Poolers[0].GetShardKey().GetDatabase())
 	})
 
 	t.Run("get poolers filtered by non-existent database", func(t *testing.T) {
@@ -424,7 +424,7 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Poolers, 1) // only pool3
-		assert.Equal(t, "db2", resp.Poolers[0].Database)
+		assert.Equal(t, "db2", resp.Poolers[0].GetShardKey().GetDatabase())
 		assert.Equal(t, "pool3", resp.Poolers[0].Id.Name)
 	})
 
@@ -586,19 +586,21 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "pool1.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "pool1.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		expectedStatus := &multipoolermanagerdatapb.Status{
 			PoolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			IsInitialized:  true,
@@ -635,19 +637,21 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
-			Hostname:   "pool2.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "pool2.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.GetPoolerStatusRequest{
@@ -740,19 +744,21 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "pool1.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "pool1.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -769,19 +775,21 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "pool2.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "pool2.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -875,19 +883,21 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "pool1.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "pool1.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.SetPostgresRestartsEnabledResponse(poolerKey, &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{})
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{
@@ -904,19 +914,21 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "db1",
-			TableGroup: "default",
-			Shard:      "0-inf",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "pool2.cell1.svc.cluster.local",
-			PortMap:    map[string]int32{"grpc": 15100},
+			Id: poolerID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "db1",
+				TableGroup: "default",
+				Shard:      "0-inf",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "pool2.cell1.svc.cluster.local",
+			PortMap:  map[string]int32{"grpc": 15100},
 		}
 		err := ts.CreateMultiPooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
-		poolerKey := topoclient.MultiPoolerIDString(poolerID)
+		poolerKey := topoclient.ComponentIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
 		req := &multiadminpb.SetPostgresRestartsEnabledRequest{

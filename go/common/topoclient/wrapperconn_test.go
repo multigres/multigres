@@ -453,7 +453,7 @@ func TestHandleConnectionError_NilError(t *testing.T) {
 type mockConnWithDelayedFailure struct {
 	*mockConn
 	failAfterCalls int32
-	callsSoFar     int32
+	callsSoFar     atomic.Int32
 }
 
 func newMockConnWithDelayedFailure(id int, failAfterCalls int32) *mockConnWithDelayedFailure {
@@ -464,7 +464,7 @@ func newMockConnWithDelayedFailure(id int, failAfterCalls int32) *mockConnWithDe
 }
 
 func (m *mockConnWithDelayedFailure) checkErrorWithDelay() error {
-	calls := atomic.AddInt32(&m.callsSoFar, 1)
+	calls := m.callsSoFar.Add(1)
 	if calls > m.failAfterCalls {
 		return mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "delayed failure")
 	}
@@ -506,7 +506,7 @@ func (m *mockConnWithDelayedFailure) Delete(ctx context.Context, filePath string
 // mockFactoryWithDelayedFailure creates connections that fail after a certain number of calls
 type mockFactoryWithDelayedFailure struct {
 	mu             sync.Mutex
-	createCount    int32
+	createCount    atomic.Int32
 	connections    []*mockConnWithDelayedFailure
 	failAfterCalls int32
 }
@@ -518,14 +518,14 @@ func newMockFactoryWithDelayedFailure(failAfterCalls int32) *mockFactoryWithDela
 }
 
 func (f *mockFactoryWithDelayedFailure) getCreateCount() int32 {
-	return atomic.LoadInt32(&f.createCount)
+	return f.createCount.Load()
 }
 
 func (f *mockFactoryWithDelayedFailure) newConn() (Conn, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	count := atomic.AddInt32(&f.createCount, 1)
+	count := f.createCount.Add(1)
 	conn := newMockConnWithDelayedFailure(int(count), f.failAfterCalls)
 	f.connections = append(f.connections, conn)
 	return conn, nil
@@ -950,7 +950,7 @@ func TestRetryConnection_ClosesStrayConnectionWhenWrapperClosed(t *testing.T) {
 type typedNilMockFactory struct {
 	mu         sync.Mutex
 	shouldFail bool
-	connID     int32
+	connID     atomic.Int32
 }
 
 func newTypedNilMockFactory() *typedNilMockFactory {
@@ -976,7 +976,7 @@ func (f *typedNilMockFactory) newConn() (Conn, error) {
 		return conn, mterrors.Errorf(mtrpc.Code_UNAVAILABLE, "factory error")
 	}
 
-	id := atomic.AddInt32(&f.connID, 1)
+	id := f.connID.Add(1)
 	conn = newMockConn(int(id))
 	return conn, nil
 }

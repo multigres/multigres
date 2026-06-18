@@ -77,6 +77,17 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 		attrs = append(attrs, attribute.String("multigres.tablegroup", id.TableGroup))
 	}
 
+	// Tag every metric/span/log with the binary's VCS identity so callers
+	// can distinguish builds in dashboards and trace mixed-version
+	// deployments. service.version and vcs.ref.head.revision are the
+	// canonical OTel semconv attributes for this.
+	build := readBuildSnapshot()
+	if build.revision != "" {
+		attrs = append(attrs,
+			semconv.ServiceVersion(build.revision),
+		)
+	}
+
 	// Initialize OpenTelemetry with service identity attributes
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
 		slog.Error("Failed to initialize OpenTelemetry", "error", err)
@@ -219,6 +230,7 @@ func (sv *ServEnv) startOrphanDetection() {
 
 				// Check if testdata directory was deleted
 				if testDataDir != "" {
+					// #nosec G703 -- testDataDir comes from MULTIGRES_TESTDATA_DIR (test harness env), not external input.
 					if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
 						shouldShutdown = true
 						reason = "testdata directory deleted"

@@ -33,6 +33,9 @@ import (
 )
 
 // newTestPoolerWatcher creates a PoolerWatcher backed by memorytopo for testing.
+// onPoolerStopped and onPoolerDeleted default to nil; tests that need to
+// observe those events call NewPoolerWatcher directly (both branches in
+// handlePoolerEvent nil-check before invoking).
 func newTestPoolerWatcher(
 	ctx context.Context,
 	ts topoclient.Store,
@@ -47,6 +50,8 @@ func newTestPoolerWatcher(
 		func() []config.WatchTarget { return targets },
 		poolerStore,
 		onNewPooler,
+		nil, /* onPoolerStopped */
+		nil, /* onPoolerDeleted */
 		logger,
 	)
 }
@@ -82,8 +87,6 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) bool 
 	return false
 }
 
-// TestPoolerWatcher_InitialDiscovery verifies that poolers already present in topology
-// when Start is called are discovered and added to the store.
 func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	ctx := t.Context()
 
@@ -92,24 +95,28 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	// Pre-populate topology before watcher starts
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "host2",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_REPLICA,
+		Hostname: "host2",
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -133,8 +140,6 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	assert.True(t, ok, "expected 2 onNewPooler callbacks, got %d", countNew())
 }
 
-// TestPoolerWatcher_NewPoolerAddedAfterStart verifies that a pooler registered in topology
-// after Start is called is discovered via the watch and added to the store.
 func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	ctx := t.Context()
 
@@ -142,7 +147,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -150,16 +155,20 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	watcher.Start()
 	defer watcher.Stop()
 
+	// Sync to confirm watcher started and processed initial (empty) topology
+	require.NoError(t, watcher.Sync(ctx))
 	assert.Equal(t, 0, poolerStore.Len())
 
 	// Add a pooler after the watcher has started
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -175,8 +184,6 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	assert.True(t, ok, "expected 1 onNewPooler callback, got %d", countNew())
 }
 
-// TestPoolerWatcher_PoolerMetadataUpdate verifies that a topology update to an existing pooler
-// refreshes its metadata in the store while preserving health-check state and without re-queuing it.
 func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	ctx := t.Context()
 
@@ -184,16 +191,18 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	defer ts.Close()
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		Type:     clustermetadata.PoolerType_PRIMARY,
+		Hostname: "host1",
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
@@ -240,14 +249,11 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	assert.True(t, updated.IsUpToDate, "IsUpToDate should be preserved")
 	assert.True(t, updated.IsLastCheckValid, "IsLastCheckValid should be preserved")
 
-	// An update to an existing pooler should NOT trigger another onNewPooler callback.
-	// The hostname-update wait above already ensures the metadata update event has been
-	// processed, so we can assert the count directly.
+	// An update to an existing pooler should NOT trigger another onNewPooler callback
+	require.NoError(t, watcher.Sync(ctx))
 	assert.Equal(t, callbacksAfterDiscovery, countNew(), "existing pooler should not re-trigger callback on metadata update")
 }
 
-// TestPoolerWatcher_WatchTargetFiltering verifies that only poolers matching the configured
-// WatchTargets are added to the store; poolers in other databases or tablegroups are ignored.
 func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	ctx := t.Context()
 
@@ -256,26 +262,32 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 
 	// Add poolers in different databases/tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "watched"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "watched"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-db"},
-		Database:   "otherdb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-db"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "otherdb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-tg"},
-		Database:   "mydb",
-		TableGroup: "tg2",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-tg"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	// Only watch mydb/tg1
 	targets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
@@ -288,7 +300,8 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	// Filtering is permanent: after the positive condition above, no filtered pooler can appear.
+	// Sync to ensure all events (including filtered ones) have been processed
+	require.NoError(t, watcher.Sync(ctx))
 	assert.Equal(t, 1, poolerStore.Len(), "only the watched pooler should be in the store")
 	_, exists := poolerStore.Get(poolerKey("zone1", "watched"))
 	assert.True(t, exists)
@@ -298,8 +311,6 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	assert.False(t, exists, "pooler in other tablegroup should be filtered out")
 }
 
-// TestPoolerWatcher_NewCellDiscovered verifies that when a new cell is added to the topology
-// after Start, the watcher discovers the cell and starts watching its poolers.
 func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	ctx := t.Context()
 
@@ -308,7 +319,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
@@ -317,10 +328,12 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 
 	// Add a pooler in zone1
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -331,10 +344,12 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	// Add zone2 cell and a pooler in it
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone2", Name: "pooler2"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone2", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 
 	ok = waitForCondition(t, 5*time.Second, func() bool {
@@ -346,44 +361,298 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	assert.True(t, exists)
 }
 
-// TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a pooler from topology
-// does not immediately remove it from the store. Removal is deferred to bookkeeping so
-// that health-check state is preserved across transient topology blips (e.g. rolling restarts).
+// TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a
+// pooler from topology evicts its store entry and fires the
+// onDeletedPooler callback with the right ID. This is the authoritative
+// signal that a pooler has gone away (typically because its OnClose
+// unregisterFunc ran during graceful shutdown); callers wire the callback
+// to per-pooler cleanup such as HealthStream.Stop.
+// TestPoolerWatcher_PoolerDeletedFromTopology pins the new NoNode contract:
+// the watcher logs the event and invokes onPoolerDeleted (the reserved hook)
+// if it was wired, but it does NOT evict the in-memory cache and does NOT
+// fire onPoolerStopped. The intent is that an accidental external deletion
+// of a still-running pooler's entry leaves the orchestrator's view of that
+// pooler — including its open health stream — intact.
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	ctx := t.Context()
 
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
+	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:         &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database:   "mydb",
-		TableGroup: "tg1",
-		Shard:      "0",
+		Id: poolerID,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		LifecycleStatus: &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
+		},
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewPoolerStore(nil, logger)
+	poolerStore := store.NewPoolerStore()
+
+	var stoppedIDs []*clustermetadata.ID
+	var stoppedMu sync.Mutex
+	onStopped := func(id *clustermetadata.ID) {
+		stoppedMu.Lock()
+		defer stoppedMu.Unlock()
+		stoppedIDs = append(stoppedIDs, id)
+	}
+
+	var deletedIDs []*clustermetadata.ID
+	var deletedMu sync.Mutex
+	onDeleted := func(id *clustermetadata.ID) {
+		deletedMu.Lock()
+		defer deletedMu.Unlock()
+		deletedIDs = append(deletedIDs, id)
+	}
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
+	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
+		poolerStore, func(*clustermetadata.ID) {}, onStopped, onDeleted, logger)
 	watcher.Start()
 	defer watcher.Stop()
 
-	// Wait for discovery
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		return poolerStore.Len() == 1
-	})
-	require.True(t, ok)
-
-	// Delete the pooler from topology
-	require.NoError(t, ts.UnregisterMultiPooler(ctx, &clustermetadata.ID{
-		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1",
 	}))
 
-	// The pooler should NOT be removed from the store — bookkeeping handles that.
-	// onDeleted is intentionally a no-op; the count should never drop.
-	require.Never(t, func() bool { return poolerStore.Len() < 1 },
-		200*time.Millisecond, 10*time.Millisecond,
-		"deleted pooler should remain in store until bookkeeping removes it")
+	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
+	require.NoError(t, watcher.Sync(ctx))
+
+	// Cache entry must survive: NoNode is a no-op on the orchestrator side.
+	assert.Equal(t, 1, poolerStore.Len(), "NoNode must not evict the cache")
+	_, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	assert.True(t, ok, "deleted pooler should still be cached")
+
+	// onPoolerDeleted fires; onPoolerStopped does not.
+	deletedMu.Lock()
+	defer deletedMu.Unlock()
+	require.Len(t, deletedIDs, 1, "onPoolerDeleted should fire exactly once for a single NoNode event")
+	assert.Equal(t, poolerID.Name, deletedIDs[0].Name)
+	assert.Equal(t, poolerID.Cell, deletedIDs[0].Cell)
+
+	stoppedMu.Lock()
+	defer stoppedMu.Unlock()
+	assert.Empty(t, stoppedIDs, "onPoolerStopped must not fire on a NoNode event")
+}
+
+// TestPoolerWatcher_PoolerEntersShutdownLifecycle pins the new lifecycle-
+// SHUTDOWN contract: when a tracked pooler's topology entry transitions to
+// LifecycleStatus=LIFECYCLE_SHUTDOWN, the watcher invokes onPoolerStopped
+// (so the caller can tear down per-pooler resources like the health stream)
+// but deliberately does NOT evict the cache. Analyzers need the cached
+// PoolerHealthState to fire failover (e.g. LeaderIsDeadAnalyzer); the 4 h
+// bookkeeping eviction handles eventual cleanup. onPoolerDeleted must not
+// fire — the topology entry is still present, just in its terminal state.
+func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
+	ctx := t.Context()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id: poolerID,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		LifecycleStatus: &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
+		},
+	}))
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	poolerStore := store.NewPoolerStore()
+
+	var stoppedIDs []*clustermetadata.ID
+	var stoppedMu sync.Mutex
+	onStopped := func(id *clustermetadata.ID) {
+		stoppedMu.Lock()
+		defer stoppedMu.Unlock()
+		stoppedIDs = append(stoppedIDs, id)
+	}
+
+	var deletedIDs []*clustermetadata.ID
+	var deletedMu sync.Mutex
+	onDeleted := func(id *clustermetadata.ID) {
+		deletedMu.Lock()
+		defer deletedMu.Unlock()
+		deletedIDs = append(deletedIDs, id)
+	}
+
+	targets := []config.WatchTarget{{Database: "mydb"}}
+	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
+		poolerStore, func(*clustermetadata.ID) {}, onStopped, onDeleted, logger)
+	watcher.Start()
+	defer watcher.Stop()
+
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+		return poolerStore.Len() == 1
+	}))
+
+	// Transition ACTIVE -> SHUTDOWN via read-modify-write.
+	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+			Reason: "pooler shutdown",
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, watcher.Sync(ctx))
+
+	// Cache entry must survive: the SHUTDOWN transition is a signal, not a
+	// reason to evict. Analyzers still need to see the entry.
+	assert.Equal(t, 1, poolerStore.Len(), "SHUTDOWN transition must not evict the cache")
+	cached, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	require.True(t, ok, "cached entry should still be present")
+	assert.Equal(t,
+		clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		cached.MultiPooler.GetLifecycleStatus().GetStatus(),
+		"cached MultiPooler should reflect the SHUTDOWN transition")
+
+	// onPoolerStopped fires; onPoolerDeleted does not.
+	stoppedMu.Lock()
+	defer stoppedMu.Unlock()
+	require.Len(t, stoppedIDs, 1, "onPoolerStopped should fire exactly once for a SHUTDOWN transition")
+	assert.Equal(t, poolerID.Name, stoppedIDs[0].Name)
+	assert.Equal(t, poolerID.Cell, stoppedIDs[0].Cell)
+
+	deletedMu.Lock()
+	defer deletedMu.Unlock()
+	assert.Empty(t, deletedIDs, "onPoolerDeleted must not fire on a lifecycle transition")
+}
+
+// TestPoolerWatcher_RestartAfterShutdownFiresOnNewPooler verifies the
+// re-entry path: a pooler that transitioned to SHUTDOWN and then comes back
+// up (writes STARTING/ACTIVE via RegisterMultiPooler(allowUpdate=true))
+// re-triggers onNewPooler so the orchestrator restarts its health stream.
+// The cache entry is retained across SHUTDOWN, so the watcher detects the
+// SHUTDOWN→non-SHUTDOWN lifecycle transition and explicitly re-fires the
+// discovery callback.
+func TestPoolerWatcher_RestartAfterShutdownFiresOnNewPooler(t *testing.T) {
+	ctx := t.Context()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id: poolerID,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		LifecycleStatus: &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
+		},
+	}))
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	poolerStore := store.NewPoolerStore()
+	onNew, countNew := newCallbackTracker()
+
+	targets := []config.WatchTarget{{Database: "mydb"}}
+	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
+		poolerStore, onNew, func(*clustermetadata.ID) {} /* onPoolerStopped */, nil, logger)
+	watcher.Start()
+	defer watcher.Stop()
+
+	// Initial discovery fires onNewPooler once.
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return countNew() == 1 }),
+		"new pooler should trigger onNewPooler on discovery")
+
+	// Transition ACTIVE -> SHUTDOWN (cache stays; onPoolerStopped fires).
+	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, watcher.Sync(ctx))
+	require.Equal(t, 1, poolerStore.Len(), "cache must be retained across SHUTDOWN")
+
+	// Pooler comes back: lifecycle transitions back to ACTIVE.
+	_, err = ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return countNew() == 2 }),
+		"restart after SHUTDOWN must re-fire onNewPooler so the health stream restarts")
+}
+
+// TestPoolerWatcher_ColdStartShutdownIgnored verifies that an already-SHUTDOWN
+// pooler discovered for the first time (e.g. orchestrator restart while the
+// entry is still in topology) is cached but triggers no callbacks. The cache
+// entry lets the watcher detect a future SHUTDOWN→non-SHUTDOWN transition
+// and fire onNewPooler then, but no health stream is opened immediately —
+// there's nothing live to monitor.
+func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
+	ctx := t.Context()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Pre-existing SHUTDOWN entry.
+	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id: poolerID,
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
+		LifecycleStatus: &clustermetadata.PoolerLifecycle{
+			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		},
+	}))
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	poolerStore := store.NewPoolerStore()
+	onNew, countNew := newCallbackTracker()
+
+	var stoppedCalls, deletedCalls int
+	var cbMu sync.Mutex
+	onStopped := func(*clustermetadata.ID) { cbMu.Lock(); stoppedCalls++; cbMu.Unlock() }
+	onDeleted := func(*clustermetadata.ID) { cbMu.Lock(); deletedCalls++; cbMu.Unlock() }
+
+	targets := []config.WatchTarget{{Database: "mydb"}}
+	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
+		poolerStore, onNew, onStopped, onDeleted, logger)
+	watcher.Start()
+	defer watcher.Stop()
+
+	// Wait for the watcher to process the initial pooler event, then drain
+	// any remaining events.
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+		return poolerStore.Len() == 1
+	}), "watcher should cache the SHUTDOWN entry")
+	require.NoError(t, watcher.Sync(ctx))
+
+	cached, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	require.True(t, ok, "cached entry should be present")
+	assert.Equal(t,
+		clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+		cached.MultiPooler.GetLifecycleStatus().GetStatus(),
+		"cached MultiPooler lifecycle should reflect SHUTDOWN")
+	assert.Equal(t, 0, countNew(), "onNewPooler must not fire for an already-SHUTDOWN pooler")
+
+	cbMu.Lock()
+	defer cbMu.Unlock()
+	assert.Equal(t, 0, stoppedCalls, "onPoolerStopped must not fire for cold-start SHUTDOWN")
+	assert.Equal(t, 0, deletedCalls, "onPoolerDeleted must not fire for cold-start SHUTDOWN")
 }

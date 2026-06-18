@@ -32,7 +32,6 @@ package multipooler
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -227,6 +226,21 @@ func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiP
 	return statusResp.Status.PrimaryStatus
 }
 
+// currentRuleNumberFromClient reads the pooler's current ShardRule number via
+// Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
+// Pass ctxutil.Detach(t.Context()) when calling from t.Cleanup (t.Context() is
+// already cancelled at that point).
+func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	require.NotNil(t, rn, "primary must have a current rule number")
+	return rn
+}
+
 // Helper function to wait for synchronous replication config to converge to expected value.
 func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
@@ -234,22 +248,6 @@ func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermana
 		status := getPrimaryStatusFromClient(t, client)
 		return checkFunc(status.SyncReplicationConfig)
 	}, 5*time.Second, 200*time.Millisecond, message)
-}
-
-// postgresIsInRecovery queries postgres directly to determine whether it is running in
-// standby (recovery) mode. Returns true for standby, false for primary.
-func postgresIsInRecovery(t *testing.T, client *shardsetup.MultiPoolerTestClient) (bool, error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	resp, err := client.ExecuteQuery(ctx, "SELECT pg_is_in_recovery()", 1)
-	if err != nil {
-		return false, err
-	}
-	if len(resp.Rows) == 0 {
-		return false, errors.New("pg_is_in_recovery() returned no rows")
-	}
-	return string(resp.Rows[0].Values[0]) == "t", nil
 }
 
 // Helper function to check if a standby ID is in the config.

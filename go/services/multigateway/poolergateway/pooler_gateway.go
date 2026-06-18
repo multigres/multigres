@@ -30,8 +30,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -96,6 +98,16 @@ func NewPoolerGateway(
 	}
 }
 
+// isSingleQuery reports whether a request is a single autocommit query — no
+// existing reserved connection and not about to create one. Such queries can be
+// served on a pooler that is draining for a planned failover, so they skip the
+// proactive failover-buffer block (see withBuffering). It mirrors the pooler's
+// own classification (poolerserver.admissionKind); each caller computes
+// willReserve from the signal it carries (reservation options, portal MaxRows).
+func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
+	return reservedConnID == 0 && !willReserve
+}
+
 // withBuffering wraps a query execution with failover buffering. It handles:
 //  1. Proactive buffering — if the shard is already known to be failing over,
 //     the request waits before sending any query (avoids a wasted round-trip).
@@ -120,6 +132,7 @@ func NewPoolerGateway(
 func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
+	singleQuery bool,
 	inner func(conn *PoolerConnection) error,
 ) error {
 	bufferedOnce := false
@@ -135,7 +148,17 @@ func (pg *PoolerGateway) withBuffering(
 			var bufErr error
 			if err == nil {
 				// Proactive: first attempt, check if shard is already buffering.
-				retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
+				//
+				// Single autocommit queries skip the proactive block: a pooler
+				// draining for a planned failover can still serve them during the
+				// first drain stage, so we send them through and only buffer
+				// reactively (below) if they actually bounce with MTF01. New
+				// transactions/reservations keep the proactive block — the pooler
+				// rejects them throughout the drain, so a wasted round-trip is
+				// pointless.
+				if !singleQuery {
+					retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
+				}
 			} else {
 				// Reactive: after a buffer-worthy error, wait for failover to end.
 				retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
@@ -209,7 +232,8 @@ func (pg *PoolerGateway) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	// StreamExecute creates a reservation only when ReservationOptions is set.
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), reservationOptions != nil), func(conn *PoolerConnection) error {
 		var err error
 		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
 		return err
@@ -223,7 +247,8 @@ func (pg *PoolerGateway) StreamExecute(
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
 	var result *sqltypes.Result
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	// ExecuteQuery cannot create a reservation.
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *PoolerConnection) error {
 		var err error
 		result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 		return err
@@ -239,12 +264,18 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 	portalOptions *multipoolerpb.PortalExecuteOptions,
+	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	// A portal reserves a connection as a suspendable cursor (MaxRows > 0) or when
+	// it carries reservation reasons (e.g. a deferred BEGIN folded into the first
+	// portal); only a fetch-all portal with no reasons is a single query — mirrors
+	// the pooler's classification and the executor's reserve decision.
+	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *PoolerConnection) error {
 		var err error
-		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, callback)
+		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
 		return err
 	})
 	return state, err
@@ -259,7 +290,8 @@ func (pg *PoolerGateway) Describe(
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	var desc *query.StatementDescription
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	// Describe never creates a reservation.
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *PoolerConnection) error {
 		var err error
 		desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 		return err
@@ -281,12 +313,71 @@ func (pg *PoolerGateway) CopyReady(
 		colFormats []int16
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
 		var err error
 		format, colFormats, state, err = conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
 	})
 	return format, colFormats, state, err
+}
+
+// CopyOutReady implements queryservice.QueryService.
+// It initiates a COPY ... TO STDOUT operation and returns format information
+// plus any pre-CopyOutResponse notices.
+func (pg *PoolerGateway) CopyOutReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+	reservationOptions *query.ReservationOptions,
+) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
+	var (
+		format     int16
+		colFormats []int16
+		notices    []*mterrors.PgDiagnostic
+		state      *query.ReservedState
+	)
+	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
+		var err error
+		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
+		return err
+	})
+	return format, colFormats, notices, state, err
+}
+
+// CopyOutStream implements queryservice.QueryService.
+// Pumps CopyData / NoticeResponse frames from the multipooler back through
+// the supplied callback until RESULT/ERROR.
+//
+// Uses loadBalancer.GetConnection directly rather than withBuffering — same
+// as CopySendData / CopyFinalize for the FROM-STDIN data phase. The stream
+// has already been established by CopyOutReady and lives on a specific
+// PoolerConnection's grpcQueryService.copyStreams map keyed by the
+// reserved connection ID; routing this call through withBuffering's
+// proactive failover check (which may stall, retry, and land on a
+// different PoolerConnection) would only surface a confusing
+// "no active COPY stream for reserved connection X" error in place of
+// the real failure. Failover during a live COPY stream is a connection-level
+// failure that the executor's CopyOutStream handles via
+// IsConnectionError → Release(ReleaseError).
+func (pg *PoolerGateway) CopyOutStream(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	onMessage func(client.CopyOutMessage) error,
+) (*sqltypes.Result, *query.ReservedState, error) {
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
 }
 
 // Close implements queryservice.QueryService.
@@ -309,7 +400,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	}
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
-	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
 		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
@@ -323,6 +414,13 @@ func (pg *PoolerGateway) Stats() map[string]any {
 	return map[string]any{
 		"active_connections": pg.loadBalancer.ConnectionCount(),
 	}
+}
+
+// LeadershipByID returns the consensus leadership role of each connected pooler,
+// keyed by serialized pooler ID, for the admin/status page.
+// See LoadBalancer.LeadershipByID.
+func (pg *PoolerGateway) LeadershipByID() map[topoclient.ComponentID]string {
+	return pg.loadBalancer.LeadershipByID()
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -404,6 +502,8 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
+	releaseAllPortals bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
@@ -418,7 +518,7 @@ func (pg *PoolerGateway) ConcludeTransaction(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals)
 }
 
 // DiscardTempTables implements queryservice.QueryService.

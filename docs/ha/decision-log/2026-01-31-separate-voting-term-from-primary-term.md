@@ -1,7 +1,7 @@
 # Separate Voting Term from Primary Term for Primary Determination
 
 **Date:** 2026-01-31
-**Status:** In Progress
+**Status:** Implemented
 **Participants:** David W, Sugu S, Rafael C
 
 ## Context

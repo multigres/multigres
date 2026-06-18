@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.6
+# Integration test runner: supabase Postgres + Go toolchain + etcd.
+#
+# Build with:
+#   docker build -f Dockerfile.integration-test \
+#     --build-arg SUPABASE_IMAGE=supabase-postgres:local \
+#     -t supabase-postgres-test:local .
+#
+# Run with (from the multigres repo root):
+#   docker run --rm \
+#     -v $(pwd):/multigres \
+#     -v /tmp/go-cache:/home/postgres/.cache \
+#     supabase-postgres-test:local
+#
+# See .claude/docs/supabase-postgres-testing.md for full instructions.
+
+# checkov:skip=CKV_DOCKER_7:local test image managed by build scripts; not from external registry
+# checkov:skip=CKV2_DOCKER_1:local test image managed by build scripts; not from external registry
+ARG SUPABASE_IMAGE=supabase-postgres:local
+FROM ${SUPABASE_IMAGE}
+
+USER root
+
+ARG GO_VERSION=1.25.10
+# SHA256 digests from https://go.dev/dl/ for go${GO_VERSION}.linux-{amd64,arm64}.tar.gz.
+# Update both ARGs together whenever GO_VERSION is bumped.
+ARG GO_SHA256_AMD64=42d4f7a32316aa66591eca7e89867256057a4264451aca10570a715b3637ba70
+ARG GO_SHA256_ARM64=654da1f9b50a5d1c2a85ccf8ed405aa89c06e94d18384628bf186f7712677b08
+
+# curl and tar are only needed to download and verify the Go toolchain;
+# they are removed via the .build-tools virtual group after installation.
+# hadolint ignore=DL3018,DL4006
+RUN apk add --no-cache make git etcd pgbackrest && \
+  apk add --no-cache --virtual .build-tools curl tar && \
+  case "$(uname -m)" in \
+    x86_64)  ARCH=amd64; GO_SHA256="${GO_SHA256_AMD64}" ;; \
+    aarch64) ARCH=arm64; GO_SHA256="${GO_SHA256_ARM64}" ;; \
+    *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+  esac && \
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz && \
+  echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - && \
+  tar -C /usr/local -xzf /tmp/go.tar.gz && \
+  rm /tmp/go.tar.gz && \
+  GOBIN=/usr/local/bin /usr/local/go/bin/go install gotest.tools/gotestsum@v1.13.0 && \
+  apk del .build-tools && \
+  mkdir -p /home/postgres/.cache && \
+  chown -R postgres:postgres /home/postgres/.cache
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Bake in the entrypoint script so the image is self-contained.
+# The script is also available in the mounted source tree, but
+# having it here means `docker run IMAGE` works without arguments.
+COPY --chmod=0755 .github/scripts/run-integration-tests-container.sh \
+  /usr/local/bin/run-integration-tests
+
+# Satisfy checkov CKV_DOCKER_6 (HEALTHCHECK required). This container is
+# a test runner; the healthcheck is not used in production.
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD ["go", "version"]
+
+USER postgres
+WORKDIR /multigres
+ENTRYPOINT ["/usr/local/bin/run-integration-tests"]

@@ -67,6 +67,7 @@ type SpanConfig struct {
 
 // loadSamplingConfig loads and validates sampling configuration from a YAML file
 func loadSamplingConfig(path string) (*SamplingConfig, error) {
+	// #nosec G703 -- path is an operator-configured sampling-config location, not external request input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sampling config file: %w", err)

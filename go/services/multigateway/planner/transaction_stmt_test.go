@@ -41,6 +41,16 @@ func newPortalInfoFor(t *testing.T, sql string) *preparedstatement.PortalInfo {
 	return preparedstatement.NewPortalInfo(psi, portal)
 }
 
+// planPortal plans sql on the extended-protocol (portal) path, mirroring how the
+// executor drives the portal flow through Plan with IsPortal set. Routable
+// statements come back as a plain Route (which reissues the portal to the
+// backend); gateway-local statements come back as their dedicated primitive.
+func planPortal(t *testing.T, p *Planner, conn *server.Conn, sql string) (*engine.Plan, error) {
+	t.Helper()
+	pi := newPortalInfoFor(t, sql)
+	return p.Plan(pi.PreparedStatementInfo.Query, pi.PreparedStatementInfo.AstStmt(), conn, PlanOptions{IsPortal: true})
+}
+
 // TestPlanPortal_TransactionStmt pins that BEGIN/COMMIT/ROLLBACK over the
 // extended protocol resolve to the TransactionPrimitive so they are handled
 // locally by the gateway. If this returns nil the executor sends the
@@ -66,10 +76,9 @@ func TestPlanPortal_TransactionStmt(t *testing.T) {
 			p := NewPlanner("default", logger, nil)
 			testConn := server.NewTestConn(&bytes.Buffer{})
 
-			portalInfo := newPortalInfoFor(t, tt.sql)
-			plan, err := p.PlanPortal(portalInfo, testConn.Conn)
+			plan, err := planPortal(t, p, testConn.Conn, tt.sql)
 			require.NoError(t, err)
-			require.NotNil(t, plan, "PlanPortal must return a non-nil plan for %s — a nil plan would send the statement to a pooled backend connection and leak transaction state", tt.sql)
+			require.NotNil(t, plan, "the portal path must return a non-nil plan for %s — a plan that did not own dispatch would send the statement to a pooled backend connection and leak transaction state", tt.sql)
 
 			prim, ok := plan.Primitive.(*engine.TransactionPrimitive)
 			require.True(t, ok, "expected TransactionPrimitive, got %T", plan.Primitive)
@@ -79,18 +88,19 @@ func TestPlanPortal_TransactionStmt(t *testing.T) {
 	}
 }
 
-// TestPlanPortal_RegularSelectFallsThrough pins the non-transaction default:
-// routable queries return (nil, nil) from PlanPortal so the executor uses
-// the portal fast path.
-func TestPlanPortal_RegularSelectFallsThrough(t *testing.T) {
+// TestPlanPortal_RegularSelect pins the non-transaction default: a routable
+// query plans to a plain Route, whose PortalStreamExecute reissues the portal to
+// the backend — exactly the portal fast path, with no gateway-local handling.
+func TestPlanPortal_RegularSelect(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	portalInfo := newPortalInfoFor(t, "SELECT 1")
-	plan, err := p.PlanPortal(portalInfo, testConn.Conn)
+	plan, err := planPortal(t, p, testConn.Conn, "SELECT 1")
 	require.NoError(t, err)
-	assert.Nil(t, plan, "PlanPortal should return nil for plain routable SELECTs (handled by the portal fast path)")
+	require.NotNil(t, plan)
+	_, ok := plan.Primitive.(*engine.Route)
+	assert.True(t, ok, "a routable SELECT must plan to a plain Route (reissues the portal), got %T", plan.Primitive)
 }
 
 // TestPlanPortal_SavepointFallsThrough confirms that savepoint variants
@@ -112,8 +122,7 @@ func TestPlanPortal_SavepointFallsThrough(t *testing.T) {
 			p := NewPlanner("default", logger, nil)
 			testConn := server.NewTestConn(&bytes.Buffer{})
 
-			portalInfo := newPortalInfoFor(t, sql)
-			plan, err := p.PlanPortal(portalInfo, testConn.Conn)
+			plan, err := planPortal(t, p, testConn.Conn, sql)
 			require.NoError(t, err)
 
 			// Savepoint statements still go through the TransactionPrimitive

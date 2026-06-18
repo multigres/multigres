@@ -90,3 +90,36 @@ func TestClassifyError(t *testing.T) {
 		})
 	}
 }
+
+// TestIsSingleQuery covers the classification that decides whether a request
+// skips proactive failover buffering. Only a request with no existing reserved
+// connection AND that will not create one is a single query. The scenarios are
+// labelled by the handler input that produces each (reservedConnID, willReserve)
+// pair, so this also documents what each handler passes:
+//
+//   - StreamExecute:        willReserve = ReservationOptions != nil
+//   - ExecuteQuery/Describe: willReserve = false (no reservation path)
+//   - PortalStreamExecute:   willReserve = MaxRows > 0 (suspendable cursor)
+//   - CopyReady/CopyOutReady/GetAuthCredentials: always proactively buffered
+//     (pass singleQuery=false directly; not via this helper)
+func TestIsSingleQuery(t *testing.T) {
+	tests := []struct {
+		name           string
+		reservedConnID uint64
+		willReserve    bool
+		want           bool
+	}{
+		{"StreamExecute autocommit (no reservation, no conn)", 0, false, true},
+		{"ExecuteQuery/Describe standalone (no conn)", 0, false, true},
+		{"PortalStreamExecute fetch-all (MaxRows==0, no conn)", 0, false, true},
+		{"StreamExecute new transaction (reservation requested)", 0, true, false},
+		{"PortalStreamExecute cursor (MaxRows>0)", 0, true, false},
+		{"on an existing reserved connection (never a single query)", 42, false, false},
+		{"existing reserved conn + would reserve", 42, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSingleQuery(tt.reservedConnID, tt.willReserve))
+		})
+	}
+}

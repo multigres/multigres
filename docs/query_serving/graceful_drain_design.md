@@ -3,23 +3,37 @@
 ## Overview
 
 When multipooler transitions to `NOT_SERVING` (e.g., during demotion
-from primary to replica), it must reject new queries immediately while
-allowing existing reserved connections — transactions, portals, COPY
-operations — to finish cleanly. Without graceful drain, a sudden
-cutover would abort in-flight transactions, causing client errors and
-client-visible errors.
+from primary to replica), it must let in-flight work finish cleanly
+before the cutover, while steering new work to the new primary. A naive
+"reject everything immediately" cutover would abort in-flight
+transactions and needlessly bounce simple queries that the still-primary
+could have served.
+
+The drain runs in **two stages** under a single grace period:
+
+1. **Drain reserved** — reject new transactions/reservations (the gateway
+   buffers them for the new primary), but keep serving single autocommit
+   queries and let existing transactions finish.
+2. **Drain regular** — once transactions are done, also stop serving
+   single queries and wait for the in-flight ones to finish, so the
+   pooler reports `NOT_SERVING` with zero in-flight work and the
+   subsequent postgres demotion kills nothing.
 
 Key capabilities:
 
-- **Two-phase shutdown**: gate new requests first, then wait for
-  in-flight connections to drain before completing the state transition
+- **Two-stage drain**: drain transactions first (while single queries
+  keep flowing), then drain single queries, then complete the transition
 - **Reserved connection exemption**: existing transactions and portals
-  continue through shutdown; only new reservations are rejected
-- **Bounded grace period**: drain waits up to a configurable timeout
-  (default 3s) so shutdown is never blocked indefinitely
-- **Pool-level drain tracking**: connection borrow/recycle and
-  reserve/release events are tracked via callbacks, enabling efficient
-  zero-polling drain detection
+  always continue; only new reservations are rejected
+- **Single queries served during stage 1**: simple autocommit queries are
+  served on the still-primary until transactions have drained, then
+  buffered — minimizing latency during what can be a multi-second wait
+- **Bounded grace period**: both stages share a configurable timeout
+  (default 3s); on expiry everything is force-closed so shutdown is never
+  blocked indefinitely
+- **Pool-level drain tracking**: borrow/recycle and reserve/release
+  events feed two zero-polling counters — a combined count and a
+  reserved-only count — so each stage waits on exactly its pool
 
 ## Background
 
@@ -46,38 +60,40 @@ during planned state transitions like demotion.
                         │
                         │ OnStateChange(NOT_SERVING)
                         ▼
-              ┌─────────────────────┐
-              │  QueryPoolerServer  │
-              │                     │
-              │  1. shuttingDown=true│
-              │     (gate new reqs) │
-              │                     │
-              │  2. WaitForDrain()  │◄──── bounded by gracePeriod
-              │                     │
-              │  3. status=NOT_SERVING│
-              │     shuttingDown=false│
-              └─────────────────────┘
+              ┌──────────────────────────────┐
+              │     QueryPoolerServer        │
+              │                              │
+              │  1. drainPhase=drainReserved │
+              │     WaitForReservedDrain()   │◄── stage 1: serve single
+              │                              │    queries, finish txns
+              │  2. drainPhase=drainRegular  │
+              │     WaitForDrain()           │◄── stage 2: drain single
+              │                              │    queries (one deadline,
+              │  3. status=NOT_SERVING       │    bounded by gracePeriod)
+              │     drainPhase=drainNone     │
+              └──────────────────────────────┘
 
-    ┌──────────────────────────────────────────┐
-    │           gRPC Service Layer             │
-    │                                          │
-    │  StartRequest(allowOnShutdown)           │
-    │  ┌──────────┐  ┌───────────────────────┐ │
-    │  │ New req  │  │ Existing reserved conn│ │
-    │  │ → REJECT │  │ → ALLOW              │ │
-    │  └──────────┘  └───────────────────────┘ │
-    └──────────────────────────────────────────┘
+    ┌──────────────────────────────────────────────────┐
+    │                gRPC Service Layer                 │
+    │                                                   │
+    │  StartRequest(target, RequestKind)                │
+    │  ┌───────────────┐ ┌────────────┐ ┌─────────────┐ │
+    │  │ ExistingReser-│ │ SingleQuery│ │ NewReserva- │ │
+    │  │ ved → ALLOW   │ │ stage1 ✓   │ │ tion → BUF  │ │
+    │  └───────────────┘ └────────────┘ └─────────────┘ │
+    └──────────────────────────────────────────────────┘
 
     ┌──────────────────────────────────────────┐
     │        Connection Pool Manager           │
     │                                          │
-    │  lentCount: atomic counter               │
-    │  zeroCh: closed when lentCount == 0      │
+    │  regularCount  (single-query borrows)    │
+    │  reservedCount (reserved conns)          │
+    │  combined drain = regularCount+reserved  │
     │                                          │
-    │  OnBorrow() → lentAdd(+1)                │
-    │  OnRecycle() → lentAdd(-1)               │
-    │  OnReserve() → lentAdd(+1)               │
-    │  OnRelease() → lentAdd(-1)               │
+    │  OnBorrow()  → regularAdd(+1)            │
+    │  OnRecycle() → regularAdd(-1)            │
+    │  OnReserve() → reservedAdd(+1)           │
+    │  OnRelease() → reservedAdd(-1)           │
     └──────────────────────────────────────────┘
 ```
 
@@ -85,86 +101,140 @@ during planned state transitions like demotion.
 
 ### Drain Tracking
 
-The `connpoolmanager.Manager` tracks how many connections are
-currently lent out across all user pools via a `lentCount` counter and
-a `zeroCh` channel:
+The `connpoolmanager.Manager` keeps two independent counters and two
+zero-polling channels:
 
-- **`lentAdd(n)`**: adjusts the counter. When transitioning to zero,
-  `zeroCh` is closed to unblock any `WaitForDrain` caller. When
-  transitioning away from zero, a new open channel is allocated.
-- **`WaitForDrain(ctx)`**: blocks on `zeroCh` until either the count
-  reaches zero or the context is cancelled.
+- **`regularCount`**: regular (single-query) borrows.
+- **`reservedCount`**: reserved connections (transactions, temp tables,
+  portals, COPY, etc.).
+- **`zeroCh`** closes when `regularCount + reservedCount == 0`;
+  `WaitForDrain(ctx)` blocks on it (the full drain).
+- **`reservedZeroCh`** closes when `reservedCount == 0`;
+  `WaitForReservedDrain(ctx)` blocks on it (the reserved-only drain).
 
-This channel-based approach avoids polling. The counter increments on
-connection borrow (regular pool) or reserve (reserved pool), and
-decrements on recycle or release/kill.
+`regularAdd(n)` and `reservedAdd(n)` adjust one counter each and
+reconcile the affected channel(s) via `signalZeroChanLocked`. The
+two-stage drain waits on `WaitForReservedDrain` first (transactions only
+— single-query borrows don't touch `reservedCount`, so they never hold
+it up), then on `WaitForDrain`.
 
-Regular pool connections and reserved pool connections use separate
-callback pairs to avoid double-counting:
+The counters are bumped by callbacks on borrow/recycle and
+reserve/release:
 
-| Pool type | Increment callback | Decrement callback |
-| --------- | ------------------ | ------------------ |
-| Regular   | `OnBorrow`         | `OnRecycle`        |
-| Reserved  | `OnReserve`        | `OnRelease`        |
+| Pool type | Increment callback | Decrement callback | Counter bumped  |
+| --------- | ------------------ | ------------------ | --------------- |
+| Regular   | `OnBorrow`         | `OnRecycle`        | `regularCount`  |
+| Reserved  | `OnReserve`        | `OnRelease`        | `reservedCount` |
 
-The reserved pool's inner regular connpool does **not** get
-`OnBorrow`/`OnRecycle` callbacks. This is intentional: the reserved
-pool borrows a regular connection internally when creating a reserved
-connection, but from the drain-tracking perspective this is a single
-logical lend tracked by `OnReserve`/`OnRelease`.
+Keeping the counters separate means each event takes the drain lock
+exactly once: a regular borrow touches only `regularCount` (and `zeroCh`),
+a reserve touches only `reservedCount` (and both channels). The reserved
+pool's inner regular connpool does **not** get `OnBorrow`/`OnRecycle`
+callbacks: creating a reserved connection is a single logical lend
+tracked by `OnReserve`/`OnRelease`, so it is counted once, under
+`reservedCount`.
 
 ### Admission Control
 
-`QueryPoolerServer.StartRequest(allowOnShutdown bool)` is the
-admission gate called by every gRPC handler before acquiring an
-executor:
+`QueryPoolerServer.StartRequest(target, RequestKind)` is the admission
+gate called by every gRPC handler before acquiring an executor. The
+handler classifies the request into one of three kinds, and the gate
+decides per kind and drain stage. Rejection returns `MTF01`, which the
+gateway buffers and retries on the new primary.
 
-| State                      | `allowOnShutdown=false`    | `allowOnShutdown=true`   |
-| -------------------------- | -------------------------- | ------------------------ |
-| SERVING, not shutting down | Allow                      | Allow                    |
-| SERVING, shutting down     | Reject (`ErrShuttingDown`) | Allow                    |
-| NOT_SERVING                | Reject (`ErrNotServing`)   | Reject (`ErrNotServing`) |
+| `RequestKind`      | SERVING | drainReserved (stage 1) | drainRegular (stage 2) | NOT_SERVING      |
+| ------------------ | ------- | ----------------------- | ---------------------- | ---------------- |
+| `ExistingReserved` | Allow   | Allow                   | Allow                  | Allow¹           |
+| `SingleQuery`      | Allow   | Allow                   | Reject (`MTF01`)       | Reject (`MTF01`) |
+| `NewReservation`   | Allow   | Reject (`MTF01`)        | Reject (`MTF01`)       | Reject (`MTF01`) |
 
-Each gRPC method sets `allowOnShutdown` based on whether it operates
-on an existing reserved connection:
+¹ `ExistingReserved` is always admitted regardless of serving status or
+demotion: the reserved connection itself is the real gate, not the
+pooler's serving state. Tablegroup/shard mismatches (`MTD01`) are still
+rejected for every kind. Once an `ExistingReserved` op is admitted, two
+outcomes are possible:
 
-| Method                      | `allowOnShutdown`    | Rationale                                |
-| --------------------------- | -------------------- | ---------------------------------------- |
-| `StreamExecute`             | `reservedConnId > 0` | Allow if continuing existing reservation |
-| `ExecuteQuery`              | `reservedConnId > 0` | Same                                     |
-| `Describe`                  | `reservedConnId > 0` | Same                                     |
-| `PortalStreamExecute`       | `reservedConnId > 0` | Same                                     |
-| `CopyBidiExecute`           | `reservedConnId > 0` | Same                                     |
-| `ReserveStreamExecute`      | `false`              | Always a new reservation                 |
-| `ConcludeTransaction`       | `true`               | Always on existing reserved conn         |
-| `ReleaseReservedConnection` | `true`               | Always on existing reserved conn         |
-| `GetAuthCredentials`        | `false`              | Admin operation, not query path          |
-| `StreamPoolerHealth`        | No gate              | Health streaming is independent          |
+- **Connection still alive** (the normal in-drain case): the operation
+  runs on the live backend. PostgreSQL is demoted only _after_ the
+  drain finishes, so a surviving reserved connection is still on the
+  primary and the transaction concludes cleanly.
+- **Connection already force-closed** (the drain exceeded its grace
+  period): the executor returns SQLSTATE `40001` (`serialization_failure`,
+  _"transaction aborted: connection terminated during a planned
+  failover"_) so the client retries the whole transaction. This is
+  deliberately **not** `MTF01` — the transaction no longer exists, so
+  there is nothing for the gateway to buffer or auto-retry; only the
+  client can replay it.
 
-### Two-Phase Shutdown
+Each gRPC handler reports `id = ReservedConnectionId > 0` (existing
+reserved) and, when `id == 0`, whether the request will create a new
+reservation — mirroring the executor's own reserve decision:
 
-When `OnStateChange` receives `NOT_SERVING`:
+| Method                      | Reserves when (id == 0)                    |
+| --------------------------- | ------------------------------------------ |
+| `StreamExecute`             | `ReservationOptions` reasons != 0          |
+| `ExecuteQuery`, `Describe`  | never (no reservation path) → single query |
+| `PortalStreamExecute`       | `MaxRows > 0` (suspendable cursor)         |
+| `CopyBidiExecute`           | always (COPY pins a connection)            |
+| `ConcludeTransaction`       | always existing reserved                   |
+| `DiscardTempTables`         | always existing reserved                   |
+| `ReleaseReservedConnection` | always existing reserved                   |
+| `GetAuthCredentials`        | treated as new reservation (buffered)      |
+| `StreamPoolerHealth`        | no gate (health streaming is independent)  |
 
-1. **Phase 1 — Gate**: set `shuttingDown=true` (under mutex), then
-   release the mutex. New `StartRequest(false)` calls immediately
-   return `ErrShuttingDown`. Existing reserved connections continue.
+Each predicate matches what the executor actually does: a `MaxRows == 0`
+portal (fetch-all) runs on a pooled connection, so it is a single query;
+a COPY adds `ReasonCopy` pooler-side (the request's reservation reasons
+can be 0 for an autocommit COPY), so it is always classified as a
+reservation by `id` alone rather than by reasons.
 
-2. **Phase 2 — Drain**: call `poolManager.WaitForDrain(ctx)` with a
-   context bounded by `gracePeriod` (default 3s). This blocks until
-   all lent connections are returned or the timeout elapses.
+#### Gateway cooperation
 
-3. **Phase 3 — Complete**: re-acquire the mutex, set
-   `servingStatus=NOT_SERVING` and `shuttingDown=false`.
+The pooler willingly serving single queries during stage 1 is only
+useful if the gateway actually sends them. Today, once a shard enters
+its failover buffer the gateway _proactively_ blocks every PRIMARY
+request. So `PoolerGateway.withBuffering` takes an `isSingleQuery` flag
+(set when there is no reservation and no existing reserved connection):
+single queries **skip the proactive block** and are sent straight to the
+pooler, buffering only _reactively_ if they bounce with `MTF01` (stage 2
+onward). New transactions keep the proactive block — the pooler rejects
+them throughout the drain, so a wasted round-trip is pointless.
 
-If the grace period expires before drain completes, all remaining
-reserved connections are forcibly killed via
-`poolManager.CloseReservedConnections()`. This ensures no reserved
-connections survive into a non-serving state where they could execute
-queries against a demoted replica. The force-close kills the backend
-PostgreSQL processes and returns the connections to the pool.
+### Two-Stage Drain
+
+When `OnStateChange` receives `NOT_SERVING`, it runs two drain stages
+under one `gracePeriod`-bounded deadline (default 3s). The `poolerType`
+is **not** updated until the very end, so in-flight reserved-connection
+ops still see the old type and pass `checkTargetLocked` throughout.
+
+1. **Stage 1 — drain reserved**: set `drainPhase=drainReserved` (under
+   mutex), then call `poolManager.WaitForReservedDrain(ctx)`. New
+   reservations are rejected (`MTF01`); single queries are still served;
+   existing transactions run to completion. Blocks until `reservedCount`
+   hits zero or the deadline elapses.
+
+2. **Stage 2 — drain regular**: set `drainPhase=drainRegular`, then call
+   `poolManager.WaitForDrain(ctx)`. Now single queries are rejected too;
+   the wait blocks until the remaining in-flight single queries finish
+   (the combined total reaches zero, since reserved is already zero).
+
+3. **Complete**: re-acquire the mutex, set `poolerType`,
+   `servingStatus=NOT_SERVING`, and `drainPhase=drainNone`.
+
+If the shared deadline expires in either stage, all reserved connections
+are force-closed via `poolManager.CloseReservedConnections()` (killing
+the backend processes; their transactions surface `40001`), and the
+transition completes. Any still-running single queries are then killed
+by the postgres demotion that follows — acceptable, since that is
+exactly what the grace period bounds.
+
+A late operation (e.g. a `COMMIT`) that arrives after its reserved
+connection was force-closed is admitted by the gate (`ExistingReserved`)
+but finds the connection gone, and the executor returns `40001` so the
+client retries the whole transaction. See Admission Control above.
 
 When `OnStateChange` receives `SERVING`, the transition is immediate:
-set `servingStatus=SERVING` and `shuttingDown=false`.
+set `servingStatus=SERVING` and `drainPhase=drainNone`.
 
 ## Callback Plumbing
 
@@ -173,7 +243,7 @@ Callbacks flow through the pool creation hierarchy:
 ```text
 Manager.createUserPoolSlow()
   │
-  │  creates closures: onBorrow = m.lentAdd(1), etc.
+  │  creates closures: onBorrow = m.regularAdd(1), onReserve = m.reservedAdd(1), etc.
   │
   └─► UserPoolConfig { OnBorrow, OnRecycle, OnReserve, OnRelease }
         │
@@ -185,23 +255,32 @@ Manager.createUserPoolSlow()
 ```
 
 Each user pool created by the manager gets its own set of callback
-closures that all funnel into the single `Manager.lentAdd` counter.
+closures that funnel into the `Manager.regularAdd` / `Manager.reservedAdd`
+counters.
 
 ## Configuration
 
 The drain grace period is configurable via the
-`--connpool-drain-grace-period` flag (default: 3s). This controls how
-long `OnStateChange` waits for in-flight connections to drain before
-force-closing reserved connections and completing the NOT_SERVING
-transition.
+`--connpool-drain-grace-period` flag (default: 3s). It is the single
+deadline shared by both drain stages: when it expires, remaining reserved
+connections are force-closed and the NOT_SERVING transition completes.
 
 ## Testing
 
-- **`connpoolmanager/drain_test.go`**: unit tests for `lentAdd`
-  counter and channel behavior, `WaitForDrain` immediate return,
-  blocking until zero, and context cancellation
-- **`poolerserver/pooler_test.go`**: unit tests for `StartRequest`
-  across all state combinations (serving, not serving, shutting down
-  with and without `allowOnShutdown`), concurrency tests for
-  `OnStateChange` drain behavior, grace period expiry, and
-  SERVING/NOT_SERVING round-trips
+- **`connpoolmanager/drain_test.go`**: unit tests for the `regularAdd` and
+  `reservedAdd` counters and their channels, `WaitForDrain` /
+  `WaitForReservedDrain` immediate-return, blocking-until-zero, and
+  context cancellation — including that a regular borrow does **not**
+  hold up the reserved-only wait
+- **`poolerserver/pooler_test.go`**: unit tests for `StartRequest` across
+  all `RequestKind` × drain-phase combinations, plus `OnStateChange`
+  two-stage drain behavior (single query served in stage 1, rejected in
+  stage 2), grace-period expiry in both stages, and SERVING/NOT_SERVING
+  round-trips
+- **`grpcpoolerservice/admission_test.go`**: the `admissionKind` classifier
+  (existing reserved / new reservation / single query)
+- **`poolergateway/pooler_gateway_test.go`**: the gateway `isSingleQuery`
+  classifier that decides which requests skip proactive failover buffering
+- End-to-end failover survival (continuous traffic across a planned
+  failover with zero client-visible errors) is covered by the existing
+  `queryserving` buffer tests (e.g. `TestBufferPlannedFailover`).

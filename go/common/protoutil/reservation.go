@@ -23,7 +23,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -33,6 +33,35 @@ const (
 	ReasonPortal      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL)      // 4
 	ReasonCopy        = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_COPY)        // 8
 	ReasonListen      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_LISTEN)      // 16
+
+	// ReasonLogicalReplication indicates the connection has logical-replication
+	// session state (an owned slot or an active replication-protocol stream)
+	// and must stay pinned to its current Postgres backend for the session's
+	// lifetime.
+	//
+	// Today this bit is set only at connection-open time, by the
+	// reserved.Pool.NewLogicalReplicationConn factory for connections that
+	// requested `replication=database` in the startup parameters.
+	//
+	// TODO: also set this bit mid-session when the planner observes
+	// pg_create_logical_replication_slot(...) on a plain SQL connection
+	// (polling / CDC-RLS path). This will mirror how ReasonTempTable is set
+	// when CREATE TEMP TABLE is observed (see
+	// go/services/multigateway/handler/connection_state.go for the
+	// PendingTempTableReservation precedent). Until that lands, polling
+	// consumers must cooperate by setting an application_name that
+	// multigateway recognizes (also future work).
+	ReasonLogicalReplication = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_LOGICAL_REPLICATION) // 32
+
+	// ReasonSessionAdvisoryLock indicates the session holds one or more
+	// session-level advisory locks (pg_advisory_lock / pg_advisory_lock_shared
+	// and their try-variants). These locks live on a specific Postgres backend
+	// and survive transaction boundaries, so the backend stays pinned to the
+	// client session until every such lock is released (pg_advisory_unlock /
+	// pg_advisory_unlock_all) or the session ends. Transaction-level advisory
+	// locks (pg_advisory_xact_lock) are released at transaction end and do NOT
+	// set this reason.
+	ReasonSessionAdvisoryLock = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SESSION_ADVISORY_LOCK) // 64
 )
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
@@ -71,6 +100,16 @@ func HasCopyReason(reasons uint32) bool {
 // HasListenReason returns true if the reasons bitmask includes LISTEN/NOTIFY.
 func HasListenReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonListen)
+}
+
+// HasLogicalReplicationReason returns true if the reasons bitmask includes a logical-replication session.
+func HasLogicalReplicationReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonLogicalReplication)
+}
+
+// HasSessionAdvisoryLockReason returns true if the reasons bitmask includes a session-level advisory lock.
+func HasSessionAdvisoryLockReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonSessionAdvisoryLock)
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -150,6 +189,12 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasListenReason(reasons) {
 		parts = append(parts, "listen")
+	}
+	if HasLogicalReplicationReason(reasons) {
+		parts = append(parts, "logical_replication")
+	}
+	if HasSessionAdvisoryLockReason(reasons) {
+		parts = append(parts, "session_advisory_lock")
 	}
 	if len(parts) == 0 {
 		return "unknown"

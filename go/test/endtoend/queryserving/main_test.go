@@ -48,6 +48,15 @@ var tlsSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shard
 	)
 })
 
+// requireSSLSetupManager manages a shared setup with --pg-require-ssl=true.
+// Plaintext StartupMessage is rejected; only TLS-negotiated clients succeed.
+var requireSSLSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultigatewayRequireSSL(),
+	)
+})
+
 // TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
 	exitCode := shardsetup.RunTestMain(m)
@@ -55,10 +64,12 @@ func TestMain(m *testing.M) {
 		setupManager.DumpLogs()
 		replicaSetupManager.DumpLogs()
 		tlsSetupManager.DumpLogs()
+		requireSSLSetupManager.DumpLogs()
 	}
 	setupManager.Cleanup()
 	replicaSetupManager.Cleanup()
 	tlsSetupManager.Cleanup()
+	requireSSLSetupManager.Cleanup()
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
@@ -72,4 +83,10 @@ func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 func getTLSSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
 	return tlsSetupManager.Get(t)
+}
+
+// getRequireSSLSharedSetup returns the shared setup with --pg-require-ssl=true.
+func getRequireSSLSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+	t.Helper()
+	return requireSSLSetupManager.Get(t)
 }

@@ -87,6 +87,8 @@
 package sqltypes
 
 import (
+	"strings"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -98,6 +100,33 @@ type Value []byte
 // IsNull returns true if the value is NULL.
 func (v Value) IsNull() bool {
 	return v == nil
+}
+
+// IsTrue interprets the value as PostgreSQL's text encoding of a boolean and
+// reports whether it is true. NULL and any unrecognized encoding are false.
+// The accepted spellings mirror PostgreSQL's boolin() —
+// t/true/y/yes/on/1, case-insensitive.
+func (v Value) IsTrue() bool {
+	if v.IsNull() {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(string(v))) {
+	case "t", "true", "y", "yes", "on", "1":
+		return true
+	}
+	return false
+}
+
+// SQLLiteral renders the value as a SQL literal: a single-quoted, escaped
+// string literal for a non-NULL value (embedded single quotes doubled, the
+// standard_conforming_strings form), or the keyword NULL. The value is treated
+// as text — a numeric or boolean value is rendered as a quoted string, which
+// PostgreSQL coerces at the call site.
+func (v Value) SQLLiteral() string {
+	if v.IsNull() {
+		return "NULL"
+	}
+	return "'" + strings.ReplaceAll(string(v), "'", "''") + "'"
 }
 
 // Row represents a row with nullable column values.

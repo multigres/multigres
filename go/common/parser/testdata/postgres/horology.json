@@ -641,8 +641,8 @@
   },
   {
     "comment": "horology - Statement 129",
-    "query": "SELECT (timestamp without time zone 'tomorrow' \u003e 'now') as \"True\"",
-    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) \u003e 'now') AS \"True\""
+    "query": "SELECT (timestamp without time zone 'tomorrow' > 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) > 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 130",
@@ -721,8 +721,8 @@
   },
   {
     "comment": "horology - Statement 145",
-    "query": "SELECT (timestamp with time zone 'tomorrow' \u003e 'now') as \"True\"",
-    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) \u003e 'now') AS \"True\""
+    "query": "SELECT (timestamp with time zone 'tomorrow' > 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) > 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 146",
@@ -871,82 +871,82 @@
   {
     "comment": "horology - Statement 175",
     "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"True\""
   },
   {
     "comment": "horology - Statement 176",
     "query": "SELECT (timestamp with time zone '2000-11-26', timestamp with time zone '2000-11-27') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-26' AS TIMESTAMPTZ), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-26' AS TIMESTAMPTZ), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
   },
   {
     "comment": "horology - Statement 177",
     "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '1 day') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 178",
     "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
   },
   {
     "comment": "horology - Statement 179",
     "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27', interval '12 hours') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 180",
     "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '12 hours') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 181",
     "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"True\""
   },
   {
     "comment": "horology - Statement 182",
     "query": "SELECT (timestamp without time zone '2000-11-26', timestamp without time zone '2000-11-27') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-26' AS TIMESTAMP), CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-26' AS TIMESTAMP), CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
   },
   {
     "comment": "horology - Statement 183",
     "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '1 day') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('1 day' AS INTERVAL)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('1 day' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 184",
     "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
   },
   {
     "comment": "horology - Statement 185",
     "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27', interval '12 hours') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 186",
     "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '12 hours') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 187",
     "query": "SELECT (time '00:00', time '01:00') OVERLAPS (time '00:30', time '01:30') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('01:00' AS TIME), CAST('00:30' AS TIME), CAST('01:30' AS TIME)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('00:00' AS TIME), CAST('01:00' AS TIME), CAST('00:30' AS TIME), CAST('01:30' AS TIME)) AS \"True\""
   },
   {
     "comment": "horology - Statement 188",
     "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '00:30', interval '1 hour') AS \"True\"",
-    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('00:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"True\""
+    "expected": "SELECT \"overlaps\"(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('00:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 189",
     "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 hour') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 190",
     "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 day') AS \"False\"",
-    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 day' AS INTERVAL)) AS \"False\""
+    "expected": "SELECT \"overlaps\"(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 day' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 191",
@@ -985,8 +985,8 @@
   },
   {
     "comment": "horology - Statement 198",
-    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 \u003c\u003e timestamp 'now' ORDER BY date, \"timestamp\"",
-    "expected": "SELECT f1 AS timestamp, date(f1) AS date FROM temp_timestamp WHERE f1 \u003c\u003e CAST('now' AS TIMESTAMP) ORDER BY date, timestamp"
+    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 <> timestamp 'now' ORDER BY date, \"timestamp\"",
+    "expected": "SELECT f1 AS timestamp, date(f1) AS date FROM temp_timestamp WHERE f1 <> CAST('now' AS TIMESTAMP) ORDER BY date, timestamp"
   },
   {
     "comment": "horology - Statement 199",
@@ -1000,13 +1000,13 @@
   },
   {
     "comment": "horology - Statement 201",
-    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamp as t",
-    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMP) AS t"
+    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamp as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) > CAST('2020-10-05' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 202",
-    "query": "SELECT '2020-10-05'::timestamp \u003e '2202020-10-05'::date as f",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMP) \u003e CAST('2202020-10-05' AS DATE) AS f"
+    "query": "SELECT '2020-10-05'::timestamp > '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMP) > CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 203",
@@ -1015,13 +1015,13 @@
   },
   {
     "comment": "horology - Statement 204",
-    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) > CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 205",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e '2202020-10-05'::date as f",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e CAST('2202020-10-05' AS DATE) AS f"
+    "query": "SELECT '2020-10-05'::timestamptz > '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) > CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 206",
@@ -1035,23 +1035,23 @@
   },
   {
     "comment": "horology - Statement 208",
-    "query": "SELECT '4714-11-24 BC'::date \u003c '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('4714-11-24 BC' AS DATE) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '4714-11-24 BC'::date < '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS DATE) < CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 209",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::date as t",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS DATE) AS t"
+    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::date as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) >= CAST('4714-11-24 BC' AS DATE) AS t"
   },
   {
     "comment": "horology - Statement 210",
-    "query": "SELECT '4714-11-24 BC'::timestamp \u003c '2020-10-05'::timestamptz as t",
-    "expected": "SELECT CAST('4714-11-24 BC' AS TIMESTAMP) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
+    "query": "SELECT '4714-11-24 BC'::timestamp < '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS TIMESTAMP) < CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 211",
-    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::timestamp as t",
-    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS TIMESTAMP) AS t"
+    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::timestamp as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) >= CAST('4714-11-24 BC' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 212",
@@ -1170,7 +1170,7 @@
   },
   {
     "comment": "horology - Statement 235",
-    "query": "SELECT to_timestamp('0097/Feb/16 --\u003e 08:14:30', 'YYYY/Mon/DD --\u003e HH:MI:SS')"
+    "query": "SELECT to_timestamp('0097/Feb/16 --> 08:14:30', 'YYYY/Mon/DD --> HH:MI:SS')"
   },
   {
     "comment": "horology - Statement 236",
@@ -1194,7 +1194,7 @@
   },
   {
     "comment": "horology - Statement 241",
-    "query": "SELECT to_timestamp('My birthday-\u003e Year: 1976, Month: May, Day: 16', '\"My birthday-\u003e Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
+    "query": "SELECT to_timestamp('My birthday-> Year: 1976, Month: May, Day: 16', '\"My birthday-> Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
   },
   {
     "comment": "horology - Statement 242",

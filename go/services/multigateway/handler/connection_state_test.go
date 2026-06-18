@@ -390,3 +390,129 @@ func TestDiscardPendingListens(t *testing.T) {
 	require.True(t, state.IsListening("x"))
 	require.False(t, state.IsListening("y"))
 }
+
+// -----------------------------------------------------------------------------
+// HOLD-cursor lifecycle helpers (MUL-389). Cover the OpenHoldCursors,
+// Pending{Pin,Release}Portals, snapshot/restore, and savepoint-diff paths the
+// e2e suite exercises only along happy paths.
+// -----------------------------------------------------------------------------
+
+func TestOpenHoldCursors_AddRemoveHasNames(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+
+	require.False(t, state.HasAnyOpenHoldCursor())
+	require.Nil(t, state.OpenHoldCursorNames(), "empty set must surface as nil, not an empty slice")
+	require.False(t, state.HasOpenHoldCursor("missing"))
+	require.False(t, state.RemoveOpenHoldCursor("missing"), "remove of unknown name must return false")
+
+	state.AddOpenHoldCursor("c1")
+	state.AddOpenHoldCursor("c2")
+	state.AddOpenHoldCursor("c1") // idempotent
+	require.True(t, state.HasAnyOpenHoldCursor())
+	require.True(t, state.HasOpenHoldCursor("c1"))
+	require.True(t, state.HasOpenHoldCursor("c2"))
+
+	names := state.OpenHoldCursorNames()
+	require.ElementsMatch(t, []string{"c1", "c2"}, names)
+
+	require.True(t, state.RemoveOpenHoldCursor("c1"))
+	require.False(t, state.HasOpenHoldCursor("c1"))
+	require.True(t, state.HasOpenHoldCursor("c2"))
+
+	state.ClearOpenHoldCursors()
+	require.False(t, state.HasAnyOpenHoldCursor())
+	require.Nil(t, state.OpenHoldCursorNames())
+}
+
+func TestHoldCursorsDeclaredInTxn(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+
+	// No active explicit transaction → returns nil regardless of contents.
+	state.AddOpenHoldCursor("c_pre")
+	require.Nil(t, state.HoldCursorsDeclaredInTxn(),
+		"without a BEGIN-level frame, the helper must return nil")
+
+	// Push BEGIN frame snapshotting the pre-existing cursor.
+	state.BeginTransaction()
+	require.Nil(t, state.HoldCursorsDeclaredInTxn(),
+		"no cursors declared inside txn yet, even with active BEGIN")
+
+	state.AddOpenHoldCursor("c_in")
+	require.Equal(t, []string{"c_in"}, state.HoldCursorsDeclaredInTxn(),
+		"cursor declared after BEGIN must appear in the diff")
+
+	state.AddOpenHoldCursor("c_in2")
+	got := state.HoldCursorsDeclaredInTxn()
+	require.ElementsMatch(t, []string{"c_in", "c_in2"}, got)
+}
+
+func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
+	t.Run("no BEGIN frame → wipes the set", func(t *testing.T) {
+		state := NewMultiGatewayConnectionState()
+		state.AddOpenHoldCursor("c1")
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		require.False(t, state.HasAnyOpenHoldCursor())
+	})
+
+	t.Run("inner SAVEPOINT only (no BEGIN frame) → also wipes", func(t *testing.T) {
+		// PushSavepoint with a name that is non-empty creates a non-BEGIN frame.
+		// The restore helper must treat this as "no BEGIN frame" and wipe.
+		state := NewMultiGatewayConnectionState()
+		state.AddOpenHoldCursor("c1")
+		state.PushSavepoint("sp1")
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		require.False(t, state.HasAnyOpenHoldCursor(),
+			"savepoint-only frame must not be mistaken for a BEGIN snapshot")
+	})
+
+	t.Run("with BEGIN frame → restores snapshot subset", func(t *testing.T) {
+		state := NewMultiGatewayConnectionState()
+		state.AddOpenHoldCursor("c_pre")
+		state.BeginTransaction()
+		state.AddOpenHoldCursor("c_in")
+		require.True(t, state.HasOpenHoldCursor("c_in"))
+
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		require.True(t, state.HasOpenHoldCursor("c_pre"), "pre-BEGIN cursor must survive")
+		require.False(t, state.HasOpenHoldCursor("c_in"), "in-txn cursor must be dropped")
+	})
+}
+
+func TestHoldCursorsDeclaredAfterSavepoint(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	state.AddOpenHoldCursor("c_pre")
+	state.BeginTransaction()
+	state.AddOpenHoldCursor("c_before_sp")
+	state.PushSavepoint("sp1")
+	state.AddOpenHoldCursor("c_after_sp")
+
+	// Unknown savepoint → nil.
+	require.Nil(t, state.HoldCursorsDeclaredAfterSavepoint("does_not_exist"))
+
+	// Cursors declared after sp1 → ["c_after_sp"].
+	require.Equal(t, []string{"c_after_sp"}, state.HoldCursorsDeclaredAfterSavepoint("sp1"))
+
+	// State must not have been mutated.
+	require.True(t, state.HasOpenHoldCursor("c_after_sp"),
+		"HoldCursorsDeclaredAfterSavepoint must not mutate OpenHoldCursors")
+}
+
+func TestRollbackToSavepoint_OpenHoldCursorsIntersection(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	state.BeginTransaction()
+	state.AddOpenHoldCursor("c_before")
+	state.PushSavepoint("sp1")
+	state.AddOpenHoldCursor("c_inside")
+
+	// CLOSE happens to c_before inside the sub-txn (RemoveOpenHoldCursor).
+	state.RemoveOpenHoldCursor("c_before")
+
+	state.RollbackToSavepoint("sp1")
+
+	// PG semantics: CLOSE is not transactional → c_before stays closed.
+	// c_inside was declared inside the rolled-back sub-txn → gone.
+	require.False(t, state.HasOpenHoldCursor("c_before"),
+		"CLOSE inside a rolled-back sub-txn is not undone by ROLLBACK TO")
+	require.False(t, state.HasOpenHoldCursor("c_inside"),
+		"cursors declared inside the rolled-back sub-txn must be dropped")
+}

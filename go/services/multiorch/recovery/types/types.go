@@ -39,6 +39,7 @@ const (
 
 	// Leader problems (catastrophic - block everything else).
 	ProblemLeaderIsDead      ProblemCode = "LeaderIsDead"
+	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
 	ProblemLeaderDiskStalled ProblemCode = "LeaderDiskStalled"
 	ProblemStaleLeader       ProblemCode = "StaleLeader"
 
@@ -48,12 +49,16 @@ const (
 	ProblemLeaderIsReadOnly         ProblemCode = "LeaderIsReadOnly"
 
 	// Replica problems (require healthy leader).
-	ProblemReplicaNotReplicating   ProblemCode = "ReplicaNotReplicating"
-	ProblemReplicaNotInStandbyList ProblemCode = "ReplicaNotInStandbyList"
-	ProblemReplicaWrongPrimary     ProblemCode = "ReplicaWrongPrimary"
-	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
-	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
-	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
+	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"
+	ProblemReplicaWrongPrimary   ProblemCode = "ReplicaWrongPrimary"
+	ProblemReplicaLagging        ProblemCode = "ReplicaLagging"
+	ProblemReplicaMisconfigured  ProblemCode = "ReplicaMisconfigured"
+	ProblemReplicaIsWritable     ProblemCode = "ReplicaIsWritable"
+
+	// Cohort drift problems (require healthy leader; not service-impacting on
+	// their own, but durability degrades if left unaddressed).
+	ProblemPoolerNotInCohort      ProblemCode = "PoolerNotInCohort"
+	ProblemCohortMemberIneligible ProblemCode = "CohortMemberIneligible"
 
 	// Non-actionable: if all hosts are down, there is no way we can failover.
 	ProblemLeaderAndReplicasDead ProblemCode = "LeaderAndReplicasDead"
@@ -127,7 +132,7 @@ func (p Problem) IsShardWide() bool {
 // problems it is the shard key string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
-		return topoclient.MultiPoolerIDString(p.PoolerID)
+		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
 	return string(commontypes.FormatShardKey(p.ShardKey))
 }

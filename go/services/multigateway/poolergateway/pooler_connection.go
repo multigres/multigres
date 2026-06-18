@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -53,9 +54,10 @@ type PoolerHealth struct {
 	// ServingStatus is the serving state reported by the pooler.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains the pooler's view of who the consensus leader is.
-	// Used for term-based leader reconciliation.
-	LeaderObservation *multipoolerservice.LeaderObservation
+	// LeaderObservation contains the pooler's view of who the consensus leader
+	// is, identified by leader id and the rule number under which the
+	// observation was made. Used for rule-number-based leader reconciliation.
+	LeaderObservation *clustermetadatapb.LeaderObservation
 
 	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
 	// Zero on the primary or when not yet measured.
@@ -160,13 +162,13 @@ func NewPoolerConnection(
 	onHealthUpdate func(*PoolerConnection),
 ) (*PoolerConnection, error) {
 	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
-		"type", pooler.Type.String())
+		"is_leader", pooler.GetSelfLeadership() != nil)
 
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
@@ -185,10 +187,12 @@ func NewPoolerConnection(
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
 	// Initialize health state to NOT_SERVING until health stream provides data.
+	// PoolerType is left UNKNOWN until the health stream reports it — the gateway
+	// derives role from consensus observations, not the topology Type label.
 	initialTarget := &query.Target{
-		TableGroup: pooler.GetTableGroup(),
-		Shard:      pooler.GetShard(),
-		PoolerType: pooler.Type,
+		TableGroup: pooler.GetShardKey().GetTableGroup(),
+		Shard:      pooler.GetShardKey().GetShard(),
+		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
 	}
 
 	pc := &PoolerConnection{
@@ -219,8 +223,8 @@ func NewPoolerConnection(
 }
 
 // ID returns the unique identifier for this pooler connection.
-func (pc *PoolerConnection) ID() string {
-	return topoclient.MultiPoolerIDString(pc.poolerInfo.Load().Id)
+func (pc *PoolerConnection) ID() topoclient.ComponentID {
+	return topoclient.ComponentIDString(pc.poolerInfo.Load().Id)
 }
 
 // Cell returns the cell where this pooler is located.
@@ -228,22 +232,26 @@ func (pc *PoolerConnection) Cell() string {
 	return pc.poolerInfo.Load().Id.GetCell()
 }
 
-// Type returns the pooler type (PRIMARY or REPLICA).
-func (pc *PoolerConnection) Type() clustermetadatapb.PoolerType {
-	return pc.poolerInfo.Load().Type
+// believesSelfLeader reports whether this pooler considers itself the shard
+// leader, judged from the better of its topology self_leadership (read at
+// discovery) and its latest health-stream observation. A pooler in this state
+// is either the current leader or a stale leader that has not yet learned of a
+// newer one; either way it must not be selected for replica reads.
+func (pc *PoolerConnection) believesSelfLeader() bool {
+	var healthObs *clustermetadatapb.LeaderObservation
+	if h := pc.Health(); h != nil {
+		healthObs = h.LeaderObservation
+	}
+	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
+	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
-// UpdatePoolerInfo updates the pooler metadata (e.g., when type changes from UNKNOWN to PRIMARY).
-// This is called when topology watch detects updates to the pooler.
+// UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from
+// a topology update. Leader identity is tracked separately via consensus
+// observations (the load balancer's merged leader map), so a topology Type
+// change here is not acted upon.
 func (pc *PoolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.MultiPooler) {
-	oldType := pc.poolerInfo.Load().Type
 	pc.poolerInfo.Store(&topoclient.MultiPoolerInfo{MultiPooler: pooler})
-	if oldType != pooler.Type {
-		pc.logger.Info("pooler type updated",
-			"pooler_id", pc.ID(),
-			"old_type", oldType.String(),
-			"new_type", pooler.Type.String())
-	}
 }
 
 // PoolerInfo returns the underlying pooler metadata.
@@ -359,7 +367,7 @@ func (pc *PoolerConnection) streamHealth(
 	stalenessTimeout := constants.DefaultHealthCheckTimeout
 	stalenessTimer := time.AfterFunc(stalenessTimeout, func() {
 		pc.healthTimedOut.Store(true)
-		pc.logger.Warn("health stream timed out", "pooler_id", poolerID)
+		pc.logger.WarnContext(streamCtx, "health stream timed out", "pooler_id", poolerID)
 		streamCancel()
 	})
 	defer stalenessTimer.Stop()

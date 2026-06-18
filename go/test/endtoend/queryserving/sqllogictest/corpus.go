@@ -15,12 +15,13 @@
 package sqllogictest
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -126,77 +127,62 @@ func ensureUpstreamCorpus(t *testing.T, ctx context.Context) (string, error) {
 	return dir, nil
 }
 
-// listCorpusFiles returns the .test / .slt files in the corpus directory
-// matching SLT_CORPUS_GLOB (defaulting to DefaultCorpusGlob). Paths are
-// absolute and sorted so per-file ordering is deterministic across runs.
+// postgresPassingRaw is the committed allowlist of corpus-relative paths that
+// pass against a standalone PostgreSQL baseline. In regression mode the suite
+// runs only these files (against multigateway only); for them the corpus's
+// embedded expected output is the postgres-correct output, so a multigateway
+// pass is equivalent to a live diff against postgres. See the file header for
+// how it is generated.
 //
-// The glob uses doublestar semantics: "**" matches across path components,
-// "*" matches within a single component, "?" matches a single non-/ char.
-func listCorpusFiles(corpusDir string) ([]string, error) {
-	glob := os.Getenv("SLT_CORPUS_GLOB")
-	if glob == "" {
-		glob = DefaultCorpusGlob
-	}
+//go:embed testdata/postgres_passing.txt
+var postgresPassingRaw string
 
-	re, err := globToRegexp(glob)
-	if err != nil {
-		return nil, fmt.Errorf("compile glob %q: %w", glob, err)
+// postgresPassingSet parses postgresPassingRaw into a set of corpus-relative
+// paths. Blank lines and #-prefixed comments are ignored.
+func postgresPassingSet() map[string]bool {
+	set := make(map[string]bool)
+	sc := bufio.NewScanner(strings.NewReader(postgresPassingRaw))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		set[line] = true
 	}
-
-	var files []string
-	walkErr := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(corpusDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		if re.MatchString(filepath.ToSlash(rel)) {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if walkErr != nil {
-		return nil, fmt.Errorf("walk %s: %w", corpusDir, walkErr)
-	}
-	sort.Strings(files)
-	return files, nil
+	return set
 }
 
-// globToRegexp translates a shell glob into an anchored regexp. `**` matches
-// across path separators, `*` matches within one segment, `?` matches a
-// single non-`/` character. Regex metacharacters are escaped via
-// regexp.QuoteMeta so regex syntax in the pattern stays literal.
-//
-// `a/**/b` also matches `a/b` (zero intermediate segments): a `/` immediately
-// after `**` is consumed along with it.
-func globToRegexp(pat string) (*regexp.Regexp, error) {
-	var b strings.Builder
-	b.Grow(len(pat) + 4)
-	b.WriteString(`\A`)
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
-		switch c {
-		case '*':
-			if i+1 < len(pat) && pat[i+1] == '*' {
-				b.WriteString(`.*`)
-				i++
-				if i+1 < len(pat) && pat[i+1] == '/' {
-					i++
-				}
-			} else {
-				b.WriteString(`[^/]*`)
-			}
-		case '?':
-			b.WriteString(`[^/]`)
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
+// filterToPostgresPassing keeps only the corpus files whose corpus-relative
+// path appears in the embedded postgres-passing allowlist, preserving input
+// order. Any allowlisted path absent from the corpus is reported via t.Errorf
+// — that signals the allowlist has drifted from the pinned corpus commit and
+// must be regenerated.
+func filterToPostgresPassing(t *testing.T, corpusRoot string, files []string) []string {
+	t.Helper()
+	set := postgresPassingSet()
+	seen := make(map[string]bool, len(set))
+	kept := make([]string, 0, len(set))
+	for _, f := range files {
+		rel, err := filepath.Rel(corpusRoot, f)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if set[rel] {
+			kept = append(kept, f)
+			seen[rel] = true
 		}
 	}
-	b.WriteString(`\z`)
-	return regexp.Compile(b.String())
+	var missing []string
+	for p := range set {
+		if !seen[p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("postgres-passing allowlist has %d entr(ies) not present in the corpus (commit %s); "+
+			"regenerate testdata/postgres_passing.txt: %v", len(missing), CorpusCommit, missing)
+	}
+	return kept
 }

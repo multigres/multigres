@@ -174,6 +174,14 @@ message PortalStreamExecuteRequest {
   // ExecuteOptions) so the portal-only fields don't leak into every other
   // request type that carries ExecuteOptions.
   PortalExecuteOptions portal_options = 6;
+
+  // reservation_options controls connection reservation behavior, mirroring
+  // StreamExecuteRequest.reservation_options. When set with non-zero reasons
+  // and no options.reserved_connection_id, the multipooler reserves a new
+  // backend with these reasons (running BeginQuery first if ReasonTransaction
+  // is set) and runs the portal on it atomically. When the connection is
+  // already reserved, the reasons are OR'd onto it before the portal runs.
+  query.ReservationOptions reservation_options = 7;
 }
 
 // PortalExecuteOptions carries knobs that only make sense on the portal
@@ -237,6 +245,12 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+
+  // is_replication_role mirrors pg_authid.rolreplication. PostgreSQL requires
+  // this attribute (or rolsuper) for any connection started with the
+  // replication=true / replication=database startup parameter. The gateway
+  // enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
+  bool is_replication_role = 2;
 }
 
 // CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
@@ -250,8 +264,18 @@ message CopyBidiExecuteRequest {
     FAIL = 3;      // Abort operation
   }
 
+  // Direction indicates whether the COPY operation streams data into the
+  // server (FROM STDIN) or out from the server (TO STDOUT). Set on INITIATE.
+  enum Direction {
+    FROM_STDIN = 0; // Default for back-compat: clients without this field set get FROM STDIN.
+    TO_STDOUT = 1;
+  }
+
   // phase indicates the current phase
   Phase phase = 1;
+
+  // direction indicates COPY ... FROM STDIN vs COPY ... TO STDOUT (INITIATE only).
+  Direction direction = 9;
 
   // query is the SQL command to execute (only for INITIATE phase)
   string query = 2;
@@ -313,6 +337,24 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+
+  // notices carries PostgreSQL NoticeResponse/InfoResponse diagnostics
+  // collected during this phase. Trigger RAISE NOTICE output, INFO progress
+  // messages, and other backend notices appear here so the gateway can
+  // forward them to the client as NoticeResponse frames between CopyData and
+  // CommandComplete. Populated on READY (notices seen before CopyInResponse /
+  // CopyOutResponse), DATA (notices interleaved with CopyData on COPY TO
+  // STDOUT), and RESULT (notices read between CopyDone and CommandComplete).
+  repeated query.PgDiagnostic notices = 11;
+
+  // error_diagnostic carries the structured PostgreSQL ErrorResponse for
+  // ERROR phase responses. When the error originates from PG (e.g.
+  // constraint violation, "column does not exist"), this preserves SQLSTATE,
+  // severity, DETAIL, HINT, position, etc., so the gateway can re-emit a
+  // verbatim ErrorResponse instead of a wrapped Go-formatted string.
+  // The `error` field above remains populated as a fallback for callers /
+  // log paths that only need the message text.
+  query.PgDiagnostic error_diagnostic = 12;
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
@@ -331,6 +373,15 @@ enum ReservationReason {
   RESERVATION_REASON_COPY = 8;         // 0b1000
   // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
   RESERVATION_REASON_LISTEN = 16;      // 0b10000
+  // Connection is reserved for a logical-replication session (CREATE_REPLICATION_SLOT,
+  // START_REPLICATION, etc.). Pinned to a single backend for the session's lifetime.
+  RESERVATION_REASON_LOGICAL_REPLICATION = 32;  // 0b100000
+  // Connection is reserved because the session holds one or more session-level
+  // advisory locks (pg_advisory_lock / pg_advisory_lock_shared). These locks
+  // live on a specific backend and survive transaction boundaries, so the
+  // backend must stay pinned until every such lock is released. Transaction-level
+  // advisory locks (pg_advisory_xact_lock) do NOT set this reason.
+  RESERVATION_REASON_SESSION_ADVISORY_LOCK = 64;  // 0b1000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.
@@ -357,6 +408,25 @@ message ConcludeTransactionRequest {
 
   // conclusion specifies whether to COMMIT or ROLLBACK the transaction
   TransactionConclusion conclusion = 4;
+
+  // release_portal_names lists `DECLARE … WITH HOLD` cursor names that
+  // PostgreSQL would close as part of this ROLLBACK — typically the
+  // cursors declared inside the explicit transaction block. Used so the
+  // multipooler unpins exactly those portals (matching PG's behavior)
+  // instead of dropping every pin via ReleaseAllPortals.
+  //
+  // Honored only when conclusion == ROLLBACK and release_all_portals is
+  // false. Ignored on COMMIT (PG keeps every WITH HOLD cursor across
+  // COMMIT, so no pin should be released).
+  repeated string release_portal_names = 5;
+
+  // release_all_portals, when true on a ROLLBACK conclusion, asks the
+  // multipooler to drop every portal pin on the reserved connection
+  // (`ReleaseAllPortals` semantics). When false, only the names listed
+  // in release_portal_names are released. Default true preserves the
+  // historical behavior so old gateway clients that do not yet compute
+  // the per-txn diff keep working.
+  bool release_all_portals = 6;
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.
@@ -431,7 +501,7 @@ message StreamPoolerHealthResponse {
 
   // leader_observation contains this pooler's view of who the consensus leader is.
   // Used by clients to identify the true leader when multiple poolers exist.
-  LeaderObservation leader_observation = 4;
+  clustermetadata.LeaderObservation leader_observation = 4;
 
   // recommended_staleness_timeout is the duration clients should use
   // to detect a stale/dead health stream. If no message is received within
@@ -441,18 +511,6 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
-}
-
-// LeaderObservation represents a pooler's view of who the consensus leader is.
-message LeaderObservation {
-  // leader_id is the ID of the pooler this node believes is the consensus leader.
-  // May be this pooler's own ID if it believes itself to be leader.
-  clustermetadata.ID leader_id = 1;
-
-  // leader_term is the consensus term at which this observation was made.
-  // The leader never changes within a leader_term. Higher values indicate
-  // more recent leader appointments.
-  int64 leader_term = 2;
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.

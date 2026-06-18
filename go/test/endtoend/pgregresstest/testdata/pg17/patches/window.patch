@@ -1,3 +1,6 @@
+# Known divergence (cosmetic): multigateway rewrites the query before it reaches
+# PostgreSQL, so the "LINE 1: ...\n  ^" error-cursor column is offset while the
+# error (out-of-range interval) is identical.
 --- a
 +++ b
 @@ -2953,7 +2953,7 @@

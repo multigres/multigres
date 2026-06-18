@@ -56,8 +56,8 @@ type PoolerCache struct {
 	// It may be acquired while holding notifMu.
 	// It must NOT be held while calling notify.
 	mu               sync.Mutex
-	poolers          map[string]*clustermetadatapb.MultiPooler            // poolerID → pooler
-	byCell           map[string]map[string]*clustermetadatapb.MultiPooler // cell → poolerID → pooler
+	poolers          map[ComponentID]*clustermetadatapb.MultiPooler            // poolerID → pooler
+	byCell           map[string]map[ComponentID]*clustermetadatapb.MultiPooler // cell → poolerID → pooler
 	cellLastActivity map[string]time.Time
 
 	// Notification queue (protected by notifMu).
@@ -66,12 +66,26 @@ type PoolerCache struct {
 	notifMu    sync.Mutex
 	notifQueue []cacheNotif
 	notifCh    chan struct{} // buffered(1), wakes delivery goroutine
+
+	// broadcaster lets Sync(ctx) ask every per-cell watcher goroutine to drain
+	// its in-flight `changes` events before the delivery sentinel is enqueued,
+	// closing the race where a sentinel could be appended ahead of a
+	// not-yet-read watch event.
+	broadcaster *cellSyncBroadcaster
 }
 
 // cacheNotif is a pending notification in the delivery queue.
+//
+// For pooler events, prev and curr encode the transition:
+//   - prev == nil, curr != nil → insert (first-time discovery)
+//   - prev != nil, curr != nil → update (proto.Equal already suppressed)
+//   - prev != nil, curr == nil → delete
+//
+// prev is captured atomically with the cache mutation that produced this event,
+// so subscribers receive an accurate transition pair in strict FIFO order.
 type cacheNotif struct {
-	pooler  *clustermetadatapb.MultiPooler
-	removed bool
+	prev *clustermetadatapb.MultiPooler
+	curr *clustermetadatapb.MultiPooler
 
 	// Subscription management (mutually exclusive with pooler notifications).
 	isSubscribe   bool
@@ -81,11 +95,27 @@ type cacheNotif struct {
 	// isReplay marks a targeted replay notification delivered only to sub
 	// (used when a new subscriber catches up to the current state).
 	isReplay bool
+
+	// isSync marks a sentinel used by Sync(); the delivery goroutine closes
+	// syncDone when it reaches this entry, after dispatching every event ahead
+	// of it. Mutually exclusive with all other variants.
+	isSync   bool
+	syncDone chan struct{}
 }
+
+// ChangeFn receives a pooler-state transition observed by the cache.
+//
+//   - prev == nil → first-time insert (curr is the new pooler)
+//   - curr == nil → deletion (prev is the last-known pooler)
+//   - both set    → update (the cache already suppresses proto.Equal no-ops)
+//
+// Callbacks are invoked synchronously on PoolerCache's single delivery goroutine
+// in strict FIFO order. Slow callbacks delay subsequent events for all subscribers.
+type ChangeFn func(prev, curr *clustermetadatapb.MultiPooler)
 
 // cacheSubscription is a registered change handler.
 type cacheSubscription struct {
-	fn func(*clustermetadatapb.MultiPooler, bool)
+	fn ChangeFn
 }
 
 // NewPoolerCache creates a new PoolerCache. Call Start to begin watching.
@@ -96,10 +126,11 @@ func NewPoolerCache(ctx context.Context, store ConnProvider, logger *slog.Logger
 		logger:           logger,
 		ctx:              cacheCtx,
 		cancel:           cancel,
-		poolers:          make(map[string]*clustermetadatapb.MultiPooler),
-		byCell:           make(map[string]map[string]*clustermetadatapb.MultiPooler),
+		poolers:          make(map[ComponentID]*clustermetadatapb.MultiPooler),
+		byCell:           make(map[string]map[ComponentID]*clustermetadatapb.MultiPooler),
 		cellLastActivity: make(map[string]time.Time),
 		notifCh:          make(chan struct{}, 1),
+		broadcaster:      newCellSyncBroadcaster(),
 	}
 }
 
@@ -107,7 +138,7 @@ func NewPoolerCache(ctx context.Context, store ConnProvider, logger *slog.Logger
 func (c *PoolerCache) Start() {
 	c.wg.Go(c.deliverNotifications)
 	c.wg.Go(func() {
-		watchAllPoolersWithRetry(c.ctx, c.store, c.logger,
+		watchAllPoolersWithRetry(c.ctx, c.store, c.logger, c.broadcaster,
 			c.onInitialCell,
 			c.onUpserted,
 			c.onDeleted,
@@ -122,8 +153,8 @@ func (c *PoolerCache) Stop() {
 	c.wg.Wait()
 }
 
-// Get returns the pooler with the given ID (as returned by MultiPoolerIDString).
-func (c *PoolerCache) Get(id string) (*clustermetadatapb.MultiPooler, bool) {
+// Get returns the pooler with the given ID (as returned by ComponentIDString).
+func (c *PoolerCache) Get(id ComponentID) (*clustermetadatapb.MultiPooler, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	p, ok := c.poolers[id]
@@ -187,7 +218,7 @@ func (c *PoolerCache) CellStatuses() []CellStatus {
 			poolers = append(poolers, proto.Clone(p).(*clustermetadatapb.MultiPooler))
 		}
 		sort.Slice(poolers, func(i, j int) bool {
-			return MultiPoolerIDString(poolers[i].Id) < MultiPoolerIDString(poolers[j].Id)
+			return ComponentIDString(poolers[i].Id) < ComponentIDString(poolers[j].Id)
 		})
 		statuses = append(statuses, CellStatus{
 			Cell:         cell,
@@ -203,16 +234,19 @@ func (c *PoolerCache) CellStatuses() []CellStatus {
 // state before any subsequent broadcasts. No callbacks are made under any lock.
 //
 // The returned function unsubscribes fn and is safe to call from any goroutine.
-func (c *PoolerCache) Subscribe(fn func(*clustermetadatapb.MultiPooler, bool)) func() {
+func (c *PoolerCache) Subscribe(fn ChangeFn) func() {
 	sub := &cacheSubscription{fn: fn}
 
 	// Hold mu while collecting the replay snapshot and enqueueing both the subscription
 	// registration and replay notifications. This prevents a concurrent upsert from
 	// appearing between the snapshot and the replay in the delivery queue.
+	//
+	// Replay events are delivered with prev == nil so subscribers see them as
+	// first-time inserts, which matches the semantics from their point of view.
 	c.mu.Lock()
 	replay := make([]cacheNotif, 0, len(c.poolers))
 	for _, p := range c.poolers {
-		replay = append(replay, cacheNotif{pooler: p, sub: sub, isReplay: true})
+		replay = append(replay, cacheNotif{curr: p, sub: sub, isReplay: true})
 	}
 	c.notifMu.Lock()
 	c.notifQueue = append(c.notifQueue, cacheNotif{isSubscribe: true, sub: sub})
@@ -230,6 +264,43 @@ func (c *PoolerCache) Subscribe(fn func(*clustermetadatapb.MultiPooler, bool)) f
 			c.notifMu.Unlock()
 			c.wake()
 		})
+	}
+}
+
+// Sync blocks until every event that was already observable from the topology
+// at the time of the call has been dispatched to all current subscribers.
+//
+// It works in two phases:
+//
+//  1. Broadcast a sync request to every per-cell watcher goroutine. Each
+//     watcher drains its `changes` channel (firing onUpserted/onDeleted for
+//     every event already buffered there) before acking. This closes the race
+//     where a topology write has been delivered to the watch channel but the
+//     watcher hasn't yet read it.
+//
+//  2. Append a sync sentinel to the delivery queue and wait for it to drain.
+//     Because phase 1 guarantees that every notification triggered by
+//     pre-call topology state is already in the queue ahead of the sentinel,
+//     this delivers exactly those notifications before returning.
+//
+// Sync is intended for use in tests to replace time.Sleep barriers after
+// topology mutations. Production code should generally subscribe and react.
+func (c *PoolerCache) Sync(ctx context.Context) error {
+	if err := c.broadcaster.syncAll(ctx); err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+	c.notifMu.Lock()
+	c.notifQueue = append(c.notifQueue, cacheNotif{isSync: true, syncDone: done})
+	c.notifMu.Unlock()
+	c.wake()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -273,11 +344,13 @@ func (c *PoolerCache) deliverNotifications() {
 						}
 					case n.isReplay:
 						// Targeted replay: only delivered to the registering subscriber.
-						n.sub.fn(n.pooler, n.removed)
+						n.sub.fn(n.prev, n.curr)
+					case n.isSync:
+						close(n.syncDone)
 					default:
 						// Broadcast to all current subscribers.
 						for _, s := range subs {
-							s.fn(n.pooler, n.removed)
+							s.fn(n.prev, n.curr)
 						}
 					}
 				}
@@ -287,16 +360,16 @@ func (c *PoolerCache) deliverNotifications() {
 }
 
 // addToCell inserts a pooler into the byCell secondary index. Must hold mu.
-func (c *PoolerCache) addToCell(id string, p *clustermetadatapb.MultiPooler) {
+func (c *PoolerCache) addToCell(id ComponentID, p *clustermetadatapb.MultiPooler) {
 	cell := p.Id.Cell
 	if c.byCell[cell] == nil {
-		c.byCell[cell] = make(map[string]*clustermetadatapb.MultiPooler)
+		c.byCell[cell] = make(map[ComponentID]*clustermetadatapb.MultiPooler)
 	}
 	c.byCell[cell][id] = p
 }
 
 // removeFromCell removes a pooler from the byCell secondary index. Must hold mu.
-func (c *PoolerCache) removeFromCell(id, cell string) {
+func (c *PoolerCache) removeFromCell(id ComponentID, cell string) {
 	delete(c.byCell[cell], id)
 	if len(c.byCell[cell]) == 0 {
 		delete(c.byCell, cell)
@@ -305,27 +378,29 @@ func (c *PoolerCache) removeFromCell(id, cell string) {
 
 // onInitialCell reconciles the pooler map for a cell against the new snapshot.
 func (c *PoolerCache) onInitialCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
-	newCellPoolers := make(map[string]*clustermetadatapb.MultiPooler, len(poolers))
+	newCellPoolers := make(map[ComponentID]*clustermetadatapb.MultiPooler, len(poolers))
 	for _, p := range poolers {
-		newCellPoolers[MultiPoolerIDString(p.Id)] = p
+		newCellPoolers[ComponentIDString(p.Id)] = p
 	}
 
 	c.mu.Lock()
 
-	var removed, changed []*clustermetadatapb.MultiPooler
+	var pendingNotifs []cacheNotif
 
 	for id, p := range c.poolers {
 		if p.Id.Cell == cell {
 			if _, stillPresent := newCellPoolers[id]; !stillPresent {
 				delete(c.poolers, id)
 				c.removeFromCell(id, cell)
-				removed = append(removed, p)
+				pendingNotifs = append(pendingNotifs, cacheNotif{prev: p, curr: nil})
 			}
 		}
 	}
 	for id, p := range newCellPoolers {
-		if existing, ok := c.poolers[id]; !ok || !proto.Equal(existing, p) {
-			changed = append(changed, p)
+		existing, ok := c.poolers[id]
+		if !ok || !proto.Equal(existing, p) {
+			// existing may be nil here (insert); that's what we want for prev.
+			pendingNotifs = append(pendingNotifs, cacheNotif{prev: existing, curr: p})
 		}
 		c.poolers[id] = p
 		c.addToCell(id, p)
@@ -333,12 +408,7 @@ func (c *PoolerCache) onInitialCell(cell string, poolers []*clustermetadatapb.Mu
 	c.cellLastActivity[cell] = time.Now()
 
 	c.notifMu.Lock()
-	for _, p := range removed {
-		c.notifQueue = append(c.notifQueue, cacheNotif{pooler: p, removed: true})
-	}
-	for _, p := range changed {
-		c.notifQueue = append(c.notifQueue, cacheNotif{pooler: p})
-	}
+	c.notifQueue = append(c.notifQueue, pendingNotifs...)
 	c.notifMu.Unlock()
 
 	c.mu.Unlock()
@@ -347,7 +417,7 @@ func (c *PoolerCache) onInitialCell(cell string, poolers []*clustermetadatapb.Mu
 
 // onUpserted handles a pooler add or update event.
 func (c *PoolerCache) onUpserted(pooler *clustermetadatapb.MultiPooler) {
-	id := MultiPoolerIDString(pooler.Id)
+	id := ComponentIDString(pooler.Id)
 
 	c.mu.Lock()
 	existing, exists := c.poolers[id]
@@ -355,11 +425,12 @@ func (c *PoolerCache) onUpserted(pooler *clustermetadatapb.MultiPooler) {
 		c.mu.Unlock()
 		return // unchanged: suppress spurious notification
 	}
+	// existing is nil here on insert, which is exactly what we want for prev.
 	c.poolers[id] = pooler
 	c.addToCell(id, pooler)
 	c.cellLastActivity[pooler.Id.Cell] = time.Now()
 	c.notifMu.Lock()
-	c.notifQueue = append(c.notifQueue, cacheNotif{pooler: pooler})
+	c.notifQueue = append(c.notifQueue, cacheNotif{prev: existing, curr: pooler})
 	c.notifMu.Unlock()
 	c.mu.Unlock()
 
@@ -367,7 +438,7 @@ func (c *PoolerCache) onUpserted(pooler *clustermetadatapb.MultiPooler) {
 }
 
 // onDeleted handles a pooler deletion event.
-func (c *PoolerCache) onDeleted(poolerID string) {
+func (c *PoolerCache) onDeleted(poolerID ComponentID) {
 	c.mu.Lock()
 	p, existed := c.poolers[poolerID]
 	if !existed {
@@ -378,7 +449,7 @@ func (c *PoolerCache) onDeleted(poolerID string) {
 	c.removeFromCell(poolerID, p.Id.Cell)
 	c.cellLastActivity[p.Id.Cell] = time.Now()
 	c.notifMu.Lock()
-	c.notifQueue = append(c.notifQueue, cacheNotif{pooler: p, removed: true})
+	c.notifQueue = append(c.notifQueue, cacheNotif{prev: p, curr: nil})
 	c.notifMu.Unlock()
 	c.mu.Unlock()
 
@@ -398,7 +469,7 @@ func (c *PoolerCache) onCellRemoved(cell string) {
 
 	c.notifMu.Lock()
 	for _, p := range removed {
-		c.notifQueue = append(c.notifQueue, cacheNotif{pooler: p, removed: true})
+		c.notifQueue = append(c.notifQueue, cacheNotif{prev: p, curr: nil})
 	}
 	c.notifMu.Unlock()
 	c.mu.Unlock()

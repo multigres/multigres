@@ -28,7 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/timeouts"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multipooler/manager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
 // managerService is the gRPC wrapper for MultiPoolerManager
@@ -140,6 +140,18 @@ func (s *managerService) ExpireBackups(ctx context.Context, req *multipoolermana
 
 	return &multipoolermanagerdatapb.ExpireBackupsResponse{
 		ExpiredBackupIds: expiredIDs,
+	}, nil
+}
+
+// VerifyBackups runs a full-stanza pgbackrest verify.
+func (s *managerService) VerifyBackups(ctx context.Context, req *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+	result, err := s.manager.VerifyBackups(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.VerifyBackupsResponse{
+		Duration:  durationpb.New(result.Duration),
+		RawOutput: result.RawOutput,
 	}, nil
 }
 

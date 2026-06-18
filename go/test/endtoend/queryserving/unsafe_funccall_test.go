@@ -98,7 +98,7 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 	})
 
 	// Extended protocol path: pgx parses+executes via Parse/Bind/Execute,
-	// which runs through PlanPortal rather than Plan. Both paths must apply
+	// which runs through Plan with IsPortal set. Both protocols must apply
 	// the same rewrite or the tracker diverges depending on which driver
 	// feature the client used.
 	t.Run("extended protocol also rewrites", func(t *testing.T) {
@@ -305,8 +305,12 @@ func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
 			"set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
-			"non-literal set_config value",
-			"SELECT set_config('work_mem', name, false) FROM (SELECT 'x' AS name) s",
+			// A dynamic set_config argument is supported only when the whole
+			// target list is set_config(...) (the resolve-and-apply path, see
+			// TestDynamicSetConfig). Mixed with another target it still can't be
+			// tracked, so it's rejected.
+			"non-literal set_config value in mixed target list",
+			"SELECT set_config('work_mem', name, false), 1 FROM (SELECT 'x' AS name) s",
 			"set_config value argument must be a literal constant",
 		},
 	}

@@ -10,8 +10,8 @@
   },
   {
     "comment": "circle - Statement 3",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(5,1),3\u003e')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(5,1),3\u003e')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(5,1),3>')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(5,1),3>')"
   },
   {
     "comment": "circle - Statement 4",
@@ -35,33 +35,33 @@
   },
   {
     "comment": "circle - Statement 8",
-    "query": "INSERT INTO CIRCLE_TBL VALUES (' \u003c ( 100 , 1 ) , 115 \u003e ')",
-    "expected": "INSERT INTO circle_tbl VALUES (' \u003c ( 100 , 1 ) , 115 \u003e ')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES (' < ( 100 , 1 ) , 115 > ')",
+    "expected": "INSERT INTO circle_tbl VALUES (' < ( 100 , 1 ) , 115 > ')"
   },
   {
     "comment": "circle - Statement 9",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(3,5),0\u003e')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(3,5),0\u003e')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(3,5),0>')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(3,5),0>')"
   },
   {
     "comment": "circle - Statement 10",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(3,5),NaN\u003e')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(3,5),NaN\u003e')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(3,5),NaN>')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(3,5),NaN>')"
   },
   {
     "comment": "circle - Statement 11",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(-100,0),-100\u003e')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(-100,0),-100\u003e')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(-100,0),-100>')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(-100,0),-100>')"
   },
   {
     "comment": "circle - Statement 12",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(100,200),10')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(100,200),10')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(100,200),10')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(100,200),10')"
   },
   {
     "comment": "circle - Statement 13",
-    "query": "INSERT INTO CIRCLE_TBL VALUES ('\u003c(100,200),10\u003e x')",
-    "expected": "INSERT INTO circle_tbl VALUES ('\u003c(100,200),10\u003e x')"
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(100,200),10> x')",
+    "expected": "INSERT INTO circle_tbl VALUES ('<(100,200),10> x')"
   },
   {
     "comment": "circle - Statement 14",
@@ -95,17 +95,17 @@
   },
   {
     "comment": "circle - Statement 20",
-    "query": "SELECT f1 FROM CIRCLE_TBL WHERE radius(f1) \u003c 5",
-    "expected": "SELECT f1 FROM circle_tbl WHERE radius(f1) \u003c 5"
+    "query": "SELECT f1 FROM CIRCLE_TBL WHERE radius(f1) < 5",
+    "expected": "SELECT f1 FROM circle_tbl WHERE radius(f1) < 5"
   },
   {
     "comment": "circle - Statement 21",
-    "query": "SELECT f1 FROM CIRCLE_TBL WHERE diameter(f1) \u003e= 10",
-    "expected": "SELECT f1 FROM circle_tbl WHERE diameter(f1) \u003e= 10"
+    "query": "SELECT f1 FROM CIRCLE_TBL WHERE diameter(f1) >= 10",
+    "expected": "SELECT f1 FROM circle_tbl WHERE diameter(f1) >= 10"
   },
   {
     "comment": "circle - Statement 22",
-    "query": "SELECT c1.f1 AS one, c2.f1 AS two, (c1.f1 \u003c-\u003e c2.f1) AS distance FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE (c1.f1 \u003c c2.f1) AND ((c1.f1 \u003c-\u003e c2.f1) \u003e 0) ORDER BY distance, area(c1.f1), area(c2.f1)",
-    "expected": "SELECT c1.f1 AS one, c2.f1 AS two, (c1.f1 \u003c-\u003e c2.f1) AS distance FROM circle_tbl AS c1, circle_tbl AS c2 WHERE (c1.f1 \u003c c2.f1) AND ((c1.f1 \u003c-\u003e c2.f1) \u003e 0) ORDER BY distance, area(c1.f1), area(c2.f1)"
+    "query": "SELECT c1.f1 AS one, c2.f1 AS two, (c1.f1 <-> c2.f1) AS distance FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE (c1.f1 < c2.f1) AND ((c1.f1 <-> c2.f1) > 0) ORDER BY distance, area(c1.f1), area(c2.f1)",
+    "expected": "SELECT c1.f1 AS one, c2.f1 AS two, (c1.f1 <-> c2.f1) AS distance FROM circle_tbl AS c1, circle_tbl AS c2 WHERE (c1.f1 < c2.f1) AND ((c1.f1 <-> c2.f1) > 0) ORDER BY distance, area(c1.f1), area(c2.f1)"
   }
 ]

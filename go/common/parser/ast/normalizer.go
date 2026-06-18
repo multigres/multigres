@@ -109,15 +109,21 @@ func Normalize(stmt Stmt) *NormalizeResult {
 			return false
 		case *FuncCall:
 			if isPlannerLiteralFunc(n.Funcname) {
-				// set_config(name, value, is_local). The planner needs to
-				// read is_local literally to decide whether to track the
-				// call, so args[2] must stay an A_Const regardless. For the
-				// is_local=true case we still want to parameterize name and
-				// value so a hot per-request pattern (PostgREST-style)
-				// collapses into a single plan-cache fingerprint; we walk
-				// only those two arg slots and skip the rest.
+				// set_config(name, value, is_local). The planner inspects two
+				// of the three args literally, so they must stay A_Const:
+				//   - args[2] (is_local): decides whether the call is tracked.
+				//   - args[0] (name): the planner enforces GUC guards on it
+				//     (e.g. rejecting synchronous_commit) on both the is_local
+				//     false and true paths.
+				// For is_local=true we still parameterize args[1] (the value):
+				// that is the high-cardinality part of hot per-request patterns
+				// (PostgREST's set_config('request.jwt.claims', <dynamic JSON>,
+				// true)), so collapsing it keeps the plan cache compact. Keeping
+				// the name literal costs at most one cache entry per distinct
+				// GUC name — negligible, since the name is constant per call
+				// site and only the value churns. (For is_local=false the whole
+				// subtree is already skipped, so both args stay literal.)
 				if setConfigIsLocalLiteralTrue(n) && n.Args != nil && n.Args.Len() == 3 {
-					n.Args.Items[0] = Rewrite(n.Args.Items[0], replaceLiteral, nil)
 					n.Args.Items[1] = Rewrite(n.Args.Items[1], replaceLiteral, nil)
 				}
 				return false
@@ -169,11 +175,13 @@ func funcNamePartEquals(n Node, want string) bool {
 
 // setConfigIsLocalLiteralTrue reports whether fc is a 3-arg call whose
 // third argument is the literal boolean true. The normalizer uses this
-// to allow parameterizing set_config args when is_local=true: those calls
-// aren't tracked or rewritten by the planner, so their literals carry no
-// planning-relevant meaning, and preserving them would churn the plan
-// cache for hot patterns like PostgREST's per-request
-// set_config('request.jwt.claims', '<dynamic JSON>', true).
+// to allow parameterizing set_config's value when is_local=true: the name
+// and is_local literals stay in place — the planner reads them to decide
+// whether the call is tracked (ordinary variables aren't; gateway-managed
+// variables are, as a transaction-local override whose parameterized value
+// is resolved from BindValues at execute time) — while the high-cardinality
+// value would churn the plan cache for hot patterns like PostgREST's
+// per-request set_config('request.jwt.claims', '<dynamic JSON>', true).
 //
 // Anything other than a clean literal-true (false, missing, ParamRef,
 // non-literal expression, TypeCast over a literal) returns false — the

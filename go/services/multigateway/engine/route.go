@@ -93,15 +93,17 @@ func (r *Route) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	query := r.Query
 	if len(bindVars) > 0 && r.NormalizedAST != nil {
 		query = ast.ReconstructSQL(r.NormalizedAST, bindVars)
 	}
-	// Execute the query through the execution interface.
-	// We pass ctx (not conn.Context()) so that deadlines set by executeWithTimeout
-	// propagate through gRPC to the multipooler for statement timeout enforcement.
+	// Execute the query through the execution interface, forwarding the plan's
+	// reservation directives. We pass ctx (not conn.Context()) so that deadlines
+	// set by executeWithTimeout propagate through gRPC to the multipooler for
+	// statement timeout enforcement.
 	return exec.StreamExecute(
 		ctx,
 		conn,
@@ -110,6 +112,7 @@ func (r *Route) StreamExecute(
 		query,
 		r.PreparedStatement,
 		state,
+		info,
 		callback,
 	)
 }
@@ -126,9 +129,10 @@ func (r *Route) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

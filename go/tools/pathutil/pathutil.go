@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // PrependPath prepends a given path to the PATH environment variable.
@@ -78,8 +79,8 @@ func prependModuleSubdirsToPath(subdirs ...string) error {
 	}
 
 	// Iterate in reverse order so first argument ends up first in PATH
-	for i := len(subdirs) - 1; i >= 0; i-- {
-		targetPath := filepath.Join(moduleRoot, subdirs[i])
+	for _, v := range slices.Backward(subdirs) {
+		targetPath := filepath.Join(moduleRoot, v)
 		PrependPath(targetPath)
 	}
 	return nil

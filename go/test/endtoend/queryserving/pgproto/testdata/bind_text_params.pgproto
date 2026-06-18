@@ -1,0 +1,27 @@
+#
+# Bind carrying non-empty text-format parameter values.
+#
+# This is the case the retired tatsuo-ishii/pgproto could NOT express: its
+# process_bind was missing a SKIP_TABS between a parameter's length and value,
+# so any Bind with nparams > 0 failed to send. The pgpool-II build fixes that
+# (src/tools/pgproto/extended_query.c), so we can finally drive $N placeholders
+# with real bound values instead of embedding literals in the query text.
+#
+# Parse an unnamed statement with two text placeholders, Bind two text-format
+# values ("foo", "bar"), Describe the portal, Execute, Sync. PostgreSQL accepts
+# the parameters and returns one DataRow; the multigateway must relay the same
+# trace. If parameter relay were broken, PG would instead reject the Bind
+# (0 parameters supplied for a 2-parameter statement) and the traces diverge.
+#
+# Bind field layout (tab-separated):
+#   'B'  portal  stmt  ncodes  nparams  [paramlen "value"]...  nresultcodes
+# ncodes 0 = all parameters in text format.
+#
+
+'P'	""	"SELECT $1::text || '-' || $2::text"	0
+'B'	""	""	0	2	3	"foo"	3	"bar"	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+'X'

@@ -76,6 +76,12 @@ func TestRunStart(t *testing.T) {
 
 			tt.setupDataDir(baseDir)
 
+			// runStart now resolves the postgres password via
+			// GetPostgresPassword, which errors when no source is configured.
+			// Set POSTGRES_PASSWORD so the test exercises the start path
+			// rather than the missing-credential error.
+			t.Setenv(constants.PgPasswordEnvVar, "test-password")
+
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
@@ -216,8 +222,9 @@ func TestInitializeDataDir(t *testing.T) {
 
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:     constants.DefaultPostgresUser,
-			Password: shardsetup.TestPostgresPassword,
+			User:           constants.DefaultPostgresUser,
+			Password:       shardsetup.TestPostgresPassword,
+			PasswordSource: PasswordSourceEnv,
 		}
 		err := initializeDataDir(logger, cfg)
 		require.NoError(t, err)
@@ -238,12 +245,31 @@ func TestInitializeDataDir(t *testing.T) {
 		t.Setenv(constants.PgDataDirEnvVar, "/root/impossible_dir")
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:     constants.DefaultPostgresUser,
-			Password: shardsetup.TestPostgresPassword,
+			User:           constants.DefaultPostgresUser,
+			Password:       shardsetup.TestPostgresPassword,
+			PasswordSource: PasswordSourceEnv,
 		}
 		err := initializeDataDir(logger, cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
+	})
+
+	t.Run("panics when PasswordSource is unset", func(t *testing.T) {
+		// Validates the programmer-error guard in initializeDataDir. Production
+		// callers populate PasswordSource via PgCtlCommand.GetPostgresPassword,
+		// which errors out when no source is configured; reaching this code
+		// with an unset source means a caller bypassed the resolver.
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_nopw_test")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		logger := slog.New(slog.DiscardHandler)
+		cfg := PgCtldServiceConfig{
+			User: constants.DefaultPostgresUser,
+			// PasswordSource intentionally unset.
+		}
+		assert.Panics(t, func() { _ = initializeDataDir(logger, cfg) },
+			"unset PasswordSource should panic — production callers must go through GetPostgresPassword")
 	})
 
 	t.Run("extra initdb args are forwarded to initdb", func(t *testing.T) {
@@ -268,8 +294,10 @@ touch "$2/pg_hba.conf"
 
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
-			User:       constants.DefaultPostgresUser,
-			InitdbArgs: "--locale-provider=icu --icu-locale=en_US.UTF-8",
+			User:           constants.DefaultPostgresUser,
+			Password:       "test-password",
+			PasswordSource: PasswordSourceEnv,
+			InitdbArgs:     "--locale-provider=icu --icu-locale=en_US.UTF-8",
 		}
 		err := initializeDataDir(logger, cfg)
 		require.NoError(t, err)
@@ -282,7 +310,7 @@ touch "$2/pg_hba.conf"
 	})
 }
 
-func TestRunInitDbSQLFiles(t *testing.T) {
+func TestRunInitdbSQLFiles(t *testing.T) {
 	t.Run("executes each file in order with expected psql args", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_init_sql_test")
 		defer cleanup()
@@ -306,7 +334,7 @@ func TestRunInitDbSQLFiles(t *testing.T) {
 			user:      "postgres",
 			logger:    logger,
 		}
-		err := runInitDbSQLFiles(logger, pg, "mydb", []string{fileA, fileB})
+		err := runInitdbSQLFiles(logger, pg, "mydb", []string{fileA, fileB})
 		require.NoError(t, err)
 
 		logBytes, err := os.ReadFile(argsLog)
@@ -325,7 +353,7 @@ func TestRunInitDbSQLFiles(t *testing.T) {
 	t.Run("returns error on missing file without invoking psql", func(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
 		// nil pgInstance is safe here: os.Stat runs before the first psql call.
-		err := runInitDbSQLFiles(logger, nil, "mydb", []string{"/nonexistent/file.sql"})
+		err := runInitdbSQLFiles(logger, nil, "mydb", []string{"/nonexistent/file.sql"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not accessible")
 	})
@@ -359,7 +387,7 @@ fi
 			user:      "postgres",
 			logger:    logger,
 		}
-		err := runInitDbSQLFiles(logger, pg, "mydb", []string{failFile, nextFile})
+		err := runInitdbSQLFiles(logger, pg, "mydb", []string{failFile, nextFile})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "fail.sql")
 
@@ -368,6 +396,175 @@ fi
 		got := string(logBytes)
 		assert.Contains(t, got, "fail.sql", "first file should have been invoked")
 		assert.NotContains(t, got, "next.sql", "remaining files must not be invoked after a failure")
+	})
+}
+
+// TestInitdbSQLExecutionOrder verifies that --pg-initdb-sql-dirs runs before
+// --pg-initdb-sql-files: directories establish the base schema; files apply
+// targeted overrides on top. This matches the documented ordering in postInitdbSetup.
+func TestInitdbSQLExecutionOrder(t *testing.T) {
+	baseDir, cleanup := testutil.TempDir(t, "pgctld_sql_order_test")
+	defer cleanup()
+
+	argsLog := filepath.Join(baseDir, "psql-args.log")
+
+	binDir := filepath.Join(baseDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	testutil.MockBinary(t, binDir, "psql", `echo "$@" >> `+argsLog)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	sqlDir := filepath.Join(baseDir, "migrations")
+	require.NoError(t, os.MkdirAll(sqlDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "schema.sql"), []byte("CREATE TABLE t();"), 0o644))
+
+	patchFile := filepath.Join(baseDir, "patch.sql")
+	require.NoError(t, os.WriteFile(patchFile, []byte("ALTER TABLE t ADD COLUMN x int;"), 0o644))
+
+	logger := slog.New(slog.DiscardHandler)
+	pg := &pgInstance{
+		socketDir: "/tmp",
+		port:      5432,
+		user:      "postgres",
+		logger:    logger,
+	}
+
+	// Simulate the postInitdbSetup call order: dirs then files.
+	require.NoError(t, runInitdbSQLDirs(logger, pg, "mydb", []string{"myrole:" + sqlDir}))
+	require.NoError(t, runInitdbSQLFiles(logger, pg, "mydb", []string{patchFile}))
+
+	logBytes, err := os.ReadFile(argsLog)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(logBytes)), "\n")
+	require.Len(t, lines, 2, "expected one psql invocation for the dir and one for the file")
+
+	assert.Contains(t, lines[0], "schema.sql", "dir invocation must come first")
+	assert.Contains(t, lines[1], "patch.sql", "file invocation must come second")
+}
+
+func TestRunInitdbSQLDirs(t *testing.T) {
+	t.Run("runs sql files in lexicographic order under the specified role", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_sql_dirs_test")
+		defer cleanup()
+
+		argsLog := filepath.Join(baseDir, "psql-args.log")
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "psql", `echo "$@" >> `+argsLog)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		sqlDir := filepath.Join(baseDir, "scripts")
+		require.NoError(t, os.MkdirAll(sqlDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "02-b.sql"), []byte("SELECT 2;"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "01-a.sql"), []byte("SELECT 1;"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "README.md"), []byte("ignore me"), 0o644))
+
+		logger := slog.New(slog.DiscardHandler)
+		pg := &pgInstance{
+			socketDir: "/tmp",
+			port:      5432,
+			user:      "postgres",
+			logger:    logger,
+		}
+		err := runInitdbSQLDirs(logger, pg, "mydb", []string{"myrole:" + sqlDir})
+		require.NoError(t, err)
+
+		logBytes, err := os.ReadFile(argsLog)
+		require.NoError(t, err)
+		line := strings.TrimSpace(string(logBytes))
+		// Single psql invocation for the directory
+		require.NotContains(t, line, "\n", "expected a single psql invocation for the directory")
+		assert.Contains(t, line, `SET SESSION AUTHORIZATION "myrole"`)
+		assert.Contains(t, line, "01-a.sql")
+		assert.Contains(t, line, "02-b.sql")
+		assert.NotContains(t, line, "README.md")
+		assert.Contains(t, line, "RESET SESSION AUTHORIZATION")
+		// 01-a.sql must appear before 02-b.sql
+		assert.Less(t, strings.Index(line, "01-a.sql"), strings.Index(line, "02-b.sql"))
+	})
+
+	t.Run("empty directory is a no-op", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_sql_dirs_empty_test")
+		defer cleanup()
+
+		argsLog := filepath.Join(baseDir, "psql-args.log")
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "psql", `echo "$@" >> `+argsLog)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		emptyDir := filepath.Join(baseDir, "empty")
+		require.NoError(t, os.MkdirAll(emptyDir, 0o755))
+
+		logger := slog.New(slog.DiscardHandler)
+		err := runInitdbSQLDirs(logger, nil, "mydb", []string{"myrole:" + emptyDir})
+		require.NoError(t, err)
+		_, statErr := os.Stat(argsLog)
+		assert.True(t, os.IsNotExist(statErr), "psql must not be called for an empty directory")
+	})
+
+	t.Run("invalid entry without colon returns error", func(t *testing.T) {
+		logger := slog.New(slog.DiscardHandler)
+		err := runInitdbSQLDirs(logger, nil, "mydb", []string{"nodirformat"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "role:path")
+	})
+
+	t.Run("invalid entry with empty role returns error", func(t *testing.T) {
+		logger := slog.New(slog.DiscardHandler)
+		err := runInitdbSQLDirs(logger, nil, "mydb", []string{":/tmp/somedir"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "role:path")
+	})
+
+	t.Run("unreadable directory returns error", func(t *testing.T) {
+		logger := slog.New(slog.DiscardHandler)
+		err := runInitdbSQLDirs(logger, nil, "mydb", []string{"myrole:/nonexistent/path"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot read init SQL dir")
+	})
+
+	t.Run("psql failure propagates and skips remaining dirs", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_sql_dirs_fail_test")
+		defer cleanup()
+
+		runLog := filepath.Join(baseDir, "psql-runs.log")
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "psql", `
+echo "$@" >> `+runLog+`
+if [[ "$*" == *"fail-dir"* ]]; then
+    echo "mock psql: simulated failure" >&2
+    exit 1
+fi
+`)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		failDir := filepath.Join(baseDir, "fail-dir")
+		nextDir := filepath.Join(baseDir, "next-dir")
+		require.NoError(t, os.MkdirAll(failDir, 0o755))
+		require.NoError(t, os.MkdirAll(nextDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(failDir, "a.sql"), []byte("BAD"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(nextDir, "b.sql"), []byte("OK"), 0o644))
+
+		logger := slog.New(slog.DiscardHandler)
+		pg := &pgInstance{
+			socketDir: "/tmp",
+			port:      5432,
+			user:      "postgres",
+			logger:    logger,
+		}
+		err := runInitdbSQLDirs(logger, pg, "mydb", []string{"myrole:" + failDir, "myrole:" + nextDir})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "init SQL dir failed")
+
+		logBytes, err := os.ReadFile(runLog)
+		require.NoError(t, err)
+		got := string(logBytes)
+		assert.Contains(t, got, "fail-dir", "first dir should have been invoked")
+		assert.NotContains(t, got, "next-dir", "second dir must not be invoked after failure")
 	})
 }
 

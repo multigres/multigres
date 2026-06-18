@@ -337,12 +337,12 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
 }
 
-// TestShardSetup_InitDbSQLFilesExecuted validates the --init-db-sql-file flag
+// TestShardSetup_InitdbSQLFilesExecuted validates the --pg-initdb-sql-files flag
 // end-to-end: pgctld runs each provided SQL file against the target database
 // during InitDataDir (triggered by shard bootstrap). We assert that the
 // artifacts those files create — a table with data, and a cluster-wide role —
 // exist on the elected primary.
-func TestShardSetup_InitDbSQLFilesExecuted(t *testing.T) {
+func TestShardSetup_InitdbSQLFilesExecuted(t *testing.T) {
 	skipIfShort(t)
 
 	sqlDir := t.TempDir()
@@ -363,7 +363,7 @@ CREATE ROLE init_db_sql_role NOLOGIN;
 
 	setup, cleanup := NewIsolated(t,
 		WithMultipoolerCount(2),
-		WithInitDbSQLFiles(tableFile, roleFile),
+		WithInitdbSQLFiles(tableFile, roleFile),
 	)
 	defer cleanup()
 
@@ -383,4 +383,51 @@ CREATE ROLE init_db_sql_role NOLOGIN;
 		"SELECT 1 FROM pg_roles WHERE rolname = 'init_db_sql_role'")
 	require.NoError(t, err)
 	assert.Equal(t, "1", roleFound, "role created by init SQL must exist")
+}
+
+// TestShardSetup_InitdbSQLDirsExecuted validates the --pg-initdb-sql-dirs flag
+// end-to-end: pgctld reads all .sql files from the given directory (in
+// lexicographic order, skipping non-.sql files) and runs them under
+// SET SESSION AUTHORIZATION <role>. We assert that the artifacts exist on
+// the elected primary and that the non-.sql file did not cause an error.
+func TestShardSetup_InitdbSQLDirsExecuted(t *testing.T) {
+	skipIfShort(t)
+
+	sqlDir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "01-table.sql"), []byte(`
+CREATE TABLE IF NOT EXISTS init_sql_dir_test (
+    id   int PRIMARY KEY,
+    note text NOT NULL
+);
+INSERT INTO init_sql_dir_test (id, note) VALUES (1, 'from-init-sql-dir');
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "02-role.sql"), []byte(`
+CREATE ROLE init_sql_dir_role NOLOGIN;
+`), 0o644))
+
+	// This file must be silently skipped (not a .sql file).
+	require.NoError(t, os.WriteFile(filepath.Join(sqlDir, "README.md"), []byte("should be ignored"), 0o644))
+
+	setup, cleanup := NewIsolated(t,
+		WithMultipoolerCount(2),
+		WithInitdbSQLDirs("postgres:"+sqlDir),
+	)
+	defer cleanup()
+
+	ctx := t.Context()
+
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	note, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT note FROM init_sql_dir_test WHERE id = 1")
+	require.NoError(t, err, "primary should be queryable for init-sql-dir table")
+	assert.Equal(t, "from-init-sql-dir", note, "row inserted by init SQL dir must be present on primary")
+
+	roleFound, err := QueryStringValue(ctx, primaryClient.Pooler,
+		"SELECT 1 FROM pg_roles WHERE rolname = 'init_sql_dir_role'")
+	require.NoError(t, err)
+	assert.Equal(t, "1", roleFound, "role created by init SQL dir must exist")
 }

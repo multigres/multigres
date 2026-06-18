@@ -1,0 +1,346 @@
+[
+  {
+    "comment": "plpgsql_transaction - Statement 1",
+    "query": "CREATE TABLE test1 (a int, b text)",
+    "expected": "CREATE TABLE test1 (a INT, b TEXT)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 2",
+    "query": "CREATE PROCEDURE transaction_test1(x int, y text) LANGUAGE plpgsql AS $$ BEGIN FOR i IN 0..x LOOP INSERT INTO test1 (a, b) VALUES (i, y); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END $$",
+    "expected": "CREATE PROCEDURE transaction_test1 (x INT, y TEXT) LANGUAGE plpgsql AS $$ BEGIN FOR i IN 0..x LOOP INSERT INTO test1 (a, b) VALUES (i, y); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 3",
+    "query": "CALL transaction_test1(9, 'foo')"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 4",
+    "query": "SELECT * FROM test1"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 5",
+    "query": "TRUNCATE test1",
+    "expected": "TRUNCATE TABLE test1 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 6",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN FOR i IN 0..9 LOOP INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN FOR i IN 0..9 LOOP INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 7",
+    "query": "START TRANSACTION"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 8",
+    "query": "CALL transaction_test1(9, 'error')"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 9",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 10",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN COMMIT; END $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN COMMIT; END '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 11",
+    "query": "CREATE FUNCTION transaction_test2() RETURNS int LANGUAGE plpgsql AS $$ BEGIN FOR i IN 0..9 LOOP INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; RETURN 1; END $$",
+    "expected": "CREATE FUNCTION transaction_test2 () RETURNS INT LANGUAGE plpgsql AS $$ BEGIN FOR i IN 0..9 LOOP INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; RETURN 1; END $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 12",
+    "query": "SELECT transaction_test2()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 13",
+    "query": "CREATE FUNCTION transaction_test3() RETURNS int LANGUAGE plpgsql AS $$ BEGIN CALL transaction_test1(9, 'error'); RETURN 1; END; $$",
+    "expected": "CREATE FUNCTION transaction_test3 () RETURNS INT LANGUAGE plpgsql AS $$ BEGIN CALL transaction_test1(9, 'error'); RETURN 1; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 14",
+    "query": "SELECT transaction_test3()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 15",
+    "query": "CREATE FUNCTION transaction_test4() RETURNS int LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'DO LANGUAGE plpgsql $x$ BEGIN COMMIT; END $x$'; RETURN 1; END; $$",
+    "expected": "CREATE FUNCTION transaction_test4 () RETURNS INT LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'DO LANGUAGE plpgsql $x$ BEGIN COMMIT; END $x$'; RETURN 1; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 16",
+    "query": "SELECT transaction_test4()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 17",
+    "query": "CREATE PROCEDURE transaction_test5() LANGUAGE plpgsql SET work_mem = 555 AS $$ BEGIN COMMIT; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test5 () LANGUAGE plpgsql SET work_mem = 555 AS $$ BEGIN COMMIT; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 18",
+    "query": "CALL transaction_test5()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 19",
+    "query": "CREATE PROCEDURE transaction_test5b() LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN COMMIT; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test5b () LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN COMMIT; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 20",
+    "query": "CALL transaction_test5b()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 21",
+    "query": "CREATE PROCEDURE transaction_test6(c text) LANGUAGE plpgsql AS $$ BEGIN CALL transaction_test1(9, c); END; $$",
+    "expected": "CREATE PROCEDURE transaction_test6 (c TEXT) LANGUAGE plpgsql AS $$ BEGIN CALL transaction_test1(9, c); END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 22",
+    "query": "CALL transaction_test6('bar')"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 23",
+    "query": "CREATE PROCEDURE transaction_test7() LANGUAGE plpgsql AS $$ BEGIN DO 'BEGIN CALL transaction_test1(9, $x$baz$x$); END;'; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test7 () LANGUAGE plpgsql AS $$ BEGIN DO 'BEGIN CALL transaction_test1(9, $x$baz$x$); END;'; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 24",
+    "query": "CALL transaction_test7()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 25",
+    "query": "CREATE PROCEDURE transaction_test8() LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'CALL transaction_test1(10, $x$baz$x$)'; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test8 () LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'CALL transaction_test1(10, $x$baz$x$)'; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 26",
+    "query": "CALL transaction_test8()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 27",
+    "query": "CREATE TABLE test2 (x int)",
+    "expected": "CREATE TABLE test2 (x INT)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 28",
+    "query": "INSERT INTO test2 VALUES (0), (1), (2), (3), (4)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 29",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); COMMIT; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); COMMIT; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 30",
+    "query": "SELECT * FROM pg_cursors"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 31",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (12/(r.x-2)); COMMIT; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (12/(r.x-2)); COMMIT; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 32",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); ROLLBACK; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); ROLLBACK; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 33",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); IF r.x % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN SELECT * FROM test2 ORDER BY x LOOP INSERT INTO test1 (a) VALUES (r.x); IF r.x % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 34",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN UPDATE test2 SET x = x * 2 RETURNING x LOOP INSERT INTO test1 (a) VALUES (r.x); ROLLBACK; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN UPDATE test2 SET x = x * 2 RETURNING x LOOP INSERT INTO test1 (a) VALUES (r.x); ROLLBACK; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 35",
+    "query": "SELECT * FROM test2"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 36",
+    "query": "INSERT INTO test1 VALUES (1,'one'), (2,'two'), (3,'three')",
+    "expected": "INSERT INTO test1 VALUES (1, 'one'), (2, 'two'), (3, 'three')"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 37",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE l_cur CURSOR FOR SELECT a FROM test1 ORDER BY 1 FOR UPDATE; BEGIN FOR r IN l_cur LOOP UPDATE test1 SET b = b || ' ' || b WHERE a = r.a; COMMIT; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE l_cur CURSOR FOR SELECT a FROM test1 ORDER BY 1 FOR UPDATE; BEGIN FOR r IN l_cur LOOP UPDATE test1 SET b = b || '' '' || b WHERE a = r.a; COMMIT; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 38",
+    "query": "DO LANGUAGE plpgsql $$ DECLARE r RECORD; BEGIN FOR r IN SELECT a FROM test1 FOR UPDATE LOOP UPDATE test1 SET b = b || ' ' || b WHERE a = r.a; COMMIT; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' DECLARE r RECORD; BEGIN FOR r IN SELECT a FROM test1 FOR UPDATE LOOP UPDATE test1 SET b = b || '' '' || b WHERE a = r.a; COMMIT; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 39",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN BEGIN INSERT INTO test1 (a) VALUES (1); COMMIT; INSERT INTO test1 (a) VALUES (1/0); COMMIT; EXCEPTION WHEN division_by_zero THEN RAISE NOTICE 'caught division_by_zero'; END; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN BEGIN INSERT INTO test1 (a) VALUES (1); COMMIT; INSERT INTO test1 (a) VALUES (1/0); COMMIT; EXCEPTION WHEN division_by_zero THEN RAISE NOTICE ''caught division_by_zero''; END; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 40",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN BEGIN INSERT INTO test1 (a) VALUES (1); ROLLBACK; INSERT INTO test1 (a) VALUES (1/0); ROLLBACK; EXCEPTION WHEN division_by_zero THEN RAISE NOTICE 'caught division_by_zero'; END; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN BEGIN INSERT INTO test1 (a) VALUES (1); ROLLBACK; INSERT INTO test1 (a) VALUES (1/0); ROLLBACK; EXCEPTION WHEN division_by_zero THEN RAISE NOTICE ''caught division_by_zero''; END; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 41",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN FOR i IN 1..10 LOOP BEGIN INSERT INTO test1 VALUES (i, 'good'); INSERT INTO test1 VALUES (i/0, 'bad'); EXCEPTION WHEN division_by_zero THEN INSERT INTO test1 VALUES (i, 'exception'); IF (i % 3) > 0 THEN COMMIT; ELSE ROLLBACK; END IF; END; END LOOP; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN FOR i IN 1..10 LOOP BEGIN INSERT INTO test1 VALUES (i, ''good''); INSERT INTO test1 VALUES (i/0, ''bad''); EXCEPTION WHEN division_by_zero THEN INSERT INTO test1 VALUES (i, ''exception''); IF (i % 3) > 0 THEN COMMIT; ELSE ROLLBACK; END IF; END; END LOOP; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 42",
+    "query": "CREATE TEMP TABLE test4(f1 text)",
+    "expected": "CREATE TEMPORARY TABLE test4 (f1 TEXT)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 43",
+    "query": "ALTER TABLE test4 ALTER COLUMN f1 SET STORAGE EXTERNAL",
+    "expected": "ALTER TABLE test4 ALTER COLUMN f1 SET STORAGE external"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 44",
+    "query": "INSERT INTO test4 SELECT repeat('xyzzy', 2000)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 45",
+    "query": "CREATE FUNCTION data_source(i int) RETURNS TEXT LANGUAGE sql AS 'select f1 from test4' IMMUTABLE",
+    "expected": "CREATE FUNCTION data_source (i INT) RETURNS TEXT LANGUAGE sql AS $$select f1 from test4$$ IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 46",
+    "query": "DO $$ declare x text; begin for i in 1..3 loop x := data_source(i); commit; end loop; raise notice 'length(x) = %', length(x); end $$",
+    "expected": "DO ' declare x text; begin for i in 1..3 loop x := data_source(i); commit; end loop; raise notice ''length(x) = %'', length(x); end '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 47",
+    "query": "DO LANGUAGE plpgsql $$ declare c test1 := row(42, 'hello'); r bool; begin for i in 1..3 loop r := c is not null; raise notice 'r = %', r; commit; end loop; for i in 1..3 loop r := c is null; raise notice 'r = %', r; rollback; end loop; end $$",
+    "expected": "DO LANGUAGE plpgsql ' declare c test1 := row(42, ''hello''); r bool; begin for i in 1..3 loop r := c is not null; raise notice ''r = %'', r; commit; end loop; for i in 1..3 loop r := c is null; raise notice ''r = %'', r; rollback; end loop; end '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 48",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN CREATE TABLE test3 (y int UNIQUE DEFERRABLE INITIALLY DEFERRED); COMMIT; INSERT INTO test3 (y) VALUES (1); COMMIT; INSERT INTO test3 (y) VALUES (1); INSERT INTO test3 (y) VALUES (2); COMMIT; INSERT INTO test3 (y) VALUES (3); END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN CREATE TABLE test3 (y int UNIQUE DEFERRABLE INITIALLY DEFERRED); COMMIT; INSERT INTO test3 (y) VALUES (1); COMMIT; INSERT INTO test3 (y) VALUES (1); INSERT INTO test3 (y) VALUES (2); COMMIT; INSERT INTO test3 (y) VALUES (3); END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 49",
+    "query": "SELECT * FROM test3"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 50",
+    "query": "CREATE PROCEDURE cursor_fail_during_commit() LANGUAGE plpgsql AS $$ DECLARE id int; BEGIN FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP INSERT INTO test1 VALUES(id); COMMIT; END LOOP; END; $$",
+    "expected": "CREATE PROCEDURE cursor_fail_during_commit () LANGUAGE plpgsql AS $$ DECLARE id int; BEGIN FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP INSERT INTO test1 VALUES(id); COMMIT; END LOOP; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 51",
+    "query": "CALL cursor_fail_during_commit()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 52",
+    "query": "SELECT count(*) FROM test1",
+    "expected": "SELECT COUNT(*) FROM test1"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 53",
+    "query": "CREATE PROCEDURE cursor_fail_during_rollback() LANGUAGE plpgsql AS $$ DECLARE id int; BEGIN FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP INSERT INTO test1 VALUES(id); ROLLBACK; END LOOP; END; $$",
+    "expected": "CREATE PROCEDURE cursor_fail_during_rollback () LANGUAGE plpgsql AS $$ DECLARE id int; BEGIN FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP INSERT INTO test1 VALUES(id); ROLLBACK; END LOOP; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 54",
+    "query": "CALL cursor_fail_during_rollback()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 55",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN PERFORM 1; RAISE INFO '%', current_setting('transaction_isolation'); COMMIT; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; PERFORM 1; RAISE INFO '%', current_setting('transaction_isolation'); COMMIT; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; PERFORM 1; RAISE INFO '%', current_setting('transaction_isolation'); COMMIT; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN PERFORM 1; RAISE INFO ''%'', current_setting(''transaction_isolation''); COMMIT; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; PERFORM 1; RAISE INFO ''%'', current_setting(''transaction_isolation''); COMMIT; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; PERFORM 1; RAISE INFO ''%'', current_setting(''transaction_isolation''); COMMIT; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 56",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 57",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN SAVEPOINT foo; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN SAVEPOINT foo; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 58",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN EXECUTE 'COMMIT'; END; $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN EXECUTE ''COMMIT''; END; '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 59",
+    "query": "TRUNCATE test2",
+    "expected": "TRUNCATE TABLE test2 CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 60",
+    "query": "CREATE PROCEDURE transaction_test9() LANGUAGE SQL AS $$ INSERT INTO test2 VALUES (42); $$",
+    "expected": "CREATE PROCEDURE transaction_test9 () LANGUAGE sql AS $$ INSERT INTO test2 VALUES (42); $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 61",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN ROLLBACK; CALL transaction_test9(); END $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN ROLLBACK; CALL transaction_test9(); END '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 62",
+    "query": "CREATE FUNCTION report_count() RETURNS int STABLE LANGUAGE sql AS $$ SELECT COUNT(*) FROM test2 $$",
+    "expected": "CREATE FUNCTION report_count () RETURNS INT STABLE LANGUAGE sql AS $$ SELECT COUNT(*) FROM test2 $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 63",
+    "query": "CREATE PROCEDURE transaction_test9b(cnt int) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'count = %', cnt; END $$",
+    "expected": "CREATE PROCEDURE transaction_test9b (cnt INT) LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'count = %', cnt; END $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 64",
+    "query": "DO $$ BEGIN CALL transaction_test9b(report_count()); INSERT INTO test2 VALUES(43); CALL transaction_test9b(report_count()); END $$",
+    "expected": "DO ' BEGIN CALL transaction_test9b(report_count()); INSERT INTO test2 VALUES(43); CALL transaction_test9b(report_count()); END '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 65",
+    "query": "CREATE PROCEDURE transaction_test10a(INOUT x int) LANGUAGE plpgsql AS $$ BEGIN x := x + 1; COMMIT; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test10a (INOUT x INT) LANGUAGE plpgsql AS $$ BEGIN x := x + 1; COMMIT; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 66",
+    "query": "CALL transaction_test10a(10)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 67",
+    "query": "CREATE PROCEDURE transaction_test10b(INOUT x int) LANGUAGE plpgsql AS $$ BEGIN x := x - 1; ROLLBACK; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test10b (INOUT x INT) LANGUAGE plpgsql AS $$ BEGIN x := x - 1; ROLLBACK; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 68",
+    "query": "CALL transaction_test10b(10)"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 69",
+    "query": "CREATE PROCEDURE transaction_test11() LANGUAGE plpgsql AS $$ DECLARE s1 timestamp with time zone; s2 timestamp with time zone; s3 timestamp with time zone; t1 timestamp with time zone; t2 timestamp with time zone; t3 timestamp with time zone; BEGIN s1 := statement_timestamp(); t1 := transaction_timestamp(); ASSERT s1 = t1; PERFORM pg_sleep(0.001); COMMIT; s2 := statement_timestamp(); t2 := transaction_timestamp(); ASSERT s2 = s1; ASSERT t2 > t1; PERFORM pg_sleep(0.001); ROLLBACK; s3 := statement_timestamp(); t3 := transaction_timestamp(); ASSERT s3 = s1; ASSERT t3 > t2; END; $$",
+    "expected": "CREATE PROCEDURE transaction_test11 () LANGUAGE plpgsql AS $$ DECLARE s1 timestamp with time zone; s2 timestamp with time zone; s3 timestamp with time zone; t1 timestamp with time zone; t2 timestamp with time zone; t3 timestamp with time zone; BEGIN s1 := statement_timestamp(); t1 := transaction_timestamp(); ASSERT s1 = t1; PERFORM pg_sleep(0.001); COMMIT; s2 := statement_timestamp(); t2 := transaction_timestamp(); ASSERT s2 = s1; ASSERT t2 > t1; PERFORM pg_sleep(0.001); ROLLBACK; s3 := statement_timestamp(); t3 := transaction_timestamp(); ASSERT s3 = s1; ASSERT t3 > t2; END; $$"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 70",
+    "query": "CALL transaction_test11()"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 71",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN ROLLBACK; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; FOR i IN 0..3 LOOP RAISE INFO 'transaction_isolation = %', current_setting('transaction_isolation'); INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT AND CHAIN; ELSE ROLLBACK AND CHAIN; END IF; END LOOP; END $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN ROLLBACK; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ; FOR i IN 0..3 LOOP RAISE INFO ''transaction_isolation = %'', current_setting(''transaction_isolation''); INSERT INTO test1 (a) VALUES (i); IF i % 2 = 0 THEN COMMIT AND CHAIN; ELSE ROLLBACK AND CHAIN; END IF; END LOOP; END '"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 72",
+    "query": "DROP TABLE test1"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 73",
+    "query": "DROP TABLE test2"
+  },
+  {
+    "comment": "plpgsql_transaction - Statement 74",
+    "query": "DROP TABLE test3"
+  }
+]

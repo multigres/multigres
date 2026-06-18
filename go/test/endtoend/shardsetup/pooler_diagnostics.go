@@ -25,6 +25,8 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
+	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
 // checkPoolerCondition evaluates condition for each pooler once. Returns nil if all
@@ -155,6 +157,81 @@ func RequirePoolerCondition(
 	if len(failures) > 0 {
 		require.Fail(t, strings.Join(failures, "\n"), msgAndArgs...)
 	}
+}
+
+// WaitForHigherTermPrimary polls all multipoolers in setup until one reports
+// IsInitialized + PoolerType_PRIMARY + PostgresReady at a term strictly
+// greater than oldTerm AND has at least minStandbyCount followers actively
+// streaming from it, then returns its name. The elected primary may be the
+// same pooler as before (re-elected at a higher term) or a different one;
+// callers that need a *different* pooler should use WaitForNewPrimary
+// instead. Fails the test if no qualifying primary appears within timeout.
+func WaitForHigherTermPrimary(t *testing.T, setup *ShardSetup, oldTerm int64, minStandbyCount int, timeout time.Duration) string {
+	t.Helper()
+
+	poolers := make([]*MultipoolerInstance, 0, len(setup.Multipoolers))
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	return EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Err != nil || r.Status == nil {
+					continue
+				}
+				if !(r.Status.IsInitialized &&
+					r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
+					r.Status.PostgresReady) {
+					continue
+				}
+				term := r.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
+				if term <= oldTerm {
+					continue
+				}
+				connected := len(r.Status.GetPrimaryStatus().GetConnectedFollowers())
+				if connected < minStandbyCount {
+					continue
+				}
+				return r.Name, true, ""
+			}
+			return "", false, fmt.Sprintf("no primary at term > %d with >= %d connected followers yet", oldTerm, minStandbyCount)
+		},
+		"primary at term > %d with >= %d connected followers not elected within %v", oldTerm, minStandbyCount, timeout,
+	)
+}
+
+// WaitForNewPrimary polls all multipoolers in setup until one other than oldPrimaryName
+// reports IsInitialized + PoolerType_PRIMARY + PostgresReady, then returns its name.
+// Elapsed time is recorded as a timing measurement.
+// Fails the test if no new primary is elected within timeout.
+func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, timeout time.Duration) string {
+	t.Helper()
+
+	poolers := make([]*MultipoolerInstance, 0, len(setup.Multipoolers))
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	start := time.Now()
+	name := EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Name == oldPrimaryName || r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized &&
+					r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
+					r.Status.PostgresReady {
+					return r.Name, true, ""
+				}
+			}
+			return "", false, fmt.Sprintf("no new primary elected yet (old primary: %s)", oldPrimaryName)
+		},
+		"new primary not elected within %v", timeout,
+	)
+	testtiming.Record(t, fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), timeout)
+	return name
 }
 
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,

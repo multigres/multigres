@@ -18,6 +18,7 @@ package multiadmin;
 
 import "clustermetadata.proto";
 import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
@@ -95,6 +96,14 @@ service MultiAdminService {
     };
   }
 
+  // VerifyBackups runs pgbackrest verify for a shard.
+  rpc VerifyBackups(VerifyBackupsRequest) returns (VerifyBackupsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups/verify"
+      body: "*"
+    };
+  }
+
   //
   // Pooler Status (proxy methods)
   //
@@ -134,6 +143,25 @@ service MultiAdminService {
   // target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
   rpc GetGatewayConsolidator(GetGatewayConsolidatorRequest) returns (GetGatewayConsolidatorResponse) {
     option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"};
+  }
+
+  //
+  // Consensus rule changes (proxy methods)
+  //
+
+  // ApplyCertifiedRuleChange installs a new shard rule using an externally
+  // certified revocation. Handles both initial leader appointment (term 0)
+  // and stuck-quorum recovery (term > 0).
+  //
+  // The cert is either supplied explicitly by the caller or, if
+  // unsafe_derive_cert is set, derived by multiadmin from a Status probe of
+  // the proposed cohort. Multiadmin then forwards the request to the shard's
+  // multiorch.
+  rpc ApplyCertifiedRuleChange(ApplyCertifiedRuleChangeRequest) returns (ApplyCertifiedRuleChangeResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"
+      body: "*"
+    };
   }
 }
 
@@ -360,6 +388,22 @@ message ExpireBackupsResponse {
   repeated string expired_backup_ids = 1;
 }
 
+// VerifyBackupsRequest requests a stanza-wide verify run.
+message VerifyBackupsRequest {
+  // database name (required)
+  string database = 1;
+  // table_group name (required)
+  string table_group = 2;
+  // shard name (required)
+  string shard = 3;
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+message VerifyBackupsResponse {
+  google.protobuf.Duration duration = 1;
+  string raw_output = 2;
+}
+
 // BackupInfo contains information about a single backup artifact
 message BackupInfo {
   // backup_id uniquely identifies this backup (e.g., "20250117-123456F")
@@ -458,4 +502,73 @@ message GetGatewayConsolidatorRequest {
 message GetGatewayConsolidatorResponse {
   // stats contains the consolidator data from MultiGatewayManager.GetConsolidatorStats
   multigatewaymanagerdata.ConsolidatorStats stats = 1;
+}
+
+// ApplyCertifiedRuleChange operation messages
+
+// ApplyCertifiedRuleChangeRequest installs a new shard rule using an externally
+// certified revocation. See multiorch.ApplyCertifiedRuleChangeRequest for the
+// safety contract behind the cert.
+//
+// Multiadmin populates the identity and timing fields that the caller did not
+// fill in (rule_number, coordinator_id, creation_time, term_revocation.*) by
+// looking up a multiorch in the shard's cell and using "now" for timestamps,
+// then forwards the fully-populated request to that multiorch.
+message ApplyCertifiedRuleChangeRequest {
+  // Shard to apply the rule change to.
+  clustermetadata.ShardKey shard_key = 1;
+
+  // The rule to install. The caller must populate leader_id, cohort_members,
+  // and durability_policy. The caller may also populate rule_number,
+  // coordinator_id, and creation_time; if any of those are left unset,
+  // multiadmin fills them in (rule_number from the cert's revoked_below_term,
+  // coordinator_id from the chosen multiorch, creation_time from "now").
+  clustermetadata.ShardRule proposed_rule = 2;
+
+  // How the externally certified revocation is supplied. Exactly one branch
+  // must be set.
+  oneof cert_source {
+    // Caller-supplied cert. The caller must populate outgoing_rule_number
+    // and frozen_lsn. term_revocation may be left empty; if so, multiadmin
+    // fills it in (accepted_coordinator_id from the chosen multiorch,
+    // coordinator_initiated_at from "now", revoked_below_term picked by
+    // multiadmin to be greater than outgoing_rule_number.coordinator_term).
+    //
+    // For initial leader appointment (no prior rule), pass a zero RuleNumber
+    // and frozen_lsn="0/0".
+    clustermetadata.ExternallyCertifiedRevocation cert = 3;
+
+    // Ask multiadmin to derive outgoing_rule_number and frozen_lsn by
+    // probing the proposed cohort for their current ConsensusStatus.
+    // term_revocation and rule identity fields are then filled in as above.
+    UnsafeDeriveCertOptions unsafe_derive_cert = 4;
+  }
+
+  // Free-text, recorded in rule_history for audit.
+  string reason = 5;
+}
+
+// UnsafeDeriveCertOptions requests that multiadmin probe the proposed cohort
+// members for their current ConsensusStatus and derive cert.outgoing_rule_number
+// and cert.frozen_lsn from the most-advanced response.
+//
+// Unsafe because if an unreachable node is actually ahead of the reachable
+// set, the derived cert is wrong: the new rule could be installed on a
+// timeline that conflicts with the absent node's committed writes. The
+// pooler-side ValidateRevocation check prevents corruption if the absent
+// node comes back, but data loss is possible. Intended for stuck-quorum
+// recovery where the caller explicitly accepts that risk.
+message UnsafeDeriveCertOptions {
+  // Reserved for future tuning knobs (probe timeout, cohort subset, etc.).
+}
+
+message ApplyCertifiedRuleChangeResponse {
+  // The fully-populated rule that was installed, after multiadmin filled in
+  // any identity fields the caller omitted.
+  clustermetadata.ShardRule installed_rule = 1;
+
+  // The fully-populated cert that was applied. When unsafe_derive_cert was
+  // used or term_revocation was filled in by multiadmin, this exposes the
+  // values that multiadmin chose.
+  clustermetadata.ExternallyCertifiedRevocation cert_used = 2;
 }

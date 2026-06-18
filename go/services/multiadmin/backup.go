@@ -47,8 +47,8 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 	}
 
 	// Generate a job ID that will be stored in pgbackrest and can be queried after restart.
-	// Format: YYYYMMDD-HHMMSS.microseconds_<pooler_name>
-	jobID := backup.GenerateJobID(pooler.Id.Name)
+	// Format: YYYYMMDD-HHMMSS.microseconds_<multipooler-cell-name>
+	jobID := backup.GenerateJobID(pooler.Id)
 
 	// Create a job to track this backup operation
 	s.backupJobTracker.CreateJobWithID(jobID, multiadminpb.JobType_JOB_TYPE_BACKUP, req.Database, req.TableGroup, req.Shard)
@@ -417,5 +417,48 @@ func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 
 	return &multiadminpb.ExpireBackupsResponse{
 		ExpiredBackupIds: resp.ExpiredBackupIds,
+	}, nil
+}
+
+// VerifyBackups runs pgbackrest verify against the full stanza for a shard.
+// Synchronous: blocks until pgbackrest verify completes, then returns
+// duration + raw output. No job state to track.
+func (s *MultiAdminServer) VerifyBackups(ctx context.Context, req *multiadminpb.VerifyBackupsRequest) (*multiadminpb.VerifyBackupsResponse, error) {
+	s.logger.DebugContext(ctx, "VerifyBackups request received",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+	)
+
+	if req.Database == "" {
+		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
+	}
+	if req.TableGroup == "" {
+		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
+	}
+	if req.Shard == "" {
+		return nil, status.Error(codes.InvalidArgument, "shard cannot be empty")
+	}
+
+	pooler, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, false)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "failed to find replica pooler: %v", err)
+	}
+
+	resp, err := s.rpcClient.VerifyBackups(ctx, pooler, &multipoolermanagerdata.VerifyBackupsRequest{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "verify failed: %v", err)
+	}
+
+	s.logger.InfoContext(ctx, "VerifyBackups completed",
+		"database", req.Database,
+		"table_group", req.TableGroup,
+		"shard", req.Shard,
+		"duration", resp.Duration.AsDuration(),
+	)
+
+	return &multiadminpb.VerifyBackupsResponse{
+		Duration:  resp.Duration,
+		RawOutput: resp.RawOutput,
 	}, nil
 }

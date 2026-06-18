@@ -134,7 +134,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		// the timer fires after this failover has already ended and a new
 		// one has started, the stale callback is ignored.
 		sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
-			sb.logger.Warn("max failover duration exceeded, stopping buffering")
+			sb.logger.WarnContext(ctx, "max failover duration exceeded, stopping buffering")
 			sb.stopBuffering("max duration exceeded", gen)
 		})
 		sb.mu.Unlock()
@@ -207,6 +207,11 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 		sb.maxDurationTimer = nil
 	}
 	sb.logger.Info("stopping buffering, draining entries", "reason", reason)
+	sb.buf.stats.recordFailoverDuration(
+		sb.buf.ctx,
+		string(commontypes.FormatShardKey(sb.shardKey)),
+		sb.lastEnd.Sub(sb.lastStart).Seconds(),
+	)
 	sb.mu.Unlock()
 
 	// Extract all entries for this shard from the global queue.
@@ -250,6 +255,8 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 
 // drainEntry signals a single entry to retry and waits for its completion.
 func (sb *shardBuffer) drainEntry(e *entry) {
+	// Decrement before close so waiters never see a stale gauge.
+	sb.buf.stats.addQueueDepth(sb.buf.ctx, -1)
 	// Signal the entry to retry by closing its done channel.
 	close(e.done)
 	sb.buf.stats.recordDrained(sb.buf.ctx, string(commontypes.FormatShardKey(sb.shardKey)))

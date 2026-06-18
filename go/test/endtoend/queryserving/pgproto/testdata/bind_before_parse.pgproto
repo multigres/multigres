@@ -1,0 +1,27 @@
+#
+# Extended-query: Bind referencing a statement that was never Parsed.
+#
+# A Bind names a prepared statement; if that statement does not exist the
+# backend must reject the Bind with SQLSTATE 26000 (invalid_sql_statement_name)
+# and then skip every following message until the next Sync. This is a pure
+# relay-ordering case for a proxy: it never sees a Parse for "ghost", so it must
+# forward the Bind/Execute and surface the backend's error rather than
+# inventing its own.
+#
+
+# Bind to a statement name that was never created -> ErrorResponse(26000).
+# The Execute that follows targets the portal the failed Bind would have made
+# and must be skipped until the Sync.
+'B'	"p_ghost"	"ghost"	0	0	0
+'E'	"p_ghost"	0
+'S'
+'Y'
+
+# After Sync the session recovers: an unnamed prepared statement runs normally.
+'P'	"ok"	"SELECT 1"	0
+'B'	"p_ok"	"ok"	0	0	0
+'E'	"p_ok"	0
+'S'
+'Y'
+
+'X'

@@ -1,3 +1,8 @@
+# Known divergence (by design): this malformed statement is rejected by
+# multigateway's own SQL parser before it reaches PostgreSQL, so the error is
+# "parse error at position 24: syntax error" instead of PostgreSQL's "syntax
+# error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Here: ANALYZE (nonexistent-arg) does_not_exist.
 --- a
 +++ b
 @@ -307,9 +307,7 @@

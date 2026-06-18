@@ -55,9 +55,16 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 	return l.scanStandardStringWithType(startPos, startScanPos, false)
 }
 
-// scanUnicodeString processes a Unicode string literal (U&'...')
-// Equivalent to PostgreSQL xus state handling
+// scanUnicodeString processes a Unicode string literal (U&'...').
+// Equivalent to PostgreSQL xus state handling. When standard_conforming_strings
+// is off, upstream rejects the literal entirely with
+// `unsafe use of string constant with Unicode escapes`
+// (postgres/src/backend/parser/scan.l:578-583); record that error and continue
+// scanning so the parse tree still resolves.
 func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
+	if !l.context.StandardConformingStrings() {
+		_ = l.context.AddErrorWithType(InvalidUnicodeEscape, "unsafe use of string constant with Unicode escapes")
+	}
 	return l.scanStandardStringWithType(startPos, startScanPos, true)
 }
 
@@ -96,16 +103,15 @@ func (l *Lexer) scanStandardStringWithType(startPos, startScanPos int, isUnicode
 				return nil, err
 			}
 		} else {
-			// Regular character - use proper UTF-8 handling
-			ctx.AddLiteral(string(ch))
-			// Calculate the byte size of this rune to advance correctly
-			runeSize := utf8.RuneLen(ch)
-			if runeSize > 0 {
-				ctx.AdvanceBy(runeSize)
-			} else {
-				// Invalid rune, advance by 1 byte
-				ctx.AdvanceBy(1)
+			// Regular character: copy the raw bytes that DecodeRune actually
+			// consumed so invalid UTF-8 (which decodes as RuneError + size 1)
+			// is preserved verbatim instead of being re-encoded as U+FFFD.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
 			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 
@@ -163,16 +169,15 @@ func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 				return nil, err
 			}
 		} else {
-			// Regular character - use proper UTF-8 handling
-			ctx.AddLiteral(string(ch))
-			// Calculate the byte size of this rune to advance correctly
-			runeSize := utf8.RuneLen(ch)
-			if runeSize > 0 {
-				ctx.AdvanceBy(runeSize)
-			} else {
-				// Invalid rune, advance by 1 byte
-				ctx.AdvanceBy(1)
+			// Regular character: copy the raw bytes that DecodeRune actually
+			// consumed so invalid UTF-8 is preserved verbatim instead of being
+			// re-encoded as U+FFFD.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
 			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 
@@ -237,9 +242,16 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 				ctx.AdvanceBy(1)
 			}
 		} else {
-			// Literal character - no escape processing in dollar-quoted strings
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
+			// Literal character - no escape processing in dollar-quoted strings.
+			// Copy the raw bytes that DecodeRune actually consumed so multi-byte
+			// UTF-8 (common in function bodies) advances correctly and invalid
+			// sequences are preserved verbatim.
+			_, size := ctx.CurrentRune()
+			if size <= 0 {
+				size = 1
+			}
+			ctx.AddLiteral(string(ctx.PeekBytes(size)))
+			ctx.AdvanceBy(size)
 		}
 	}
 
@@ -271,15 +283,29 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	// Parse optional tag - postgres/src/backend/parser/scan.l:290-303
 	// dolq_start: [A-Za-z\200-\377_]
 	// dolq_cont: [A-Za-z\200-\377_0-9]
-	if !ctx.AtEOF() && l.isDollarQuoteStartChar(ctx.CurrentChar()) {
-		// Tag starts with valid character
-		delimiter.WriteRune(ctx.CurrentChar())
-		ctx.AdvanceBy(1)
+	// Append raw bytes (size from DecodeRune) so multi-byte tag chars are
+	// preserved verbatim and the scan position advances by the full rune
+	// length. matchesDollarDelimiter compares bytes against the same buffer,
+	// so the stored delimiter must hold raw bytes too.
+	if !ctx.AtEOF() {
+		if ch, size := ctx.CurrentRune(); l.isDollarQuoteStartChar(ch) {
+			if size <= 0 {
+				size = 1
+			}
+			delimiter.Write(ctx.PeekBytes(size))
+			ctx.AdvanceBy(size)
 
-		// Continue with valid tag characters
-		for !ctx.AtEOF() && l.isDollarQuoteCont(ctx.CurrentChar()) {
-			delimiter.WriteRune(ctx.CurrentChar())
-			ctx.AdvanceBy(1)
+			for !ctx.AtEOF() {
+				ch, size := ctx.CurrentRune()
+				if !l.isDollarQuoteCont(ch) {
+					break
+				}
+				if size <= 0 {
+					size = 1
+				}
+				delimiter.Write(ctx.PeekBytes(size))
+				ctx.AdvanceBy(size)
+			}
 		}
 	}
 
@@ -294,39 +320,31 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	return delimiter.String(), nil
 }
 
-// isDollarQuoteStartChar checks if character can start a dollar-quote tag
-// Equivalent to dolq_start pattern - postgres/src/backend/parser/scan.l:290
+// isDollarQuoteStartChar checks if character can start a dollar-quote tag.
+// Equivalent to the dolq_start pattern in postgres/src/backend/parser/scan.l:290:
+// `[A-Za-z\200-\377_]`. PG's `\377` is the OCTAL escape for byte 0xFF, so the
+// high range covers single-byte high-ASCII (0x80..0xFF) — not Unicode
+// codepoints up to U+0377.
 func (l *Lexer) isDollarQuoteStartChar(ch rune) bool {
-	return unicode.IsLetter(ch) || ch == '_' || (ch >= 0x80 && ch <= 0x377)
+	return unicode.IsLetter(ch) || ch == '_' || (ch >= 0x80 && ch <= 0xFF)
 }
 
-// isDollarQuoteCont checks if character can continue a dollar-quote tag
-// Equivalent to dolq_cont pattern - postgres/src/backend/parser/scan.l:291
+// isDollarQuoteCont checks if character can continue a dollar-quote tag.
+// Equivalent to the dolq_cont pattern in postgres/src/backend/parser/scan.l:291.
+// See the note in isDollarQuoteStartChar about the 0xFF upper bound.
 func (l *Lexer) isDollarQuoteCont(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || (ch >= 0x80 && ch <= 0x377)
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || (ch >= 0x80 && ch <= 0xFF)
 }
 
-// matchesDollarDelimiter checks if current position has matching dollar delimiter
+// matchesDollarDelimiter reports whether the bytes at the current scan
+// position are exactly equal to expectedDelimiter. Comparison is byte-wise:
+// `range` over a Go string yields decoded runes which would mismatch the raw
+// byte slice for multi-byte tag chars, so use a direct byte comparison.
+//
+// Hot path inside scanDollarQuotedString — every `$` triggers a call. Use the
+// zero-alloc HasPrefixAtScanPos helper to avoid copying the whole buffer.
 func (l *Lexer) matchesDollarDelimiter(expectedDelimiter string) bool {
-	ctx := l.context
-
-	// Check if we have enough characters remaining
-	remaining := len(ctx.ScanBuf()) - ctx.ScanPos()
-	if remaining < len(expectedDelimiter) {
-		return false
-	}
-
-	// Check character by character
-	for i, expectedChar := range expectedDelimiter {
-		if ctx.ScanPos()+i >= len(ctx.ScanBuf()) {
-			return false
-		}
-		if rune(ctx.ScanBuf()[ctx.ScanPos()+i]) != expectedChar {
-			return false
-		}
-	}
-
-	return true
+	return l.context.HasPrefixAtScanPos(expectedDelimiter)
 }
 
 // scanEscapeSequence processes backslash escape sequences in extended strings
@@ -379,8 +397,17 @@ func (l *Lexer) scanEscapeSequence() error {
 		return l.scanUnicodeEscape(8)
 	default:
 		if ch >= '0' && ch <= '7' {
-			// Octal escape \nnn - postgres/src/backend/parser/scan.l:278
-			ctx.SetScanPos(ctx.ScanPos() - 1) // Back up to reprocess first octal digit
+			// Octal escape \nnn - postgres/src/backend/parser/scan.l:278.
+			// Rewind both scanPos and the tracked currentPosition/column so
+			// scanOctalEscape sees the first digit at the right offset and
+			// downstream error positions stay accurate. The digit is ASCII,
+			// so a single-byte / single-column rewind is sufficient.
+			ctx.SetScanPos(ctx.ScanPos() - 1)
+			pos, line, col := ctx.GetCurrentPosition()
+			if col > 1 {
+				col--
+			}
+			ctx.SetCurrentPosition(pos-1, line, col)
 			return l.scanOctalEscape()
 		} else {
 			// Literal character after backslash
@@ -540,11 +567,24 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		// Skip whitespace to look for continuation
 		// SQL requires at least one newline in the whitespace for string concatenation
 		savedPos := ctx.ScanPos()
+		savedTrackedPos, savedLine, savedCol := ctx.GetCurrentPosition()
+		restoreLookahead := func() {
+			ctx.SetScanPos(savedPos)
+			ctx.SetCurrentPosition(savedTrackedPos, savedLine, savedCol)
+		}
 		hasNewline := false
 
-		// Skip whitespace and check for newline
-		for !ctx.AtEOF() && unicode.IsSpace(ctx.CurrentChar()) {
-			if ctx.CurrentChar() == '\n' {
+		// Skip whitespace and check for newline. Match PostgreSQL's whitespace
+		// definition (`[ \t\n\r\f]`, scan.l space rule) — explicitly ASCII so
+		// multi-byte Unicode spaces like NBSP do not gate continuation.
+		// PG's `newline` token is `\n|\r|\r\n`, so a bare CR also satisfies
+		// the "saw a newline" requirement for continuation.
+		for !ctx.AtEOF() {
+			ch, _ := ctx.CurrentRune()
+			if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' && ch != '\f' {
+				break
+			}
+			if ch == '\n' || ch == '\r' {
 				hasNewline = true
 			}
 			ctx.AdvanceBy(1)
@@ -552,7 +592,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 
 		// If no newline was found, string concatenation is not allowed
 		if !hasNewline {
-			ctx.SetScanPos(savedPos)
+			restoreLookahead()
 			ctx.SetState(StateInitial)
 
 			// Set final literal and return
@@ -578,7 +618,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 				ctx.AdvanceBy(1) // Skip '
 			} else {
 				// No continuation found
-				ctx.SetScanPos(savedPos)
+				restoreLookahead()
 				ctx.SetState(StateInitial)
 
 				// Set final literal and return
@@ -622,9 +662,15 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 						return nil, err
 					}
 				} else {
-					// Regular character
-					ctx.AddLiteral(string(ch))
-					ctx.AdvanceBy(1)
+					// Regular character: copy raw bytes that DecodeRune actually
+					// consumed so multi-byte UTF-8 advances by its full width
+					// and invalid sequences are preserved verbatim.
+					_, size := ctx.CurrentRune()
+					if size <= 0 {
+						size = 1
+					}
+					ctx.AddLiteral(string(ctx.PeekBytes(size)))
+					ctx.AdvanceBy(size)
 				}
 			}
 
@@ -642,7 +688,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		}
 
 		// No continuation found - restore position and return final token
-		ctx.SetScanPos(savedPos)
+		restoreLookahead()
 		ctx.SetState(StateInitial)
 
 		// Set final literal and return
@@ -669,27 +715,28 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 	ctx.AdvanceBy(1) // Skip B
 	ctx.AdvanceBy(1) // Skip '
 
+	// xbinside is `[^']*` (scan.l:265) — accept every byte verbatim until the
+	// closing quote. The upstream comment at scan.l:255-263 explicitly chose
+	// not to validate digits here because that swallows characters silently;
+	// instead the input routine (`bit_in`) validates and emits e.g.
+	// `" " is not a valid binary digit`. Preserving the literal lets the
+	// downstream backend produce the canonical error.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
-		ch := ctx.CurrentChar()
+		ch, size := ctx.CurrentRune()
 
 		if ch == '\'' {
-			// End of bit string
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
-		} else if ch == '0' || ch == '1' {
-			// Valid bit character
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
-		} else if unicode.IsSpace(ch) {
-			// Skip whitespace within bit strings
-			ctx.AdvanceBy(1)
-		} else {
-			// Invalid character in bit string
-			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid bit string character: %c", ch))
-			ctx.AdvanceBy(1)
 		}
+		if size <= 0 {
+			size = 1
+		}
+		// Append raw bytes so invalid UTF-8 is preserved verbatim instead of
+		// being re-encoded as U+FFFD (which expands to 3 bytes).
+		ctx.AddLiteral(string(ctx.PeekBytes(size)))
+		ctx.AdvanceBy(size)
 	}
 
 	if !foundClosingQuote {
@@ -719,27 +766,26 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 	ctx.AdvanceBy(1) // Skip X
 	ctx.AdvanceBy(1) // Skip '
 
+	// xhinside is `[^']*` (scan.l:269) — accept every byte verbatim until the
+	// closing quote. Upstream defers digit validation to the input routine for
+	// the same reason as xbinside (see comment in scanBitString); this lets
+	// `varbit_in` emit `" " is not a valid hexadecimal digit` etc.
 	foundClosingQuote := false
 	for !ctx.AtEOF() {
-		ch := ctx.CurrentChar()
+		ch, size := ctx.CurrentRune()
 
 		if ch == '\'' {
-			// End of hex string
 			ctx.AdvanceBy(1)
 			foundClosingQuote = true
 			break
-		} else if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
-			// Valid hex character
-			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
-		} else if unicode.IsSpace(ch) {
-			// Skip whitespace within hex strings
-			ctx.AdvanceBy(1)
-		} else {
-			// Invalid character in hex string
-			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid hexadecimal string character: %c", ch))
-			ctx.AdvanceBy(1)
 		}
+		if size <= 0 {
+			size = 1
+		}
+		// Append raw bytes so invalid UTF-8 is preserved verbatim instead of
+		// being re-encoded as U+FFFD.
+		ctx.AddLiteral(string(ctx.PeekBytes(size)))
+		ctx.AdvanceBy(size)
 	}
 
 	if !foundClosingQuote {

@@ -211,7 +211,7 @@ func (a *Alias) SqlString() string {
 		var colAliases []string
 		for _, col := range a.ColNames.Items {
 			if str, ok := col.(*String); ok {
-				colAliases = append(colAliases, str.SVal)
+				colAliases = append(colAliases, QuoteIdentifier(str.SVal))
 			}
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
@@ -276,7 +276,7 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result.WriteString("." + i.SVal)
+					result.WriteString("." + QuoteIdentifier(i.SVal))
 				case *A_Indices:
 					// Array index or slice
 					result.WriteString(i.SqlString())
@@ -288,6 +288,45 @@ func (r *ResTarget) ColumnNameWithIndirection() string {
 		}
 	}
 	return result.String()
+}
+
+// renderSetClauses renders the assignment list of a SET clause (UPDATE or
+// ON CONFLICT DO UPDATE). A multi-column assignment `SET (a, b, ...) = <source>`
+// is parsed into one ResTarget per column, each holding a MultiAssignRef that
+// points at the shared source; those are regrouped so the source is emitted once
+// (rendering each as `a = <source>` would be wrong).
+func renderSetClauses(items []Node) []string {
+	var setClauses []string
+	for i := 0; i < len(items); i++ {
+		target, ok := items[i].(*ResTarget)
+		if !ok || target.Name == "" || target.Val == nil {
+			continue
+		}
+		if mar, ok := target.Val.(*MultiAssignRef); ok && mar.Colno == 1 {
+			cols := []string{target.ColumnNameWithIndirection()}
+			j := i + 1
+			for ; j < len(items) && len(cols) < mar.Ncolumns; j++ {
+				next, ok := items[j].(*ResTarget)
+				if !ok {
+					break
+				}
+				nextMar, ok := next.Val.(*MultiAssignRef)
+				if !ok || nextMar.Colno != len(cols)+1 {
+					break
+				}
+				cols = append(cols, next.ColumnNameWithIndirection())
+			}
+			source := ""
+			if mar.Source != nil {
+				source = mar.Source.SqlString()
+			}
+			setClauses = append(setClauses, "("+strings.Join(cols, ", ")+") = "+source)
+			i = j - 1
+			continue
+		}
+		setClauses = append(setClauses, target.SetClauseString())
+	}
+	return setClauses
 }
 
 // SetClauseString returns the SQL representation for SET clauses (UPDATE, ON CONFLICT DO UPDATE)
@@ -333,7 +372,7 @@ func (r *ResTarget) SqlString() string {
 				switch i := ind.(type) {
 				case *String:
 					// Field selection
-					result.WriteString("." + i.SVal)
+					result.WriteString("." + QuoteIdentifier(i.SVal))
 				case *A_Indices:
 					// Array index or slice
 					result.WriteString(i.SqlString())
@@ -576,7 +615,24 @@ func (s *SelectStmt) SqlString() string {
 			parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
 		}
 
-		return strings.Join(parts, " ")
+		// FOR UPDATE/SHARE clauses also attach to the set-operation node.
+		if s.LockingClause != nil && s.LockingClause.Len() > 0 {
+			for _, item := range s.LockingClause.Items {
+				if locking, ok := item.(*LockingClause); ok && locking != nil {
+					parts = append(parts, locking.SqlString())
+				}
+			}
+		}
+
+		// WITH clause attaches to the outer set-operation node and must be
+		// prepended here. The non-set-op branch handles WithClause below; the
+		// set-op branch returns early, so without this the CTE is silently
+		// dropped on round-trip and PG sees `relation "cte" does not exist`.
+		result := strings.Join(parts, " ")
+		if s.WithClause != nil {
+			result = s.WithClause.SqlString() + " " + result
+		}
+		return result
 	}
 
 	// Handle VALUES clause
@@ -591,7 +647,14 @@ func (s *SelectStmt) SqlString() string {
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
 		}
-		return "VALUES " + strings.Join(valueRows, ", ")
+		// WITH cte(...) AS (...) VALUES (...) attaches WithClause to the
+		// outer SelectStmt; same drop-on-round-trip class as the set-op
+		// branch above.
+		result := "VALUES " + strings.Join(valueRows, ", ")
+		if s.WithClause != nil {
+			result = s.WithClause.SqlString() + " " + result
+		}
+		return result
 	}
 
 	// Regular SELECT statement
@@ -680,10 +743,11 @@ func (s *SelectStmt) SqlString() string {
 				// For WINDOW clause, format as "name AS (specification)"
 				if windowDef.Name != "" {
 					spec := windowDef.SqlStringForContext(true)
+					quotedName := QuoteIdentifier(windowDef.Name)
 					if spec != "" {
-						windowItems = append(windowItems, windowDef.Name+" AS ("+spec+")")
+						windowItems = append(windowItems, quotedName+" AS ("+spec+")")
 					} else {
-						windowItems = append(windowItems, windowDef.Name+" AS ()")
+						windowItems = append(windowItems, quotedName+" AS ()")
 					}
 				}
 			}
@@ -845,6 +909,13 @@ func (i *InsertStmt) SqlString() string {
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(cols, ", ")))
 	}
+
+	// OVERRIDING { SYSTEM | USER } VALUE clause — semantically significant
+	// when inserting into GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY columns.
+	if s := i.Override.SqlString(); s != "" {
+		parts = append(parts, s)
+	}
+
 	// SelectStmt/VALUES clause
 	if i.SelectStmt != nil {
 		selectStr := i.SelectStmt.SqlString()
@@ -937,13 +1008,7 @@ func (u *UpdateStmt) SqlString() string {
 
 	// SET clause
 	if u.TargetList != nil && u.TargetList.Len() > 0 {
-		var setClauses []string
-		for _, item := range u.TargetList.Items {
-			if target, ok := item.(*ResTarget); ok && target.Name != "" && target.Val != nil {
-				setClauses = append(setClauses, target.SetClauseString())
-			}
-		}
-		parts = append(parts, "SET", strings.Join(setClauses, ", "))
+		parts = append(parts, "SET", strings.Join(renderSetClauses(u.TargetList.Items), ", "))
 	}
 
 	// FROM clause
@@ -1300,14 +1365,14 @@ func (sc *CTESearchClause) SqlString() string {
 	colNames := make([]string, 0, sc.SearchColList.Len())
 	for _, item := range sc.SearchColList.Items {
 		if str, ok := item.(*String); ok {
-			colNames = append(colNames, str.SVal)
+			colNames = append(colNames, QuoteIdentifier(str.SVal))
 		}
 	}
 
 	return fmt.Sprintf("SEARCH %s BY %s SET %s",
 		direction,
 		strings.Join(colNames, ", "),
-		sc.SearchSeqColumn)
+		QuoteIdentifier(sc.SearchSeqColumn))
 }
 
 // NewCTECycleClause creates a new CTECycleClause node.
@@ -1327,13 +1392,13 @@ func (cc *CTECycleClause) SqlString() string {
 	colNames := make([]string, 0, cc.CycleColList.Len())
 	for _, item := range cc.CycleColList.Items {
 		if str, ok := item.(*String); ok {
-			colNames = append(colNames, str.SVal)
+			colNames = append(colNames, QuoteIdentifier(str.SVal))
 		}
 	}
 
 	result := fmt.Sprintf("CYCLE %s SET %s",
 		strings.Join(colNames, ", "),
-		cc.CycleMarkColumn)
+		QuoteIdentifier(cc.CycleMarkColumn))
 
 	if cc.CycleMarkValue != nil && cc.CycleMarkDefault != nil {
 		result += fmt.Sprintf(" TO %s DEFAULT %s",
@@ -1341,7 +1406,7 @@ func (cc *CTECycleClause) SqlString() string {
 			PrintAExprConst(cc.CycleMarkDefault))
 	}
 
-	result += " USING " + cc.CyclePathColumn
+	result += " USING " + QuoteIdentifier(cc.CyclePathColumn)
 
 	return result
 }
@@ -1386,7 +1451,7 @@ func (c *CommonTableExpr) SqlString() string {
 		var cols []string
 		for _, col := range c.Aliascolnames.Items {
 			if str, ok := col.(*String); ok {
-				cols = append(cols, str.SVal)
+				cols = append(cols, QuoteIdentifier(str.SVal))
 			}
 		}
 		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))
@@ -1501,13 +1566,7 @@ func (n *OnConflictClause) SqlString() string {
 	parts = append(parts, n.Action.SqlString())
 
 	if n.Action == ONCONFLICT_UPDATE && n.TargetList != nil && n.TargetList.Len() > 0 {
-		var targets []string
-		for _, item := range n.TargetList.Items {
-			if target, ok := item.(*ResTarget); ok {
-				// Use ResTarget's SetClauseString method for proper formatting
-				targets = append(targets, target.SetClauseString())
-			}
-		}
+		targets := renderSetClauses(n.TargetList.Items)
 		if len(targets) > 0 {
 			parts = append(parts, "SET", strings.Join(targets, ", "))
 		}
@@ -1632,8 +1691,30 @@ func (c *CreateStmt) SqlString() string {
 			parts = append(parts, c.PartSpec.SqlString())
 		}
 	} else if isTypedTable {
-		// For typed tables: OF typename
+		// For typed tables: OF typename [ ( column_options | table_constraint, ... ) ].
+		// A typed-table column is a ColumnDef with no type (just constraints); the
+		// optional WITH OPTIONS keyword is syntactic sugar (identical AST), so the
+		// plain `colname <constraints>` rendering round-trips.
 		parts = append(parts, "OF", c.OfTypename.SqlString())
+		var elts []string
+		if c.TableElts != nil {
+			for _, col := range c.TableElts.Items {
+				if col != nil {
+					elts = append(elts, col.SqlString())
+				}
+			}
+		}
+		for _, constraint := range c.Constraints {
+			if constraint != nil {
+				elts = append(elts, constraint.SqlString())
+			}
+		}
+		if len(elts) > 0 {
+			parts = append(parts, "("+strings.Join(elts, ", ")+")")
+		}
+		if c.PartSpec != nil {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
 	} else {
 		// Regular table with columns and constraints
 		var columnParts []string
@@ -1706,7 +1787,7 @@ func (c *CreateStmt) SqlString() string {
 
 	// Add tablespace if specified
 	if c.TableSpaceName != "" {
-		parts = append(parts, "TABLESPACE", c.TableSpaceName)
+		parts = append(parts, "TABLESPACE", QuoteIdentifier(c.TableSpaceName))
 	}
 
 	return strings.Join(parts, " ")
@@ -1843,13 +1924,13 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
-					accessMethod = strVal.SVal
+					accessMethod = QuoteIdentifier(strVal.SVal)
 				}
 
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
-						nameParts = append(nameParts, strVal.SVal)
+						nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 					}
 				}
 
@@ -1894,13 +1975,13 @@ func (d *DropStmt) sqlStringForDropOpFamily() string {
 
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
-					accessMethod = strVal.SVal
+					accessMethod = QuoteIdentifier(strVal.SVal)
 				}
 
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
-						nameParts = append(nameParts, strVal.SVal)
+						nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 					}
 				}
 
@@ -1948,7 +2029,7 @@ func (d *DropStmt) sqlStringForDropTransform() string {
 			}
 			parts = append(parts, "LANGUAGE")
 			if strVal, ok := langName.(*String); ok {
-				parts = append(parts, strVal.SVal)
+				parts = append(parts, QuoteIdentifier(strVal.SVal))
 			}
 		}
 	}
@@ -1976,7 +2057,7 @@ func (d *DropStmt) sqlStringForDropSubscription() string {
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if nameList, ok := d.Objects.Items[0].(*NodeList); ok && len(nameList.Items) > 0 {
 			if strVal, ok := nameList.Items[0].(*String); ok {
-				parts = append(parts, strVal.SVal)
+				parts = append(parts, QuoteIdentifier(strVal.SVal))
 			}
 		}
 	}
@@ -2006,38 +2087,20 @@ func (d *DropStmt) sqlStringForDropOnTable() string {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	// For RULE/TRIGGER/POLICY, Objects contains: [table_name, object_name]
-	// We need to format as: DROP TYPE object_name ON table_name
+	// For RULE/TRIGGER/POLICY the object is one flat qualified name whose last
+	// part is the rule/trigger/policy name and whose preceding parts form the
+	// (optionally schema-qualified) table: DROP TRIGGER <name> ON <table>.
 	if d.Objects != nil && len(d.Objects.Items) >= 2 {
-		// The first item is the table, the second is the rule/trigger/policy name
-		tableName := ""
-		objectName := ""
-
-		// First item should be the table (from any_name)
-		if nodeList, ok := d.Objects.Items[0].(*NodeList); ok {
-			var qualParts []string
-			for _, nameItem := range nodeList.Items {
-				if strVal, ok := nameItem.(*String); ok {
-					qualParts = append(qualParts, strVal.SVal)
-				}
+		var nameParts []string
+		for _, item := range d.Objects.Items {
+			if strVal, ok := item.(*String); ok {
+				nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 			}
-			if len(qualParts) > 0 {
-				tableName = strings.Join(qualParts, ".")
-			}
-		} else if strVal, ok := d.Objects.Items[0].(*String); ok {
-			tableName = strVal.SVal
 		}
-
-		// Second item should be the object name
-		if strVal, ok := d.Objects.Items[1].(*String); ok {
-			objectName = strVal.SVal
-		}
-
-		if objectName != "" {
-			parts = append(parts, QuoteIdentifier(objectName))
-		}
-		if tableName != "" {
-			parts = append(parts, "ON", tableName)
+		if len(nameParts) >= 2 {
+			objectName := nameParts[len(nameParts)-1]
+			tableName := strings.Join(nameParts[:len(nameParts)-1], ".")
+			parts = append(parts, objectName, "ON", tableName)
 		}
 	}
 

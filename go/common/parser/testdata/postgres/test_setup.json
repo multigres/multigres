@@ -15,7 +15,7 @@
   {
     "comment": "test_setup - Statement 4",
     "query": "CREATE TABLE CHAR_TBL(f1 char(4))",
-    "expected": "CREATE TABLE char_tbl (f1 CHAR(4))"
+    "expected": "CREATE TABLE char_tbl (f1 bpchar(4))"
   },
   {
     "comment": "test_setup - Statement 5",
@@ -262,7 +262,7 @@
   {
     "comment": "test_setup - Statement 54",
     "query": "CREATE FUNCTION binary_coercible(oid, oid) RETURNS bool AS 'regresslib', 'binary_coercible' LANGUAGE C STRICT STABLE PARALLEL SAFE",
-    "expected": "CREATE FUNCTION binary_coercible (oid, oid) RETURNS BOOLEAN AS $$regresslib$$ LANGUAGE c STRICT STABLE PARALLEL SAFE"
+    "expected": "CREATE FUNCTION binary_coercible (oid, oid) RETURNS BOOLEAN AS 'regresslib', 'binary_coercible' LANGUAGE c STRICT STABLE PARALLEL SAFE"
   },
   {
     "comment": "test_setup - Statement 55",

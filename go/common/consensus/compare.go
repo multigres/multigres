@@ -16,6 +16,8 @@
 package consensus
 
 import (
+	"fmt"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -53,11 +55,161 @@ func CompareRuleNumbers(a, b *clustermetadatapb.RuleNumber) int {
 	return 0
 }
 
-// comparePosition returns negative, zero, or positive based on whether a is
+// FormatRuleNumber renders a RuleNumber for human-readable logs as
+// "coordinator_term.leader_subterm" (e.g. "7.2"). The proto's default string
+// form is verbose and not log-friendly, so prefer this helper wherever a rule
+// number is logged. A nil RuleNumber renders as "none".
+func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
+	if rn == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%d.%d", rn.GetCoordinatorTerm(), rn.GetLeaderSubterm())
+}
+
+// MostAuthoritativeObservation returns the LeaderObservation with the highest
+// rule number among those given (nil entries are skipped). Used to merge leader
+// observations from different sources — a topology record's self_leadership and
+// a health-stream report — choosing the one made under the newest rule. Returns
+// nil if all inputs are nil.
+func MostAuthoritativeObservation(obs ...*clustermetadatapb.LeaderObservation) *clustermetadatapb.LeaderObservation {
+	var best *clustermetadatapb.LeaderObservation
+	for _, o := range obs {
+		if o == nil {
+			continue
+		}
+		if best == nil || CompareRuleNumbers(o.GetLeaderRuleNumber(), best.GetLeaderRuleNumber()) > 0 {
+			best = o
+		}
+	}
+	return best
+}
+
+// MostAdvancedPosition returns the highest-ranked PoolerPosition among the
+// given statuses. Rule number takes precedence; LSN breaks ties within the
+// same rule. Returns nil if no status has a parseable LSN.
+//
+// This is the cached-snapshot analogue of discoverMostAdvancedTimeline, which
+// runs over recruited statuses and returns the eligible-leader set. Callers
+// that need to derive an ExternallyCertifiedRevocation from cached cohort
+// state — e.g. the bootstrap path before recruitment — use this to obtain the
+// outgoing rule number and frozen LSN.
+func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.PoolerPosition {
+	var best *clustermetadatapb.PoolerPosition
+	for _, cs := range statuses {
+		pos := cs.GetCurrentPosition()
+		if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
+			continue
+		}
+		if best == nil || ComparePosition(pos, best) > 0 {
+			best = pos
+		}
+	}
+	return best
+}
+
+// ReplicationPrimaryOrNil returns cs's replication primary, or nil when it
+// carries no established leader to replicate from.
+//
+// proto3 cannot distinguish an unset ReplicationPrimary from one explicitly
+// written with a zero-valued rule, and the initial cluster state is exactly
+// that zero value: rule number 0/0 with no leader (e.g. the first backup is
+// taken at rule 0/0 with an empty cohort and no leader). A 0/0 replication
+// primary therefore means "no leader has been established to replicate from"
+// and is reported as absent. The first appointed leader always advances the
+// rule number past 0/0, so a real replication primary is never dropped.
+//
+// Always use this instead of ConsensusStatus.GetReplicationPrimary() (enforced
+// by ruleguard) so a phantom 0/0 entry never gets mistaken for a real one.
+func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermetadatapb.ReplicationPrimary {
+	rp := cs.GetReplicationPrimary()
+	rn := rp.GetRule().GetRuleNumber()
+	if rn.GetCoordinatorTerm() == 0 && rn.GetLeaderSubterm() == 0 {
+		return nil
+	}
+	return rp
+}
+
+// HighestKnownRule returns the ShardRule with the greatest rule number known to
+// any of the given consensus statuses. For each status it considers both the
+// rule the pooler is currently positioned at and the rule under which its
+// replication primary holds leadership — a follower can learn of a newer leader
+// via its replication primary before its own position advances. Unlike
+// MostAdvancedPosition, ranking is purely by rule number (no LSN tiebreak, no
+// LSN requirement), since leader identity is a function of the rule alone.
+// Returns nil when no status carries a rule.
+//
+// A phantom 0/0 replication primary (see ReplicationPrimaryOrNil) is ignored so
+// it never shadows a real rule.
+//
+// TODO: detect equivocation. Two rules sharing the same rule number but naming
+// different leaders is a protocol-invariant violation (a rule number is assigned
+// by a single coordinator and must name exactly one leader) — i.e. split brain.
+// Today such a tie is resolved silently by keeping the first-seen rule. A future
+// enhancement should surface this as an error rather than papering over it.
+func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.ShardRule {
+	var best *clustermetadatapb.ShardRule
+	for _, cs := range statuses {
+		for _, rule := range []*clustermetadatapb.ShardRule{
+			cs.GetCurrentPosition().GetRule(),
+			ReplicationPrimaryOrNil(cs).GetRule(),
+		} {
+			if rule == nil {
+				continue
+			}
+			if best == nil || CompareRuleNumbers(rule.GetRuleNumber(), best.GetRuleNumber()) > 0 {
+				best = rule
+			}
+		}
+	}
+	return best
+}
+
+// ReplicationPrimaryMatches reports whether a pooler's published
+// ReplicationPrimary already names target as its primary at a rule no older
+// than targetRule. Coordinators use this to skip SetPrimary RPCs that
+// wouldn't change anything on the pooler.
+//
+// Returns false when:
+//   - rp is nil
+//   - the published rule is strictly older than targetRule
+//   - the published primary is missing
+//   - the published primary's (id, host, postgres port) differs from target's
+//
+// target and targetRule are required; passing nil for either returns false.
+func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target *clustermetadatapb.PoolerAddress, targetRule *clustermetadatapb.ShardRule) bool {
+	if rp == nil || target == nil || targetRule == nil {
+		return false
+	}
+	if CompareRuleNumbers(rp.GetRule().GetRuleNumber(), targetRule.GetRuleNumber()) < 0 {
+		return false
+	}
+	rpPrimary := rp.GetPrimary()
+	if rpPrimary == nil {
+		return false
+	}
+	if !idsEqual(rpPrimary.GetId(), target.GetId()) {
+		return false
+	}
+	if rpPrimary.GetHost() != target.GetHost() {
+		return false
+	}
+	if rpPrimary.GetPostgresPort() != target.GetPostgresPort() {
+		return false
+	}
+	return true
+}
+
+func idsEqual(a, b *clustermetadatapb.ID) bool {
+	return a.GetComponent() == b.GetComponent() &&
+		a.GetCell() == b.GetCell() &&
+		a.GetName() == b.GetName()
+}
+
+// ComparePosition returns negative, zero, or positive based on whether a is
 // behind, equal to, or ahead of b. Rule number takes precedence; LSN breaks
 // ties within the same rule. A missing or unparsable LSN is treated as less
 // than any valid LSN.
-func comparePosition(a, b *clustermetadatapb.PoolerPosition) int {
+func ComparePosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp := CompareRuleNumbers(a.GetRule().GetRuleNumber(), b.GetRule().GetRuleNumber()); cmp != 0 {
 		return cmp
 	}

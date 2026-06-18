@@ -145,7 +145,7 @@ func TestPlanUnsupportedStmt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := planUnsupportedStmt(tt.stmt)
+			err := rejectUnsupportedStatement(tt.stmt)
 
 			if !tt.wantErr {
 				assert.NoError(t, err)
@@ -192,7 +192,7 @@ func TestPlanRejectsUnsafeStatements(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan, err := p.Plan(tt.sql, tt.stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, tt.stmt, testConn.Conn, PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, plan)
 

@@ -14,6 +14,23 @@
 
 package handler
 
+// gmvLifecycle is the lifecycle surface MultiGatewayConnectionState needs for
+// every gateway-managed variable. Keeping this next to GatewayManagedVariable
+// makes the maintenance contract explicit: adding a GMV means registering it in
+// gatewayManagedVariablesLocked(), after which transaction/savepoint lifecycle
+// methods can iterate generically rather than naming each variable.
+type gmvLifecycle interface {
+	Snapshot()
+	RestoreFromDepth(int)
+	PopFrom(int)
+	ClearSnapshots()
+	// ResetLocal clears the transaction-local override at COMMIT/ROLLBACK.
+	ResetLocal()
+	// Reset clears both the session-level override and any transaction-local
+	// override, reverting to the startup/default value (RESET ALL semantics).
+	Reset()
+}
+
 // GatewayManagedVariable holds a variable with three priority layers matching
 // PostgreSQL's GUC semantics:
 //

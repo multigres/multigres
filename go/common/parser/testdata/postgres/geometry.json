@@ -26,8 +26,8 @@
   },
   {
     "comment": "geometry - Statement 6",
-    "query": "SELECT (@@ f1) AS center FROM POLYGON_TBL WHERE (# f1) \u003e 2",
-    "expected": "SELECT (@@f1) AS center FROM polygon_tbl WHERE (#f1) \u003e 2"
+    "query": "SELECT (@@ f1) AS center FROM POLYGON_TBL WHERE (# f1) > 2",
+    "expected": "SELECT (@@f1) AS center FROM polygon_tbl WHERE (#f1) > 2"
   },
   {
     "comment": "geometry - Statement 7",
@@ -71,8 +71,8 @@
   },
   {
     "comment": "geometry - Statement 15",
-    "query": "SELECT p1.f1, p2.f1, p1.f1 * p2.f1 FROM POINT_TBL p1, POINT_TBL p2 WHERE p1.f1[0] \u003c 1",
-    "expected": "SELECT p1.f1, p2.f1, p1.f1 * p2.f1 FROM point_tbl AS p1, point_tbl AS p2 WHERE p1.f1[0] \u003c 1"
+    "query": "SELECT p1.f1, p2.f1, p1.f1 * p2.f1 FROM POINT_TBL p1, POINT_TBL p2 WHERE p1.f1[0] < 1",
+    "expected": "SELECT p1.f1, p2.f1, p1.f1 * p2.f1 FROM point_tbl AS p1, point_tbl AS p2 WHERE p1.f1[0] < 1"
   },
   {
     "comment": "geometry - Statement 16",
@@ -81,8 +81,8 @@
   },
   {
     "comment": "geometry - Statement 17",
-    "query": "SELECT p1.f1, p2.f1, p1.f1 / p2.f1 FROM POINT_TBL p1, POINT_TBL p2 WHERE p2.f1[0] \u003e 1000",
-    "expected": "SELECT p1.f1, p2.f1, p1.f1 / p2.f1 FROM point_tbl AS p1, point_tbl AS p2 WHERE p2.f1[0] \u003e 1000"
+    "query": "SELECT p1.f1, p2.f1, p1.f1 / p2.f1 FROM POINT_TBL p1, POINT_TBL p2 WHERE p2.f1[0] > 1000",
+    "expected": "SELECT p1.f1, p2.f1, p1.f1 / p2.f1 FROM point_tbl AS p1, point_tbl AS p2 WHERE p2.f1[0] > 1000"
   },
   {
     "comment": "geometry - Statement 18",
@@ -91,33 +91,33 @@
   },
   {
     "comment": "geometry - Statement 19",
-    "query": "SELECT p.f1, l.s, p.f1 \u003c-\u003e l.s AS dist_pl, l.s \u003c-\u003e p.f1 AS dist_lp FROM POINT_TBL p, LINE_TBL l",
-    "expected": "SELECT p.f1, l.s, p.f1 \u003c-\u003e l.s AS dist_pl, l.s \u003c-\u003e p.f1 AS dist_lp FROM point_tbl AS p, line_tbl AS l"
+    "query": "SELECT p.f1, l.s, p.f1 <-> l.s AS dist_pl, l.s <-> p.f1 AS dist_lp FROM POINT_TBL p, LINE_TBL l",
+    "expected": "SELECT p.f1, l.s, p.f1 <-> l.s AS dist_pl, l.s <-> p.f1 AS dist_lp FROM point_tbl AS p, line_tbl AS l"
   },
   {
     "comment": "geometry - Statement 20",
-    "query": "SELECT p.f1, l.s, p.f1 \u003c-\u003e l.s AS dist_ps, l.s \u003c-\u003e p.f1 AS dist_sp FROM POINT_TBL p, LSEG_TBL l",
-    "expected": "SELECT p.f1, l.s, p.f1 \u003c-\u003e l.s AS dist_ps, l.s \u003c-\u003e p.f1 AS dist_sp FROM point_tbl AS p, lseg_tbl AS l"
+    "query": "SELECT p.f1, l.s, p.f1 <-> l.s AS dist_ps, l.s <-> p.f1 AS dist_sp FROM POINT_TBL p, LSEG_TBL l",
+    "expected": "SELECT p.f1, l.s, p.f1 <-> l.s AS dist_ps, l.s <-> p.f1 AS dist_sp FROM point_tbl AS p, lseg_tbl AS l"
   },
   {
     "comment": "geometry - Statement 21",
-    "query": "SELECT p.f1, b.f1, p.f1 \u003c-\u003e b.f1 AS dist_pb, b.f1 \u003c-\u003e p.f1 AS dist_bp FROM POINT_TBL p, BOX_TBL b",
-    "expected": "SELECT p.f1, b.f1, p.f1 \u003c-\u003e b.f1 AS dist_pb, b.f1 \u003c-\u003e p.f1 AS dist_bp FROM point_tbl AS p, box_tbl AS b"
+    "query": "SELECT p.f1, b.f1, p.f1 <-> b.f1 AS dist_pb, b.f1 <-> p.f1 AS dist_bp FROM POINT_TBL p, BOX_TBL b",
+    "expected": "SELECT p.f1, b.f1, p.f1 <-> b.f1 AS dist_pb, b.f1 <-> p.f1 AS dist_bp FROM point_tbl AS p, box_tbl AS b"
   },
   {
     "comment": "geometry - Statement 22",
-    "query": "SELECT p.f1, p1.f1, p.f1 \u003c-\u003e p1.f1 AS dist_ppath, p1.f1 \u003c-\u003e p.f1 AS dist_pathp FROM POINT_TBL p, PATH_TBL p1",
-    "expected": "SELECT p.f1, p1.f1, p.f1 \u003c-\u003e p1.f1 AS dist_ppath, p1.f1 \u003c-\u003e p.f1 AS dist_pathp FROM point_tbl AS p, path_tbl AS p1"
+    "query": "SELECT p.f1, p1.f1, p.f1 <-> p1.f1 AS dist_ppath, p1.f1 <-> p.f1 AS dist_pathp FROM POINT_TBL p, PATH_TBL p1",
+    "expected": "SELECT p.f1, p1.f1, p.f1 <-> p1.f1 AS dist_ppath, p1.f1 <-> p.f1 AS dist_pathp FROM point_tbl AS p, path_tbl AS p1"
   },
   {
     "comment": "geometry - Statement 23",
-    "query": "SELECT p.f1, p1.f1, p.f1 \u003c-\u003e p1.f1 AS dist_ppoly, p1.f1 \u003c-\u003e p.f1 AS dist_polyp FROM POINT_TBL p, POLYGON_TBL p1",
-    "expected": "SELECT p.f1, p1.f1, p.f1 \u003c-\u003e p1.f1 AS dist_ppoly, p1.f1 \u003c-\u003e p.f1 AS dist_polyp FROM point_tbl AS p, polygon_tbl AS p1"
+    "query": "SELECT p.f1, p1.f1, p.f1 <-> p1.f1 AS dist_ppoly, p1.f1 <-> p.f1 AS dist_polyp FROM POINT_TBL p, POLYGON_TBL p1",
+    "expected": "SELECT p.f1, p1.f1, p.f1 <-> p1.f1 AS dist_ppoly, p1.f1 <-> p.f1 AS dist_polyp FROM point_tbl AS p, polygon_tbl AS p1"
   },
   {
     "comment": "geometry - Statement 24",
-    "query": "SELECT p1.f1, p2.f1, line(p1.f1, p2.f1) FROM POINT_TBL p1, POINT_TBL p2 WHERE p1.f1 \u003c\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1, line(p1.f1, p2.f1) FROM point_tbl AS p1, point_tbl AS p2 WHERE p1.f1 \u003c\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1, line(p1.f1, p2.f1) FROM POINT_TBL p1, POINT_TBL p2 WHERE p1.f1 <> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1, line(p1.f1, p2.f1) FROM point_tbl AS p1, point_tbl AS p2 WHERE p1.f1 <> p2.f1"
   },
   {
     "comment": "geometry - Statement 25",
@@ -136,18 +136,18 @@
   },
   {
     "comment": "geometry - Statement 28",
-    "query": "SELECT p.f1, l.s FROM POINT_TBL p, LINE_TBL l WHERE p.f1 \u003c@ l.s",
-    "expected": "SELECT p.f1, l.s FROM point_tbl AS p, line_tbl AS l WHERE p.f1 \u003c@ l.s"
+    "query": "SELECT p.f1, l.s FROM POINT_TBL p, LINE_TBL l WHERE p.f1 <@ l.s",
+    "expected": "SELECT p.f1, l.s FROM point_tbl AS p, line_tbl AS l WHERE p.f1 <@ l.s"
   },
   {
     "comment": "geometry - Statement 29",
-    "query": "SELECT p.f1, l.s FROM POINT_TBL p, LSEG_TBL l WHERE p.f1 \u003c@ l.s",
-    "expected": "SELECT p.f1, l.s FROM point_tbl AS p, lseg_tbl AS l WHERE p.f1 \u003c@ l.s"
+    "query": "SELECT p.f1, l.s FROM POINT_TBL p, LSEG_TBL l WHERE p.f1 <@ l.s",
+    "expected": "SELECT p.f1, l.s FROM point_tbl AS p, lseg_tbl AS l WHERE p.f1 <@ l.s"
   },
   {
     "comment": "geometry - Statement 30",
-    "query": "SELECT p.f1, p1.f1 FROM POINT_TBL p, PATH_TBL p1 WHERE p.f1 \u003c@ p1.f1",
-    "expected": "SELECT p.f1, p1.f1 FROM point_tbl AS p, path_tbl AS p1 WHERE p.f1 \u003c@ p1.f1"
+    "query": "SELECT p.f1, p1.f1 FROM POINT_TBL p, PATH_TBL p1 WHERE p.f1 <@ p1.f1",
+    "expected": "SELECT p.f1, p1.f1 FROM point_tbl AS p, path_tbl AS p1 WHERE p.f1 <@ p1.f1"
   },
   {
     "comment": "geometry - Statement 31",
@@ -176,8 +176,8 @@
   },
   {
     "comment": "geometry - Statement 36",
-    "query": "SELECT l1.s, l2.s, l1.s \u003c-\u003e l2.s FROM LINE_TBL l1, LINE_TBL l2",
-    "expected": "SELECT l1.s, l2.s, l1.s \u003c-\u003e l2.s FROM line_tbl AS l1, line_tbl AS l2"
+    "query": "SELECT l1.s, l2.s, l1.s <-> l2.s FROM LINE_TBL l1, LINE_TBL l2",
+    "expected": "SELECT l1.s, l2.s, l1.s <-> l2.s FROM line_tbl AS l1, line_tbl AS l2"
   },
   {
     "comment": "geometry - Statement 37",
@@ -231,13 +231,13 @@
   },
   {
     "comment": "geometry - Statement 47",
-    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s \u003c l2.s",
-    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s \u003c l2.s"
+    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s < l2.s",
+    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s < l2.s"
   },
   {
     "comment": "geometry - Statement 48",
-    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s \u003c= l2.s",
-    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s \u003c= l2.s"
+    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s <= l2.s",
+    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s <= l2.s"
   },
   {
     "comment": "geometry - Statement 49",
@@ -246,18 +246,18 @@
   },
   {
     "comment": "geometry - Statement 50",
-    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s \u003e= l2.s",
-    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s \u003e= l2.s"
+    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s >= l2.s",
+    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s >= l2.s"
   },
   {
     "comment": "geometry - Statement 51",
-    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s \u003e l2.s",
-    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s \u003e l2.s"
+    "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s > l2.s",
+    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s > l2.s"
   },
   {
     "comment": "geometry - Statement 52",
     "query": "SELECT l1.s, l2.s FROM LSEG_TBL l1, LSEG_TBL l2 WHERE l1.s != l2.s",
-    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s \u003c\u003e l2.s"
+    "expected": "SELECT l1.s, l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2 WHERE l1.s <> l2.s"
   },
   {
     "comment": "geometry - Statement 53",
@@ -271,18 +271,18 @@
   },
   {
     "comment": "geometry - Statement 55",
-    "query": "SELECT l.s, l1.s, l.s \u003c-\u003e l1.s AS dist_sl, l1.s \u003c-\u003e l.s AS dist_ls FROM LSEG_TBL l, LINE_TBL l1",
-    "expected": "SELECT l.s, l1.s, l.s \u003c-\u003e l1.s AS dist_sl, l1.s \u003c-\u003e l.s AS dist_ls FROM lseg_tbl AS l, line_tbl AS l1"
+    "query": "SELECT l.s, l1.s, l.s <-> l1.s AS dist_sl, l1.s <-> l.s AS dist_ls FROM LSEG_TBL l, LINE_TBL l1",
+    "expected": "SELECT l.s, l1.s, l.s <-> l1.s AS dist_sl, l1.s <-> l.s AS dist_ls FROM lseg_tbl AS l, line_tbl AS l1"
   },
   {
     "comment": "geometry - Statement 56",
-    "query": "SELECT l1.s, l2.s, l1.s \u003c-\u003e l2.s FROM LSEG_TBL l1, LSEG_TBL l2",
-    "expected": "SELECT l1.s, l2.s, l1.s \u003c-\u003e l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2"
+    "query": "SELECT l1.s, l2.s, l1.s <-> l2.s FROM LSEG_TBL l1, LSEG_TBL l2",
+    "expected": "SELECT l1.s, l2.s, l1.s <-> l2.s FROM lseg_tbl AS l1, lseg_tbl AS l2"
   },
   {
     "comment": "geometry - Statement 57",
-    "query": "SELECT l.s, b.f1, l.s \u003c-\u003e b.f1 AS dist_sb, b.f1 \u003c-\u003e l.s AS dist_bs FROM LSEG_TBL l, BOX_TBL b",
-    "expected": "SELECT l.s, b.f1, l.s \u003c-\u003e b.f1 AS dist_sb, b.f1 \u003c-\u003e l.s AS dist_bs FROM lseg_tbl AS l, box_tbl AS b"
+    "query": "SELECT l.s, b.f1, l.s <-> b.f1 AS dist_sb, b.f1 <-> l.s AS dist_bs FROM LSEG_TBL l, BOX_TBL b",
+    "expected": "SELECT l.s, b.f1, l.s <-> b.f1 AS dist_sb, b.f1 <-> l.s AS dist_bs FROM lseg_tbl AS l, box_tbl AS b"
   },
   {
     "comment": "geometry - Statement 58",
@@ -311,13 +311,13 @@
   },
   {
     "comment": "geometry - Statement 63",
-    "query": "SELECT l.s, l1.s FROM LSEG_TBL l, LINE_TBL l1 WHERE l.s \u003c@ l1.s",
-    "expected": "SELECT l.s, l1.s FROM lseg_tbl AS l, line_tbl AS l1 WHERE l.s \u003c@ l1.s"
+    "query": "SELECT l.s, l1.s FROM LSEG_TBL l, LINE_TBL l1 WHERE l.s <@ l1.s",
+    "expected": "SELECT l.s, l1.s FROM lseg_tbl AS l, line_tbl AS l1 WHERE l.s <@ l1.s"
   },
   {
     "comment": "geometry - Statement 64",
-    "query": "SELECT l.s, b.f1 FROM LSEG_TBL l, BOX_TBL b WHERE l.s \u003c@ b.f1",
-    "expected": "SELECT l.s, b.f1 FROM lseg_tbl AS l, box_tbl AS b WHERE l.s \u003c@ b.f1"
+    "query": "SELECT l.s, b.f1 FROM LSEG_TBL l, BOX_TBL b WHERE l.s <@ b.f1",
+    "expected": "SELECT l.s, b.f1 FROM lseg_tbl AS l, box_tbl AS b WHERE l.s <@ b.f1"
   },
   {
     "comment": "geometry - Statement 65",
@@ -341,8 +341,8 @@
   },
   {
     "comment": "geometry - Statement 69",
-    "query": "SELECT b.f1, p.f1, b.f1 * p.f1 FROM BOX_TBL b, POINT_TBL p WHERE p.f1[0] \u003e 1000",
-    "expected": "SELECT b.f1, p.f1, b.f1 * p.f1 FROM box_tbl AS b, point_tbl AS p WHERE p.f1[0] \u003e 1000"
+    "query": "SELECT b.f1, p.f1, b.f1 * p.f1 FROM BOX_TBL b, POINT_TBL p WHERE p.f1[0] > 1000",
+    "expected": "SELECT b.f1, p.f1, b.f1 * p.f1 FROM box_tbl AS b, point_tbl AS p WHERE p.f1[0] > 1000"
   },
   {
     "comment": "geometry - Statement 70",
@@ -361,13 +361,13 @@
   },
   {
     "comment": "geometry - Statement 73",
-    "query": "SELECT b1.f1, b2.f1, b1.f1 \u003c^ b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
-    "expected": "SELECT b1.f1, b2.f1, b1.f1 \u003c^ b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
+    "query": "SELECT b1.f1, b2.f1, b1.f1 <^ b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
+    "expected": "SELECT b1.f1, b2.f1, b1.f1 <^ b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
   },
   {
     "comment": "geometry - Statement 74",
-    "query": "SELECT b1.f1, b2.f1, b1.f1 \u003e^ b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
-    "expected": "SELECT b1.f1, b2.f1, b1.f1 \u003e^ b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
+    "query": "SELECT b1.f1, b2.f1, b1.f1 >^ b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
+    "expected": "SELECT b1.f1, b2.f1, b1.f1 >^ b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
   },
   {
     "comment": "geometry - Statement 75",
@@ -381,8 +381,8 @@
   },
   {
     "comment": "geometry - Statement 77",
-    "query": "SELECT b1.f1, b2.f1, b1.f1 \u003c-\u003e b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
-    "expected": "SELECT b1.f1, b2.f1, b1.f1 \u003c-\u003e b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
+    "query": "SELECT b1.f1, b2.f1, b1.f1 <-> b2.f1 FROM BOX_TBL b1, BOX_TBL b2",
+    "expected": "SELECT b1.f1, b2.f1, b1.f1 <-> b2.f1 FROM box_tbl AS b1, box_tbl AS b2"
   },
   {
     "comment": "geometry - Statement 78",
@@ -411,13 +411,13 @@
   },
   {
     "comment": "geometry - Statement 83",
-    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 \u003c p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 \u003c p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 < p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 < p2.f1"
   },
   {
     "comment": "geometry - Statement 84",
-    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 \u003c= p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 \u003c= p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 <= p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 <= p2.f1"
   },
   {
     "comment": "geometry - Statement 85",
@@ -426,13 +426,13 @@
   },
   {
     "comment": "geometry - Statement 86",
-    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 \u003e= p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 \u003e= p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 >= p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 >= p2.f1"
   },
   {
     "comment": "geometry - Statement 87",
-    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 \u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 \u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM PATH_TBL p1, PATH_TBL p2 WHERE p1.f1 > p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM path_tbl AS p1, path_tbl AS p2 WHERE p1.f1 > p2.f1"
   },
   {
     "comment": "geometry - Statement 88",
@@ -466,18 +466,18 @@
   },
   {
     "comment": "geometry - Statement 94",
-    "query": "SELECT p1.f1, p2.f1, p1.f1 \u003c-\u003e p2.f1 FROM PATH_TBL p1, PATH_TBL p2",
-    "expected": "SELECT p1.f1, p2.f1, p1.f1 \u003c-\u003e p2.f1 FROM path_tbl AS p1, path_tbl AS p2"
+    "query": "SELECT p1.f1, p2.f1, p1.f1 <-> p2.f1 FROM PATH_TBL p1, PATH_TBL p2",
+    "expected": "SELECT p1.f1, p2.f1, p1.f1 <-> p2.f1 FROM path_tbl AS p1, path_tbl AS p2"
   },
   {
     "comment": "geometry - Statement 95",
-    "query": "SELECT p.f1, poly.f1, poly.f1 @\u003e p.f1 AS contains FROM POLYGON_TBL poly, POINT_TBL p",
-    "expected": "SELECT p.f1, poly.f1, poly.f1 @\u003e p.f1 AS contains FROM polygon_tbl AS poly, point_tbl AS p"
+    "query": "SELECT p.f1, poly.f1, poly.f1 @> p.f1 AS contains FROM POLYGON_TBL poly, POINT_TBL p",
+    "expected": "SELECT p.f1, poly.f1, poly.f1 @> p.f1 AS contains FROM polygon_tbl AS poly, point_tbl AS p"
   },
   {
     "comment": "geometry - Statement 96",
-    "query": "SELECT p.f1, poly.f1, p.f1 \u003c@ poly.f1 AS contained FROM POLYGON_TBL poly, POINT_TBL p",
-    "expected": "SELECT p.f1, poly.f1, p.f1 \u003c@ poly.f1 AS contained FROM polygon_tbl AS poly, point_tbl AS p"
+    "query": "SELECT p.f1, poly.f1, p.f1 <@ poly.f1 AS contained FROM POLYGON_TBL poly, POINT_TBL p",
+    "expected": "SELECT p.f1, poly.f1, p.f1 <@ poly.f1 AS contained FROM polygon_tbl AS poly, point_tbl AS p"
   },
   {
     "comment": "geometry - Statement 97",
@@ -516,63 +516,63 @@
   },
   {
     "comment": "geometry - Statement 104",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u003c@ p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u003c@ p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 <@ p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 <@ p2.f1"
   },
   {
     "comment": "geometry - Statement 105",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 @\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 @\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 @> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 @> p2.f1"
   },
   {
     "comment": "geometry - Statement 106",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u0026\u0026 p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u0026\u0026 p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 && p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 && p2.f1"
   },
   {
     "comment": "geometry - Statement 107",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u003c\u003c p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u003c\u003c p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 << p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 << p2.f1"
   },
   {
     "comment": "geometry - Statement 108",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u0026\u003c p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u0026\u003c p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 &< p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 &< p2.f1"
   },
   {
     "comment": "geometry - Statement 109",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u003e\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u003e\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 >> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 >> p2.f1"
   },
   {
     "comment": "geometry - Statement 110",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u0026\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u0026\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 &> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 &> p2.f1"
   },
   {
     "comment": "geometry - Statement 111",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u003c\u003c| p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u003c\u003c| p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 <<| p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 <<| p2.f1"
   },
   {
     "comment": "geometry - Statement 112",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 \u0026\u003c| p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 \u0026\u003c| p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 &<| p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 &<| p2.f1"
   },
   {
     "comment": "geometry - Statement 113",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 |\u003e\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 |\u003e\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 |>> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 |>> p2.f1"
   },
   {
     "comment": "geometry - Statement 114",
-    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 |\u0026\u003e p2.f1",
-    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 |\u0026\u003e p2.f1"
+    "query": "SELECT p1.f1, p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2 WHERE p1.f1 |&> p2.f1",
+    "expected": "SELECT p1.f1, p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2 WHERE p1.f1 |&> p2.f1"
   },
   {
     "comment": "geometry - Statement 115",
-    "query": "SELECT p1.f1, p2.f1, p1.f1 \u003c-\u003e p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2",
-    "expected": "SELECT p1.f1, p2.f1, p1.f1 \u003c-\u003e p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2"
+    "query": "SELECT p1.f1, p2.f1, p1.f1 <-> p2.f1 FROM POLYGON_TBL p1, POLYGON_TBL p2",
+    "expected": "SELECT p1.f1, p2.f1, p1.f1 <-> p2.f1 FROM polygon_tbl AS p1, polygon_tbl AS p2"
   },
   {
     "comment": "geometry - Statement 116",
@@ -586,33 +586,33 @@
   },
   {
     "comment": "geometry - Statement 118",
-    "query": "SELECT circle(f1) FROM POLYGON_TBL WHERE (# f1) \u003e= 3",
-    "expected": "SELECT circle(f1) FROM polygon_tbl WHERE (#f1) \u003e= 3"
+    "query": "SELECT circle(f1) FROM POLYGON_TBL WHERE (# f1) >= 3",
+    "expected": "SELECT circle(f1) FROM polygon_tbl WHERE (#f1) >= 3"
   },
   {
     "comment": "geometry - Statement 119",
-    "query": "SELECT c1.f1 AS circle, p1.f1 AS point, (p1.f1 \u003c-\u003e c1.f1) AS distance FROM CIRCLE_TBL c1, POINT_TBL p1 WHERE (p1.f1 \u003c-\u003e c1.f1) \u003e 0 ORDER BY distance, area(c1.f1), p1.f1[0]",
-    "expected": "SELECT c1.f1 AS circle, p1.f1 AS point, (p1.f1 \u003c-\u003e c1.f1) AS distance FROM circle_tbl AS c1, point_tbl AS p1 WHERE (p1.f1 \u003c-\u003e c1.f1) \u003e 0 ORDER BY distance, area(c1.f1), p1.f1[0]"
+    "query": "SELECT c1.f1 AS circle, p1.f1 AS point, (p1.f1 <-> c1.f1) AS distance FROM CIRCLE_TBL c1, POINT_TBL p1 WHERE (p1.f1 <-> c1.f1) > 0 ORDER BY distance, area(c1.f1), p1.f1[0]",
+    "expected": "SELECT c1.f1 AS circle, p1.f1 AS point, (p1.f1 <-> c1.f1) AS distance FROM circle_tbl AS c1, point_tbl AS p1 WHERE (p1.f1 <-> c1.f1) > 0 ORDER BY distance, area(c1.f1), p1.f1[0]"
   },
   {
     "comment": "geometry - Statement 120",
-    "query": "SELECT f1, f1::polygon FROM CIRCLE_TBL WHERE f1 \u003e= '\u003c(0,0),1\u003e'",
-    "expected": "SELECT f1, CAST(f1 AS polygon) FROM circle_tbl WHERE f1 \u003e= '\u003c(0,0),1\u003e'"
+    "query": "SELECT f1, f1::polygon FROM CIRCLE_TBL WHERE f1 >= '<(0,0),1>'",
+    "expected": "SELECT f1, CAST(f1 AS polygon) FROM circle_tbl WHERE f1 >= '<(0,0),1>'"
   },
   {
     "comment": "geometry - Statement 121",
-    "query": "SELECT f1, polygon(8, f1) FROM CIRCLE_TBL WHERE f1 \u003e= '\u003c(0,0),1\u003e'",
-    "expected": "SELECT f1, polygon(8, f1) FROM circle_tbl WHERE f1 \u003e= '\u003c(0,0),1\u003e'"
+    "query": "SELECT f1, polygon(8, f1) FROM CIRCLE_TBL WHERE f1 >= '<(0,0),1>'",
+    "expected": "SELECT f1, polygon(8, f1) FROM circle_tbl WHERE f1 >= '<(0,0),1>'"
   },
   {
     "comment": "geometry - Statement 122",
-    "query": "SELECT f1, polygon(1, f1) FROM CIRCLE_TBL WHERE f1 \u003e= '\u003c(0,0),1\u003e'",
-    "expected": "SELECT f1, polygon(1, f1) FROM circle_tbl WHERE f1 \u003e= '\u003c(0,0),1\u003e'"
+    "query": "SELECT f1, polygon(1, f1) FROM CIRCLE_TBL WHERE f1 >= '<(0,0),1>'",
+    "expected": "SELECT f1, polygon(1, f1) FROM circle_tbl WHERE f1 >= '<(0,0),1>'"
   },
   {
     "comment": "geometry - Statement 123",
-    "query": "SELECT f1, polygon(10, f1) FROM CIRCLE_TBL WHERE f1 \u003c '\u003c(0,0),1\u003e'",
-    "expected": "SELECT f1, polygon(10, f1) FROM circle_tbl WHERE f1 \u003c '\u003c(0,0),1\u003e'"
+    "query": "SELECT f1, polygon(10, f1) FROM CIRCLE_TBL WHERE f1 < '<(0,0),1>'",
+    "expected": "SELECT f1, polygon(10, f1) FROM circle_tbl WHERE f1 < '<(0,0),1>'"
   },
   {
     "comment": "geometry - Statement 124",
@@ -621,58 +621,58 @@
   },
   {
     "comment": "geometry - Statement 125",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u0026\u0026 c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u0026\u0026 c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 && c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 && c2.f1"
   },
   {
     "comment": "geometry - Statement 126",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u0026\u003c c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u0026\u003c c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 &< c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 &< c2.f1"
   },
   {
     "comment": "geometry - Statement 127",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003c\u003c c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c\u003c c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 << c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 << c2.f1"
   },
   {
     "comment": "geometry - Statement 128",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003e\u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003e\u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 >> c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 >> c2.f1"
   },
   {
     "comment": "geometry - Statement 129",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u0026\u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u0026\u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 &> c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 &> c2.f1"
   },
   {
     "comment": "geometry - Statement 130",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003c@ c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c@ c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 <@ c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 <@ c2.f1"
   },
   {
     "comment": "geometry - Statement 131",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 @\u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 @\u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 @> c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 @> c2.f1"
   },
   {
     "comment": "geometry - Statement 132",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003c\u003c| c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c\u003c| c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 <<| c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 <<| c2.f1"
   },
   {
     "comment": "geometry - Statement 133",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 |\u003e\u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 |\u003e\u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 |>> c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 |>> c2.f1"
   },
   {
     "comment": "geometry - Statement 134",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u0026\u003c| c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u0026\u003c| c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 &<| c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 &<| c2.f1"
   },
   {
     "comment": "geometry - Statement 135",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 |\u0026\u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 |\u0026\u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 |&> c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 |&> c2.f1"
   },
   {
     "comment": "geometry - Statement 136",
@@ -682,27 +682,27 @@
   {
     "comment": "geometry - Statement 137",
     "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 != c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c\u003e c2.f1"
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 <> c2.f1"
   },
   {
     "comment": "geometry - Statement 138",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003c c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 < c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 < c2.f1"
   },
   {
     "comment": "geometry - Statement 139",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003e c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003e c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 > c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 > c2.f1"
   },
   {
     "comment": "geometry - Statement 140",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003c= c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003c= c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 <= c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 <= c2.f1"
   },
   {
     "comment": "geometry - Statement 141",
-    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 \u003e= c2.f1",
-    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 \u003e= c2.f1"
+    "query": "SELECT c1.f1, c2.f1 FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE c1.f1 >= c2.f1",
+    "expected": "SELECT c1.f1, c2.f1 FROM circle_tbl AS c1, circle_tbl AS c2 WHERE c1.f1 >= c2.f1"
   },
   {
     "comment": "geometry - Statement 142",
@@ -726,8 +726,8 @@
   },
   {
     "comment": "geometry - Statement 146",
-    "query": "SELECT c.f1, p.f1, c.f1 / p.f1 FROM CIRCLE_TBL c, POINT_TBL p WHERE p.f1[0] \u003e 1000",
-    "expected": "SELECT c.f1, p.f1, c.f1 / p.f1 FROM circle_tbl AS c, point_tbl AS p WHERE p.f1[0] \u003e 1000"
+    "query": "SELECT c.f1, p.f1, c.f1 / p.f1 FROM CIRCLE_TBL c, POINT_TBL p WHERE p.f1[0] > 1000",
+    "expected": "SELECT c.f1, p.f1, c.f1 / p.f1 FROM circle_tbl AS c, point_tbl AS p WHERE p.f1[0] > 1000"
   },
   {
     "comment": "geometry - Statement 147",
@@ -736,8 +736,8 @@
   },
   {
     "comment": "geometry - Statement 148",
-    "query": "SELECT c.f1, p.f1, c.f1 \u003c-\u003e p.f1 FROM CIRCLE_TBL c, POLYGON_TBL p",
-    "expected": "SELECT c.f1, p.f1, c.f1 \u003c-\u003e p.f1 FROM circle_tbl AS c, polygon_tbl AS p"
+    "query": "SELECT c.f1, p.f1, c.f1 <-> p.f1 FROM CIRCLE_TBL c, POLYGON_TBL p",
+    "expected": "SELECT c.f1, p.f1, c.f1 <-> p.f1 FROM circle_tbl AS c, polygon_tbl AS p"
   },
   {
     "comment": "geometry - Statement 149",
@@ -746,13 +746,13 @@
   },
   {
     "comment": "geometry - Statement 150",
-    "query": "SELECT * FROM circle_tbl WHERE f1 \u0026\u0026 circle(point(1,-2), 1) ORDER BY area(f1)",
-    "expected": "SELECT * FROM circle_tbl WHERE f1 \u0026\u0026 circle(point(1, -2), 1) ORDER BY area(f1)"
+    "query": "SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1) ORDER BY area(f1)",
+    "expected": "SELECT * FROM circle_tbl WHERE f1 && circle(point(1, -2), 1) ORDER BY area(f1)"
   },
   {
     "comment": "geometry - Statement 151",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM circle_tbl WHERE f1 \u0026\u0026 circle(point(1,-2), 1) ORDER BY area(f1)",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM circle_tbl WHERE f1 \u0026\u0026 circle(point(1, -2), 1) ORDER BY area(f1)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM circle_tbl WHERE f1 && circle(point(1,-2), 1) ORDER BY area(f1)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM circle_tbl WHERE f1 && circle(point(1, -2), 1) ORDER BY area(f1)"
   },
   {
     "comment": "geometry - Statement 152",
@@ -761,13 +761,13 @@
   },
   {
     "comment": "geometry - Statement 153",
-    "query": "SELECT * FROM polygon_tbl WHERE f1 @\u003e '((1,1),(2,2),(2,1))'::polygon ORDER BY (poly_center(f1))[0]",
-    "expected": "SELECT * FROM polygon_tbl WHERE f1 @\u003e CAST('((1,1),(2,2),(2,1))' AS polygon) ORDER BY (poly_center(f1))[0]"
+    "query": "SELECT * FROM polygon_tbl WHERE f1 @> '((1,1),(2,2),(2,1))'::polygon ORDER BY (poly_center(f1))[0]",
+    "expected": "SELECT * FROM polygon_tbl WHERE f1 @> CAST('((1,1),(2,2),(2,1))' AS polygon) ORDER BY (poly_center(f1))[0]"
   },
   {
     "comment": "geometry - Statement 154",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM polygon_tbl WHERE f1 @\u003e '((1,1),(2,2),(2,1))'::polygon ORDER BY (poly_center(f1))[0]",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM polygon_tbl WHERE f1 @\u003e CAST('((1,1),(2,2),(2,1))' AS polygon) ORDER BY (poly_center(f1))[0]"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM polygon_tbl WHERE f1 @> '((1,1),(2,2),(2,1))'::polygon ORDER BY (poly_center(f1))[0]",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM polygon_tbl WHERE f1 @> CAST('((1,1),(2,2),(2,1))' AS polygon) ORDER BY (poly_center(f1))[0]"
   },
   {
     "comment": "geometry - Statement 155",

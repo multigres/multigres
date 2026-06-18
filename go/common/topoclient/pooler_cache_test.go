@@ -49,12 +49,10 @@ func waitForCacheCount(t *testing.T, cache *topoclient.PoolerCache, n int) bool 
 
 func newTestPooler(cell, name, database, tableGroup, shard string, typ clustermetadatapb.PoolerType) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
-		Id:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: cell, Name: name},
-		Database:   database,
-		TableGroup: tableGroup,
-		Shard:      shard,
-		Type:       typ,
-		Hostname:   name + ".host",
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: cell, Name: name},
+		ShardKey: &clustermetadatapb.ShardKey{Database: database, TableGroup: tableGroup, Shard: shard},
+		Type:     typ,
+		Hostname: name + ".host",
 	}
 }
 
@@ -74,7 +72,7 @@ func TestPoolerCache_InitialDiscovery(t *testing.T) {
 
 	require.True(t, waitForCacheCount(t, cache, 2))
 
-	p, ok := cache.Get(topoclient.MultiPoolerIDString(&clustermetadatapb.ID{
+	p, ok := cache.Get(topoclient.ComponentIDString(&clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1",
 	}))
 	require.True(t, ok)
@@ -143,10 +141,10 @@ func TestPoolerCache_SubscribeReceivesReplay(t *testing.T) {
 	// Subscribe after pooler is in cache — should receive replay.
 	var mu sync.Mutex
 	var seen []string
-	unsub := cache.Subscribe(func(p *clustermetadatapb.MultiPooler, removed bool) {
-		if !removed {
+	unsub := cache.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
+		if curr != nil {
 			mu.Lock()
-			seen = append(seen, p.Id.Name)
+			seen = append(seen, curr.Id.Name)
 			mu.Unlock()
 		}
 	})
@@ -181,9 +179,9 @@ func TestPoolerCache_SubscribeReceivesLiveEvents(t *testing.T) {
 	defer cache.Stop()
 
 	added := make(chan string, 10)
-	unsub := cache.Subscribe(func(p *clustermetadatapb.MultiPooler, removed bool) {
-		if !removed {
-			added <- p.Id.Name
+	unsub := cache.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
+		if curr != nil {
+			added <- curr.Id.Name
 		}
 	})
 	defer unsub()
@@ -210,7 +208,7 @@ func TestPoolerCache_SubscribeUnsubscribe(t *testing.T) {
 
 	var mu sync.Mutex
 	var count int
-	unsub := cache.Subscribe(func(_ *clustermetadatapb.MultiPooler, _ bool) {
+	unsub := cache.Subscribe(func(_, _ *clustermetadatapb.MultiPooler) {
 		mu.Lock()
 		count++
 		mu.Unlock()
@@ -275,9 +273,9 @@ func TestPoolerCache_MultipleSubscribers(t *testing.T) {
 	for i := range numSubs {
 		ch := make(chan string, 10)
 		chs[i] = ch
-		unsubs[i] = cache.Subscribe(func(p *clustermetadatapb.MultiPooler, removed bool) {
-			if !removed {
-				ch <- p.Id.Name
+		unsubs[i] = cache.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
+			if curr != nil {
+				ch <- curr.Id.Name
 			}
 		})
 	}
@@ -317,7 +315,7 @@ func TestPoolerCache_NoSpuriousNotificationsOnReconnect(t *testing.T) {
 	// Count notifications received after initial discovery.
 	var mu sync.Mutex
 	notifCount := 0
-	unsub := cache.Subscribe(func(_ *clustermetadatapb.MultiPooler, _ bool) {
+	unsub := cache.Subscribe(func(_, _ *clustermetadatapb.MultiPooler) {
 		mu.Lock()
 		notifCount++
 		mu.Unlock()

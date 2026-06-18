@@ -22,7 +22,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
@@ -48,11 +47,58 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger, txnMetrics *engin
 	}
 }
 
+// PlanOptions carries planning inputs for a single Plan call.
+//
+// IsPortal is supplied by the caller to select the protocol; the remaining
+// fields are per-statement routing signals that Plan derives from analyzing the
+// statement (e.g. its expression tree) and threads into the routing builders,
+// which fold them into the plan they produce. Grouping them keeps builder
+// signatures stable as new signals are added; the zero value means "simple
+// protocol, no special routing".
+type PlanOptions struct {
+	// IsPortal selects the extended (portal) query protocol. The single
+	// behavioral difference today is that the wrapped-EXECUTE unwrap
+	// (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE) is simple-protocol only: the
+	// rewritten Route cannot carry its prepared-statement metadata through the
+	// portal path, so in portal mode such statements route normally instead.
+	//
+	// INVARIANT: IsPortal must never change the plan produced for a cacheable
+	// statement. The plan cache is shared across both protocols (keyed only by
+	// database + normalized SQL), so a plan cached by one protocol may be served
+	// to the other. Any IsPortal-conditional planning must therefore stay on a
+	// non-cacheable path — as the unwrap does, since it only matches the
+	// (non-cacheable) EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE shapes. Protocol
+	// differences for cacheable plans belong in PortalStreamExecute vs
+	// StreamExecute, not in plan content.
+	IsPortal bool
+
+	// PinForAdvisoryLock indicates the statement acquires a session-level
+	// advisory lock, so its route must keep the backend pinned for the lock's
+	// lifetime (AdvisoryLockRoute rather than a plain Route). Derived by Plan.
+	PinForAdvisoryLock bool
+
+	// RecheckForAdvisoryLock indicates the statement touches session-level
+	// advisory locks (an acquire or a release), so the multipooler should
+	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
+	// PinForAdvisoryLock: every acquire also wants a recheck (to catch a failed
+	// pg_try_advisory_lock), and a bare release wants only the recheck. Derived
+	// by Plan.
+	RecheckForAdvisoryLock bool
+}
+
 // Plan creates an execution plan for the given SQL query and AST.
 //
 // The planner analyzes the AST to determine query type and creates
 // appropriate primitives. Uses PostgreSQL's utility.c dispatch pattern
 // with switch on NodeTag for extensibility.
+//
+// Plan serves both query protocols. The simple protocol calls it with
+// opts.IsPortal == false; the extended (portal) protocol calls it with
+// opts.IsPortal == true. Both share the same dispatch and the same plan cache —
+// the resulting plan's PortalStreamExecute / StreamExecute methods own the
+// protocol-specific execution, so a Route, a gateway-local primitive, or a
+// Sequence all behave correctly on either path. See PlanOptions.IsPortal for the
+// one planning-time difference.
 //
 // Supported statement types:
 // - VariableSetStmt: SET/RESET commands → ApplySessionState
@@ -66,6 +112,7 @@ func (p *Planner) Plan(
 	sql string,
 	stmt ast.Stmt,
 	conn *server.Conn,
+	opts PlanOptions,
 ) (*engine.Plan, error) {
 	p.logger.Debug("planning query",
 		"query", sql,
@@ -74,14 +121,15 @@ func (p *Planner) Plan(
 		"default_tablegroup", p.defaultTableGroup,
 		"statement_type", stmt.NodeTag())
 
-	// Reject unsupported constructs before dispatch: Tier 2 statement types
-	// (LOAD, ALTER SYSTEM, CREATE/DROP DATABASE, etc.) plus any blocklisted
-	// or misplaced FuncCalls in expression trees. Running here (not in the
-	// executor) means the plan cache short-circuits both checks: a cached
-	// plan is by construction safe. The normalizer is configured to
-	// preserve literals inside set_config calls so its args remain A_Const
-	// at this point.
-	exprResult, err := planUnsupportedConstructs(stmt)
+	// Analyze the statement before dispatch: reject unsupported constructs
+	// (Tier 2 statement types and blocklisted/misplaced FuncCalls) and gather
+	// the planning signals — tracked set_config calls, advisory-lock pinning —
+	// that the routing builders need. Running here (not in the executor) means
+	// the plan cache short-circuits this whole pass: a cached plan is by
+	// construction already analyzed and safe. The normalizer is configured to
+	// preserve literals inside set_config calls so its args remain A_Const at
+	// this point.
+	analysis, err := analyzeStatement(stmt)
 	if err != nil {
 		return nil, err
 	}
@@ -92,13 +140,33 @@ func (p *Planner) Plan(
 	// rewrite it to the canonical name (e.g. "stmt42") and attach the
 	// PreparedStatement metadata so the multipooler can ensurePrepared() on
 	// the backend connection before running the query. See execute_unwrap.go.
-	if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
-		return nil, err
-	} else if unwrappedPlan != nil {
-		unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
-		unwrappedPlan.Type = primitiveName(unwrappedPlan.Primitive)
-		return unwrappedPlan, nil
+	//
+	// Simple protocol only: the rewrite produces a Route carrying the prepared
+	// statement, but Route.PortalStreamExecute forwards the portal as-is and
+	// ignores that metadata, so the unwrap is a no-op (or worse, an error if the
+	// statement is missing) over the extended protocol. In portal mode these
+	// wrapped forms fall through to normal dispatch and route like any query.
+	if !opts.IsPortal {
+		if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
+			return nil, err
+		} else if unwrappedPlan != nil {
+			// A wrapped CREATE UNLOGGED TABLE ... AS EXECUTE returns here before the
+			// main dispatch, so attach the failover warning on this path too.
+			p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
+			unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
+			unwrappedPlan.Type = planType(unwrappedPlan.Primitive, unwrappedPlan.ExecInfo)
+			return unwrappedPlan, nil
+		}
 	}
+
+	// Fold the per-statement routing signals derived from the expression
+	// analysis onto opts. These ride on ordinary queries that may simultaneously
+	// do other things the planner tracks (e.g. set_config), so rather than
+	// diverting to a dedicated path, the options are threaded into the normal
+	// routing builders (planDefault / planSelectStmt), which fold them into
+	// whatever plan they would otherwise produce.
+	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
+	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -142,40 +210,98 @@ func (p *Planner) Plan(
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, stmt, conn)
+		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, stmt, conn)
+		plan, err = p.planDefault(sql, stmt, conn, opts)
+
+	case ast.T_CreateSeqStmt:
+		// Temp sequences are session-scoped like temp tables: nextval/currval
+		// on later statements must land on the same backend connection.
+		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return p.planTempTableCreation(sql, conn)
+		}
+		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
 		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planSelectStmt(sql, ss, conn, exprResult.SetConfigs)
+		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
-		plan, err = p.planDefault(sql, stmt, conn)
+		plan, err = p.planDefault(sql, stmt, conn, opts)
+
+	case ast.T_DeclareCursorStmt:
+		dcs := stmt.(*ast.DeclareCursorStmt)
+		if dcs.Options&ast.CURSOR_OPT_HOLD != 0 {
+			return p.planHoldCursorDeclare(sql, dcs)
+		}
+		plan, err = p.planDefault(sql, stmt, conn, opts)
+
+	case ast.T_ClosePortalStmt:
+		return p.planClosePortalStmt(sql, stmt.(*ast.ClosePortalStmt))
 
 	default:
 		// Default: simple route to PostgreSQL
-		plan, err = p.planDefault(sql, stmt, conn)
+		plan, err = p.planDefault(sql, stmt, conn, opts)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
+	p.maybeWrapUnloggedWarning(sql, stmt, plan)
+
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
-	plan.Type = primitiveName(plan.Primitive)
+	plan.Type = planType(plan.Primitive, plan.ExecInfo)
 
 	return plan, nil
+}
+
+// maybeWrapUnloggedWarning prepends a WARNING notice to plan when stmt creates an
+// UNLOGGED relation. Such statements route normally, but unlogged contents are
+// never replicated and are lost on failover, so the warning points the user at the
+// failover-behaviour doc. Tables and sequences get distinct messages. The caller
+// recomputes plan.Type afterwards.
+func (p *Planner) maybeWrapUnloggedWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
+	var warning engine.Primitive
+	switch {
+	case isUnloggedCreate(stmt):
+		warning = engine.NewUnloggedTableWarning(sql)
+	case isUnloggedSequenceCreate(stmt):
+		warning = engine.NewUnloggedSequenceWarning(sql)
+	default:
+		return
+	}
+	plan.Primitive = engine.NewSequence([]engine.Primitive{warning, plan.Primitive})
+}
+
+// isUnloggedCreate reports whether stmt creates an UNLOGGED table, across the
+// plain CREATE TABLE, CREATE TABLE AS, and SELECT INTO forms.
+func isUnloggedCreate(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.CreateStmt:
+		return s.Relation != nil && s.Relation.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.CreateTableAsStmt:
+		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	case *ast.SelectStmt:
+		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+	}
+	return false
+}
+
+// isUnloggedSequenceCreate reports whether stmt is CREATE UNLOGGED SEQUENCE.
+func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
+	s, ok := stmt.(*ast.CreateSeqStmt)
+	return ok && s.Sequence != nil && s.Sequence.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 }
 
 // planTempTableCreation creates a plan that routes through a reserved
@@ -183,15 +309,57 @@ func (p *Planner) Plan(
 // persists across queries on the same session.
 func (p *Planner) planTempTableCreation(sql string, conn *server.Conn) (*engine.Plan, error) {
 	p.logger.Debug("planning temp table creation", "sql", sql)
-	route := engine.NewTempTableRoute(p.defaultTableGroup, constants.DefaultShard, sql)
-	return engine.NewPlan(sql, route), nil
+	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, nil))
+	// The temp-table reservation is a static property of the plan: it routes as
+	// a plain Route, but ExecInfo.TempTable tells the executor to reserve a
+	// connection with ReasonTempTable.
+	plan.ExecInfo.TempTable = true
+	plan.Type = engine.PlanTypeTempTableRoute
+	return plan, nil
+}
+
+// planHoldCursorDeclare creates a plan for `DECLARE ... WITH HOLD` cursors.
+// WITH HOLD promotes the cursor to session-level state that must survive
+// COMMIT; the cursor name is pinned on the reserved backend connection via
+// ReasonPortal so the multipooler does not return the backend to the pool
+// when the surrounding transaction commits.
+func (p *Planner) planHoldCursorDeclare(sql string, stmt *ast.DeclareCursorStmt) (*engine.Plan, error) {
+	p.logger.Debug("planning DECLARE WITH HOLD cursor",
+		"cursor", stmt.PortalName, "sql", sql)
+	route := engine.NewHoldCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
+	plan := engine.NewPlan(sql, route)
+	// The cursor name to pin is known at plan time, so it rides on the cached
+	// plan's ExecInfo; HoldCursorRoute forwards it to the reservation.
+	plan.ExecInfo.PinPortals = []string{stmt.PortalName}
+	plan.Type = engine.PlanTypeHoldCursorRoute
+	return plan, nil
+}
+
+// planClosePortalStmt creates a plan for `CLOSE <name>` / `CLOSE ALL`. The
+// CloseCursorRoute forwards the CLOSE to PostgreSQL on the existing reserved
+// backend and, when the named cursor was a `WITH HOLD` pin, asks the
+// multipooler to drop the corresponding entry from the reserved
+// connection's portal set.
+func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*engine.Plan, error) {
+	p.logger.Debug("planning CLOSE cursor", "cursor", stmt.PortalName, "sql", sql)
+	var route *engine.CloseCursorRoute
+	if stmt.PortalName == "" {
+		route = engine.NewCloseAllCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+	} else {
+		route = engine.NewCloseCursorRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt.PortalName)
+	}
+	plan := engine.NewPlan(sql, route)
+	plan.Type = engine.PlanTypeCloseCursorRoute
+	return plan, nil
 }
 
 // planDefault creates a simple route plan for queries without special handling.
-// This is the fallback for most SQL statements.
-func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-	plan := engine.NewPlan(sql, route)
+// This is the fallback for most SQL statements. Advisory-lock pinning, when the
+// statement touches a session-level advisory lock, rides on the plan's ExecInfo
+// (see advisoryExecInfo) rather than a dedicated routing primitive.
+func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
+	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	plan.ExecInfo = advisoryExecInfo(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
@@ -199,94 +367,15 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn) (*en
 	return plan, nil
 }
 
-// PlanPortal creates an execution plan for the extended query protocol (portal path).
-// Unlike Plan, which handles all statements, PlanPortal only returns a non-nil plan
-// for statements that require local handling by the gateway. For all other statements,
-// it returns (nil, nil) to indicate they should be sent to PostgreSQL via
-// PortalStreamExecute with the portal's bound parameters.
-//
-// Statements that produce a plan are delegated to Plan to reuse existing planning logic.
-// This covers any statement whose semantics cannot be preserved by a plain portal
-// execute on a pooled backend connection — for example, gateway-managed session
-// variables, LISTEN/UNLISTEN/NOTIFY, DISCARD, temp-table creation, and
-// BEGIN/COMMIT/ROLLBACK.
-func (p *Planner) PlanPortal(
-	portalInfo *preparedstatement.PortalInfo,
-	conn *server.Conn,
-) (*engine.Plan, error) {
-	stmt := portalInfo.PreparedStatementInfo.AstStmt()
-
-	// Non-cacheable extended-protocol statements reach PlanPortal directly
-	// (cacheable ones go through resolvePortalPlan → Plan, which does the
-	// same checks), so both paths must share the same pre-dispatch rejection.
-	// We throw away the set_config result here: PlanPortal only routes
-	// gateway-local statement types, none of which are SELECTs that could
-	// carry tracked set_configs.
-	if _, err := planUnsupportedConstructs(stmt); err != nil {
-		return nil, err
-	}
-
-	switch stmt.NodeTag() {
-	case ast.T_VariableSetStmt:
-		setStmt := stmt.(*ast.VariableSetStmt)
-		if isGatewayManagedVariable(setStmt.Name) || setStmt.Kind == ast.VAR_RESET_ALL {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_VariableShowStmt:
-		showStmt := stmt.(*ast.VariableShowStmt)
-		if isGatewayManagedVariable(showStmt.Name) {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_ListenStmt:
-		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-
-	case ast.T_UnlistenStmt:
-		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-
-	case ast.T_NotifyStmt:
-		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-
-	case ast.T_DiscardStmt:
-		// DISCARD TEMP needs the DiscardTempPrimitive for reservation cleanup.
-		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-
-	case ast.T_CreateStmt:
-		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_CreateTableAsStmt:
-		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_SelectStmt:
-		if ss := stmt.(*ast.SelectStmt); ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_ViewStmt:
-		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
-			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-		}
-		return nil, nil
-
-	case ast.T_TransactionStmt:
-		// BEGIN/COMMIT/ROLLBACK must run through the gateway's transaction
-		// primitive — executing them as a normal portal on a pooled backend
-		// connection leaks open (or aborted) transactions across clients when
-		// the connection is recycled.
-		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
-
-	default:
-		return nil, nil
+// advisoryExecInfo derives the plan-level reservation directives for a statement
+// that touches session-level advisory locks. We track on RecheckForAdvisoryLock
+// (the superset): an acquire wants both a pin and a recheck, a bare release
+// wants only the recheck — so the pin is carried separately and a release does
+// not reserve a connection. The zero value (no advisory) is the common case.
+func advisoryExecInfo(opts PlanOptions) engine.PlanExecInfo {
+	return engine.PlanExecInfo{
+		AdvisoryLock:         opts.PinForAdvisoryLock,
+		RecheckAdvisoryLocks: opts.RecheckForAdvisoryLock,
 	}
 }
 
@@ -302,20 +391,41 @@ func (p *Planner) GetDefaultTableGroup() string {
 	return p.defaultTableGroup
 }
 
+// planType returns the observability label for a plan. Temp-table and
+// advisory-lock routing no longer have dedicated primitive types — they are a
+// plain Route plus ExecInfo — so the label for a Route is refined from the
+// plan's ExecInfo to preserve the previous TempTableRoute / AdvisoryLockRoute
+// labels in spans and query logs.
+func planType(p engine.Primitive, info engine.PlanExecInfo) string {
+	if _, ok := p.(*engine.Route); ok {
+		switch {
+		case info.TempTable:
+			return engine.PlanTypeTempTableRoute
+		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
+			return engine.PlanTypeAdvisoryLockRoute
+		}
+	}
+	return primitiveName(p)
+}
+
 // primitiveName returns a short string identifying the primitive type.
 // Used for observability (span attributes and query logs).
 func primitiveName(p engine.Primitive) string {
 	switch p.(type) {
 	case *engine.Route:
 		return engine.PlanTypeRoute
-	case *engine.TempTableRoute:
-		return engine.PlanTypeTempTableRoute
+	case *engine.HoldCursorRoute:
+		return engine.PlanTypeHoldCursorRoute
+	case *engine.CloseCursorRoute:
+		return engine.PlanTypeCloseCursorRoute
 	case *engine.TransactionPrimitive:
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:
 		return engine.PlanTypeCopyStatement
 	case *engine.ApplySessionState:
 		return engine.PlanTypeApplySessionState
+	case *engine.ResolveTrackSetConfig:
+		return engine.PlanTypeResolveTrackSetConfig
 	case *engine.GatewaySessionState:
 		return engine.PlanTypeGatewaySessionState
 	case *engine.GatewayShowVariable:

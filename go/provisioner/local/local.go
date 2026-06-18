@@ -310,6 +310,98 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 	return nil
 }
 
+// pgbackrestVersionRe extracts the version from `pgbackrest --version` output,
+// e.g. "pgBackRest 2.57.0".
+var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+(\d+\.\d+(?:\.\d+)?)`)
+
+// minPgBackrestVersionDisplay returns constants.MinPgBackrestVersion without
+// the semver "v" prefix, for use in user-facing messages.
+func minPgBackrestVersionDisplay() string {
+	return strings.TrimPrefix(constants.MinPgBackrestVersion, "v")
+}
+
+// checkPgBackrestVersion verifies that the pgbackrest binary is >= constants.MinPgBackrestVersion.
+func (p *localProvisioner) checkPgBackrestVersion(binaryPath string) error {
+	cmd := exec.Command(binaryPath, "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get pgbackrest version: %w", err)
+	}
+	return p.checkPgBackrestVersionFromOutput(string(output))
+}
+
+// checkPgBackrestVersionFromOutput is the pure parsing/comparison core of
+// checkPgBackrestVersion, split out so tests do not need a real binary.
+func (p *localProvisioner) checkPgBackrestVersionFromOutput(versionStr string) error {
+	matches := pgbackrestVersionRe.FindStringSubmatch(versionStr)
+	if len(matches) < 2 {
+		return fmt.Errorf("could not parse pgbackrest version from output: %q", strings.TrimSpace(versionStr))
+	}
+	actual := semver.Canonical("v" + matches[1])
+	if semver.Compare(actual, constants.MinPgBackrestVersion) < 0 {
+		return fmt.Errorf("pgbackrest %s is too old; need >= %s",
+			matches[1], minPgBackrestVersionDisplay())
+	}
+	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n", matches[1])
+	return nil
+}
+
+// postgresVersionRe extracts the major (and optional minor) version from
+// `postgres --version` output, e.g. "postgres (PostgreSQL) 17.2".
+var postgresVersionRe = regexp.MustCompile(`(?m)^postgres\s+\(PostgreSQL\)\s+(\d+)(?:\.(\d+))?`)
+
+// checkPostgresVersion verifies that the postgres binary is major version constants.RequiredPostgresMajor.
+func (p *localProvisioner) checkPostgresVersion(binaryPath string) error {
+	cmd := exec.Command(binaryPath, "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get postgres version: %w", err)
+	}
+	return p.checkPostgresVersionFromOutput(string(output))
+}
+
+// checkPostgresVersionFromOutput is the pure parsing/comparison core of
+// checkPostgresVersion.
+func (p *localProvisioner) checkPostgresVersionFromOutput(versionStr string) error {
+	matches := postgresVersionRe.FindStringSubmatch(versionStr)
+	if len(matches) < 2 {
+		return fmt.Errorf("could not parse postgres version from output: %q", strings.TrimSpace(versionStr))
+	}
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return fmt.Errorf("could not parse postgres major version %q: %w", matches[1], err)
+	}
+	if major != constants.RequiredPostgresMajor {
+		return fmt.Errorf("postgres major version %d is unsupported; need %d.x", major, constants.RequiredPostgresMajor)
+	}
+	display := matches[1]
+	if len(matches) > 2 && matches[2] != "" {
+		display = display + "." + matches[2]
+	}
+	fmt.Printf("🔍 - postgres %s found — version compatible ✓\n", display)
+	return nil
+}
+
+// checkRequiredBinaryVersions resolves the version-sensitive binaries on PATH
+// and verifies each is at a supported version. It is invoked from Bootstrap
+// after validateSystemBinaries has confirmed every required binary is present.
+// LookPath errors are not expected here, but are propagated defensively in case
+// PATH changes between the two calls.
+func (p *localProvisioner) checkRequiredBinaryVersions() error {
+	pgbackrestPath, err := exec.LookPath("pgbackrest")
+	if err != nil {
+		return fmt.Errorf("pgbackrest lookup failed after binary validation: %w", err)
+	}
+	if err := p.checkPgBackrestVersion(pgbackrestPath); err != nil {
+		return err
+	}
+	postgresPath, err := exec.LookPath("postgres")
+	if err != nil {
+		return fmt.Errorf("postgres lookup failed after binary validation: %w", err)
+	}
+	return p.checkPostgresVersion(postgresPath)
+}
+
 // readServiceLogs reads the last few lines from a service's log file for debugging
 func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 	if logFile == "" {
@@ -810,16 +902,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
 
-	// Pass POSTGRES_PASSWORD so multipooler can authenticate to the admin pool.
-	// Read from the password file written by initializePgctldDirectories; fall back to "postgres".
-	pgPassword := "postgres"
-	if content, err := os.ReadFile(filepath.Join(poolerDir, "pgpassword.txt")); err == nil {
-		pgPassword = strings.TrimSpace(string(content))
-	}
-	multipoolerCmd.Env = append(os.Environ(), "POSTGRES_PASSWORD="+pgPassword)
-
-	// Set PGDATA so multipooler knows where the PostgreSQL data directory is.
-	multipoolerCmd.Env = append(os.Environ(), constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"))
+	// Point multipooler at the password file pgctld already wrote (and is
+	// using itself). Both services agree on the credential because they
+	// resolve it from the same file. Required: multipooler refuses to start
+	// without it (pg_hba.conf uses scram-sha-256 for every connection).
+	multipoolerCmd.Env = append(os.Environ(),
+		constants.PgPasswordFileEnvVar+"="+pgctldResult.PasswordFile,
+		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
+	)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -877,6 +967,10 @@ type PgctldProvisionResult struct {
 	Address string
 	Port    int
 	LogFile string
+	// PasswordFile is the path to the postgres password file written under the
+	// pooler directory. Both pgctld (already running with POSTGRES_PASSWORD_FILE
+	// pointing here) and the multipooler in the same cell read from it.
+	PasswordFile string
 }
 
 // provisionMultiOrch provisions multi-orchestrator using local binary
@@ -1184,6 +1278,11 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 
 	// Validate required system binaries before starting
 	if err := p.validateSystemBinaries(); err != nil {
+		return nil, err
+	}
+
+	// Validate critical binary versions before starting any services.
+	if err := p.checkRequiredBinaryVersions(); err != nil {
 		return nil, err
 	}
 
@@ -2018,6 +2117,7 @@ func (p *localProvisioner) validateSystemBinaries() error {
 		"pg_ctl",
 		"postgres",
 		"pg_isready",
+		"pgbackrest",
 	}
 
 	var missingBinaries []string
@@ -2030,10 +2130,11 @@ func (p *localProvisioner) validateSystemBinaries() error {
 
 	if len(missingBinaries) > 0 {
 		return fmt.Errorf("required system binaries not found in PATH: %s\n\n"+
-			"Please ensure PostgreSQL and etcd are installed and available in your PATH.\n"+
-			"For PostgreSQL: Install PostgreSQL client tools (pg_ctl, postgres, pg_isready)\n"+
-			"For etcd: Install etcd client binary",
-			strings.Join(missingBinaries, ", "))
+			"Please ensure PostgreSQL, etcd, and pgBackRest are installed and available in your PATH.\n"+
+			"For PostgreSQL: Install PostgreSQL %d.x client tools (pg_ctl, postgres, pg_isready)\n"+
+			"For etcd: Install etcd client binary\n"+
+			"For pgBackRest: Install pgBackRest >= %s",
+			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, minPgBackrestVersionDisplay())
 	}
 
 	return nil

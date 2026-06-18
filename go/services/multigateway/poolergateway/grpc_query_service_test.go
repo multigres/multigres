@@ -17,6 +17,7 @@ package poolergateway
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -25,6 +26,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -35,23 +38,38 @@ import (
 // mockBidiStream is a mock implementation of grpc.BidiStreamingClient for testing.
 type mockBidiStream struct {
 	// Configurable behavior
-	sendErr      error
-	recvErr      error
-	recvResponse *multipoolerservice.CopyBidiExecuteResponse
+	sendErr       error
+	recvErr       error
+	recvResponse  *multipoolerservice.CopyBidiExecuteResponse
+	recvErrors    []error
+	recvResponses []*multipoolerservice.CopyBidiExecuteResponse
 
 	// Track calls for verification
 	closeSendCalled atomic.Bool
 	recvCalled      atomic.Bool
 	sendCalled      atomic.Bool
+	sentRequests    []*multipoolerservice.CopyBidiExecuteRequest
+	recvIdx         int
 }
 
 func (m *mockBidiStream) Send(req *multipoolerservice.CopyBidiExecuteRequest) error {
 	m.sendCalled.Store(true)
+	m.sentRequests = append(m.sentRequests, req)
 	return m.sendErr
 }
 
 func (m *mockBidiStream) Recv() (*multipoolerservice.CopyBidiExecuteResponse, error) {
 	m.recvCalled.Store(true)
+	if m.recvIdx < len(m.recvErrors) && m.recvErrors[m.recvIdx] != nil {
+		err := m.recvErrors[m.recvIdx]
+		m.recvIdx++
+		return nil, err
+	}
+	if m.recvIdx < len(m.recvResponses) {
+		resp := m.recvResponses[m.recvIdx]
+		m.recvIdx++
+		return resp, nil
+	}
 	if m.recvErr != nil {
 		return nil, m.recvErr
 	}
@@ -245,7 +263,7 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	_, _, _, err := svc.CopyReady(
+	_, _, rs, err := svc.CopyReady(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
@@ -254,11 +272,55 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "COPY initiation failed")
+	// CopyReady now surfaces the underlying PG error un-wrapped so the gateway
+	// re-emits a verbatim ErrorResponse. Without a PgDiagnostic attached the
+	// fallback path returns the bare resp.Error text.
 	require.Contains(t, err.Error(), "some backend error")
+	require.Nil(t, rs, "ReservedState should be nil when multipooler did not attach one")
 	// Verify cleanup was called
 	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
 	// copyStreams should be empty
+	require.Len(t, svc.copyStreams, 0)
+}
+
+// TestCopyReady_ErrorPhasePropagatesReservedState verifies that when the
+// multipooler reports a COPY initiation failure but attaches the surviving
+// ReservedState (because the reserved connection is still alive for an
+// unrelated reason like a transaction or temp table), the gateway client
+// returns that state alongside the error so the scatter layer can keep
+// tracking the connection.
+func TestCopyReady_ErrorPhasePropagatesReservedState(t *testing.T) {
+	survivingState := &query.ReservedState{
+		ReservedConnectionId: 12345,
+		ReservationReasons:   1, // any non-zero reason from protoutil bitmap
+	}
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase:         multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			Error:         "column \"xyz\" of relation \"x\" does not exist",
+			ReservedState: survivingState,
+		},
+	}
+	mockClient := &mockMultiPoolerServiceClient{
+		bidiStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, _, rs, err := svc.CopyReady(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"COPY t (xyz) FROM STDIN",
+		&query.ExecuteOptions{ReservedConnectionId: 12345},
+		nil,
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "column \"xyz\"")
+	require.NotNil(t, rs, "ReservedState must be propagated when multipooler attaches it")
+	require.Equal(t, uint64(12345), rs.GetReservedConnectionId())
+	// Stream still gets cleaned up by the defer; the conn lives on at the multipooler.
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should still be called")
 	require.Len(t, svc.copyStreams, 0)
 }
 
@@ -333,6 +395,325 @@ func TestCopyReady_Success(t *testing.T) {
 	require.True(t, exists, "Stream should be stored in copyStreams with reserved connection ID")
 }
 
+func TestCopyOutReady_Success(t *testing.T) {
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_READY,
+			ReservedState: &query.ReservedState{
+				ReservedConnectionId: 54321,
+			},
+			Format:        1,
+			ColumnFormats: []int32{0, 1},
+			Notices: []*query.PgDiagnostic{
+				mterrors.PgDiagnosticToProto(&mterrors.PgDiagnostic{MessageType: 'N', Severity: "NOTICE", Message: "before-copy"}),
+			},
+		},
+	}
+	mockClient := &mockMultiPoolerServiceClient{bidiStream: mockStream}
+	svc := newTestGRPCQueryService(mockClient)
+
+	format, columnFormats, notices, reservedState, err := svc.CopyOutReady(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"COPY t TO STDOUT",
+		&query.ExecuteOptions{},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, int16(1), format)
+	require.Equal(t, []int16{0, 1}, columnFormats)
+	require.Equal(t, uint64(54321), reservedState.GetReservedConnectionId())
+	require.Len(t, notices, 1)
+	require.Equal(t, "before-copy", notices[0].Message)
+	require.False(t, mockStream.closeSendCalled.Load(), "CloseSend should NOT be called on success")
+	_, exists := svc.copyStreams[54321]
+	require.True(t, exists, "stream should be stored for subsequent CopyOutStream")
+	require.Len(t, mockStream.sentRequests, 1)
+	require.Equal(t, multipoolerservice.CopyBidiExecuteRequest_TO_STDOUT, mockStream.sentRequests[0].GetDirection())
+}
+
+func TestCopyOutReady_ErrorPhasePropagatesReservedState(t *testing.T) {
+	survivingState := &query.ReservedState{
+		ReservedConnectionId: 123,
+		ReservationReasons:   protoutil.ReasonTransaction,
+	}
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase:         multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			Error:         "copy rejected",
+			ReservedState: survivingState,
+		},
+	}
+	mockClient := &mockMultiPoolerServiceClient{bidiStream: mockStream}
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, _, _, rs, err := svc.CopyOutReady(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"COPY t TO STDOUT",
+		&query.ExecuteOptions{ReservedConnectionId: 123},
+		nil,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "copy rejected")
+	require.NotNil(t, rs)
+	require.Equal(t, uint64(123), rs.GetReservedConnectionId())
+	require.True(t, mockStream.closeSendCalled.Load(), "error path should close the stream")
+	require.Len(t, svc.copyStreams, 0, "error path should not keep the stream")
+}
+
+func TestCopyOutStream_SuccessWithDataNoticesAndResult(t *testing.T) {
+	const connID = uint64(777)
+	mockStream := &mockBidiStream{
+		recvResponses: []*multipoolerservice.CopyBidiExecuteResponse{
+			{
+				Phase: multipoolerservice.CopyBidiExecuteResponse_DATA,
+				Notices: []*query.PgDiagnostic{
+					mterrors.PgDiagnosticToProto(&mterrors.PgDiagnostic{MessageType: 'N', Severity: "NOTICE", Message: "row notice"}),
+				},
+			},
+			{
+				Phase: multipoolerservice.CopyBidiExecuteResponse_DATA,
+				Data:  []byte("payload"),
+			},
+			{
+				Phase: multipoolerservice.CopyBidiExecuteResponse_RESULT,
+				Result: (&sqltypes.Result{
+					CommandTag:   "COPY 1",
+					RowsAffected: 1,
+				}).ToProto(),
+				Notices: []*query.PgDiagnostic{
+					mterrors.PgDiagnosticToProto(&mterrors.PgDiagnostic{MessageType: 'N', Severity: "NOTICE", Message: "final notice"}),
+				},
+				ReservedState: &query.ReservedState{ReservedConnectionId: connID},
+			},
+		},
+	}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	var messages []client.CopyOutMessage
+	result, rs, err := svc.CopyOutStream(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+		func(msg client.CopyOutMessage) error {
+			messages = append(messages, msg)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "COPY 1", result.CommandTag)
+	require.Equal(t, uint64(1), result.RowsAffected)
+	require.Len(t, result.Notices, 1)
+	require.Equal(t, "final notice", result.Notices[0].Message)
+	require.NotNil(t, rs)
+	require.Equal(t, connID, rs.GetReservedConnectionId())
+	require.Len(t, messages, 2)
+	require.Equal(t, "row notice", messages[0].Notice.Message)
+	require.Equal(t, []byte("payload"), messages[1].Data)
+	require.True(t, mockStream.closeSendCalled.Load(), "result path should close send")
+	_, exists := svc.copyStreams[connID]
+	require.False(t, exists, "stream should be removed after terminal RESULT")
+}
+
+func TestCopyOutStream_CallbackErrorClosesAndRemovesStream(t *testing.T) {
+	const connID = uint64(888)
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_DATA,
+			Data:  []byte("payload"),
+		},
+	}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	_, _, err := svc.CopyOutStream(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+		func(client.CopyOutMessage) error {
+			return errors.New("client write failed")
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "client write failed")
+	require.True(t, mockStream.closeSendCalled.Load())
+	_, exists := svc.copyStreams[connID]
+	require.False(t, exists)
+}
+
+func TestCopyOutStream_ErrorPhasePropagatesState(t *testing.T) {
+	const connID = uint64(999)
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			Error: "backend copy error",
+			ReservedState: &query.ReservedState{
+				ReservedConnectionId: connID,
+			},
+		},
+	}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	_, rs, err := svc.CopyOutStream(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+		func(client.CopyOutMessage) error { return nil },
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "backend copy error")
+	require.NotNil(t, rs)
+	require.Equal(t, connID, rs.GetReservedConnectionId())
+	_, exists := svc.copyStreams[connID]
+	require.False(t, exists)
+}
+
+func TestCopyOutStream_RecvErrorRemovesStream(t *testing.T) {
+	const connID = uint64(1001)
+	mockStream := &mockBidiStream{recvErr: errors.New("recv failed")}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	_, _, err := svc.CopyOutStream(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+		func(client.CopyOutMessage) error { return nil },
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to receive COPY frame")
+	_, exists := svc.copyStreams[connID]
+	require.False(t, exists)
+}
+
+func TestCopyAbort_HandlesStreamLifecycle(t *testing.T) {
+	const connID = uint64(2024)
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			ReservedState: &query.ReservedState{
+				ReservedConnectionId: connID,
+			},
+		},
+	}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	rs, err := svc.CopyAbort(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"abort requested",
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rs)
+	require.Equal(t, connID, rs.GetReservedConnectionId())
+	require.True(t, mockStream.sendCalled.Load())
+	require.True(t, mockStream.closeSendCalled.Load())
+	require.True(t, mockStream.recvCalled.Load())
+	require.Len(t, mockStream.sentRequests, 1)
+	require.Equal(t, multipoolerservice.CopyBidiExecuteRequest_FAIL, mockStream.sentRequests[0].GetPhase())
+	require.Equal(t, "abort requested", mockStream.sentRequests[0].GetErrorMessage())
+	_, exists := svc.copyStreams[connID]
+	require.False(t, exists, "abort should remove stream from map")
+}
+
+func TestCopyAbort_RecvEOFStillSucceeds(t *testing.T) {
+	const connID = uint64(3030)
+	mockStream := &mockBidiStream{
+		recvErr: io.EOF,
+	}
+	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc.copyStreams[connID] = mockStream
+
+	rs, err := svc.CopyAbort(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"abort requested",
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+	)
+	require.NoError(t, err)
+	require.Nil(t, rs)
+	require.True(t, mockStream.sendCalled.Load())
+	require.True(t, mockStream.closeSendCalled.Load())
+}
+
+// TestCopyFinalize_ErrorPhasePropagatesReservedState verifies CopyFinalize
+// passes the multipooler's surviving ReservedState back through the error
+// return when PostgreSQL rejects the COPY at CopyDone (e.g., constraint
+// violation) but the underlying reserved connection is still alive because
+// of an unrelated reason like a wrapping transaction.
+func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
+	const connID = uint64(99)
+	survivingState := &query.ReservedState{
+		ReservedConnectionId: connID,
+		ReservationReasons:   1,
+	}
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase:         multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			Error:         "constraint violation",
+			ReservedState: survivingState,
+		},
+	}
+	mockClient := &mockMultiPoolerServiceClient{
+		bidiStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+	// Pre-register stream as if CopyReady had succeeded earlier.
+	svc.copyStreams[connID] = mockStream
+
+	_, rs, err := svc.CopyFinalize(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		nil,
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "constraint violation")
+	require.NotNil(t, rs, "ReservedState must be propagated when multipooler attaches it")
+	require.Equal(t, connID, rs.GetReservedConnectionId())
+	// CopyFinalize removes the stream regardless of outcome.
+	require.NotContains(t, svc.copyStreams, connID)
+}
+
+// TestCopyFinalize_ErrorPhaseWithoutReservedState verifies CopyFinalize
+// returns nil ReservedState when the multipooler reports a connection-level
+// failure and does not attach a surviving state.
+func TestCopyFinalize_ErrorPhaseWithoutReservedState(t *testing.T) {
+	const connID = uint64(123)
+	mockStream := &mockBidiStream{
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_ERROR,
+			Error: "broken pipe",
+		},
+	}
+	mockClient := &mockMultiPoolerServiceClient{
+		bidiStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+	svc.copyStreams[connID] = mockStream
+
+	_, rs, err := svc.CopyFinalize(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		nil,
+		&query.ExecuteOptions{ReservedConnectionId: connID},
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "broken pipe")
+	require.Nil(t, rs, "ReservedState should be nil when multipooler did not attach one")
+	require.NotContains(t, svc.copyStreams, connID)
+}
+
 // --- ConcludeTransaction tests ---
 
 func TestConcludeTransaction_Commit(t *testing.T) {
@@ -349,6 +730,8 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -370,6 +753,8 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -397,6 +782,8 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.NoError(t, err)
@@ -417,8 +804,13 @@ func TestConcludeTransaction_Error(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
 	)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "conclude transaction failed")
+	// The grpc client now passes the multipooler error through FromGRPC so the
+	// underlying PostgreSQL diagnostic surfaces unwrapped. For a generic mock
+	// error we keep its original message instead of an internal RPC prefix.
+	require.Contains(t, err.Error(), "conclude failed")
 }

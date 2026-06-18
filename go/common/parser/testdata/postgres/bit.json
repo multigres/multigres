@@ -72,22 +72,22 @@
   {
     "comment": "bit - Statement 15",
     "query": "SELECT b' 0'",
-    "expected": "SELECT B'0'"
+    "expected": "SELECT B' 0'"
   },
   {
     "comment": "bit - Statement 16",
     "query": "SELECT b'0 '",
-    "expected": "SELECT B'0'"
+    "expected": "SELECT B'0 '"
   },
   {
     "comment": "bit - Statement 17",
     "query": "SELECT x' 0'",
-    "expected": "SELECT X'0'"
+    "expected": "SELECT X' 0'"
   },
   {
     "comment": "bit - Statement 18",
     "query": "SELECT x'0 '",
-    "expected": "SELECT X'0'"
+    "expected": "SELECT X'0 '"
   },
   {
     "comment": "bit - Statement 19",
@@ -160,17 +160,17 @@
   },
   {
     "comment": "bit - Statement 33",
-    "query": "SELECT a, b, ~a AS \"~ a\", a \u0026 b AS \"a \u0026 b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM varbit_table"
+    "query": "SELECT a, b, ~a AS \"~ a\", a & b AS \"a & b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM varbit_table"
   },
   {
     "comment": "bit - Statement 34",
-    "query": "SELECT a,b,a\u003cb AS \"a\u003cb\",a\u003c=b AS \"a\u003c=b\",a=b AS \"a=b\", a\u003e=b AS \"a\u003e=b\",a\u003eb AS \"a\u003eb\",a\u003c\u003eb AS \"a\u003c\u003eb\" FROM varbit_table",
-    "expected": "SELECT a, b, a \u003c b AS \"a\u003cb\", a \u003c= b AS \"a\u003c=b\", a = b AS \"a=b\", a \u003e= b AS \"a\u003e=b\", a \u003e b AS \"a\u003eb\", a \u003c\u003e b AS \"a\u003c\u003eb\" FROM varbit_table"
+    "query": "SELECT a,b,a<b AS \"a<b\",a<=b AS \"a<=b\",a=b AS \"a=b\", a>=b AS \"a>=b\",a>b AS \"a>b\",a<>b AS \"a<>b\" FROM varbit_table",
+    "expected": "SELECT a, b, a < b AS \"a<b\", a <= b AS \"a<=b\", a = b AS \"a=b\", a >= b AS \"a>=b\", a > b AS \"a>b\", a <> b AS \"a<>b\" FROM varbit_table"
   },
   {
     "comment": "bit - Statement 35",
-    "query": "SELECT a,a\u003c\u003c4 AS \"a\u003c\u003c4\",b,b\u003e\u003e2 AS \"b\u003e\u003e2\" FROM varbit_table",
-    "expected": "SELECT a, a \u003c\u003c 4 AS \"a\u003c\u003c4\", b, b \u003e\u003e 2 AS \"b\u003e\u003e2\" FROM varbit_table"
+    "query": "SELECT a,a<<4 AS \"a<<4\",b,b>>2 AS \"b>>2\" FROM varbit_table",
+    "expected": "SELECT a, a << 4 AS \"a<<4\", b, b >> 2 AS \"b>>2\" FROM varbit_table"
   },
   {
     "comment": "bit - Statement 36",
@@ -188,23 +188,23 @@
   },
   {
     "comment": "bit - Statement 39",
-    "query": "SELECT a,b,~a AS \"~ a\",a \u0026 b AS \"a \u0026 b\", a|b AS \"a | b\", a # b AS \"a # b\" FROM bit_table",
-    "expected": "SELECT a, b, ~a AS \"~ a\", a \u0026 b AS \"a \u0026 b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM bit_table"
+    "query": "SELECT a,b,~a AS \"~ a\",a & b AS \"a & b\", a|b AS \"a | b\", a # b AS \"a # b\" FROM bit_table",
+    "expected": "SELECT a, b, ~a AS \"~ a\", a & b AS \"a & b\", a | b AS \"a | b\", a # b AS \"a # b\" FROM bit_table"
   },
   {
     "comment": "bit - Statement 40",
-    "query": "SELECT a,b,a\u003cb AS \"a\u003cb\",a\u003c=b AS \"a\u003c=b\",a=b AS \"a=b\", a\u003e=b AS \"a\u003e=b\",a\u003eb AS \"a\u003eb\",a\u003c\u003eb AS \"a\u003c\u003eb\" FROM bit_table",
-    "expected": "SELECT a, b, a \u003c b AS \"a\u003cb\", a \u003c= b AS \"a\u003c=b\", a = b AS \"a=b\", a \u003e= b AS \"a\u003e=b\", a \u003e b AS \"a\u003eb\", a \u003c\u003e b AS \"a\u003c\u003eb\" FROM bit_table"
+    "query": "SELECT a,b,a<b AS \"a<b\",a<=b AS \"a<=b\",a=b AS \"a=b\", a>=b AS \"a>=b\",a>b AS \"a>b\",a<>b AS \"a<>b\" FROM bit_table",
+    "expected": "SELECT a, b, a < b AS \"a<b\", a <= b AS \"a<=b\", a = b AS \"a=b\", a >= b AS \"a>=b\", a > b AS \"a>b\", a <> b AS \"a<>b\" FROM bit_table"
   },
   {
     "comment": "bit - Statement 41",
-    "query": "SELECT a,a\u003c\u003c4 AS \"a\u003c\u003c4\",b,b\u003e\u003e2 AS \"b\u003e\u003e2\" FROM bit_table",
-    "expected": "SELECT a, a \u003c\u003c 4 AS \"a\u003c\u003c4\", b, b \u003e\u003e 2 AS \"b\u003e\u003e2\" FROM bit_table"
+    "query": "SELECT a,a<<4 AS \"a<<4\",b,b>>2 AS \"b>>2\" FROM bit_table",
+    "expected": "SELECT a, a << 4 AS \"a<<4\", b, b >> 2 AS \"b>>2\" FROM bit_table"
   },
   {
     "comment": "bit - Statement 42",
-    "query": "select B'001' \u0026 B'10'",
-    "expected": "SELECT B'001' \u0026 B'10'"
+    "query": "select B'001' & B'10'",
+    "expected": "SELECT B'001' & B'10'"
   },
   {
     "comment": "bit - Statement 43",
@@ -364,23 +364,23 @@
   },
   {
     "comment": "bit - Statement 81",
-    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e1 FROM BIT_SHIFT_TABLE",
-    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 1 FROM bit_shift_table"
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b>>1 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b >> 1 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 82",
-    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e2 FROM BIT_SHIFT_TABLE",
-    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 2 FROM bit_shift_table"
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b>>2 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b >> 2 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 83",
-    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e4 FROM BIT_SHIFT_TABLE",
-    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 4 FROM bit_shift_table"
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b>>4 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b >> 4 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 84",
-    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b\u003e\u003e8 FROM BIT_SHIFT_TABLE",
-    "expected": "INSERT INTO bit_shift_table SELECT b \u003e\u003e 8 FROM bit_shift_table"
+    "query": "INSERT INTO BIT_SHIFT_TABLE SELECT b>>8 FROM BIT_SHIFT_TABLE",
+    "expected": "INSERT INTO bit_shift_table SELECT b >> 8 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 85",
@@ -389,23 +389,23 @@
   },
   {
     "comment": "bit - Statement 86",
-    "query": "SELECT b, b \u003e\u003e 1 AS bsr, b \u003c\u003c 1 AS bsl FROM BIT_SHIFT_TABLE",
-    "expected": "SELECT b, b \u003e\u003e 1 AS bsr, b \u003c\u003c 1 AS bsl FROM bit_shift_table"
+    "query": "SELECT b, b >> 1 AS bsr, b << 1 AS bsl FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT b, b >> 1 AS bsr, b << 1 AS bsl FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 87",
-    "query": "SELECT b, b \u003e\u003e 8 AS bsr8, b \u003c\u003c 8 AS bsl8 FROM BIT_SHIFT_TABLE",
-    "expected": "SELECT b, b \u003e\u003e 8 AS bsr8, b \u003c\u003c 8 AS bsl8 FROM bit_shift_table"
+    "query": "SELECT b, b >> 8 AS bsr8, b << 8 AS bsl8 FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT b, b >> 8 AS bsr8, b << 8 AS bsl8 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 88",
-    "query": "SELECT b::bit(15), b::bit(15) \u003e\u003e 1 AS bsr, b::bit(15) \u003c\u003c 1 AS bsl FROM BIT_SHIFT_TABLE",
-    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) \u003e\u003e 1 AS bsr, CAST(b AS bit(15)) \u003c\u003c 1 AS bsl FROM bit_shift_table"
+    "query": "SELECT b::bit(15), b::bit(15) >> 1 AS bsr, b::bit(15) << 1 AS bsl FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) >> 1 AS bsr, CAST(b AS bit(15)) << 1 AS bsl FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 89",
-    "query": "SELECT b::bit(15), b::bit(15) \u003e\u003e 8 AS bsr8, b::bit(15) \u003c\u003c 8 AS bsl8 FROM BIT_SHIFT_TABLE",
-    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) \u003e\u003e 8 AS bsr8, CAST(b AS bit(15)) \u003c\u003c 8 AS bsl8 FROM bit_shift_table"
+    "query": "SELECT b::bit(15), b::bit(15) >> 8 AS bsr8, b::bit(15) << 8 AS bsl8 FROM BIT_SHIFT_TABLE",
+    "expected": "SELECT CAST(b AS bit(15)), CAST(b AS bit(15)) >> 8 AS bsr8, CAST(b AS bit(15)) << 8 AS bsl8 FROM bit_shift_table"
   },
   {
     "comment": "bit - Statement 90",
@@ -419,23 +419,23 @@
   },
   {
     "comment": "bit - Statement 92",
-    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0' AS BIT VARYING(6)) \u003e\u003e1 FROM VARBIT_SHIFT_TABLE",
-    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0' AS varbit(6)) \u003e\u003e 1 FROM varbit_shift_table"
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0' AS BIT VARYING(6)) >>1 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0' AS varbit(6)) >> 1 FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 93",
-    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00' AS BIT VARYING(8)) \u003e\u003e2 FROM VARBIT_SHIFT_TABLE",
-    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00' AS varbit(8)) \u003e\u003e 2 FROM varbit_shift_table"
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00' AS BIT VARYING(8)) >>2 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00' AS varbit(8)) >> 2 FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 94",
-    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0000' AS BIT VARYING(12)) \u003e\u003e4 FROM VARBIT_SHIFT_TABLE",
-    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0000' AS varbit(12)) \u003e\u003e 4 FROM varbit_shift_table"
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'0000' AS BIT VARYING(12)) >>4 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'0000' AS varbit(12)) >> 4 FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 95",
-    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00000000' AS BIT VARYING(20)) \u003e\u003e8 FROM VARBIT_SHIFT_TABLE",
-    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00000000' AS varbit(20)) \u003e\u003e 8 FROM varbit_shift_table"
+    "query": "INSERT INTO VARBIT_SHIFT_TABLE SELECT CAST(v || B'00000000' AS BIT VARYING(20)) >>8 FROM VARBIT_SHIFT_TABLE",
+    "expected": "INSERT INTO varbit_shift_table SELECT CAST(v || B'00000000' AS varbit(20)) >> 8 FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 96",
@@ -444,13 +444,13 @@
   },
   {
     "comment": "bit - Statement 97",
-    "query": "SELECT v, v \u003e\u003e 1 AS vsr, v \u003c\u003c 1 AS vsl FROM VARBIT_SHIFT_TABLE",
-    "expected": "SELECT v, v \u003e\u003e 1 AS vsr, v \u003c\u003c 1 AS vsl FROM varbit_shift_table"
+    "query": "SELECT v, v >> 1 AS vsr, v << 1 AS vsl FROM VARBIT_SHIFT_TABLE",
+    "expected": "SELECT v, v >> 1 AS vsr, v << 1 AS vsl FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 98",
-    "query": "SELECT v, v \u003e\u003e 8 AS vsr8, v \u003c\u003c 8 AS vsl8 FROM VARBIT_SHIFT_TABLE",
-    "expected": "SELECT v, v \u003e\u003e 8 AS vsr8, v \u003c\u003c 8 AS vsl8 FROM varbit_shift_table"
+    "query": "SELECT v, v >> 8 AS vsr8, v << 8 AS vsl8 FROM VARBIT_SHIFT_TABLE",
+    "expected": "SELECT v, v >> 8 AS vsr8, v << 8 AS vsl8 FROM varbit_shift_table"
   },
   {
     "comment": "bit - Statement 99",

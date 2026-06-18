@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -298,18 +299,22 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	// Populate the store with two poolers with different stream states.
 	engine.poolerStore.Set("zone1/pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			Database: "testdb",
-			Shard:    "shard1",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database: "testdb",
+				Shard:    "shard1",
+			},
 		},
 		StreamConnected:         true,
 		StreamSnapshotsReceived: 42,
 	})
 	engine.poolerStore.Set("zone1/pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-			Database: "testdb",
-			Shard:    "shard1",
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database: "testdb",
+				Shard:    "shard1",
+			},
 		},
 		StreamConnected:         false,
 		StreamSnapshotsReceived: 7,
@@ -318,7 +323,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	data = engine.collectStreamHealthData()
 	require.Len(t, data, 2)
 
-	byID := make(map[string]StreamHealthData, len(data))
+	byID := make(map[topoclient.ComponentID]StreamHealthData, len(data))
 	for _, d := range data {
 		byID[d.PoolerID] = d
 	}

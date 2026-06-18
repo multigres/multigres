@@ -2,7 +2,7 @@
   {
     "comment": "create_misc - Statement 1",
     "query": "CREATE TABLE a_star ( class\t\tchar, a \t\t\tint4 )",
-    "expected": "CREATE TABLE a_star (class CHAR(1), a INT)"
+    "expected": "CREATE TABLE a_star (class bpchar(1), a INT)"
   },
   {
     "comment": "create_misc - Statement 2",
@@ -298,8 +298,8 @@
   },
   {
     "comment": "create_misc - Statement 64",
-    "query": "SELECT * FROM b_star* x WHERE x.b = text 'bumble' or x.a \u003c 3",
-    "expected": "SELECT * FROM b_star AS x WHERE x.b = CAST('bumble' AS TEXT) OR x.a \u003c 3"
+    "query": "SELECT * FROM b_star* x WHERE x.b = text 'bumble' or x.a < 3",
+    "expected": "SELECT * FROM b_star AS x WHERE x.b = CAST('bumble' AS TEXT) OR x.a < 3"
   },
   {
     "comment": "create_misc - Statement 65",
@@ -308,8 +308,8 @@
   },
   {
     "comment": "create_misc - Statement 66",
-    "query": "SELECT class, b, c FROM d_star* x WHERE x.a \u003c 100",
-    "expected": "SELECT class, b, c FROM d_star AS x WHERE x.a \u003c 100"
+    "query": "SELECT class, b, c FROM d_star* x WHERE x.a < 100",
+    "expected": "SELECT class, b, c FROM d_star AS x WHERE x.a < 100"
   },
   {
     "comment": "create_misc - Statement 67",
@@ -371,8 +371,8 @@
   },
   {
     "comment": "create_misc - Statement 79",
-    "query": "SELECT class, foo FROM a_star* x WHERE x.foo \u003e= 2",
-    "expected": "SELECT class, foo FROM a_star AS x WHERE x.foo \u003e= 2"
+    "query": "SELECT class, foo FROM a_star* x WHERE x.foo >= 2",
+    "expected": "SELECT class, foo FROM a_star AS x WHERE x.foo >= 2"
   },
   {
     "comment": "create_misc - Statement 80",
@@ -380,8 +380,8 @@
   },
   {
     "comment": "create_misc - Statement 81",
-    "query": "SELECT * from a_star* WHERE aa \u003c 1000",
-    "expected": "SELECT * FROM a_star WHERE aa \u003c 1000"
+    "query": "SELECT * from a_star* WHERE aa < 1000",
+    "expected": "SELECT * FROM a_star WHERE aa < 1000"
   },
   {
     "comment": "create_misc - Statement 82",
@@ -409,8 +409,8 @@
   },
   {
     "comment": "create_misc - Statement 87",
-    "query": "SELECT relname, reltoastrelid \u003c\u003e 0 AS has_toast_table FROM pg_class WHERE oid::regclass IN ('a_star', 'c_star') ORDER BY 1",
-    "expected": "SELECT relname, reltoastrelid \u003c\u003e 0 AS has_toast_table FROM pg_class WHERE CAST(oid AS regclass) IN ('a_star', 'c_star') ORDER BY 1"
+    "query": "SELECT relname, reltoastrelid <> 0 AS has_toast_table FROM pg_class WHERE oid::regclass IN ('a_star', 'c_star') ORDER BY 1",
+    "expected": "SELECT relname, reltoastrelid <> 0 AS has_toast_table FROM pg_class WHERE CAST(oid AS regclass) IN ('a_star', 'c_star') ORDER BY 1"
   },
   {
     "comment": "create_misc - Statement 88",

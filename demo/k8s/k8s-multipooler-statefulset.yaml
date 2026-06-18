@@ -155,6 +155,9 @@ spec:
             - name: sampling-config
               mountPath: /etc/otel
               readOnly: true
+            - name: postgres-password
+              mountPath: /var/run/secrets/multigres
+              readOnly: true
           env:
             - name: POD_NAME
               valueFrom:
@@ -170,8 +173,11 @@ spec:
                   fieldPath: metadata.labels['cell']
             - name: OTEL_SERVICE_NAME
               value: "multipooler"
-            - name: POSTGRES_PASSWORD
-              value: postgres
+            # Read the postgres password from the file mounted from the
+            # multigres-postgres-password Secret. Swap to
+            # /var/run/secrets/multigres/$(POD_NAME) for per-pod passwords.
+            - name: POSTGRES_PASSWORD_FILE
+              value: /var/run/secrets/multigres/password
             - name: PGDATA
               value: /data/pg_data
           envFrom:
@@ -210,6 +216,9 @@ spec:
             - name: pg-hba-template
               mountPath: /etc/pgctld
               readOnly: true
+            - name: postgres-password
+              mountPath: /var/run/secrets/multigres
+              readOnly: true
           env:
             - name: POD_NAME
               valueFrom:
@@ -217,8 +226,11 @@ spec:
                   fieldPath: metadata.name
             - name: PGDATA
               value: /data/pg_data
-            - name: POSTGRES_PASSWORD
-              value: postgres
+            # initdb / start / stop all read the postgres password from this
+            # file. Swap to /var/run/secrets/multigres/$(POD_NAME) for per-pod
+            # passwords (POD_NAME is already in scope above).
+            - name: POSTGRES_PASSWORD_FILE
+              value: /var/run/secrets/multigres/password
 
       volumes:
         # We have to give different mount points.
@@ -246,3 +258,12 @@ spec:
         - name: sampling-config
           configMap:
             name: sampling-config
+        # The postgres password is mounted from a Secret. The mode is set to
+        # 0444 to ensure the file is readable by the non-root user in the
+        # container. This is just for the demo. In production, you may want to
+        # use a more secure mode and ensure the Secret is only readable by the
+        # appropriate users.
+        - name: postgres-password
+          secret:
+            secretName: multigres-postgres-password
+            defaultMode: 0444

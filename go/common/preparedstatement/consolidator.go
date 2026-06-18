@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -87,7 +88,10 @@ func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {
 	asts, err := parser.ParseSQL(ps.Query)
 	if err != nil {
-		return nil, err
+		// ParseSQL only does syntactic parsing, so any error here is a syntax
+		// error. Surface it as a 42601 diagnostic (the parser stays
+		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would.
+		return nil, mterrors.NewParseError(err.Error())
 	}
 	if len(asts) != 1 {
 		return nil, errors.New("more than 1 query in prepare statement")

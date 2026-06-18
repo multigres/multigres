@@ -82,12 +82,22 @@ func TestParseClientFirstMessage(t *testing.T) {
 		assert.Contains(t, err.Error(), "GS2")
 	})
 
-	t.Run("channel binding requested but not supported", func(t *testing.T) {
-		// 'p' means channel binding is required
-		msg := "p=tls-unique,,n=user,r=nonce"
+	t.Run("channel binding flag is parsed", func(t *testing.T) {
+		// 'p=<type>' is valid wire syntax — the authenticator decides
+		// whether the type is acceptable for the selected mechanism.
+		msg := "p=tls-server-end-point,,n=user,r=nonce"
+		parsed, err := parseClientFirstMessage(msg)
+		require.NoError(t, err)
+		assert.Equal(t, "p=tls-server-end-point", parsed.gs2CbindFlag)
+		assert.Equal(t, "tls-server-end-point", parsed.channelBindingType)
+		assert.Equal(t, "p=tls-server-end-point,,", parsed.gs2Header)
+	})
+
+	t.Run("empty channel binding type is rejected", func(t *testing.T) {
+		msg := "p=,,n=user,r=nonce"
 		_, err := parseClientFirstMessage(msg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "channel binding")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing type")
 	})
 
 	t.Run("missing username attribute - valid (fallback handled later)", func(t *testing.T) {

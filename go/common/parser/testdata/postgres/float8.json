@@ -182,8 +182,8 @@
   },
   {
     "comment": "float8 - Statement 38",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 \u003c\u003e '1004.3'",
-    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c\u003e '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 <> '1004.3'"
   },
   {
     "comment": "float8 - Statement 39",
@@ -192,43 +192,43 @@
   },
   {
     "comment": "float8 - Statement 40",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' \u003e f.f1",
-    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' \u003e f.f1"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' > f.f1",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' > f.f1"
   },
   {
     "comment": "float8 - Statement 41",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 \u003c '1004.3'",
-    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 < '1004.3'"
   },
   {
     "comment": "float8 - Statement 42",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' \u003e= f.f1",
-    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' \u003e= f.f1"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' >= f.f1"
   },
   {
     "comment": "float8 - Statement 43",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 \u003c= '1004.3'",
-    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c= '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 <= '1004.3'"
   },
   {
     "comment": "float8 - Statement 44",
-    "query": "SELECT f.f1, f.f1 * '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, f.f1 * '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, f.f1 * '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, f.f1 * '-10' AS x FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 45",
-    "query": "SELECT f.f1, f.f1 + '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, f.f1 + '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, f.f1 + '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, f.f1 + '-10' AS x FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 46",
-    "query": "SELECT f.f1, f.f1 / '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, f.f1 / '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, f.f1 / '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, f.f1 / '-10' AS x FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 47",
-    "query": "SELECT f.f1, f.f1 - '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, f.f1 - '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, f.f1 - '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, f.f1 - '-10' AS x FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 48",
@@ -286,8 +286,8 @@
   },
   {
     "comment": "float8 - Statement 59",
-    "query": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 60",
@@ -461,8 +461,8 @@
   },
   {
     "comment": "float8 - Statement 94",
-    "query": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
-    "expected": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
+    "query": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM FLOAT8_TBL f WHERE f.f1 > '0.0'",
+    "expected": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM float8_tbl AS f WHERE f.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 95",
@@ -481,8 +481,8 @@
   },
   {
     "comment": "float8 - Statement 98",
-    "query": "UPDATE FLOAT8_TBL SET f1 = FLOAT8_TBL.f1 * '-1' WHERE FLOAT8_TBL.f1 \u003e '0.0'",
-    "expected": "UPDATE float8_tbl SET f1 = float8_tbl.f1 * '-1' WHERE float8_tbl.f1 \u003e '0.0'"
+    "query": "UPDATE FLOAT8_TBL SET f1 = FLOAT8_TBL.f1 * '-1' WHERE FLOAT8_TBL.f1 > '0.0'",
+    "expected": "UPDATE float8_tbl SET f1 = float8_tbl.f1 * '-1' WHERE float8_tbl.f1 > '0.0'"
   },
   {
     "comment": "float8 - Statement 99",
@@ -505,8 +505,8 @@
   },
   {
     "comment": "float8 - Statement 103",
-    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 \u003c '0.0'",
-    "expected": "SELECT ln(f.f1) FROM float8_tbl AS f WHERE f.f1 \u003c '0.0'"
+    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0'",
+    "expected": "SELECT ln(f.f1) FROM float8_tbl AS f WHERE f.f1 < '0.0'"
   },
   {
     "comment": "float8 - Statement 104",

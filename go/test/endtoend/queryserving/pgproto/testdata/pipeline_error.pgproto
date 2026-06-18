@@ -1,0 +1,45 @@
+#
+# Extended-query: a pipelined batch that errors mid-batch.
+#
+# Several Parse/Bind/Execute groups are pipelined before a single Sync. The
+# whole run between Syncs is one implicit transaction: when a message in the
+# middle errors, the backend reports the ErrorResponse, skips every later
+# message until the Sync, and rolls back the *entire* implicit transaction —
+# including the inserts that already "succeeded" earlier in the same batch.
+# A proxy that splits the pipeline into separate transactions, or that lets the
+# earlier inserts commit, would diverge here.
+#
+# What the trace pins down is the *message sequencing*: ParseComplete/
+# BindComplete/CommandComplete for the first INSERT, then ParseComplete/
+# BindComplete/ErrorResponse(23505) for the duplicate, and then NOTHING for the
+# third group — its Parse/Bind/Execute are skipped, so no third ParseComplete
+# appears before ReadyForQuery. (The row count itself is invisible: pgproto
+# prints DataRow without its payload, so 0 vs 1 look identical in the trace.)
+#
+
+'Q'	"CREATE TABLE pgproto_pipe (id int primary key)"
+'Y'
+
+# One pipeline, one Sync. Order of operations:
+#   INSERT 1   -> succeeds
+#   INSERT 1   -> duplicate key, ErrorResponse(23505)
+#   INSERT 2   -> skipped (after the error, before the Sync)
+# At the Sync the implicit transaction aborts, so NOTHING is committed.
+'P'	"ins_a"	"INSERT INTO pgproto_pipe VALUES (1)"	0
+'B'	"b_a"	"ins_a"	0	0	0
+'E'	"b_a"	0
+'P'	"ins_dup"	"INSERT INTO pgproto_pipe VALUES (1)"	0
+'B'	"b_dup"	"ins_dup"	0	0	0
+'E'	"b_dup"	0
+'P'	"ins_c"	"INSERT INTO pgproto_pipe VALUES (2)"	0
+'B'	"b_c"	"ins_c"	0	0	0
+'E'	"b_c"	0
+'S'
+'Y'
+
+# Recovery after the aborted batch: a plain simple query runs normally,
+# proving the session resynced to ReadyForQuery on the simple-query path.
+'Q'	"SELECT count(*) FROM pgproto_pipe"
+'Y'
+
+'X'

@@ -51,6 +51,7 @@ func (g *GatewayShowVariable) StreamExecute(
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	var value string
@@ -90,9 +91,10 @@ func (g *GatewayShowVariable) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return g.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return g.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.

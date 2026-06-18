@@ -261,9 +261,9 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	)
 
 	// Track config reloads
-	var reloadCount int32
+	var reloadCount atomic.Int32
 	re.SetConfigReloader(func() []string {
-		atomic.AddInt32(&reloadCount, 1)
+		reloadCount.Add(1)
 		return []string{"db1", "db2"}
 	})
 
@@ -276,7 +276,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 
 	// Wait for config reload to be called at least once
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&reloadCount) > 0
+		return reloadCount.Load() > 0
 	}, 2*time.Second, 50*time.Millisecond, "config reloader was never called during maintenance loop")
 
 	// Wait for targets to be updated
@@ -416,16 +416,28 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 
 	// Add poolers to topology BEFORE starting engine
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
-		Database: "mydb", TableGroup: "tg1", Shard: "1",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "1",
+		},
 	}))
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
-		Database: "mydb", TableGroup: "tg2", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg2",
+			Shard:      "0",
+		},
 	}))
 
 	// Create engine with short refresh interval for testing
@@ -495,8 +507,12 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	oldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago (> 4 hour threshold)
 	oldPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "0",
+			Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "mydb",
+				TableGroup: "tg1",
+				Shard:      "0",
+			},
 		},
 		LastSeen:            timestamppb.New(oldTime),
 		LastCheckAttempted:  timestamppb.New(oldTime),
@@ -508,8 +524,12 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 
 	neverSeenPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
-			Database: "mydb", TableGroup: "tg1", Shard: "1",
+			Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "never-seen"},
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "mydb",
+				TableGroup: "tg1",
+				Shard:      "1",
+			},
 		},
 		LastCheckAttempted: timestamppb.New(oldTime),
 		LastSeen:           nil, // Never seen
@@ -522,8 +542,12 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 
 	healthyPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "2",
+			Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "healthy-pooler"},
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "mydb",
+				TableGroup: "tg1",
+				Shard:      "2",
+			},
 		},
 		LastSeen:            timestamppb.New(recentTime),
 		LastCheckAttempted:  timestamppb.New(recentTime),
@@ -583,8 +607,12 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 
 	// Add pooler to topology BEFORE starting
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
-		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "new-pooler"},
-		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "new-pooler"},
+		ShardKey: &clustermetadata.ShardKey{
+			Database:   "mydb",
+			TableGroup: "tg1",
+			Shard:      "0",
+		},
 		Hostname: "host1",
 	}))
 
@@ -594,8 +622,12 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 
 	oldPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadata.MultiPooler{
-			Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
-			Database: "mydb", TableGroup: "tg1", Shard: "1",
+			Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "old-pooler"},
+			ShardKey: &clustermetadata.ShardKey{
+				Database:   "mydb",
+				TableGroup: "tg1",
+				Shard:      "1",
+			},
 		},
 		LastSeen:            timestamppb.New(oldTime),
 		LastCheckAttempted:  timestamppb.New(oldTime),

@@ -1,0 +1,247 @@
+[
+  {
+    "comment": "plpgsql_control - Statement 1",
+    "query": "do $$ begin  for i in 1..3 loop raise notice '1..3: i = %', i; end loop;  for i in 1..10 by 3 loop raise notice '1..10 by 3: i = %', i; end loop;  for i in 1..11 by 3 loop raise notice '1..11 by 3: i = %', i; end loop;  for i in 1..0 by 3 loop raise notice '1..0 by 3: i = %', i; end loop;  for i in reverse 10..0 by 3 loop raise notice 'reverse 10..0 by 3: i = %', i; end loop;  for i in 2147483620..2147483647 by 10 loop raise notice '2147483620..2147483647 by 10: i = %', i; end loop;  for i in reverse -2147483620..-2147483647 by 10 loop raise notice 'reverse -2147483620..-2147483647 by 10: i = %', i; end loop; end$$",
+    "expected": "DO ' begin  for i in 1..3 loop raise notice ''1..3: i = %'', i; end loop;  for i in 1..10 by 3 loop raise notice ''1..10 by 3: i = %'', i; end loop;  for i in 1..11 by 3 loop raise notice ''1..11 by 3: i = %'', i; end loop;  for i in 1..0 by 3 loop raise notice ''1..0 by 3: i = %'', i; end loop;  for i in reverse 10..0 by 3 loop raise notice ''reverse 10..0 by 3: i = %'', i; end loop;  for i in 2147483620..2147483647 by 10 loop raise notice ''2147483620..2147483647 by 10: i = %'', i; end loop;  for i in reverse -2147483620..-2147483647 by 10 loop raise notice ''reverse -2147483620..-2147483647 by 10: i = %'', i; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 2",
+    "query": "do $$ begin for i in 1..3 by 0 loop raise notice '1..3 by 0: i = %', i; end loop; end$$",
+    "expected": "DO ' begin for i in 1..3 by 0 loop raise notice ''1..3 by 0: i = %'', i; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 3",
+    "query": "do $$ begin for i in 1..3 by -1 loop raise notice '1..3 by -1: i = %', i; end loop; end$$",
+    "expected": "DO ' begin for i in 1..3 by -1 loop raise notice ''1..3 by -1: i = %'', i; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 4",
+    "query": "do $$ begin for i in reverse 1..3 by -1 loop raise notice 'reverse 1..3 by -1: i = %', i; end loop; end$$",
+    "expected": "DO ' begin for i in reverse 1..3 by -1 loop raise notice ''reverse 1..3 by -1: i = %'', i; end loop; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 5",
+    "query": "create table conttesttbl(idx serial, v integer)",
+    "expected": "CREATE TABLE conttesttbl (idx serial, v INT)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 6",
+    "query": "insert into conttesttbl(v) values(10)",
+    "expected": "INSERT INTO conttesttbl (v) VALUES (10)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 7",
+    "query": "insert into conttesttbl(v) values(20)",
+    "expected": "INSERT INTO conttesttbl (v) VALUES (20)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 8",
+    "query": "insert into conttesttbl(v) values(30)",
+    "expected": "INSERT INTO conttesttbl (v) VALUES (30)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 9",
+    "query": "insert into conttesttbl(v) values(40)",
+    "expected": "INSERT INTO conttesttbl (v) VALUES (40)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 10",
+    "query": "create function continue_test1() returns void as $$ declare _i integer = 0; _r record; begin raise notice '---1---'; loop _i := _i + 1; raise notice '%', _i; continue when _i < 10; exit; end loop;  raise notice '---2---'; <<lbl>> loop _i := _i - 1; loop raise notice '%', _i; continue lbl when _i > 0; exit lbl; end loop; end loop;  raise notice '---3---'; <<the_loop>> while _i < 10 loop _i := _i + 1; continue the_loop when _i % 2 = 0; raise notice '%', _i; end loop;  raise notice '---4---'; for _i in 1..10 loop begin  continue when _i < 5; raise notice '%', _i; end; end loop;  raise notice '---5---'; for _r in select * from conttesttbl loop continue when _r.v <= 20; raise notice '%', _r.v; end loop;  raise notice '---6---'; for _r in execute 'select * from conttesttbl' loop continue when _r.v <= 20; raise notice '%', _r.v; end loop;  raise notice '---7---'; <<looplabel>> for _i in 1..3 loop continue looplabel when _i = 2; raise notice '%', _i; end loop;  raise notice '---8---'; _i := 1; while _i <= 3 loop raise notice '%', _i; _i := _i + 1; continue when _i = 3; end loop;  raise notice '---9---'; for _r in select * from conttesttbl order by v limit 1 loop raise notice '%', _r.v; continue; end loop;  raise notice '---10---'; for _r in execute 'select * from conttesttbl order by v limit 1' loop raise notice '%', _r.v; continue; end loop;  raise notice '---11---'; <<outerlooplabel>> for _i in 1..2 loop raise notice 'outer %', _i; <<innerlooplabel>> for _j in 1..3 loop continue outerlooplabel when _j = 2; raise notice 'inner %', _j; end loop; end loop; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION continue_test1 () RETURNS void AS $$ declare _i integer = 0; _r record; begin raise notice '---1---'; loop _i := _i + 1; raise notice '%', _i; continue when _i < 10; exit; end loop;  raise notice '---2---'; <<lbl>> loop _i := _i - 1; loop raise notice '%', _i; continue lbl when _i > 0; exit lbl; end loop; end loop;  raise notice '---3---'; <<the_loop>> while _i < 10 loop _i := _i + 1; continue the_loop when _i % 2 = 0; raise notice '%', _i; end loop;  raise notice '---4---'; for _i in 1..10 loop begin  continue when _i < 5; raise notice '%', _i; end; end loop;  raise notice '---5---'; for _r in select * from conttesttbl loop continue when _r.v <= 20; raise notice '%', _r.v; end loop;  raise notice '---6---'; for _r in execute 'select * from conttesttbl' loop continue when _r.v <= 20; raise notice '%', _r.v; end loop;  raise notice '---7---'; <<looplabel>> for _i in 1..3 loop continue looplabel when _i = 2; raise notice '%', _i; end loop;  raise notice '---8---'; _i := 1; while _i <= 3 loop raise notice '%', _i; _i := _i + 1; continue when _i = 3; end loop;  raise notice '---9---'; for _r in select * from conttesttbl order by v limit 1 loop raise notice '%', _r.v; continue; end loop;  raise notice '---10---'; for _r in execute 'select * from conttesttbl order by v limit 1' loop raise notice '%', _r.v; continue; end loop;  raise notice '---11---'; <<outerlooplabel>> for _i in 1..2 loop raise notice 'outer %', _i; <<innerlooplabel>> for _j in 1..3 loop continue outerlooplabel when _j = 2; raise notice 'inner %', _j; end loop; end loop; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 11",
+    "query": "select continue_test1()",
+    "expected": "SELECT continue_test1()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 12",
+    "query": "create function continue_error1() returns void as $$ begin begin continue; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION continue_error1 () RETURNS void AS $$ begin begin continue; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 13",
+    "query": "create function exit_error1() returns void as $$ begin begin exit; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION exit_error1 () RETURNS void AS $$ begin begin exit; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 14",
+    "query": "create function continue_error2() returns void as $$ begin begin loop continue no_such_label; end loop; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION continue_error2 () RETURNS void AS $$ begin begin loop continue no_such_label; end loop; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 15",
+    "query": "create function exit_error2() returns void as $$ begin begin loop exit no_such_label; end loop; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION exit_error2 () RETURNS void AS $$ begin begin loop exit no_such_label; end loop; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 16",
+    "query": "create function continue_error3() returns void as $$ begin <<begin_block1>> begin loop continue begin_block1; end loop; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION continue_error3 () RETURNS void AS $$ begin <<begin_block1>> begin loop continue begin_block1; end loop; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 17",
+    "query": "create function exit_block1() returns void as $$ begin <<begin_block1>> begin loop exit begin_block1; raise exception 'should not get here'; end loop; end; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION exit_block1 () RETURNS void AS $$ begin <<begin_block1>> begin loop exit begin_block1; raise exception 'should not get here'; end loop; end; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 18",
+    "query": "select exit_block1()",
+    "expected": "SELECT exit_block1()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 19",
+    "query": "create function end_label1() returns void as $$ <<blbl>> begin <<flbl1>> for i in 1 .. 10 loop raise notice 'i = %', i; exit flbl1; end loop flbl1; <<flbl2>> for j in 1 .. 10 loop raise notice 'j = %', j; exit flbl2; end loop; end blbl; $$ language plpgsql",
+    "expected": "CREATE FUNCTION end_label1 () RETURNS void AS $$ <<blbl>> begin <<flbl1>> for i in 1 .. 10 loop raise notice 'i = %', i; exit flbl1; end loop flbl1; <<flbl2>> for j in 1 .. 10 loop raise notice 'j = %', j; exit flbl2; end loop; end blbl; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 20",
+    "query": "select end_label1()",
+    "expected": "SELECT end_label1()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 21",
+    "query": "create function end_label2() returns void as $$ begin for _i in 1 .. 10 loop exit; end loop flbl1; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION end_label2 () RETURNS void AS $$ begin for _i in 1 .. 10 loop exit; end loop flbl1; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 22",
+    "query": "create function end_label3() returns void as $$ <<outer_label>> begin <<inner_label>> for _i in 1 .. 10 loop exit; end loop outer_label; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION end_label3 () RETURNS void AS $$ <<outer_label>> begin <<inner_label>> for _i in 1 .. 10 loop exit; end loop outer_label; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 23",
+    "query": "create function end_label4() returns void as $$ <<outer_label>> begin for _i in 1 .. 10 loop exit; end loop outer_label; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION end_label4 () RETURNS void AS $$ <<outer_label>> begin for _i in 1 .. 10 loop exit; end loop outer_label; end; $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 24",
+    "query": "do $$ begin for i in 1..10 loop <<innerblock>> begin begin exit; raise notice 'should not get here'; end; raise notice 'should not get here, either'; end; raise notice 'nor here'; end loop; raise notice 'should get here'; end$$",
+    "expected": "DO ' begin for i in 1..10 loop <<innerblock>> begin begin exit; raise notice ''should not get here''; end; raise notice ''should not get here, either''; end; raise notice ''nor here''; end loop; raise notice ''should get here''; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 25",
+    "query": "do $$ <<outerblock>> begin <<innerblock>> begin <<moreinnerblock>> begin begin exit innerblock; raise notice 'should not get here'; end; raise notice 'should not get here, either'; end; raise notice 'nor here'; end; raise notice 'should get here'; end$$",
+    "expected": "DO ' <<outerblock>> begin <<innerblock>> begin <<moreinnerblock>> begin begin exit innerblock; raise notice ''should not get here''; end; raise notice ''should not get here, either''; end; raise notice ''nor here''; end; raise notice ''should get here''; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 26",
+    "query": "do $$ <<outerblock>> begin <<innerblock>> begin exit outerblock; raise notice 'should not get here'; end; raise notice 'should not get here, either'; end$$",
+    "expected": "DO ' <<outerblock>> begin <<innerblock>> begin exit outerblock; raise notice ''should not get here''; end; raise notice ''should not get here, either''; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 27",
+    "query": "do $$ begin <<outermostwhile>> while 1 > 0 loop <<outerwhile>> while 1 > 0 loop <<innerwhile>> while 1 > 0 loop exit; raise notice 'should not get here'; end loop; raise notice 'should get here'; exit outermostwhile; raise notice 'should not get here, either'; end loop; raise notice 'nor here'; end loop; raise notice 'should get here, too'; end$$",
+    "expected": "DO ' begin <<outermostwhile>> while 1 > 0 loop <<outerwhile>> while 1 > 0 loop <<innerwhile>> while 1 > 0 loop exit; raise notice ''should not get here''; end loop; raise notice ''should get here''; exit outermostwhile; raise notice ''should not get here, either''; end loop; raise notice ''nor here''; end loop; raise notice ''should get here, too''; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 28",
+    "query": "do $$ begin <<outerwhile>> while 1 > 0 loop while 1 > 0 loop exit outerwhile; raise notice 'should not get here'; end loop; raise notice 'should not get here, either'; end loop; raise notice 'should get here'; end$$",
+    "expected": "DO ' begin <<outerwhile>> while 1 > 0 loop while 1 > 0 loop exit outerwhile; raise notice ''should not get here''; end loop; raise notice ''should not get here, either''; end loop; raise notice ''should get here''; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 29",
+    "query": "do $$ declare i int := 0; begin <<outermostwhile>> while i < 2 loop raise notice 'outermostwhile, i = %', i; i := i + 1; <<outerwhile>> while 1 > 0 loop <<innerwhile>> while 1 > 0 loop continue outermostwhile; raise notice 'should not get here'; end loop; raise notice 'should not get here, either'; end loop; raise notice 'nor here'; end loop; raise notice 'out of outermostwhile, i = %', i; end$$",
+    "expected": "DO ' declare i int := 0; begin <<outermostwhile>> while i < 2 loop raise notice ''outermostwhile, i = %'', i; i := i + 1; <<outerwhile>> while 1 > 0 loop <<innerwhile>> while 1 > 0 loop continue outermostwhile; raise notice ''should not get here''; end loop; raise notice ''should not get here, either''; end loop; raise notice ''nor here''; end loop; raise notice ''out of outermostwhile, i = %'', i; end'"
+  },
+  {
+    "comment": "plpgsql_control - Statement 30",
+    "query": "create function return_from_while() returns int language plpgsql as $$ declare i int := 0; begin while i < 10 loop if i > 2 then return i; end if; i := i + 1; end loop; return null; end$$",
+    "expected": "CREATE FUNCTION return_from_while () RETURNS INT LANGUAGE plpgsql AS $$ declare i int := 0; begin while i < 10 loop if i > 2 then return i; end if; i := i + 1; end loop; return null; end$$"
+  },
+  {
+    "comment": "plpgsql_control - Statement 31",
+    "query": "select return_from_while()",
+    "expected": "SELECT return_from_while()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 32",
+    "query": "create function for_vect() returns void as $proc$ <<lbl>>declare a integer; b varchar; c varchar; r record; begin  for i in 1 .. 3 loop raise notice '%', i; end loop;  for r in select gs as aa, 'BB' as bb, 'CC' as cc from generate_series(1,4) gs loop raise notice '% % %', r.aa, r.bb, r.cc; end loop;  for a in select gs from generate_series(1,4) gs loop raise notice '%', a; end loop;  for a,b,c in select gs, 'BB','CC' from generate_series(1,4) gs loop raise notice '% % %', a, b, c; end loop;  for lbl.a, lbl.b, lbl.c in execute $$select gs, 'bb','cc' from generate_series(1,4) gs$$ loop raise notice '% % %', a, b, c; end loop; end; $proc$ language plpgsql",
+    "expected": "CREATE FUNCTION for_vect () RETURNS void AS $_$ <<lbl>>declare a integer; b varchar; c varchar; r record; begin  for i in 1 .. 3 loop raise notice '%', i; end loop;  for r in select gs as aa, 'BB' as bb, 'CC' as cc from generate_series(1,4) gs loop raise notice '% % %', r.aa, r.bb, r.cc; end loop;  for a in select gs from generate_series(1,4) gs loop raise notice '%', a; end loop;  for a,b,c in select gs, 'BB','CC' from generate_series(1,4) gs loop raise notice '% % %', a, b, c; end loop;  for lbl.a, lbl.b, lbl.c in execute $$select gs, 'bb','cc' from generate_series(1,4) gs$$ loop raise notice '% % %', a, b, c; end loop; end; $_$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 33",
+    "query": "select for_vect()",
+    "expected": "SELECT for_vect()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 34",
+    "query": "create or replace function case_test(bigint) returns text as $$ declare a int = 10; b int = 1; begin case $1 when 1 then return 'one'; when 2 then return 'two'; when 3,4,3+5 then return 'three, four or eight'; when a then return 'ten'; when a+b, a+b+1 then return 'eleven, twelve'; end case; end; $$ language plpgsql immutable",
+    "expected": "CREATE OR REPLACE FUNCTION case_test (BIGINT) RETURNS TEXT AS $$ declare a int = 10; b int = 1; begin case $1 when 1 then return 'one'; when 2 then return 'two'; when 3,4,3+5 then return 'three, four or eight'; when a then return 'ten'; when a+b, a+b+1 then return 'eleven, twelve'; end case; end; $$ LANGUAGE plpgsql IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_control - Statement 35",
+    "query": "select case_test(1)",
+    "expected": "SELECT case_test(1)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 36",
+    "query": "select case_test(2)",
+    "expected": "SELECT case_test(2)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 37",
+    "query": "select case_test(3)",
+    "expected": "SELECT case_test(3)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 38",
+    "query": "select case_test(4)",
+    "expected": "SELECT case_test(4)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 39",
+    "query": "select case_test(5)",
+    "expected": "SELECT case_test(5)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 40",
+    "query": "select case_test(8)",
+    "expected": "SELECT case_test(8)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 41",
+    "query": "select case_test(10)",
+    "expected": "SELECT case_test(10)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 42",
+    "query": "select case_test(11)",
+    "expected": "SELECT case_test(11)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 43",
+    "query": "select case_test(12)",
+    "expected": "SELECT case_test(12)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 44",
+    "query": "select case_test(13)",
+    "expected": "SELECT case_test(13)"
+  },
+  {
+    "comment": "plpgsql_control - Statement 45",
+    "query": "create or replace function catch() returns void as $$ begin raise notice '%', case_test(6); exception when case_not_found then raise notice 'caught case_not_found % %', SQLSTATE, SQLERRM; end $$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION catch () RETURNS void AS $$ begin raise notice '%', case_test(6); exception when case_not_found then raise notice 'caught case_not_found % %', SQLSTATE, SQLERRM; end $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "plpgsql_control - Statement 46",
+    "query": "select catch()",
+    "expected": "SELECT catch()"
+  },
+  {
+    "comment": "plpgsql_control - Statement 47",
+    "query": "create or replace function case_test(bigint) returns text as $$ declare a int = 10; begin case when $1 = 1 then return 'one'; when $1 = a + 2 then return 'twelve'; else return 'other'; end case; end; $$ language plpgsql immutable",
+    "expected": "CREATE OR REPLACE FUNCTION case_test (BIGINT) RETURNS TEXT AS $$ declare a int = 10; begin case when $1 = 1 then return 'one'; when $1 = a + 2 then return 'twelve'; else return 'other'; end case; end; $$ LANGUAGE plpgsql IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_control - Statement 48",
+    "query": "create or replace function case_comment(int) returns text as $$ begin case $1 when 1 then return 'one'; else return 'other'; end case; end; $$ language plpgsql immutable",
+    "expected": "CREATE OR REPLACE FUNCTION case_comment (INT) RETURNS TEXT AS $$ begin case $1 when 1 then return 'one'; else return 'other'; end case; end; $$ LANGUAGE plpgsql IMMUTABLE"
+  },
+  {
+    "comment": "plpgsql_control - Statement 49",
+    "query": "select case_comment(1)",
+    "expected": "SELECT case_comment(1)"
+  }
+]

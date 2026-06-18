@@ -1,8 +1,8 @@
 [
   {
     "comment": "select_into - Statement 1",
-    "query": "SELECT * INTO TABLE sitmp1 FROM onek WHERE onek.unique1 \u003c 2",
-    "expected": "SELECT * INTO sitmp1 FROM onek WHERE onek.unique1 \u003c 2"
+    "query": "SELECT * INTO TABLE sitmp1 FROM onek WHERE onek.unique1 < 2",
+    "expected": "SELECT * INTO sitmp1 FROM onek WHERE onek.unique1 < 2"
   },
   {
     "comment": "select_into - Statement 2",
@@ -10,8 +10,8 @@
   },
   {
     "comment": "select_into - Statement 3",
-    "query": "SELECT * INTO TABLE sitmp1 FROM onek2 WHERE onek2.unique1 \u003c 2",
-    "expected": "SELECT * INTO sitmp1 FROM onek2 WHERE onek2.unique1 \u003c 2"
+    "query": "SELECT * INTO TABLE sitmp1 FROM onek2 WHERE onek2.unique1 < 2",
+    "expected": "SELECT * INTO sitmp1 FROM onek2 WHERE onek2.unique1 < 2"
   },
   {
     "comment": "select_into - Statement 4",

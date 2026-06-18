@@ -1,3 +1,8 @@
+# Known divergence (by design): this malformed statement is rejected by
+# multigateway's own SQL parser before it reaches PostgreSQL, so the error is
+# "parse error at position 32: syntax error" instead of PostgreSQL's "syntax
+# error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Here: SELECT CAST('42' AS text COLLATE "C").
 --- a
 +++ b
 @@ -515,9 +515,7 @@
@@ -7,7 +12,7 @@
 -ERROR: syntax error at or near "COLLATE"
 -LINE 1: SELECT CAST('42' AS text COLLATE "C");
 -^
-+ERROR: parse error at position 33: syntax error
++ERROR: parse error at position 32: syntax error
  SELECT a, CAST(b AS varchar) FROM collate_test1 ORDER BY 2;
  a | b
  ---+-----

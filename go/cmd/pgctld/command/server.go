@@ -143,13 +143,9 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestPort := s.pgbackrestPort.Get()
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
-	pgctldConfig := PgCtldServiceConfig{
-		Port:                 s.pgCtlCmd.pgPort.Get(),
-		User:                 s.pgCtlCmd.pgUser.Get(),
-		Database:             s.pgCtlCmd.pgDatabase.Get(),
-		Password:             s.pgCtlCmd.pgPassword.Get(),
-		InitDbSQLFiles:       s.pgCtlCmd.initDbSQLFiles.Get(),
-		InitdbExtraConfFiles: s.pgCtlCmd.pgInitdbExtraConf.Get(),
+	pgctldConfig, err := s.pgCtlCmd.buildServiceConfig()
+	if err != nil {
+		return err
 	}
 
 	pgctldService, err := NewPgCtldService(
@@ -241,12 +237,20 @@ func reapOrphanedChildren(logger *slog.Logger) {
 // parameters. These are the most commonly passed parameters and are grouped
 // here to reduce argument lists.
 type PgCtldServiceConfig struct {
-	Port                 int
-	User                 string
-	Database             string
-	Password             string
+	Port     int
+	User     string
+	Database string
+	Password string
+	// PasswordSource records where Password came from so log lines can report
+	// it without leaking the value itself. Optional; defaults to none.
+	PasswordSource PasswordSource
+	// PasswordFile is the absolute path to the operator-supplied password file
+	// when PasswordSource == PasswordSourceFile, otherwise "". initdb is handed
+	// this path directly via --pwfile so the plaintext never lands in /tmp.
+	PasswordFile         string
 	InitdbArgs           string
-	InitDbSQLFiles       []string
+	InitdbSQLFiles       []string
+	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
 }
 
@@ -306,6 +310,25 @@ func NewPgCtldService(
 	if listenAddresses == "" {
 		return nil, errors.New("listen-addresses needs to be set")
 	}
+	// cfg.Password emptiness is not re-checked here: production callers
+	// (runServer) populate it via PgCtlCommand.GetPostgresPassword, which
+	// returns an error when no password source is configured.
+
+	// Write a pgpass file and set PGPASSFILE so pgbackrest (archive-push runs as a
+	// postgres subprocess and inherits this process's environment) can authenticate
+	// against PostgreSQL without exposing the password in the process environment.
+	pgpassDir := filepath.Join(poolerDir, "pgbackrest")
+	if err := os.MkdirAll(pgpassDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create pgbackrest directory: %w", err)
+	}
+	pgpassPath := filepath.Join(pgpassDir, "pgbackrest.pgpass")
+	pgpassContent := fmt.Sprintf("*:*:*:%s:%s\n", cfg.User, cfg.Password)
+	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
+	}
+	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
+		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
+	}
 
 	// Create the PostgreSQL config once during service initialization
 	pgConfig, err := pgctld.NewPostgresCtlConfig(
@@ -322,6 +345,7 @@ func NewPgCtldService(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
+	pgConfig.Password = cfg.Password
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {

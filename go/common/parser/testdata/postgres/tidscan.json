@@ -52,12 +52,12 @@
   {
     "comment": "tidscan - Statement 12",
     "query": "EXPLAIN (COSTS OFF) SELECT ctid, * FROM tidscan WHERE ctid != ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
-    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid \u003c\u003e ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+    "expected": "EXPLAIN (COSTS false) SELECT ctid, * FROM tidscan WHERE ctid <> ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
   },
   {
     "comment": "tidscan - Statement 13",
     "query": "SELECT ctid, * FROM tidscan WHERE ctid != ANY(ARRAY['(0,1)', '(0,2)']::tid[])",
-    "expected": "SELECT ctid, * FROM tidscan WHERE ctid \u003c\u003e ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
+    "expected": "SELECT ctid, * FROM tidscan WHERE ctid <> ANY (CAST(ARRAY['(0,1)','(0,2)'] AS tid[]))"
   },
   {
     "comment": "tidscan - Statement 14",

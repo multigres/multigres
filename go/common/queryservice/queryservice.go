@@ -24,6 +24,8 @@ package queryservice
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -86,6 +88,12 @@ type QueryService interface {
 	//   options: Execute options including max rows and reserved connection ID
 	//   portalOptions: Portal-specific knobs (e.g. include_describe). Nil
 	//     leaves all options at their defaults; non-nil overrides per-field.
+	//   reservationOptions: controls connection reservation behavior, mirroring
+	//     StreamExecute. When non-nil with non-zero reasons and no
+	//     options.ReservedConnectionId, the multipooler reserves a new backend
+	//     with these reasons (running BeginQuery first if ReasonTransaction is
+	//     set) and runs the portal on it atomically. When the connection is
+	//     already reserved, the reasons are OR'd onto it before the portal runs.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -94,6 +102,7 @@ type QueryService interface {
 		portal *query.Portal,
 		options *query.ExecuteOptions,
 		portalOptions *multipoolerpb.PortalExecuteOptions,
+		reservationOptions *query.ReservationOptions,
 		callback func(context.Context, *sqltypes.Result) error,
 	) (*query.ReservedState, error)
 
@@ -187,6 +196,29 @@ type QueryService interface {
 		options *query.ExecuteOptions,
 	) (*query.ReservedState, error)
 
+	// CopyOutReady initiates a COPY ... TO STDOUT operation and returns
+	// format information plus any NoticeResponse diagnostics that arrived
+	// before the CopyOutResponse. Reserves the underlying connection for
+	// the duration of the COPY just like CopyReady (FROM STDIN).
+	CopyOutReady(
+		ctx context.Context,
+		target *query.Target,
+		copyQuery string,
+		options *query.ExecuteOptions,
+		reservationOptions *query.ReservationOptions,
+	) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, reservedState *query.ReservedState, err error)
+
+	// CopyOutStream pumps CopyData / NoticeResponse messages back through
+	// the supplied callback until PG sends CopyDone, then drains
+	// CommandComplete + ReadyForQuery and returns the final Result (with
+	// any notices that arrived between CopyDone and CommandComplete).
+	CopyOutStream(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
+		onMessage func(client.CopyOutMessage) error,
+	) (*sqltypes.Result, *query.ReservedState, error)
+
 	// ConcludeTransaction concludes a transaction on a reserved connection.
 	// Executes COMMIT or ROLLBACK based on the conclusion parameter.
 	//
@@ -201,6 +233,14 @@ type QueryService interface {
 	//   target: Target specifying tablegroup, shard, and pooler type
 	//   options: Execute options including reserved connection ID
 	//   conclusion: COMMIT or ROLLBACK
+	//   releasePortalNames: cursor names to unpin (used only on ROLLBACK when
+	//     releaseAllPortals is false) — typically the WITH HOLD cursors
+	//     declared inside the rolled-back transaction block. Cursors declared
+	//     outside the block survive PG's ROLLBACK and must NOT appear here.
+	//   releaseAllPortals: when true on a ROLLBACK, the multipooler drops every
+	//     pin on the reserved connection (historical "release all" semantics).
+	//     When false, only the named pins in releasePortalNames are released.
+	//     Ignored on COMMIT.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
 	ConcludeTransaction(
@@ -208,6 +248,8 @@ type QueryService interface {
 		target *query.Target,
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
+		releasePortalNames []string,
+		releaseAllPortals bool,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes

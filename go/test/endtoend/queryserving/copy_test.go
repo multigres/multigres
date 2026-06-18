@@ -15,6 +15,7 @@
 package queryserving
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -257,7 +258,7 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 				rowCount := 10000
 				for i := 1; i <= rowCount; i++ {
 					// Each row ~200 bytes
-					dataBuilder.WriteString(fmt.Sprintf("%d\t%s\n", i, strings.Repeat("x", 190)))
+					fmt.Fprintf(&dataBuilder, "%d\t%s\n", i, strings.Repeat("x", 190))
 				}
 
 				copyCmd := fmt.Sprintf("COPY %s FROM STDIN", tableName)
@@ -277,13 +278,24 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 				tableName := "copy_unsupported"
 				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
 
-				t.Run("COPY TO STDOUT fails", func(t *testing.T) {
-					if target.Name != "multigateway" {
-						t.Skip("COPY TO STDOUT rejection is multigateway-specific")
+				t.Run("COPY TO STDOUT streams rows", func(t *testing.T) {
+					// COPY TO STDOUT is now implemented in multigateway (CopyOutReady /
+					// CopyOutStream). Seed the table and assert the streamed text
+					// representation comes back row-for-row.
+					seed := [][]any{{1, "Alice"}, {2, "Bob"}, {3, "Carol"}}
+					executeCopyAndVerify(t, conn, ctx, tableName, []string{"id", "name"}, seed)
+
+					var buf bytes.Buffer
+					_, err := conn.PgConn().CopyTo(ctx, &buf, fmt.Sprintf("COPY %s TO STDOUT", tableName))
+					require.NoError(t, err, "COPY TO STDOUT should succeed")
+
+					// Default text format: one row per line, tab-separated columns.
+					gotLines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+					require.Len(t, gotLines, len(seed), "should stream one line per row")
+					for i, row := range seed {
+						want := fmt.Sprintf("%d\t%s", row[0], row[1])
+						assert.Equal(t, want, gotLines[i], "row %d mismatch", i)
 					}
-					_, err := conn.Exec(ctx, fmt.Sprintf("COPY %s TO STDOUT", tableName))
-					require.Error(t, err, "COPY TO STDOUT should fail")
-					assert.Contains(t, err.Error(), "not yet supported", "should mention not supported")
 				})
 
 				t.Run("COPY FROM file pass-through", func(t *testing.T) {
@@ -625,6 +637,86 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
 				require.NoError(t, err)
 				assert.Equal(t, int64(1), count, "only pre-transaction data should remain after ROLLBACK")
+			})
+
+			t.Run("COPY init failure inside transaction preserves reserved connection", func(t *testing.T) {
+				// Exercises the existing-reserved-connection path of CopyReady:
+				// the transaction has already reserved a backend connection,
+				// then a COPY is rejected by PostgreSQL at initiation (invalid
+				// column). The multipooler must keep the reserved connection
+				// alive so the wrapping transaction can continue.
+				tableName := "copy_init_err_in_txn"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+
+				_, err := conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				// Insert a row to confirm the transaction-bound connection is
+				// established before the bad COPY.
+				_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (10, 'before')", tableName))
+				require.NoError(t, err)
+
+				// Trigger CopyReady to error on the existing reserved conn.
+				// "nonexistent_col" does not exist on the target relation, so
+				// PostgreSQL rejects the COPY at planning before entering
+				// copy-in mode. The reserved conn (held by the transaction)
+				// must NOT be torn down.
+				_, err = conn.Exec(ctx,
+					fmt.Sprintf("COPY %s (nonexistent_col) FROM STDIN", tableName))
+				require.Error(t, err, "COPY with nonexistent column must fail")
+
+				// The transaction is now in a failed state (PostgreSQL marks
+				// the txn aborted on any statement error inside a BEGIN
+				// block), so the next statement must be ROLLBACK. The key
+				// assertion is that the connection is still alive: the
+				// ROLLBACK round-trip must succeed without "reserved
+				// connection N not found".
+				_, err = conn.Exec(ctx, "ROLLBACK")
+				require.NoError(t, err, "ROLLBACK after COPY init error must succeed on the same conn")
+
+				// Confirm session is fully recovered and reusable.
+				var x int
+				err = conn.QueryRow(ctx, "SELECT 1").Scan(&x)
+				require.NoError(t, err)
+				assert.Equal(t, 1, x)
+
+				// Pre-bad-COPY INSERT must have been rolled back.
+				var count int64
+				err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+				require.NoError(t, err)
+				assert.Equal(t, int64(0), count, "INSERT before bad COPY must roll back with the transaction")
+			})
+
+			t.Run("COPY finalize failure inside transaction preserves reserved connection", func(t *testing.T) {
+				// Exercises the CopyFinalize error path: COPY enters copy-in
+				// mode successfully, but a CHECK constraint violation aborts
+				// the COPY at CopyDone. Because a transaction reason still
+				// holds the reserved conn, the multipooler must not release
+				// it on the PG-level error.
+				tableName := "copy_finalize_err_in_txn"
+				createCopyTestTable(t, conn, ctx, tableName, "id INT CHECK (id > 0), name TEXT")
+
+				_, err := conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				_, err = conn.CopyFrom(ctx,
+					pgx.Identifier{tableName},
+					[]string{"id", "name"},
+					pgx.CopyFromRows([][]any{{-1, "violates"}}),
+				)
+				require.Error(t, err, "COPY with CHECK violation must fail at finalize")
+				assert.Contains(t, err.Error(), "check constraint")
+
+				// Transaction is aborted; ROLLBACK must reach the same
+				// preserved backend connection.
+				_, err = conn.Exec(ctx, "ROLLBACK")
+				require.NoError(t, err, "ROLLBACK after COPY finalize error must succeed on the same conn")
+
+				// Conn fully recovered.
+				var x int
+				err = conn.QueryRow(ctx, "SELECT 1").Scan(&x)
+				require.NoError(t, err)
+				assert.Equal(t, 1, x)
 			})
 
 			t.Run("COPY followed by error rolls back entire transaction", func(t *testing.T) {

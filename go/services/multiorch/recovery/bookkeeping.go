@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -66,7 +67,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 	// Collect entries to delete (can't delete while iterating due to lock)
 	type deleteEntry struct {
-		poolerID  string
+		poolerID  topoclient.ComponentID
 		id        *clustermetadatapb.ID
 		auditType string
 		shardKey  *clustermetadatapb.ShardKey
@@ -75,7 +76,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 	var toDelete []deleteEntry
 
 	// Iterate using Range() to hold lock during iteration
-	re.poolerStore.Range(func(poolerID string, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
+	re.poolerStore.Range(func(poolerID topoclient.ComponentID, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
 		// Case 0: Broken entry (should never happen)
 		if poolerInfo == nil || poolerInfo.MultiPooler == nil || poolerInfo.MultiPooler.Id == nil {
 			toDelete = append(toDelete, deleteEntry{
@@ -88,11 +89,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 			return true // continue iteration
 		}
 
-		shardKey := &clustermetadatapb.ShardKey{
-			Database:   poolerInfo.MultiPooler.Database,
-			TableGroup: poolerInfo.MultiPooler.TableGroup,
-			Shard:      poolerInfo.MultiPooler.Shard,
-		}
+		shardKey := poolerInfo.MultiPooler.ShardKey
 
 		// Get timestamps as time.Time
 		lastSeen := time.Time{}
@@ -157,7 +154,7 @@ func (re *Engine) forgetLongUnseenInstances() {
 
 // audit logs an audit message with consistent formatting.
 // This ensures important operations are logged in a structured way for compliance and debugging.
-func (re *Engine) audit(auditType, poolerID string, shardKey *clustermetadatapb.ShardKey, message string) {
+func (re *Engine) audit(auditType string, poolerID topoclient.ComponentID, shardKey *clustermetadatapb.ShardKey, message string) {
 	re.logger.Info("audit",
 		"audit_type", auditType,
 		"pooler_id", poolerID,

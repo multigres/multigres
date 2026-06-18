@@ -105,28 +105,6 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-message SetPrimaryConnInfoRequest {
-  // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
-  // The postgres port is extracted from port_map["postgres"].
-  clustermetadata.MultiPooler primary = 1;
-
-  // Whether to stop replication before making changes
-  bool stop_replication_before = 2;
-
-  // Whether to start replication after making changes
-  bool start_replication_after = 3;
-
-  // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 4;
-
-  // Force the operation even if the term doesn't match
-  bool force = 5;
-}
-
-message SetPrimaryConnInfoResponse {
-}
-
 // StopReplication stops WAL replay on standby
 message StopReplicationRequest {
   // Mode specifying what aspect of replication to pause
@@ -176,6 +154,12 @@ message PrimaryStatus {
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
   SynchronousReplicationConfiguration sync_replication_config = 4;
+
+  // Maximum number of WAL sender processes the primary allows (the
+  // max_wal_senders setting). Surfacing this alongside connected_followers makes
+  // wal-sender capacity exhaustion visible: once connected_followers reaches
+  // max_wal_senders, additional standbys cannot stream.
+  int32 max_wal_senders = 5;
 }
 
 // Status provides unified status information that works for both PRIMARY and REPLICA poolers.
@@ -234,7 +218,6 @@ message Status {
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
   bool postgres_ready = 14;
-
 }
 
 // PostgresStatus is the observed state of the PostgreSQL server process.
@@ -275,7 +258,7 @@ message StatusResponse {
   // Availability status for nodes that are or have been primary. Wraps
   // LeadershipStatus (ACTIVE or REQUESTING_DEMOTION) and the primary_term at
   // which the signal applies. Used by multiorch to detect voluntary demotions
-  // (BeginTerm REVOKE) without a separate ConsensusStatus RPC call.
+  // (Recruit) without a separate ConsensusStatus RPC call.
   // Staleness check: availability_status.leadership_status.primary_term must
   // equal the coordinator term of the committed rule (via ConsensusStatus)
   // to ensure signals from previous election cycles are ignored.
@@ -353,7 +336,7 @@ enum SnapshotTrigger {
   SNAPSHOT_TRIGGER_UNSPECIFIED = 0;
   // Sent immediately when the stream is first opened.
   SNAPSHOT_TRIGGER_INITIAL = 1;
-  // Triggered by a state-change broadcast (e.g. type change, SetPrimaryConnInfo).
+  // Triggered by a state-change broadcast (e.g. type change, SetPrimary).
   SNAPSHOT_TRIGGER_BROADCAST = 2;
   // Triggered by an explicit poll request from the orchestrator.
   SNAPSHOT_TRIGGER_POLL = 3;
@@ -375,106 +358,6 @@ message ManagerHealthSnapshot {
 
   // Why this snapshot was sent. Useful for diagnostics and testing.
   SnapshotTrigger trigger = 3;
-}
-
-// EmergencyDemote demotes the current leader server
-// This is called during the Revocation stage of generalized consensus to safely
-// transition a primary to read-only mode and prevent it from making further progress.
-message EmergencyDemoteRequest {
-  // Consensus term for this demotion operation
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
-
-  // Drain timeout - how long to wait for in-flight queries (default: 5s)
-  google.protobuf.Duration drain_timeout = 2;
-
-  // Force the operation even if term validation fails
-  bool force = 3;
-}
-
-message EmergencyDemoteResponse {
-  // Whether the pooler was already demoted (idempotent check)
-  bool was_already_demoted = 1;
-
-  // LSN position at the time of demotion (final position as primary)
-  string lsn_position = 3;
-
-  // Number of connections that were terminated
-  int32 connections_terminated = 4;
-}
-
-// DemoteStalePrimary demotes a stale primary that came back online after failover.
-// This is a complete operation that:
-// 1. Stops postgres if running
-// 2. Runs pg_rewind to sync with the correct primary
-// 3. Clears sync replication config
-// 4. Restarts as standby
-// 5. Updates topology to REPLICA
-message DemoteStalePrimaryRequest {
-  // Source multipooler (the correct primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
-
-  // Consensus term from the correct primary
-  int64 consensus_term = 2;
-
-  // Force the operation even if term validation fails
-  bool force = 3;
-}
-
-message DemoteStalePrimaryResponse {
-  // True if the operation completed successfully
-  bool success = 1;
-
-  // Whether pg_rewind was performed (servers were diverged)
-  bool rewind_performed = 2;
-
-  // LSN position after becoming standby
-  string lsn_position = 3;
-}
-
-// Promote promotes a replica to leader (Multigres-level operation)
-// This is called during the Propagate stage of generalized consensus
-// to safely transition a standby to primary and reconfigure replication.
-message PromoteRequest {
-  // Consensus term for this promotion operation
-  // Used to ensure this promotion corresponds to the correct term
-  // When force=true, this field is ignored and should be passed as 0
-  int64 consensus_term = 1;
-
-  // Expected LSN position before promotion (optional, for validation)
-  // By the Propagate stage, replication should already be stopped and the LSN frozen.
-  // This is an assertion to verify the pooler has the expected durable state.
-  // If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
-  // If empty, skip LSN validation.
-  string expected_lsn = 2;
-
-  // Synchronous replication configuration to apply after promotion
-  // This rewires the cohort for the new topology
-  ConfigureSynchronousReplicationRequest sync_replication_config = 3;
-
-  // Force the operation even if term validation fails
-  // Should only be used in recovery scenarios
-  bool force = 4;
-
-  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
-  string reason = 5;
-
-  // Coordinator ID that ran this election
-  clustermetadata.ID coordinator_id = 6;
-
-  // List of poolers that were in the cohort
-  repeated clustermetadata.ID cohort_members = 7;
-
-  // List of poolers that accepted the term during BeginTerm
-  repeated clustermetadata.ID accepted_members = 8;
-}
-
-message PromoteResponse {
-  // LSN position after promotion
-  string lsn_position = 1;
-
-  // Whether the pooler was already promoted (idempotent check)
-  bool was_already_primary = 2;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
@@ -504,11 +387,11 @@ enum SynchronousMethod {
   SYNCHRONOUS_METHOD_ANY = 2;
 }
 
-// Enum representing the type of standby list modification
-enum StandbyUpdateOperation {
-  STANDBY_UPDATE_OPERATION_UNSPECIFIED = 0;
-  STANDBY_UPDATE_OPERATION_ADD = 1;
-  STANDBY_UPDATE_OPERATION_REMOVE = 2;
+// Enum representing the type of cohort membership change
+enum CohortUpdateOperation {
+  COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+  COHORT_UPDATE_OPERATION_ADD = 1;
+  COHORT_UPDATE_OPERATION_REMOVE = 2;
 }
 
 // Synchronous commit level
@@ -529,56 +412,31 @@ enum SynchronousCommitLevel {
   SYNCHRONOUS_COMMIT_REMOTE_APPLY = 4;
 }
 
-// ConfigureSynchronousReplication configures PostgreSQL synchronous replication settings
-message ConfigureSynchronousReplicationRequest {
-  // Synchronous commit level (synchronous_commit setting)
-  SynchronousCommitLevel synchronous_commit = 1;
+// UpdateConsensusRule applies a cohort-membership change on the primary.
+// Internally this updates synchronous_standby_names and records the cohort
+// change in rule_history.
+message UpdateConsensusRuleRequest {
+  // Operation to perform (add, remove)
+  CohortUpdateOperation operation = 1;
 
-  // Synchronization method (FIRST, ANY)
-  SynchronousMethod synchronous_method = 2;
-
-  // Number of standby servers to wait for (quorum count)
-  int32 num_sync = 3;
-
-  // List of standby multipooler IDs that can participate in synchronous replication
-  // The application names will be generated as {cell}_{name} from these IDs
-  repeated clustermetadata.ID standby_ids = 4;
-
-  // Whether to reload configuration immediately
-  bool reload_config = 5;
-
-  // Force configuration even if history record write times out.
-  // When true, treats write timeouts as warnings (useful for tests and emergency operations).
-  // When false, fails if history write blocks on sync replication (normal production behavior).
-  bool force = 6;
-}
-
-message ConfigureSynchronousReplicationResponse {
-}
-
-// UpdateSynchronousStandbyList updates the synchronous standby list
-message UpdateSynchronousStandbyListRequest {
-  // Operation to perform (add, remove, or replace)
-  StandbyUpdateOperation operation = 1;
-
-  // List of standby multipooler IDs to add/remove/replace
-  // The application names will be generated as {cell}_{name} from these IDs
+  // List of multipooler IDs to add to or remove from the cohort.
+  // The application names will be generated as {cell}_{name} from these IDs.
   repeated clustermetadata.ID standby_ids = 2;
 
-  // Whether to reload configuration immediately
-  bool reload_config = 3;
-
-  // Consensus term (used by MultiOrch for term validation)
-  int64 consensus_term = 4;
-
-  // Force the operation even if the term doesn't match
-  bool force = 5;
+  // expected_outgoing_rule is the RuleNumber the caller observed as the
+  // primary's current rule. The primary applies the change only if its
+  // recorded rule still matches this value (compare-and-swap). It rejects
+  // with a "rule has changed" error otherwise, signaling that the caller's
+  // view is stale and it should re-read state and retry. This prevents
+  // races between concurrent coordinators making cohort decisions based on
+  // stale snapshots. Required.
+  clustermetadata.RuleNumber expected_outgoing_rule = 4;
 
   // Coordinator ID that initiated this operation (for audit trail)
   clustermetadata.ID coordinator_id = 6;
 }
 
-message UpdateSynchronousStandbyListResponse {
+message UpdateConsensusRuleResponse {
 }
 
 // Backup operations
@@ -659,6 +517,18 @@ message ExpireBackupsRequest {
 message ExpireBackupsResponse {
   // IDs of backups that were removed by the expiration.
   repeated string expired_backup_ids = 1;
+}
+
+// VerifyBackupsRequest requests a full-stanza pgbackrest verify run.
+message VerifyBackupsRequest {
+}
+
+// VerifyBackupsResponse contains the result of a verify run.
+message VerifyBackupsResponse {
+  // duration is the server-side wall-clock for the verify run.
+  google.protobuf.Duration duration = 1;
+  // raw_output is the full stdout+stderr of `pgbackrest verify`.
+  string raw_output = 2;
 }
 
 // BackupMetadata contains metadata about a backup

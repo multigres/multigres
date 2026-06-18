@@ -1,0 +1,32 @@
+#
+# Simple-query: multiple statements in one Query message.
+#
+# A single 'Q' may carry several statements separated by ';'. The backend runs
+# them in one implicit transaction and emits a CommandComplete per statement,
+# followed by a single ReadyForQuery for the whole message. A proxy must relay
+# every per-statement CommandComplete (not collapse them) and must run the
+# statements as one implicit transaction.
+#
+
+# Multi-statement that succeeds: three statements, three CommandCompletes, then
+# one ReadyForQuery. The trailing SELECT also yields RowDescription + DataRow.
+'Q'	"CREATE TABLE pgproto_multi (id int); INSERT INTO pgproto_multi VALUES (1); SELECT id FROM pgproto_multi"
+'Y'
+
+# Multi-statement where the middle statement errors. Statements run in order
+# until one fails: the first INSERT executes and its CommandComplete(INSERT 0 1)
+# is already streamed, then SELECT 1/0 raises ErrorResponse(22012) and the third
+# INSERT never runs. Because the whole message is one implicit transaction the
+# error rolls it back — so the streamed first INSERT does not persist — but the
+# CommandComplete for it has already gone out on the wire. Expect:
+# CommandComplete(INSERT 0 1), ErrorResponse(22012), ReadyForQuery.
+'Q'	"INSERT INTO pgproto_multi VALUES (2); SELECT 1/0; INSERT INTO pgproto_multi VALUES (3)"
+'Y'
+
+# The table still holds exactly the one row from the first (committed) message;
+# neither row from the aborted second message survives. (Row value is not shown
+# in the trace — this query just confirms the session is usable again.)
+'Q'	"SELECT count(*) FROM pgproto_multi"
+'Y'
+
+'X'

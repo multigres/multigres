@@ -31,6 +31,12 @@ const (
 	// PgPasswordEnvVar is the environment variable for the PostgreSQL password.
 	PgPasswordEnvVar = "POSTGRES_PASSWORD" //nolint:gosec // This is an env var name, not a credential
 
+	// PgPasswordFileEnvVar names an environment variable that points at a file
+	// containing the PostgreSQL password. Takes precedence over PgPasswordEnvVar
+	// when set. Matches the docker-library/postgres convention: the file holds
+	// the plaintext password, not a pre-hashed SCRAM verifier.
+	PgPasswordFileEnvVar = "POSTGRES_PASSWORD_FILE" //nolint:gosec // env var name, not a credential
+
 	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
 	PgDatabaseEnvVar = "POSTGRES_DB"
 
@@ -40,9 +46,13 @@ const (
 	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
 	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
 
-	// PgInitDbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
+	// PgInitdbSQLFilesEnvVar is the environment variable for init SQL files to run after initdb.
 	// Multiple files are comma-separated.
-	PgInitDbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
+	PgInitdbSQLFilesEnvVar = "POSTGRES_INITDB_SQL_FILES"
+
+	// PgInitdbSQLDirsEnvVar is the environment variable for init SQL dirs to run after initdb.
+	// Multiple entries are comma-separated, each in role:path format.
+	PgInitdbSQLDirsEnvVar = "POSTGRES_INITDB_SQL_DIRS"
 
 	// PgInitdbExtraConfEnvVar is the environment variable for extra postgresql.conf
 	// files appended verbatim onto the generated config at init time.
@@ -87,4 +97,11 @@ const (
 	// CrashRecoveryRetryDelay caps the delay between `postgres --single` retry
 	// attempts during the orphan-cleanup window.
 	CrashRecoveryRetryDelay = 500 * time.Millisecond
+
+	// PgLocksAdvisoryProbeSQL reports whether the current backend still holds any
+	// advisory lock. Run only outside a transaction, where every advisory lock
+	// visible here is session-level (transaction-level advisory locks are
+	// released at transaction end), so a false result means the session has
+	// released all of its advisory locks and the backend can be unpinned.
+	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
 )

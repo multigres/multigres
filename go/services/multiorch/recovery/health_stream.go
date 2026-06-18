@@ -84,7 +84,7 @@ type HealthStream struct {
 
 	// Active stream goroutines, keyed by pooler ID string.
 	mu      sync.Mutex
-	streams map[string]*streamEntry
+	streams map[topoclient.ComponentID]*streamEntry
 
 	// Parent context; cancelled by Stop().
 	ctx    context.Context
@@ -126,7 +126,7 @@ func NewHealthStream(
 		logger:    logger,
 		rpcClient: rpcClient,
 		store:     poolerStore,
-		streams:   make(map[string]*streamEntry),
+		streams:   make(map[topoclient.ComponentID]*streamEntry),
 		ctx:       smCtx,
 		cancel:    cancel,
 	}
@@ -148,8 +148,14 @@ func (hs *HealthStream) Shutdown() {
 // If a stream is already running for this pooler the call is a no-op.
 // The pooler's MultiPooler metadata is read from the store on each
 // reconnect attempt so topology updates are automatically picked up.
+//
+// Dialing is unconditional: poolers whose lifecycle reads STOPPING in
+// topology are dialled the same as any other. If the pooler subsequently
+// goes away (its OnClose unregisterFunc deletes the topology entry),
+// the pooler watcher's onDeletedPooler callback invokes Stop, which
+// cancels the per-pooler context and unwinds the reconnect loop.
 func (hs *HealthStream) Start(id *clustermetadatapb.ID) {
-	poolerID := topoclient.MultiPoolerIDString(id)
+	poolerID := topoclient.ComponentIDString(id)
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
@@ -179,7 +185,7 @@ func (hs *HealthStream) Start(id *clustermetadatapb.ID) {
 //
 // If no stream is running for this pooler the call is a no-op.
 func (hs *HealthStream) Stop(id *clustermetadatapb.ID) {
-	poolerID := topoclient.MultiPoolerIDString(id)
+	poolerID := topoclient.ComponentIDString(id)
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
@@ -194,7 +200,7 @@ func (hs *HealthStream) Stop(id *clustermetadatapb.ID) {
 // runStream manages the lifecycle of one stream, reconnecting with backoff on failure.
 // It reads the latest MultiPooler metadata from the store on each reconnect attempt
 // so hostname/port changes are picked up automatically.
-func (hs *HealthStream) runStream(ctx context.Context, poolerID string, entry *streamEntry) {
+func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.ComponentID, entry *streamEntry) {
 	r := retry.New(streamReconnectInitialBackoff, streamReconnectMaxBackoff, retry.WithInitialDelay())
 	for _, err := range r.Attempts(ctx) {
 		if err != nil {
@@ -233,7 +239,7 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID string, entry *s
 // streamOnce opens one ManagerHealthStream and reads until the stream fails or
 // the context is cancelled. Returns (connected, err): connected is true if the
 // stream was established before any error occurred.
-func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState, entry *streamEntry) (connected bool, _ error) {
+func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState, entry *streamEntry) (connected bool, _ error) {
 	// Build the start request, sending the orchestrator's preferred timing.
 	// Zero values are omitted so the server uses its own defaults.
 	startReq := &multipoolermanagerdatapb.ManagerHealthStreamStartRequest{}
@@ -379,7 +385,7 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID string, poolerH
 // immediate health snapshot from the pooler. Returns an error if no stream is
 // active or the send fails.
 func (hs *HealthStream) Poll(id *clustermetadatapb.ID) error {
-	poolerID := topoclient.MultiPoolerIDString(id)
+	poolerID := topoclient.ComponentIDString(id)
 	hs.mu.Lock()
 	entry, exists := hs.streams[poolerID]
 	hs.mu.Unlock()
@@ -403,7 +409,7 @@ func (hs *HealthStream) Poll(id *clustermetadatapb.ID) error {
 
 // applySnapshot writes health fields from a snapshot into the pooler store.
 // This mirrors the field writes performed by the old pollPooler function on success.
-func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, poolerHealth *multiorchdatapb.PoolerHealthState, snapshot *multipoolermanagerdatapb.ManagerHealthSnapshot) {
+func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState, snapshot *multipoolermanagerdatapb.ManagerHealthSnapshot) {
 	if snapshot.Status == nil || snapshot.Status.Status == nil {
 		hs.logger.WarnContext(ctx, "received snapshot with nil status, skipping",
 			"pooler_id", poolerID)
@@ -413,7 +419,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, pool
 	status := snapshot.Status.Status
 	now := timestamppb.Now()
 
-	poolerIDStr := topoclient.MultiPoolerIDString(poolerHealth.MultiPooler.Id)
+	poolerIDStr := topoclient.ComponentIDString(poolerHealth.MultiPooler.Id)
 	update := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 		existing.LastCheckSuccessful = now
 		existing.LastSeen = now
@@ -450,7 +456,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID string, pool
 }
 
 // markConnected records that the stream is connected in the pooler store.
-func (hs *HealthStream) markConnected(poolerID string) {
+func (hs *HealthStream) markConnected(poolerID topoclient.ComponentID) {
 	now := timestamppb.Now()
 	cb := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 		existing.StreamConnected = true
@@ -462,7 +468,7 @@ func (hs *HealthStream) markConnected(poolerID string) {
 
 // markDisconnected records that the stream is disconnected and the pooler
 // should be treated as unreachable.
-func (hs *HealthStream) markDisconnected(poolerID string) {
+func (hs *HealthStream) markDisconnected(poolerID topoclient.ComponentID) {
 	cb := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
 		existing.IsLastCheckValid = false
 		if existing.Status != nil {

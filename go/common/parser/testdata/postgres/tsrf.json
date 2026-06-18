@@ -111,13 +111,13 @@
   },
   {
     "comment": "tsrf - Statement 24",
-    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1 HAVING count(*) \u003e 1",
-    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1 HAVING COUNT(*) \u003e 1"
+    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1 HAVING count(*) > 1",
+    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1 HAVING COUNT(*) > 1"
   },
   {
     "comment": "tsrf - Statement 25",
-    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1, 2 HAVING count(*) \u003e 1",
-    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1, 2 HAVING COUNT(*) \u003e 1"
+    "query": "SELECT dataa, generate_series(1,1), count(*) FROM few GROUP BY 1, 2 HAVING count(*) > 1",
+    "expected": "SELECT dataa, generate_series(1, 1), COUNT(*) FROM few GROUP BY 1, 2 HAVING COUNT(*) > 1"
   },
   {
     "comment": "tsrf - Statement 26",
@@ -131,8 +131,8 @@
   },
   {
     "comment": "tsrf - Statement 28",
-    "query": "SELECT q1, case when q1 \u003e 0 then generate_series(1,3) else 0 end FROM int8_tbl",
-    "expected": "SELECT q1, CASE WHEN q1 \u003e 0 THEN generate_series(1, 3) ELSE 0 END FROM int8_tbl"
+    "query": "SELECT q1, case when q1 > 0 then generate_series(1,3) else 0 end FROM int8_tbl",
+    "expected": "SELECT q1, CASE WHEN q1 > 0 THEN generate_series(1, 3) ELSE 0 END FROM int8_tbl"
   },
   {
     "comment": "tsrf - Statement 29",

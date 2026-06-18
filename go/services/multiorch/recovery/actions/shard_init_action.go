@@ -19,8 +19,11 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -34,7 +37,7 @@ import (
 // shardInitCoordinator is the subset of consensus.Coordinator used by ShardInitAction.
 type shardInitCoordinator interface {
 	GetBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error)
-	AppointInitialLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error
+	AppointInitialLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState) error
 	GetCoordinatorID() *clustermetadatapb.ID
 }
 
@@ -149,7 +152,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 			len(committedCohort), len(committedIDs), err)
 	}
 
-	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey.Shard, committedCohort, problem.ShardKey.Database); err != nil {
+	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey, committedCohort); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
 	}
 
@@ -163,13 +166,11 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
-	a.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	a.poolerStore.Range(func(_ topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true
 		}
-		if pooler.MultiPooler.Database != shardKey.Database ||
-			pooler.MultiPooler.TableGroup != shardKey.TableGroup ||
-			pooler.MultiPooler.Shard != shardKey.Shard {
+		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
 			return true
 		}
 		if len(pooler.GetStatus().GetCohortMembers()) > 0 {
@@ -212,7 +213,10 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "ShardInit",
 		Description: "Establish initial cohort and appoint first leader for a bootstrapped shard",
-		Timeout:     60 * time.Second,
+		// Two sequential phases each bounded by RuleWriteTimeout
+		// (Recruit, then concurrent Promote/SetPrimary), plus margin so the
+		// action context does not race its own phases to the deadline.
+		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
