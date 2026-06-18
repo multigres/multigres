@@ -23,14 +23,19 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
 )
 
-// The grammar currently only accepts an empty body; real statement parsing is
-// added as the grammar is ported. These tests just cover the scaffolding.
+// A body must be a block; empty input is a parse error (matching PG).
+func TestParsePLpgSQL_EmptyIsError(t *testing.T) {
+	_, err := ParsePLpgSQL("")
+	require.Error(t, err)
+}
 
-func TestParsePLpgSQL_Empty(t *testing.T) {
-	fn, err := ParsePLpgSQL("")
-
+// The simplest valid body: an empty block becomes the function's Action.
+func TestParsePLpgSQL_EmptyBlock(t *testing.T) {
+	fn, err := ParsePLpgSQL("BEGIN END")
 	require.NoError(t, err)
 	require.NotNil(t, fn)
 	assert.Equal(t, plpgsqlast.T_PLpgSQL_function, fn.NodeTag())
-	assert.Nil(t, fn.Action)
+	require.NotNil(t, fn.Action)
+	assert.Equal(t, plpgsqlast.T_PLpgSQL_stmt_block, fn.Action.NodeTag())
+	assert.Empty(t, fn.Action.Body)
 }

@@ -47,6 +47,9 @@ type plpgsqlResultSetter interface {
 
 %union {
 	function *plpgsqlast.PLpgSQL_function
+	block    *plpgsqlast.PLpgSQL_stmt_block
+	stmt     plpgsqlast.Stmt
+	stmts    []plpgsqlast.Stmt
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -98,23 +101,210 @@ type plpgsqlResultSetter interface {
 %token <str>	K_USING K_VARIABLE_CONFLICT K_WARNING K_WHEN K_WHILE
 
 %type <function> pl_function
+%type <block>    pl_block
+%type <stmts>    proc_sect
+%type <stmt>     proc_stmt stmt_null
+%type <str>      opt_block_label opt_label any_identifier unreserved_keyword
 
 %start pl_function
 
 %%
 
 /*
- * Root production. Currently accepts only an empty body; statement-list
- * productions are added as the grammar is ported.
+ * A PL/pgSQL body is a single top-level block, optionally followed by a
+ * trailing semicolon. Ported from pl_gram.y (PG's comp_options preamble is
+ * deferred). The block becomes the function's Action.
  */
 pl_function:
-		/* empty */
+		pl_block opt_semi
 			{
-				$$ = plpgsqlast.NewPLpgSQL_function()
+				fn := plpgsqlast.NewPLpgSQL_function()
+				fn.Action = $1
 				if l, ok := plpgsqllex.(plpgsqlResultSetter); ok {
-					l.SetResult($$)
+					l.SetResult(fn)
 				}
 			}
+	;
+
+opt_semi:
+		/* empty */
+	|	';'
+	;
+
+/*
+ * The block itself. DECLARE (decl_sect) and EXCEPTION (exception_sect) land in
+ * later chunks; for now a block is an optional label, BEGIN, a statement list,
+ * END, and an optional matching end label.
+ */
+pl_block:
+		opt_block_label K_BEGIN proc_sect K_END opt_label
+			{
+				block := plpgsqlast.NewPLpgSQL_stmt_block()
+				block.Label = $1
+				block.Body = $3
+				if err := checkLabels($1, $5); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = block
+			}
+	;
+
+proc_sect:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	proc_sect proc_stmt
+			{
+				// Mirror PG: don't link NULL statements into the body list.
+				if $2 == nil {
+					$$ = $1
+				} else {
+					$$ = append($1, $2)
+				}
+			}
+	;
+
+proc_stmt:
+		pl_block ';'
+			{
+				$$ = $1
+			}
+	|	stmt_null
+			{
+				$$ = $1
+			}
+	;
+
+stmt_null:
+		K_NULL ';'
+			{
+				// Like PG, we build no node for NULL; it carries no meaning.
+				$$ = nil
+			}
+	;
+
+opt_block_label:
+		/* empty */
+			{
+				$$ = ""
+			}
+	|	LESS_LESS any_identifier GREATER_GREATER
+			{
+				$$ = $2
+			}
+	;
+
+opt_label:
+		/* empty */
+			{
+				$$ = ""
+			}
+	|	any_identifier
+			{
+				$$ = $1
+			}
+	;
+
+any_identifier:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	unreserved_keyword
+			{
+				$$ = $1
+			}
+	;
+
+/*
+ * Unreserved keywords may be used as identifiers (labels, variable names,
+ * etc.). Listed exactly as in pl_gram.y; the default action carries each
+ * keyword's text (the K_* tokens are <str> and the lexer fills it in).
+ */
+unreserved_keyword:
+		K_ABSOLUTE
+	|	K_ALIAS
+	|	K_AND
+	|	K_ARRAY
+	|	K_ASSERT
+	|	K_BACKWARD
+	|	K_CALL
+	|	K_CHAIN
+	|	K_CLOSE
+	|	K_COLLATE
+	|	K_COLUMN
+	|	K_COLUMN_NAME
+	|	K_COMMIT
+	|	K_CONSTANT
+	|	K_CONSTRAINT
+	|	K_CONSTRAINT_NAME
+	|	K_CONTINUE
+	|	K_CURRENT
+	|	K_CURSOR
+	|	K_DATATYPE
+	|	K_DEBUG
+	|	K_DEFAULT
+	|	K_DETAIL
+	|	K_DIAGNOSTICS
+	|	K_DO
+	|	K_DUMP
+	|	K_ELSIF
+	|	K_ERRCODE
+	|	K_ERROR
+	|	K_EXCEPTION
+	|	K_EXIT
+	|	K_FETCH
+	|	K_FIRST
+	|	K_FORWARD
+	|	K_GET
+	|	K_HINT
+	|	K_IMPORT
+	|	K_INFO
+	|	K_INSERT
+	|	K_IS
+	|	K_LAST
+	|	K_LOG
+	|	K_MERGE
+	|	K_MESSAGE
+	|	K_MESSAGE_TEXT
+	|	K_MOVE
+	|	K_NEXT
+	|	K_NO
+	|	K_NOTICE
+	|	K_OPEN
+	|	K_OPTION
+	|	K_PERFORM
+	|	K_PG_CONTEXT
+	|	K_PG_DATATYPE_NAME
+	|	K_PG_EXCEPTION_CONTEXT
+	|	K_PG_EXCEPTION_DETAIL
+	|	K_PG_EXCEPTION_HINT
+	|	K_PG_ROUTINE_OID
+	|	K_PRINT_STRICT_PARAMS
+	|	K_PRIOR
+	|	K_QUERY
+	|	K_RAISE
+	|	K_RELATIVE
+	|	K_RETURN
+	|	K_RETURNED_SQLSTATE
+	|	K_REVERSE
+	|	K_ROLLBACK
+	|	K_ROW_COUNT
+	|	K_ROWTYPE
+	|	K_SCHEMA
+	|	K_SCHEMA_NAME
+	|	K_SCROLL
+	|	K_SLICE
+	|	K_SQLSTATE
+	|	K_STACKED
+	|	K_TABLE
+	|	K_TABLE_NAME
+	|	K_TYPE
+	|	K_USE_COLUMN
+	|	K_USE_VARIABLE
+	|	K_VARIABLE_CONFLICT
+	|	K_WARNING
 	;
 
 %%

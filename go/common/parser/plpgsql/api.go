@@ -27,10 +27,9 @@ import (
 // dollar-quote or quoted-string delimiters stripped by the caller) and
 // returns its AST root.
 //
-// Currently this accepts only empty / whitespace-only bodies and returns a
-// PLpgSQL_function with no Actions. Statement productions (block, DECLARE,
-// control flow, embedded SQL, dynamic EXECUTE, …) are added incrementally as
-// the grammar is ported.
+// A body must be a block (BEGIN … END), matching PG; empty input is a parse
+// error. The remaining statement families (DECLARE, control flow, embedded
+// SQL, dynamic EXECUTE, …) are added incrementally as the grammar is ported.
 func ParsePLpgSQL(body string) (*plpgsqlast.PLpgSQL_function, error) {
 	lex := newLexer(body)
 	plpgsqlNewParser().Parse(lex)
