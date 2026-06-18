@@ -16,6 +16,7 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -69,13 +70,16 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 		return 0, invalidParamError(paramName, value,
 			`Valid units for this parameter are "us", "ms", "s", "m", "h".`)
 	}
-	// PostgreSQL range-checks in the base unit (milliseconds), and reports the
-	// value converted to it. d < 0 also catches negative sub-millisecond values
-	// that truncate to 0 ms.
-	if ms := d.Milliseconds(); d < 0 || ms > constants.MaxStatementTimeoutMS {
+	// PostgreSQL stores statement_timeout as whole milliseconds, so round to the
+	// base unit (rather than truncate) before range-checking and reporting. This
+	// keeps the reported value honest for sub-millisecond inputs: e.g. "-600us"
+	// reports "-1 ms ..." instead of a misleading "0 ms ...", and "-400us" rounds
+	// to 0 (no timeout), matching PostgreSQL.
+	ms := int64(math.Round(float64(d) / float64(time.Millisecond)))
+	if ms < 0 || ms > constants.MaxStatementTimeoutMS {
 		return 0, outOfRangeParamError(paramName, ms)
 	}
-	return d, nil
+	return time.Duration(ms) * time.Millisecond, nil
 }
 
 // invalidParamError returns a PgDiagnostic for an invalid parameter value (SQLSTATE 22023).

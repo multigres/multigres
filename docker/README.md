@@ -69,8 +69,13 @@ This does two things so PostgreSQL and the pooler stay consistent:
   open more backends than PostgreSQL allows.
 
 `SHOW max_connections` through the gateway then reports the value you set, since
-the gateway passes it through to PostgreSQL. Applied only at first init (a fresh
-data dir). The value must be greater than 10.
+the gateway passes it through to PostgreSQL. The value must be greater than 10.
+
+PostgreSQL's `max_connections` is applied only at first init (a fresh data dir),
+so on a **persistent volume** changing `MULTIGRES_PG_MAX_CONNECTIONS` later has
+no effect on PostgreSQL (the pooler would re-read it but PostgreSQL would keep
+the original value, leaving them mismatched). To change it on a persisted
+cluster, re-initialize from a clean state (`docker compose down -v`).
 
 ### Extra PostgreSQL config (`MULTIGRES_PG_EXTRA_CONF`)
 

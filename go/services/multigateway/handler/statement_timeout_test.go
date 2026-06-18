@@ -120,6 +120,19 @@ func TestParsePostgresInterval(t *testing.T) {
 			errContains: `-5000 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
 		},
 		{
+			// Rounds to -1 ms, not a misleading 0 ms (truncation would report 0).
+			name:        "negative sub-millisecond duration",
+			value:       "-600us",
+			wantErr:     true,
+			errContains: `-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
+		},
+		{
+			// Sub-millisecond magnitude rounds to 0 ms (no timeout), matching PG.
+			name:  "sub-millisecond rounds to zero",
+			value: "200us",
+			want:  0,
+		},
+		{
 			name:        "over max integer",
 			value:       "2147483648",
 			wantErr:     true,

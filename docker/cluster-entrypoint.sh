@@ -45,7 +45,9 @@ GATEWAY_PG_PORT="${MULTIGRES_GATEWAY_PG_PORT:-15432}"
 #
 #   MULTIGRES_PG_MAX_CONNECTIONS=100   # postgres=100, pooler global capacity=90
 #
-# Applied only at first init (a fresh data dir).
+# PostgreSQL's max_connections is applied only at first init (a fresh data dir).
+# On a persistent volume, changing this later re-sizes the pooler but not
+# PostgreSQL, leaving them mismatched; re-init from clean to change it.
 PG_MAX_CONNECTIONS="${MULTIGRES_PG_MAX_CONNECTIONS:-}"
 
 # Connections held back from the pooler when MULTIGRES_PG_MAX_CONNECTIONS is set.
