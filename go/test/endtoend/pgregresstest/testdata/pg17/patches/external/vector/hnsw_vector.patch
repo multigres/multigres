@@ -1,3 +1,6 @@
+# Known divergence (by design): multigateway emits an extra WARNING + HINT on
+# CREATE UNLOGGED TABLE because unlogged relations are not replicated and are
+# lost on failover. See docs/query_serving/unlogged_tables.md.
 --- a
 +++ b
 @@ -134,6 +134,8 @@

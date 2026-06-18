@@ -1,3 +1,8 @@
+# Known divergence: a COPY FROM that fails (here the target relation does not
+# exist) surfaces multigateway's COPY-initiation plumbing -- "failed to initiate
+# COPY: ... failed to create reserved connection for COPY ... failed to receive
+# READY response" -- wrapping PostgreSQL's underlying "relation ... does not
+# exist", rather than returning that error on its own.
 --- a
 +++ b
 @@ -1,6 +1,9 @@

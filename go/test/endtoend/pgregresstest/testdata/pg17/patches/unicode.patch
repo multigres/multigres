@@ -1,3 +1,7 @@
+# Known divergence: multigateway's parser validates the normalization-form
+# argument of normalize()/is_normalized() at parse time, raising "syntax error
+# at or near \"def\"" where PostgreSQL accepts the parse and raises the runtime
+# error "invalid normalization form: def".
 --- a
 +++ b
 @@ -69,7 +69,9 @@

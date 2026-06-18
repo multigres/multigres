@@ -78,6 +78,36 @@ RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 go test -v ./go/test/endtoend/pgregresstest/...
 ```
 
+### Regenerating Patches (must run on Linux)
+
+The patches under `testdata/pg17/patches/` record multigres-specific divergences
+from **stock** PostgreSQL output. Stock output is platform-sensitive — glibc vs.
+macOS collation, timezone/datestyle formatting, error-cursor positions — so the
+patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`).
+
+**Do not regenerate patches directly on macOS.** A macOS run produces dozens of
+spurious platform patches (e.g. `collate.linux.utf8`, `horology`) and silently
+drops genuine divergences, and the result fails CI verification on Linux.
+
+Regenerate inside the CI-matching container instead (requires Docker):
+
+```bash
+make pgregress-update-patches-docker        # full set: regression + isolation + contrib + external
+
+# Scope down or pass subsets via the wrapper directly:
+RUN_VARS="RUN_PGREGRESS=1" docker/pgregress-generate.sh                     # core regression only
+RUN_VARS="RUN_PGEXTERNAL=1" docker/pgregress-generate.sh                    # external extensions only
+PGREGRESS_TESTS="boolean char" RUN_VARS="RUN_PGREGRESS=1" docker/pgregress-generate.sh
+PLATFORM=linux/amd64 docker/pgregress-generate.sh                          # byte-for-byte CI arch (slower, emulated)
+```
+
+The container (`docker/Dockerfile.pgregress`) mirrors the CI runner: same apt
+deps, Go from `go.mod`, the Rust toolchain (for pg_graphql's cargo-pgrx), etcd,
+and the glibc locales the collate suite needs. Regenerated patches are written
+back into the working tree for review. The bare `make pgregress-update-patches`
+and `make pgexternal-update-patches` targets still exist for running on a Linux
+host directly.
+
 ### Running Specific Tests
 
 ```bash
