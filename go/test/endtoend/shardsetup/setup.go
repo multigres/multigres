@@ -65,6 +65,7 @@ type SetupConfig struct {
 	EnableMultiadmin                   bool // Enable multiadmin (opt-in, default: false)
 	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
 	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
+	MultipoolerPGTLSDirect             bool // With EnableMultipoolerPGTLS: dial postgres with sslnegotiation=direct (PG 17 TLS-first)
 	Database                           string
 	TableGroup                         string
 	Shard                              string
@@ -220,6 +221,18 @@ func WithMultigatewayRequireSSL() SetupOption {
 func WithMultipoolerPGTLS() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultipoolerPGTLS = true
+	}
+}
+
+// WithMultipoolerPGTLSDirect is WithMultipoolerPGTLS plus
+// --pg-client-sslnegotiation=direct: the multipooler skips the SSLRequest
+// round trip and opens every postgres connection with a TLS-first handshake
+// (PostgreSQL 17 direct SSL, mandatory ALPN). Exercises the
+// pgprotocol/client direct-TLS dial against a real PostgreSQL server.
+func WithMultipoolerPGTLSDirect() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultipoolerPGTLS = true
+		c.MultipoolerPGTLSDirect = true
 	}
 }
 
@@ -607,6 +620,9 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			inst.Multipooler.SocketFile = ""
 			inst.Multipooler.PgClientSSLMode = "verify-full"
 			inst.Multipooler.PgClientSSLRootCert = paths.CACertFile
+			if config.MultipoolerPGTLSDirect {
+				inst.Multipooler.PgClientSSLNegotiation = "direct"
+			}
 		}
 
 		// Configure Prometheus metrics export on multipooler if enabled.

@@ -81,6 +81,14 @@ type Config struct {
 	// and which verification rules apply.
 	SSLMode SSLMode
 
+	// SSLNegotiation selects how TLS is established on TCP connections
+	// (libpq sslnegotiation, PostgreSQL 17+). Empty string and "postgres"
+	// use the classic SSLRequest → 'S'/'N' negotiation; "direct" starts the
+	// TLS handshake immediately after the TCP dial with mandatory ALPN
+	// ("postgresql"). Direct requires a TLS-enforcing SSLMode (require /
+	// verify-ca / verify-full); startup fails otherwise, matching libpq.
+	SSLNegotiation SSLNegotiation
+
 	// TLSConfig is the TLS configuration for SSL connections.
 	// Only used for TCP connections. Pair with SSLMode; for prefer/require/
 	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.

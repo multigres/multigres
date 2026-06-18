@@ -55,6 +55,7 @@ type GatewayMetrics struct {
 	tlsConnections        metric.Int64Counter
 	tlsPlaintextRejected  metric.Int64Counter
 	tlsSSLRequestDeclined metric.Int64Counter
+	tlsDirectRejected     metric.Int64Counter
 }
 
 // NewGatewayMetrics initializes OTel metrics for the multigateway service.
@@ -159,6 +160,16 @@ func NewGatewayMetrics() (*GatewayMetrics, error) {
 		m.tlsSSLRequestDeclined = noop.Int64Counter{}
 	}
 
+	m.tlsDirectRejected, err = meter.Int64Counter(
+		"mg.gateway.tls.direct_rejected",
+		metric.WithDescription("Direct-TLS (sslnegotiation=direct) connection attempts rejected, tagged by reason"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.tls.direct_rejected counter: %w", err))
+		m.tlsDirectRejected = noop.Int64Counter{}
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
@@ -218,27 +229,43 @@ func (m *GatewayMetrics) RecordCredentialLookup(ctx context.Context, d time.Dura
 	m.authCredentialLookupRate.Add(ctx, 1)
 }
 
-// RecordTLSHandshake records the TLS handshake duration tagged by outcome.
-func (m *GatewayMetrics) RecordTLSHandshake(ctx context.Context, outcome string, d time.Duration) {
+// RecordTLSHandshake records the TLS handshake duration tagged by the
+// negotiation style (negotiated vs direct) and outcome.
+func (m *GatewayMetrics) RecordTLSHandshake(ctx context.Context, negotiation, outcome string, d time.Duration) {
 	if m == nil {
 		return
 	}
 	m.tlsHandshakeDuration.Record(ctx, d.Seconds(),
-		metric.WithAttributes(attribute.String("outcome", outcome)))
+		metric.WithAttributes(
+			attribute.String("negotiation", negotiation),
+			attribute.String("outcome", outcome)))
 }
 
 // RecordTLSConnection increments the completed-TLS-connections counter tagged
-// with the negotiated tls_version and cipher_suite. Names come from
-// crypto/tls so they match Go's published constants (e.g. "TLS 1.3",
-// "TLS_AES_128_GCM_SHA256").
-func (m *GatewayMetrics) RecordTLSConnection(ctx context.Context, version, cipher uint16) {
+// with the negotiation style (negotiated vs direct) plus the negotiated
+// tls_version and cipher_suite. Names come from crypto/tls so they match
+// Go's published constants (e.g. "TLS 1.3", "TLS_AES_128_GCM_SHA256").
+func (m *GatewayMetrics) RecordTLSConnection(ctx context.Context, negotiation string, version, cipher uint16) {
 	if m == nil {
 		return
 	}
 	m.tlsConnections.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("negotiation", negotiation),
 		attribute.String("tls_version", tls.VersionName(version)),
 		attribute.String("cipher_suite", tls.CipherSuiteName(cipher)),
 	))
+}
+
+// RecordDirectTLSRejected increments the direct-TLS-rejection counter tagged
+// by reason (server has no TLS config / client omitted mandatory ALPN).
+// Sized for the Envoy SSLRequest-offload rollout: a sustained non-zero rate
+// means direct-TLS traffic is arriving at a gateway that cannot admit it.
+func (m *GatewayMetrics) RecordDirectTLSRejected(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	m.tlsDirectRejected.Add(ctx, 1,
+		metric.WithAttributes(attribute.String("reason", reason)))
 }
 
 // RecordPlaintextRejected increments the plaintext-rejection counter tagged

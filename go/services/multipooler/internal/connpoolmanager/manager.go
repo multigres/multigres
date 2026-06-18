@@ -265,15 +265,16 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile:  m.connConfig.SocketFile,
-		Host:        m.connConfig.Host,
-		Port:        m.connConfig.Port,
-		Database:    m.connConfig.Database,
-		User:        user,
-		Password:    password,
-		SSLMode:     m.connConfig.SSLMode,
-		TLSConfig:   m.connConfig.TLSConfig,
-		DialTimeout: m.config.DialTimeout(),
+		SocketFile:     m.connConfig.SocketFile,
+		Host:           m.connConfig.Host,
+		Port:           m.connConfig.Port,
+		Database:       m.connConfig.Database,
+		User:           user,
+		Password:       password,
+		SSLMode:        m.connConfig.SSLMode,
+		SSLNegotiation: m.connConfig.SSLNegotiation,
+		TLSConfig:      m.connConfig.TLSConfig,
+		DialTimeout:    m.config.DialTimeout(),
 	}
 }
 

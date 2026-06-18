@@ -660,6 +660,16 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 				connConfig.SSLMode = sslMode
 				connConfig.TLSConfig = tlsCfg
 			}
+			// libpq-style sslnegotiation (postgres | direct). Validated during
+			// startup (ValidatePGSSL); a post-startup parse failure here keeps
+			// the default (postgres) and the per-dial ValidateSSLNegotiation
+			// check in client.startup surfaces any residual inconsistency.
+			sslNegotiation, err := pm.config.ConnPoolConfig.PgSSLNegotiation()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-sslnegotiation at pool open; using default \"postgres\"", "error", err)
+				sslNegotiation = client.SSLNegotiationPostgres
+			}
+			connConfig.SSLNegotiation = sslNegotiation
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")

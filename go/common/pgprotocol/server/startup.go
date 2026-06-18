@@ -88,7 +88,18 @@ func parseReplicationMode(value string) (ReplicationMode, error) {
 // handleStartup handles the initial connection startup phase.
 // This includes SSL/GSSAPI encryption negotiation and processing the startup message.
 // Returns an error if the startup fails.
+//
+// Direct-TLS detection runs first, before any startup packet is read — the
+// same ordering as PostgreSQL 17, where ProcessSSLStartup peeks the first
+// byte ahead of ProcessStartupPacket (src/backend/tcop/backend_startup.c).
+// A client that opens with a TLS ClientHello (libpq sslnegotiation=direct,
+// or an Envoy edge that answered the SSLRequest itself and forwards the raw
+// TLS stream) is upgraded in maybeHandleDirectTLS; everyone else falls
+// through to the classic startup-packet dispatch untouched.
 func (c *Conn) handleStartup() error {
+	if err := c.maybeHandleDirectTLS(); err != nil {
+		return err
+	}
 	return c.readAndDispatchStartup()
 }
 
@@ -161,10 +172,20 @@ func (c *Conn) readAndDispatchStartup() error {
 func (c *Conn) handleSSLRequest() error {
 	c.sslDone = true
 
-	if c.tlsConfig == nil {
-		// No TLS configured, decline SSL.
-		c.logger.Debug("client requested SSL, declining (no TLS config)")
-		c.metrics().RecordSSLRequestDeclined(c.ctx)
+	if c.tlsConfig == nil || c.tlsHandshakeComplete {
+		if c.tlsHandshakeComplete {
+			// SSLRequest arriving inside an already-established TLS tunnel
+			// (the client connected with direct TLS and then sent an
+			// SSLRequest anyway). PostgreSQL declines with 'N' here rather
+			// than erroring — the `port->ssl_in_use` check in
+			// ProcessStartupPacket — so the client falls through to a
+			// regular StartupMessage on the existing encrypted channel.
+			c.logger.Debug("client requested SSL inside TLS tunnel, declining")
+		} else {
+			// No TLS configured, decline SSL.
+			c.logger.Debug("client requested SSL, declining (no TLS config)")
+			c.metrics().RecordSSLRequestDeclined(c.ctx)
+		}
 		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
@@ -191,31 +212,51 @@ func (c *Conn) handleSSLRequest() error {
 		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
+	if _, err := c.completeTLSHandshake(c.conn, c.tlsConfig, TLSNegotiationNegotiated); err != nil {
+		return err
+	}
+
+	// Read the actual startup message over the encrypted connection.
+	return c.readAndDispatchStartup()
+}
+
+// completeTLSHandshake runs the server-side TLS handshake on transport using
+// the supplied base config, records the handshake metrics tagged with the
+// negotiation style (negotiated vs direct), and on success installs the TLS
+// connection as this connection's transport: c.conn is swapped to the
+// *tls.Conn, the buffered reader is reset onto it, and tlsHandshakeComplete
+// is set. It also captures the server leaf certificate so SCRAM-SHA-256-PLUS
+// channel binding can be advertised.
+//
+// transport is the conn the TLS engine should read/write — c.conn for the
+// negotiated path, or a replay wrapper for the direct path where part of the
+// ClientHello already sits in the buffered reader.
+func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, negotiation string) (*tls.Conn, error) {
 	// Wrap the TLS config so dynamic-cert deployments (GetCertificate /
 	// GetConfigForClient, typical for SNI multi-tenant edges) capture the
 	// actually-selected leaf cert into c.tlsServerCert during the handshake.
 	// Static Certificates[0] deployments are handled by the post-handshake
 	// fallback below and skip the wrapper.
-	handshakeCfg := wrapTLSConfigForCertCapture(c.tlsConfig, c.captureTLSServerCert)
+	handshakeCfg := wrapTLSConfigForCertCapture(baseCfg, c.captureTLSServerCert)
 
 	// Perform TLS handshake. Time it for mg.gateway.tls.handshake.duration
 	// and classify the outcome so the fleet-validation alert can tell a
 	// crypto failure from a client tear-down. net.ErrClosed / io.EOF map
 	// to client_aborted; everything else is treated as a handshake_failure.
-	tlsConn := tls.Server(c.conn, handshakeCfg)
+	tlsConn := tls.Server(transport, handshakeCfg)
 	handshakeStart := time.Now()
 	if err := tlsConn.Handshake(); err != nil {
 		outcome := TLSOutcomeHandshakeFailure
 		if isClientAbortError(err) {
 			outcome = TLSOutcomeClientAborted
 		}
-		c.metrics().RecordTLSHandshake(c.ctx, outcome, time.Since(handshakeStart))
-		return fmt.Errorf("TLS handshake failed: %w", err)
+		c.metrics().RecordTLSHandshake(c.ctx, negotiation, outcome, time.Since(handshakeStart))
+		return nil, fmt.Errorf("TLS handshake failed: %w", err)
 	}
 	handshakeDuration := time.Since(handshakeStart)
-	c.metrics().RecordTLSHandshake(c.ctx, TLSOutcomeSuccess, handshakeDuration)
+	c.metrics().RecordTLSHandshake(c.ctx, negotiation, TLSOutcomeSuccess, handshakeDuration)
 	connState := tlsConn.ConnectionState()
-	c.metrics().RecordTLSConnection(c.ctx, connState.Version, connState.CipherSuite)
+	c.metrics().RecordTLSConnection(c.ctx, negotiation, connState.Version, connState.CipherSuite)
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
@@ -230,8 +271,8 @@ func (c *Conn) handleSSLRequest() error {
 	// the dynamic wrapper above is a no-op and the cert was not captured.
 	// Recover it from Certificates[0] here. A parse failure is non-fatal —
 	// auth simply falls back to SCRAM-SHA-256 without channel binding.
-	if c.tlsServerCert == nil && len(c.tlsConfig.Certificates) > 0 {
-		cert := &c.tlsConfig.Certificates[0]
+	if c.tlsServerCert == nil && len(baseCfg.Certificates) > 0 {
+		cert := &baseCfg.Certificates[0]
 		switch {
 		case cert.Leaf != nil:
 			c.tlsServerCert = cert.Leaf
@@ -245,11 +286,11 @@ func (c *Conn) handleSSLRequest() error {
 	}
 
 	c.logger.Info("TLS connection established",
-		"version", tlsConn.ConnectionState().Version,
-		"cipher_suite", tls.CipherSuiteName(tlsConn.ConnectionState().CipherSuite))
+		"negotiation", negotiation,
+		"version", connState.Version,
+		"cipher_suite", tls.CipherSuiteName(connState.CipherSuite))
 
-	// Read the actual startup message over the encrypted connection.
-	return c.readAndDispatchStartup()
+	return tlsConn, nil
 }
 
 // handleGSSENCRequest handles a GSSAPI encryption request.
