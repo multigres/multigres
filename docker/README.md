@@ -47,14 +47,14 @@ isn't supported by the local provisioner.)
 The zone1 multigateway serves the PostgreSQL wire protocol on `15432` by
 default. Set `MULTIGRES_GATEWAY_PG_PORT=5432` to make the container a drop-in
 PostgreSQL on the standard port — useful when slotting Multigres into a setup
-that hardcodes `5432`, such as Supabase Storage's `tenant_db`. Additional cells
+that hardcodes `5432`. Additional cells
 take consecutive ports (`base+1`, `base+2`). Keep the published `ports:` and the
 healthcheck in `docker-compose.yml` in sync with this value.
 
 ### Max connections (`MULTIGRES_PG_MAX_CONNECTIONS`)
 
-The bundled PostgreSQL defaults to `max_connections = 60` (the Supabase Pico
-preset). Set `MULTIGRES_PG_MAX_CONNECTIONS` to raise it:
+The bundled PostgreSQL defaults to `max_connections = 60`. Set
+`MULTIGRES_PG_MAX_CONNECTIONS` to raise it:
 
 ```bash
 MULTIGRES_PG_MAX_CONNECTIONS=100 docker compose up --build

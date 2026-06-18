@@ -33,11 +33,11 @@ NUM_CELLS="${MULTIGRES_NUM_CELLS:-2}"
 
 # Port the zone1 multigateway listens on for the PostgreSQL wire protocol.
 # Defaults to multigres' standard 15432. Set to 5432 to make the container a
-# drop-in PostgreSQL on the default port (e.g. as Supabase Storage's
-# `tenant_db`). Additional cells use consecutive ports (base+1, base+2).
+# drop-in PostgreSQL on the default port (e.g. for a setup that hardcodes
+# `5432`). Additional cells use consecutive ports (base+1, base+2).
 GATEWAY_PG_PORT="${MULTIGRES_GATEWAY_PG_PORT:-15432}"
 
-# PostgreSQL max_connections. The bundled default is 60 (Supabase Pico preset).
+# PostgreSQL max_connections. The bundled default is 60.
 # Setting this raises PostgreSQL's ceiling AND sizes the connection pooler to
 # match: the pooler's global capacity is set to this value minus POOL_RESERVE,
 # leaving headroom for superuser logins, replication, and the pooler's own admin
