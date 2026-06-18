@@ -69,7 +69,13 @@ jobs:
           # PostGIS external regress coverage needs autotools + GEOS/PROJ/XML/gettext,
           # and the all-component suite also enables raster (GDAL), protobuf,
           # JSON-C, and SFCGAL when those libraries are present.
-          sudo apt-get install -y build-essential autoconf automake libtool bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev libgeos-dev libproj-dev libxml2-dev gettext xsltproc libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool bison flex \
+            libreadline-dev zlib1g-dev uuid-dev libssl-dev \
+            libsodium-dev pkg-config libcurl4-openssl-dev \
+            libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
+            libgdal-dev libjson-c-dev libprotobuf-c-dev \
+            protobuf-c-compiler libsfcgal-dev
 
       - name: Build
         run: make build
