@@ -29,7 +29,6 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/multigresschema"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -742,7 +741,6 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
-		pm.provisionBackendVpidTable(pm.ctx)
 	}
 
 	// Create sidecar schema and start heartbeat before opening query service controller
@@ -775,20 +773,6 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 
 func backendVpidTrackingEnabled(config *Config) bool {
 	return config == nil || config.BackendVpidTrackingEnabled == nil || *config.BackendVpidTrackingEnabled
-}
-
-func (pm *MultiPoolerManager) provisionBackendVpidTable(ctx context.Context) {
-	if !backendVpidTrackingEnabled(pm.config) {
-		return
-	}
-	queryService := pm.internalQueryService()
-	if queryService == nil {
-		pm.logger.WarnContext(ctx, "backend vpid tracking enabled but internal query service is unavailable")
-		return
-	}
-	if err := queryService.QueryMultiStatement(ctx, multigresschema.BackendVpidDDL); err != nil {
-		pm.logger.WarnContext(ctx, "failed to provision multigres.backend_vpid; vpid tracking degraded", "error", err)
-	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller

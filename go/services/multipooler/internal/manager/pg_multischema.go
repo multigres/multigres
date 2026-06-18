@@ -20,7 +20,9 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/multigresschema"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -53,6 +55,17 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 
 	if err := pm.createHeartbeatTable(ctx); err != nil {
 		return err
+	}
+
+	// backend_vpid maps live backend pids to gateway virtual pids. Like the
+	// other sidecar tables it is created here, once, on the bootstrapping
+	// primary and before the first backup, so standbys inherit it via restore
+	// and post-failover primaries already have it — never provisioned on the
+	// connection open/reopen path.
+	if backendVpidTrackingEnabled(pm.config) {
+		if err := pm.createBackendVpidTable(ctx); err != nil {
+			return err
+		}
 	}
 
 	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
@@ -139,6 +152,23 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 		ts BIGINT NOT NULL
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
+	}
+	return nil
+}
+
+// createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
+// backend-pid mapping read by lock-wait probes). The DDL is multi-statement
+// (table + GRANTs) and lives in the shared multigresschema package so the
+// pgregress isolation harness can install the same definition.
+func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for backend_vpid provisioning")
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := queryService.QueryMultiStatement(execCtx, multigresschema.BackendVpidDDL); err != nil {
+		return mterrors.Wrap(err, "failed to create backend_vpid table")
 	}
 	return nil
 }
