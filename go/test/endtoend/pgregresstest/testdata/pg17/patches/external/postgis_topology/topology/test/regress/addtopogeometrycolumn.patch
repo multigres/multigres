@@ -1,0 +1,20 @@
+# Known divergence: error/notice cursor offset only ("at character N"). NOT a
+# multigres bug. multigateway rewrites the submitted query text before
+# forwarding it to PostgreSQL (parse + deparse), which shifts the byte offset
+# PostgreSQL records for an error/notice cursor. The message text, ordering, and
+# every result row are byte-identical to stock PostgreSQL; only the trailing
+# "at character N" position differs. This patch records that offset shift so the
+# test is verified against multigres's deparsed-query cursor positions.
+--- a
++++ b
+@@ -1,8 +1,8 @@
+ ERROR: relation "public.feature" does not exist
+-ERROR: relation "public.feature2" does not exist at character 35
++ERROR: relation "public.feature2" does not exist at character 36
+ t
+ ERROR: relation "public.feature" does not exist
+-ERROR: relation "public.feature2" does not exist at character 35
++ERROR: relation "public.feature2" does not exist at character 36
+ ERROR: Layer type must be one of POINT,LINE,POLYGON,COLLECTION
+ ERROR: Child layer 0 does not exist in topology "tt"
+ ERROR: Layer type must be one of POINT,LINE,POLYGON,COLLECTION

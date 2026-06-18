@@ -116,8 +116,10 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pgtap", KindExternal, StatusCovered, "runs its own pg_regress suite (every test wrapped in BEGIN…ROLLBACK by test/setup.sql); extension.sql needs contrib citext/isn/ltree installed (ContribDeps). Also the test dependency of pg_partman, pgjwt, and pgsodium"},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
 	{"plpgsql_check", KindExternal, StatusCovered, "plpgsql linter/profiler; needs shared_preload_libraries (PreloadLibraries) so the passive-mode hooks and shared-memory profiler work on every pooled backend; the gateway-blocked LOAD statements its tests open with are patched"},
-	{"postgis", KindExternal, StatusExternal, ""},
-	{"postgis_topology", KindExternal, StatusExternal, "PostGIS"},
+	{"postgis", KindExternal, StatusCovered, "PostGIS 3.6.3; built with autotools from externalSpecs; regress/run_test.pl covers core geometry/geography and loader/dumper tests"},
+	{"postgis_raster", KindExternal, StatusCovered, "PostGIS raster component; covered by the PostGIS regress runner when GDAL support is built"},
+	{"postgis_sfcgal", KindExternal, StatusCovered, "PostGIS SFCGAL component; covered by the PostGIS regress runner when SFCGAL support is built"},
+	{"postgis_topology", KindExternal, StatusCovered, "PostGIS topology component; covered by the PostGIS regress runner"},
 	{"postgres_fdw", KindContrib, StatusUnsupported, "pooler blocks CREATE SERVER / outbound connections"},
 	{"supabase_vault", KindExternal, StatusExternal, ""},
 	{"unaccent", KindContrib, StatusCovered, ""},
@@ -335,14 +337,25 @@ type ExternalExtension struct {
 	DependsOn []string
 
 	// BuildSystem selects the build toolchain: "" (or "pgxs") builds a PGXS
-	// module with make; "pgrx" builds a Rust crate with cargo-pgrx. pgvector,
-	// pg_cron, and pgmq are PGXS; pg_graphql is pgrx.
+	// module with make; "pgrx" builds a Rust crate with cargo-pgrx; "postgis"
+	// builds PostGIS's autotools tree. pgvector, pg_cron, and pgmq are PGXS;
+	// pg_graphql is pgrx.
 	BuildSystem string
 
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx". It must
 	// equal the crate's pinned pgrx dependency (pg_graphql 1.6.1 → pgrx 0.16.1),
 	// or cargo-pgrx refuses to build. Empty (and ignored) for PGXS extensions.
 	PgrxVersion string
+
+	// ConfigureArgs are extra configure arguments for BuildSystem=="postgis".
+	// The builder always supplies --with-pgconfig for the from-source server.
+	ConfigureArgs []string
+
+	// TestRunner selects a non-pg_regress runner. Empty means the generic
+	// sql/expected pg_regress path. "postgis" uses regress/run_test.pl; aliases
+	// such as postgis_topology use "postgis-alias" so catalog rows can be marked
+	// covered while the single postgis runner emits results for every component.
+	TestRunner string
 
 	// ContribDeps names contrib modules (by directory name) the harness must
 	// install before this extension's suite runs, because the suite CREATEs them.
@@ -388,6 +401,23 @@ type ExternalExtension struct {
 // the pinned tag keeps the suite reproducible (and matches the ABI the
 // from-source PostgreSQL was built against). Keyed by catalog Name.
 var externalSpecs = map[string]ExternalExtension{
+	"postgis": {
+		Name: "postgis", Repo: "https://github.com/postgis/postgis", Tag: "3.6.3",
+		BuildSystem: "postgis", TestRunner: "postgis",
+	},
+	// The PostGIS runner is a single upstream harness that exercises core,
+	// topology, raster, and SFCGAL components in one checkout. These alias specs
+	// let each catalog row be marked covered without cloning/building PostGIS
+	// four times; selecting an alias via PGEXTERNAL_TESTS maps back to postgis.
+	"postgis_raster": {
+		Name: "postgis_raster", TestRunner: "postgis-alias", DependsOn: []string{"postgis"},
+	},
+	"postgis_sfcgal": {
+		Name: "postgis_sfcgal", TestRunner: "postgis-alias", DependsOn: []string{"postgis"},
+	},
+	"postgis_topology": {
+		Name: "postgis_topology", TestRunner: "postgis-alias", DependsOn: []string{"postgis"},
+	},
 	"vector": {
 		Name: "vector", Repo: "https://github.com/pgvector/pgvector", Tag: "v0.8.1",
 		// pgvector's fixtures assume the extension already exists (they open with a
@@ -683,6 +713,9 @@ func CoveredExternalExtensions() []ExternalExtension {
 	for _, e := range ExtensionCatalog {
 		if e.Kind == KindExternal && e.Status == StatusCovered {
 			if spec, ok := externalSpecs[e.Name]; ok {
+				if spec.TestRunner == "postgis-alias" {
+					continue
+				}
 				exts = append(exts, spec)
 			}
 		}
@@ -720,6 +753,9 @@ func ExternalBuildList() []ExternalExtension {
 	var out []ExternalExtension
 	seen := map[string]bool{}
 	add := func(spec ExternalExtension) {
+		if spec.TestRunner == "postgis-alias" {
+			return
+		}
 		if seen[spec.Name] {
 			return
 		}

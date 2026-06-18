@@ -66,7 +66,10 @@ jobs:
           # external extension (ExtensionBuildSpec.PkgConfigDeps).
           # libcurl4-openssl-dev is required to build the http (pgsql-http)
           # external extension (its Makefile locates libcurl via curl-config).
-          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev
+          # PostGIS external regress coverage needs autotools + GEOS/PROJ/XML/gettext,
+          # and the all-component suite also enables raster (GDAL), protobuf,
+          # JSON-C, and SFCGAL when those libraries are present.
+          sudo apt-get install -y build-essential autoconf automake libtool bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev libgeos-dev libproj-dev libxml2-dev gettext xsltproc libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev
 
       - name: Build
         run: make build
@@ -89,7 +92,7 @@ jobs:
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true

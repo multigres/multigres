@@ -279,7 +279,8 @@ type ExtensionBuildSpec struct {
 	// subdirectory (pgmq: "pgmq-extension").
 	BuildSubdir string
 	// BuildSystem selects the toolchain: "" or "pgxs" builds with make against
-	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx.
+	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx; "postgis" builds
+	// PostGIS's autotools tree.
 	BuildSystem string
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx"; it must
 	// match the crate's pinned pgrx dependency. Ignored for pgxs.
@@ -292,6 +293,10 @@ type ExtensionBuildSpec struct {
 	// exactly this. The extension's own Makefile still adds the -l flag
 	// (pgsodium: SHLIB_LINK = -lsodium). Ignored for pgrx.
 	PkgConfigDeps []string
+	// ConfigureArgs are extra arguments for build systems that run configure
+	// (currently BuildSystem=="postgis"). They are appended after the required
+	// --with-pgconfig argument.
+	ConfigureArgs []string
 }
 
 // PgMajorVersion returns the PostgreSQL major version as a string ("17"),
@@ -337,6 +342,10 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 		}
 	case "pgrx":
 		if err := b.installPgrxExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
+			return "", err
+		}
+	case "postgis":
+		if err := b.installPostGISExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
 			return "", err
 		}
 	default:
@@ -449,6 +458,52 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec E
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
 		return fmt.Errorf("make %s install failed: %w", name, err)
+	}
+	return nil
+}
+
+// installPostGISExtension builds and installs PostGIS's autotools tree against
+// this builder's from-source PostgreSQL. PostGIS is not a PGXS-only module: the
+// repo builds liblwgeom, loader/dumper utilities, optional raster/topology/SFCGAL
+// components, then installs extension control/SQL files into pgConfig's tree.
+func (b *Builder) installPostGISExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
+	t.Logf("Building PostGIS %s with autotools (--with-pgconfig=%s)...", spec.Tag, pgConfig)
+
+	configurePath := filepath.Join(buildDir, "configure")
+	if _, err := os.Stat(configurePath); err != nil {
+		t.Logf("PostGIS configure script missing; running autogen.sh...")
+		autogenCmd := executil.Command(ctx, filepath.Join(buildDir, "autogen.sh")).SetDir(buildDir)
+		autogenCmd.Stdout = os.Stdout
+		autogenCmd.Stderr = os.Stderr
+		if err := autogenCmd.Run(); err != nil {
+			return fmt.Errorf("postgis autogen.sh failed: %w", err)
+		}
+	}
+
+	configureArgs := []string{
+		"--with-pgconfig=" + pgConfig,
+		"--prefix=" + b.InstallDir,
+	}
+	configureArgs = append(configureArgs, spec.ConfigureArgs...)
+	configureCmd := executil.Command(ctx, configurePath, configureArgs...).SetDir(buildDir)
+	configureCmd.Stdout = os.Stdout
+	configureCmd.Stderr = os.Stderr
+	if err := configureCmd.Run(); err != nil {
+		return fmt.Errorf("postgis configure failed: %w", err)
+	}
+
+	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4")
+	makeCmd.Stdout = os.Stdout
+	makeCmd.Stderr = os.Stderr
+	if err := makeCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make failed: %w", err)
+	}
+
+	installCmd := executil.Command(ctx, "make", "-C", buildDir, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make install failed: %w", err)
 	}
 	return nil
 }
