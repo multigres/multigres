@@ -367,11 +367,13 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			"Should return the self_leadership-named primary before health stream connects")
 	})
 
-	t.Run("leader identity preserved on pooler removal", func(t *testing.T) {
+	t.Run("leader identity preserved while another pooler remains in shard", func(t *testing.T) {
 		lb := newTestLB(t, "zone1")
 
 		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 		addPoolerForTest(t, lb, primary)
+		addPoolerForTest(t, lb, replica)
 
 		connPrimary := connForTest(t, lb, primary)
 
@@ -391,7 +393,8 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary), conn.ID())
 
-		// Remove the pooler — leader identity must persist; GetConnection
+		// Remove the primary pooler — leader identity must persist as long as
+		// some pooler from the shard remains in the cache. GetConnection
 		// distinguishes "known but not connected" (transient, after removal)
 		// from "no leader observed yet" (operational, never saw consensus).
 		removePoolerForTest(t, lb, poolerID(primary))
@@ -399,7 +402,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		_, err = lb.GetConnection(target)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not connected",
-			"Leader identity must persist; error should distinguish from 'no leader observed yet'")
+			"Leader identity must persist while another pooler remains in the shard")
 	})
 }
 
@@ -804,10 +807,10 @@ func TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica(t *te
 		"a centrally-known leader unaware of its own leadership is eligible for replica reads")
 }
 
-// TestLoadBalancer_LeadershipByID verifies the three roles reported for the
+// TestLoadBalancer_LeadershipFor verifies the three roles reported for the
 // admin/status page: the shard's consensus leader, a stale leader that still
 // believes itself the leader at an older rule, and a plain follower.
-func TestLoadBalancer_LeadershipByID(t *testing.T) {
+func TestLoadBalancer_LeadershipFor(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	leader := withSelfLeadership(createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
@@ -817,6 +820,7 @@ func TestLoadBalancer_LeadershipByID(t *testing.T) {
 	addPoolerForTest(t, lb, stale)
 	addPoolerForTest(t, lb, follower)
 
+	connLeader := connForTest(t, lb, leader)
 	connStale := connForTest(t, lb, stale)
 	connFollower := connForTest(t, lb, follower)
 
@@ -827,8 +831,33 @@ func TestLoadBalancer_LeadershipByID(t *testing.T) {
 	simulateHealthUpdate(connFollower, clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
 
-	roles := lb.LeadershipByID()
-	assert.Equal(t, LeadershipLeader, roles[poolerID(leader)])
-	assert.Equal(t, LeadershipStaleLeader, roles[poolerID(stale)])
-	assert.Equal(t, LeadershipFollower, roles[poolerID(follower)])
+	assert.Equal(t, LeadershipLeader, lb.LeadershipFor(connLeader))
+	assert.Equal(t, LeadershipStaleLeader, lb.LeadershipFor(connStale))
+	assert.Equal(t, LeadershipFollower, lb.LeadershipFor(connFollower))
+
+	// Shards() reports the per-shard summary for the (tableGroup, "0") pair.
+	summaries := lb.Shards()
+	require.Len(t, summaries, 1)
+	assert.Equal(t, constants.DefaultTableGroup, summaries[0].ShardKey.GetTableGroup())
+	assert.Equal(t, "0", summaries[0].ShardKey.GetShard())
+	leaderObs := summaries[0].Leader()
+	require.NotNil(t, leaderObs)
+	assert.Equal(t, poolerID(leader), topoclient.ComponentIDString(leaderObs.LeaderId))
+}
+
+// TestLoadBalancer_ShardSummaryAutoClear verifies that removing the last
+// pooler from a shard clears the ShardSummary entry.
+func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	primary := withSelfLeadership(createTestMultiPooler("primary", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
+	addPoolerForTest(t, lb, primary)
+
+	summaries := lb.Shards()
+	require.Len(t, summaries, 1, "shard should be tracked after adding a pooler")
+
+	removePoolerForTest(t, lb, poolerID(primary))
+
+	summaries = lb.Shards()
+	assert.Empty(t, summaries, "ShardSummary should be cleared once no poolers remain in the shard")
 }

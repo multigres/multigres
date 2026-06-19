@@ -409,13 +409,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			loadBalancer.NotifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection, _ poolerwatch.GoneReason) {
-			if conn == nil {
-				return
+			if conn != nil {
+				if err := conn.Close(); err != nil {
+					logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
+						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+				}
 			}
-			if err := conn.Close(); err != nil {
-				logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
-					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
-			}
+			loadBalancer.OnPoolerGone(p)
 		},
 	})
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())

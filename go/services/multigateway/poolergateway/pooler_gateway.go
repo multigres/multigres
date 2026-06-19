@@ -33,7 +33,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -416,11 +415,16 @@ func (pg *PoolerGateway) Stats() map[string]any {
 	}
 }
 
-// LeadershipByID returns the consensus leadership role of each connected pooler,
-// keyed by serialized pooler ID, for the admin/status page.
-// See LoadBalancer.LeadershipByID.
-func (pg *PoolerGateway) LeadershipByID() map[topoclient.ComponentID]string {
-	return pg.loadBalancer.LeadershipByID()
+// LeadershipFor returns the consensus leadership role of a single connected
+// pooler for the admin/status page. See LoadBalancer.LeadershipFor.
+func (pg *PoolerGateway) LeadershipFor(conn *PoolerConnection) string {
+	return pg.loadBalancer.LeadershipFor(conn)
+}
+
+// LoadBalancer exposes the underlying LoadBalancer so callers (e.g. the
+// status page) can query per-shard and per-pooler state directly.
+func (pg *PoolerGateway) LoadBalancer() *LoadBalancer {
+	return pg.loadBalancer
 }
 
 // CopySendData implements queryservice.QueryService.

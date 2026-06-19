@@ -66,11 +66,11 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 			lb.MergeTopologyLeader(curr)
 			lb.NotifyIfLeaderServing(curr, conn)
 		},
-		OnGone: func(_ *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
-			if conn == nil {
-				return
+		OnGone: func(p *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
+			if conn != nil {
+				_ = conn.Close()
 			}
-			_ = conn.Close()
+			lb.OnPoolerGone(p)
 		},
 	})
 	t.Cleanup(func() { cache.Shutdown() })
@@ -110,5 +110,12 @@ func setLeaderForTest(t *testing.T, lb *LoadBalancer, tableGroup, shard string, 
 	t.Helper()
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	lb.leaders[shardKey{tableGroup: tableGroup, shard: shard}] = obs
+	key := shardKey{tableGroup: tableGroup, shard: shard}
+	lb.shards[key] = &ShardSummary{
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		leader: obs,
+	}
 }
