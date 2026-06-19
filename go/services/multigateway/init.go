@@ -343,16 +343,34 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
-	// Create LoadBalancer first; the pooler cache hooks below drive it.
-	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
-	lowLagMs := mg.pgReplicaLowLagMs.Get()
-	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
-	if lowLagMs > 0 || highToleranceMs > 0 {
-		loadBalancer.SetReplicationLagThresholds(
-			time.Duration(lowLagMs)*time.Millisecond,
-			time.Duration(highToleranceMs)*time.Millisecond,
-		)
+	// Create failover buffer before the load balancer so OnPrimaryServing
+	// (which drains the buffer when a new primary reports SERVING) can be
+	// supplied at LB construction time rather than via a post-hoc setter.
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
 	}
+	var onPrimaryServing func(tableGroup, shard string)
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+		onPrimaryServing = func(tableGroup, shard string) {
+			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
+				TableGroup: tableGroup,
+				Shard:      shard,
+			})
+		}
+		logger.InfoContext(ctx, "Failover buffering enabled")
+	}
+
+	// Create LoadBalancer first; the pooler cache hooks below drive it.
+	loadBalancer := poolergateway.NewLoadBalancer(poolergateway.LoadBalancerOpts{
+		Ctx:              mg.shutdownCtx,
+		LocalCell:        mg.cell.Get(),
+		Logger:           logger,
+		DialOpt:          poolerTransportCreds,
+		LowLag:           time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance:    time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+		OnPrimaryServing: onPrimaryServing,
+	})
 
 	// Start pooler discovery (watches all cells). The cache owns the
 	// per-pooler *PoolerConnection rider: OnLive constructs the connection
@@ -397,24 +415,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	loadBalancer.SetCache(mg.poolerCache)
 	mg.poolerCache.Start()
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
-
-	// Create failover buffer if enabled.
-	if err := mg.bufferConfig.Validate(); err != nil {
-		return fmt.Errorf("buffer config: %w", err)
-	}
-	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
-		// Stop buffering when the streaming health check detects a new primary.
-		// This is a direct signal from the pooler's health stream — more reliable
-		// and lower latency than topology-based propagation via etcd.
-		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		})
-		logger.InfoContext(ctx, "Failover buffering enabled")
-	}
 
 	// Initialize PoolerGateway for managing pooler connections
 	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
@@ -586,6 +586,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
 		}
 		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
+		lowLagMs := mg.pgReplicaLowLagMs.Get()
+		highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
 		if lowLagMs > 0 || highToleranceMs > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
 				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)

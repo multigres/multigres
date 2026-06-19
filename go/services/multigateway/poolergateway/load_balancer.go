@@ -109,18 +109,45 @@ type LoadBalancer struct {
 	highReplicationLagToleranceNs int64
 }
 
-// NewLoadBalancer creates a new LoadBalancer.
-// The grpcDialOpt configures transport credentials for gRPC connections to poolers.
-// The caller must wire the pooler cache via SetCache once the cache has been
-// constructed; until then GetConnection / ConnectionCount / LeadershipByID
-// will return as if no poolers are tracked.
-func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger, grpcDialOpt grpc.DialOption) *LoadBalancer {
+// LoadBalancerOpts groups the construction parameters for a LoadBalancer.
+// All required fields must be set; optional fields default to zero/nil.
+type LoadBalancerOpts struct {
+	// Ctx is the service-lifetime context; cancelled on Shutdown. Required.
+	Ctx context.Context
+	// LocalCell is the cell where this gateway runs. Required.
+	LocalCell string
+	// Logger is used for all diagnostic logging. Required.
+	Logger *slog.Logger
+	// DialOpt configures transport credentials for pooler gRPC connections.
+	// Required.
+	DialOpt grpc.DialOption
+
+	// LowLag is the preferred replication-lag threshold. Replicas at or below
+	// this lag are preferred. Zero disables the preferred tier.
+	LowLag time.Duration
+	// HighTolerance is the absolute maximum replication lag. Replicas above
+	// this are never selected. Zero means no upper bound.
+	HighTolerance time.Duration
+
+	// OnPrimaryServing fires when a new primary is observed serving on its
+	// health stream; used to drain the failover buffer. Optional.
+	OnPrimaryServing func(tableGroup, shard string)
+}
+
+// NewLoadBalancer creates a LoadBalancer. The caller must wire the pooler
+// cache via SetCache once the cache has been constructed; until then
+// GetConnection / ConnectionCount / LeadershipByID return as if no poolers
+// are tracked.
+func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
 	return &LoadBalancer{
-		localCell:   localCell,
-		logger:      logger,
-		ctx:         ctx,
-		leaders:     make(map[shardKey]*clustermetadatapb.LeaderObservation),
-		grpcDialOpt: grpcDialOpt,
+		localCell:                     opts.LocalCell,
+		logger:                        opts.Logger,
+		ctx:                           opts.Ctx,
+		leaders:                       make(map[shardKey]*clustermetadatapb.LeaderObservation),
+		grpcDialOpt:                   opts.DialOpt,
+		onPrimaryServing:              opts.OnPrimaryServing,
+		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
+		highReplicationLagToleranceNs: opts.HighTolerance.Nanoseconds(),
 	}
 }
 
@@ -131,38 +158,6 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger,
 // LB reads.
 func (lb *LoadBalancer) SetCache(c *poolerwatch.PoolerCache[*PoolerConnection]) {
 	lb.cache = c
-}
-
-// Ctx returns the service-lifetime context. Used by the cache hooks in
-// multigateway init.go to scope per-pooler connection goroutines.
-func (lb *LoadBalancer) Ctx() context.Context {
-	return lb.ctx
-}
-
-// DialOpt returns the gRPC dial option for transport credentials. Used by
-// the cache hooks in multigateway init.go to construct PoolerConnections.
-func (lb *LoadBalancer) DialOpt() grpc.DialOption {
-	return lb.grpcDialOpt
-}
-
-// SetOnPrimaryServing sets a callback invoked when a new primary is detected
-// via the streaming health check. This is used to stop failover buffering
-// when a new primary becomes available, replacing the topology-based approach.
-// Must be called before any poolers are added.
-func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
-	lb.onPrimaryServing = fn
-}
-
-// SetReplicationLagThresholds configures two-tier replication lag filtering.
-//
-//   - lowLag: replicas at or below this lag are preferred ("healthy" tier).
-//     If all replicas exceed this but are under highTolerance, they are still used.
-//     Zero disables the preferred tier — all replicas are treated equally.
-//   - highTolerance: absolute maximum lag. Replicas above this are never selected.
-//     Zero means no upper bound.
-func (lb *LoadBalancer) SetReplicationLagThresholds(lowLag, highTolerance time.Duration) {
-	lb.lowReplicationLagNs = lowLag.Nanoseconds()
-	lb.highReplicationLagToleranceNs = highTolerance.Nanoseconds()
 }
 
 // MergeTopologyLeader folds a pooler's self_leadership observation (from its

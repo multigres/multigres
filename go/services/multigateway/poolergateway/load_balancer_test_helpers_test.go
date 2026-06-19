@@ -35,11 +35,18 @@ import (
 func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 	t.Helper()
 	logger := slog.Default()
-	lb := NewLoadBalancer(t.Context(), localCell, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	cache := poolerwatch.New(t.Context(), poolerwatch.Config[*PoolerConnection]{
+	ctx := t.Context()
+	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
+	lb := NewLoadBalancer(LoadBalancerOpts{
+		Ctx:       ctx,
+		LocalCell: localCell,
+		Logger:    logger,
+		DialOpt:   dialOpt,
+	})
+	cache := poolerwatch.New(ctx, poolerwatch.Config[*PoolerConnection]{
 		Hooks: poolerwatch.Hooks[*PoolerConnection]{
 			OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
-				conn, err := NewPoolerConnection(lb.Ctx(), p, logger, lb.DialOpt(), lb.OnPoolerHealthUpdate)
+				conn, err := NewPoolerConnection(ctx, p, logger, dialOpt, lb.OnPoolerHealthUpdate)
 				if err != nil {
 					t.Errorf("NewPoolerConnection failed: %v", err)
 					return nil
