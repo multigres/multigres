@@ -27,10 +27,10 @@ import (
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-func TestPoolerHealth_IsServing(t *testing.T) {
+func TestPoolerHealthIsServing(t *testing.T) {
 	tests := []struct {
 		name     string
-		health   *PoolerHealth
+		health   *poolerHealth
 		expected bool
 	}{
 		{
@@ -40,21 +40,21 @@ func TestPoolerHealth_IsServing(t *testing.T) {
 		},
 		{
 			name: "SERVING returns true",
-			health: &PoolerHealth{
+			health: &poolerHealth{
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			},
 			expected: true,
 		},
 		{
 			name: "NOT_SERVING returns false",
-			health: &PoolerHealth{
+			health: &poolerHealth{
 				ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 			},
 			expected: false,
 		},
 		{
 			name: "BACKUP returns false",
-			health: &PoolerHealth{
+			health: &poolerHealth{
 				ServingStatus: clustermetadatapb.PoolerServingStatus_BACKUP,
 			},
 			expected: false,
@@ -63,16 +63,16 @@ func TestPoolerHealth_IsServing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.health.IsServing()
+			result := tt.health.isServing()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestPoolerHealth_SimpleCopy(t *testing.T) {
+func TestPoolerHealthSimpleCopy(t *testing.T) {
 	t.Run("nil health returns nil", func(t *testing.T) {
-		var h *PoolerHealth
-		copy := h.SimpleCopy()
+		var h *poolerHealth
+		copy := h.simpleCopy()
 		assert.Nil(t, copy)
 	})
 
@@ -91,7 +91,7 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
-		original := &PoolerHealth{
+		original := &poolerHealth{
 			Target:            target,
 			PoolerID:          poolerID,
 			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
@@ -100,7 +100,7 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 			LastResponse:      lastResp,
 		}
 
-		copy := original.SimpleCopy()
+		copy := original.simpleCopy()
 
 		// Verify all fields are copied
 		require.NotNil(t, copy)
@@ -121,12 +121,12 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 	})
 
 	t.Run("modifying copy does not affect original", func(t *testing.T) {
-		original := &PoolerHealth{
+		original := &poolerHealth{
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			LastError:     nil,
 		}
 
-		copy := original.SimpleCopy()
+		copy := original.simpleCopy()
 		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 		copy.LastError = errors.New("new error")
 

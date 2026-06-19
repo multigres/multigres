@@ -225,7 +225,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 
 // simulateHealthUpdate simulates receiving a health update from the stream.
 // This uses the same code path as real health updates, ensuring any callbacks are triggered.
-func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.PoolerServingStatus, observation *clustermetadatapb.LeaderObservation) {
+func simulateHealthUpdate(conn *poolerConnection, status clustermetadatapb.PoolerServingStatus, observation *clustermetadatapb.LeaderObservation) {
 	info := conn.PoolerInfo()
 	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
 		Target: &query.Target{

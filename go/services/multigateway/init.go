@@ -67,7 +67,7 @@ type MultiGateway struct {
 	pgRequireSSL viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
-	// streams + per-pooler *PoolerConnection riders).
+	// streams + per-pooler connection riders).
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer

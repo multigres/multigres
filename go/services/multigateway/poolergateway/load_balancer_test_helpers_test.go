@@ -28,7 +28,7 @@ import (
 
 // newTestLB constructs a loadBalancer wired to an in-memory pooler cache that
 // mirrors the production hook contract from multigateway init.go: OnLive
-// constructs a *PoolerConnection (with insecure transport for tests) and
+// constructs a *poolerConnection (with insecure transport for tests) and
 // merges any topology self_leadership; OnUpdate refreshes pooler info and
 // re-merges; OnGone closes the connection. The cache uses no topology
 // Source, so it is driven by SeedForTest / DeleteForTest in tests.
@@ -37,7 +37,7 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 	logger := slog.Default()
 	ctx := t.Context()
 	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
-	cache := poolerwatch.New(ctx, poolerwatch.Config[*PoolerConnection]{
+	cache := poolerwatch.New(ctx, poolerwatch.Config[*poolerConnection]{
 		Logger: logger,
 	})
 	lb := newLoadBalancer(loadBalancerOpts{
@@ -47,8 +47,8 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 		DialOpt:   dialOpt,
 		Cache:     cache,
 	})
-	cache.Start(poolerwatch.Hooks[*PoolerConnection]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
+	cache.Start(poolerwatch.Hooks[*poolerConnection]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {
 			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, lb.onPoolerHealthUpdate)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
@@ -58,7 +58,7 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolerConnection) {
 			if conn == nil {
 				return
 			}
@@ -66,7 +66,7 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 			lb.mergeTopologyLeader(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
+		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
 				_ = conn.Shutdown()
 			}
@@ -78,7 +78,7 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 }
 
 // addPoolerForTest drives a topology upsert through the cache, firing OnLive
-// (which constructs the *PoolerConnection rider) or OnUpdate.
+// (which constructs the *poolerConnection rider) or OnUpdate.
 func addPoolerForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) {
 	t.Helper()
 	poolerwatch.SeedForTest(t, lb.cache, p)
@@ -91,10 +91,10 @@ func removePoolerForTest(t *testing.T, lb *loadBalancer, id topoclient.Component
 	poolerwatch.DeleteForTest(t, lb.cache, id)
 }
 
-// connForTest returns the cached *PoolerConnection rider for the given
+// connForTest returns the cached *poolerConnection rider for the given
 // pooler, or nil if absent. Used by tests that need to call into the
 // connection (e.g. simulateHealthUpdate).
-func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) *PoolerConnection {
+func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) *poolerConnection {
 	t.Helper()
 	conn, ok := lb.cache.GetRider(topoclient.ComponentIDString(p.Id))
 	if !ok {

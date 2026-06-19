@@ -83,9 +83,9 @@ func (s *shardSummary) mergeLeader(obs *clustermetadatapb.LeaderObservation) boo
 	return true
 }
 
-// loadBalancer selects PoolerConnections for queries. The set of tracked
-// poolers and each one's *PoolerConnection rider lives in the pooler cache
-// (poolerwatch.PoolerCache[*PoolerConnection]) — the cache's OnLive hook
+// loadBalancer selects poolerConnections for queries. The set of tracked
+// poolers and each one's *poolerConnection rider lives in the pooler cache
+// (poolerwatch.PoolerCache[*poolerConnection]) — the cache's OnLive hook
 // constructs the connection, and OnGone closes it. loadBalancer owns no
 // per-pooler registry of its own.
 //
@@ -136,11 +136,11 @@ type loadBalancer struct {
 	// shard.
 	shards map[shardKey]*shardSummary
 
-	// cache is the pooler cache that owns the per-pooler *PoolerConnection
+	// cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Supplied at construction via loadBalancerOpts.Cache; callers
 	// build the cache first (without hooks), pass it in here, then call
 	// cache.Start with hooks that close over the LB.
-	cache *poolerwatch.PoolerCache[*PoolerConnection]
+	cache *poolerwatch.PoolerCache[*poolerConnection]
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
@@ -185,10 +185,10 @@ type loadBalancerOpts struct {
 	// health stream; used to drain the failover buffer. Optional.
 	OnPrimaryServing func(tableGroup, shard string)
 
-	// Cache is the pooler cache that owns the per-pooler *PoolerConnection
+	// Cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Callers construct the cache without hooks, pass it here, then
 	// call cache.Start with hooks that close over the resulting LB.
-	Cache *poolerwatch.PoolerCache[*PoolerConnection]
+	Cache *poolerwatch.PoolerCache[*poolerConnection]
 }
 
 // newLoadBalancer creates a loadBalancer. The cache supplied via opts.Cache
@@ -270,7 +270,7 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shar
 // Called by the cache OnLive/OnUpdate hooks and internally by
 // onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
 // not be called while holding lb.mu.
-func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
+func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *poolerConnection) {
 	if lb.onPrimaryServing == nil || conn == nil {
 		return
 	}
@@ -288,7 +288,7 @@ func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPoo
 // notifyIfLeaderServing and onPoolerHealthUpdate. The summary may be nil if no
 // shard summary has been created yet (no leader observed); callers obtain it
 // from lb.shards or via shardSummary().
-func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *PoolerConnection) {
+func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *poolerConnection) {
 	if lb.onPrimaryServing == nil || summary == nil {
 		return
 	}
@@ -297,7 +297,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 		return
 	}
 	health := conn.Health()
-	if health == nil || !health.IsServing() {
+	if health == nil || !health.isServing() {
 		return
 	}
 	if health.Target.GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
@@ -306,7 +306,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	lb.onPrimaryServing(summary.shardKey.GetTableGroup(), summary.shardKey.GetShard())
 }
 
-// getConnection returns a PoolerConnection matching the target specification.
+// getConnection returns a poolerConnection matching the target specification.
 // Returns an error immediately if no suitable connection is available.
 //
 // Selection logic:
@@ -318,7 +318,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 //     itself the leader, judged per-connection from self_leadership and
 //     health-stream observations (see matchesReplicaTarget). This excludes both
 //     the current leader and a stale leader, never consulting pooler.Type.
-func (lb *loadBalancer) getConnection(target *query.Target) (*PoolerConnection, error) {
+func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
 	}
@@ -363,7 +363,7 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*PoolerConnection, 
 	// TODO: use cache.GetByShard once query.Target carries a Database field.
 	// shardKey is currently database-agnostic, so a swap would collide across
 	// databases.
-	var candidates []*PoolerConnection
+	var candidates []*poolerConnection
 	if lb.cache != nil {
 		for _, entry := range lb.cache.All() {
 			conn := entry.Rider
@@ -392,11 +392,11 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*PoolerConnection, 
 	return selected, nil
 }
 
-// getConnectionByID returns a PoolerConnection for a specific pooler ID.
+// getConnectionByID returns a poolerConnection for a specific pooler ID.
 // This is used for reserved connections where queries need to be routed to
 // a specific pooler instance (e.g., for session affinity with prepared statements).
 // Returns an error immediately if the pooler connection doesn't exist (fail-fast).
-func (lb *loadBalancer) getConnectionByID(poolerID *clustermetadatapb.ID) (*PoolerConnection, error) {
+func (lb *loadBalancer) getConnectionByID(poolerID *clustermetadatapb.ID) (*poolerConnection, error) {
 	if poolerID == nil {
 		return nil, errors.New("pooler ID cannot be nil")
 	}
@@ -421,7 +421,7 @@ func (lb *loadBalancer) getConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 //
 // Within each tier, selection prefers local-cell serving replicas with
 // randomization to distribute load.
-func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
+func (lb *loadBalancer) selectReplicaConnection(candidates []*poolerConnection) *poolerConnection {
 	lowThreshold := lb.lowReplicationLagNs
 	highThreshold := lb.highReplicationLagToleranceNs
 	hasLagFilter := lowThreshold > 0 || highThreshold > 0
@@ -430,7 +430,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 	// "healthy" = lag within lowThreshold (or unknown). "tolerable" = between
 	// low and high thresholds. Each bucket is further split by locality.
 	type bucket struct {
-		localServing, remoteServing, localNotServing []*PoolerConnection
+		localServing, remoteServing, localNotServing []*poolerConnection
 	}
 	var healthy, tolerable bucket
 
@@ -449,7 +449,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 			}
 
 			isLocal := conn.Cell() == lb.localCell
-			isServing := health.IsServing()
+			isServing := health.isServing()
 
 			// Lag unknown (0) or within the low threshold → healthy.
 			if lowThreshold == 0 || lagNs == 0 || lagNs <= lowThreshold {
@@ -475,7 +475,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 		} else {
 			// No lag filtering — all candidates go into "healthy".
 			isLocal := conn.Cell() == lb.localCell
-			isServing := health.IsServing()
+			isServing := health.isServing()
 
 			switch {
 			case isLocal && isServing:
@@ -513,7 +513,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 	return b.localNotServing[rand.IntN(len(b.localNotServing))]
 }
 
-// onPoolerHealthUpdate is the callback invoked by PoolerConnection when health
+// onPoolerHealthUpdate is the callback invoked by poolerConnection when health
 // state changes. It folds the LeaderObservation into the shard's
 // shardSummary — recording the named leader unconditionally, regardless of
 // whether we currently have a connection to that leader. The connection
@@ -532,7 +532,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 //
 // Safe to call concurrently: both processHealthResponse and setHealthError
 // release healthMu before invoking this callback.
-func (lb *loadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
+func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	health := conn.Health()
 	if health == nil || health.LeaderObservation == nil {
 		return
@@ -567,7 +567,7 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 
 // matchesShardTarget checks if a connection matches the tablegroup and shard,
 // regardless of pooler type.
-func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
+func matchesShardTarget(conn *poolerConnection, target *query.Target) bool {
 	poolerInfo := conn.PoolerInfo()
 
 	// Check tablegroup match
@@ -599,7 +599,7 @@ func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 // and prefer non-degraded replicas when several are available. That belongs in
 // selectReplicaConnection (which already tiers by lag), with the per-pooler
 // signal carried on the health observation.
-func matchesReplicaTarget(conn *PoolerConnection, target *query.Target) bool {
+func matchesReplicaTarget(conn *poolerConnection, target *query.Target) bool {
 	if !matchesShardTarget(conn, target) {
 		return false
 	}
@@ -633,7 +633,7 @@ const (
 // view — the shard's shardSummary (self_leadership combined with
 // health-stream observations) and the pooler's own belief — never the
 // topology Type label.
-func (lb *loadBalancer) leadershipFor(conn *PoolerConnection) string {
+func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 	if conn == nil {
 		return leadershipFollower
 	}

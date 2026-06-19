@@ -33,7 +33,7 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// TestPoolerConnection_TelemetryAttributes verifies that PoolerConnection
+// TestPoolerConnection_TelemetryAttributes verifies that poolerConnection
 // creates gRPC clients with the correct OpenTelemetry span attributes.
 // This test catches bugs where telemetry configuration is missing or incorrect.
 func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
@@ -82,12 +82,12 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 
 	logger := slog.Default()
 
-	// Create a real PoolerConnection - this is what we're testing
+	// Create a real poolerConnection - this is what we're testing
 	conn, err := newPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Shutdown() }()
 
-	// Make a gRPC call through the PoolerConnection to generate a span
+	// Make a gRPC call through the poolerConnection to generate a span
 	healthClient := grpc_health_v1.NewHealthClient(conn.conn)
 	_, err = healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{})
 	require.NoError(t, err)
@@ -123,8 +123,8 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 		expectedPoolerID)
 }
 
-// TestNewPoolerConnection verifies basic PoolerConnection creation.
-func TestNewPoolerConnection(t *testing.T) {
+// TestNewpoolerConnection verifies basic poolerConnection creation.
+func TestNewpoolerConnection(t *testing.T) {
 	logger := slog.Default()
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 
