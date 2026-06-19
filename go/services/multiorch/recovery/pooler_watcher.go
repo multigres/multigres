@@ -37,29 +37,16 @@ const (
 )
 
 // newPoolerCache builds the orchestrator's pooler cache. The cache is
-// lifecycle-aware and dispatches start/stop callbacks for per-pooler health
-// streams as poolers enter and leave the topology.
-//
-// onPoolerLive fires when a pooler enters the Live state — either first
-// discovery or a restart after a prior SHUTDOWN.
-//
-// onPoolerGone is the single terminal callback. It fires when the cache
-// stops tracking the pooler: lifecycle SHUTDOWN (immediate), NoNode after
-// vanish grace, or cache shutdown. Callers typically use this to tear down
-// per-pooler resources such as health streams.
-//
-// TODO: collapse the HealthStream registry into the rider. Today,
-// health_stream.go keeps its own ID→streamEntry map in parallel with this
-// cache. If PoolerHealthState owned the per-pooler stream state directly,
-// OnLive could spawn the stream and stash it on the rider, OnGone could
-// cancel via the rider, and the separate registry (plus the chicken-and-egg
-// healthStream/cache closure in engine.go) would disappear.
+// lifecycle-aware and owns each pooler's stream goroutine via the rider's
+// StreamHandle: OnLive spawns the stream through HealthStream.spawnStream
+// and stashes the handle on the rider; OnGone cancels via the handle. No
+// parallel registry — the cache is the single source of truth for
+// "everything we track about this pooler".
 func newPoolerCache(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
-	onPoolerLive func(id *clustermetadatapb.ID),
-	onPoolerGone func(id *clustermetadatapb.ID),
+	healthStream *HealthStream,
 	logger *slog.Logger,
 ) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.MultiPooler) bool {
@@ -76,9 +63,6 @@ func newPoolerCache(
 		Filter: matchesAnyTarget,
 		Hooks: poolerwatch.Hooks[*store.Pooler]{
 			OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
-				if onPoolerLive != nil {
-					onPoolerLive(p.Id)
-				}
 				logger.InfoContext(ctx, "pooler discovered live",
 					"pooler_id", topoclient.ComponentIDString(p.Id),
 					"database", p.GetShardKey().GetDatabase(),
@@ -91,6 +75,7 @@ func newPoolerCache(
 						MultiPooler: p,
 						IsUpToDate:  false,
 					},
+					Stream: healthStream.spawnStream(topoclient.ComponentIDString(p.Id)),
 				}
 			},
 
@@ -99,9 +84,9 @@ func newPoolerCache(
 				rider.MultiPooler = curr
 			},
 
-			OnGone: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler, reason poolerwatch.GoneReason) {
-				if onPoolerGone != nil {
-					onPoolerGone(p.Id)
+			OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
+				if rider.Stream != nil {
+					rider.Stream.Cancel()
 				}
 				switch reason {
 				case poolerwatch.GoneShutdown:

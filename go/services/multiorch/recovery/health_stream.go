@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -44,16 +45,6 @@ const (
 	streamReconnectMaxBackoff = 30 * time.Second
 )
 
-// streamEntry holds the lifecycle handles for one active stream goroutine.
-type streamEntry struct {
-	cancel context.CancelFunc
-
-	// mu protects stream; set to the live gRPC stream after the start message
-	// is sent, and cleared on stream exit.
-	mu     sync.Mutex
-	stream rpcclient.ManagerHealthStream
-}
-
 // HealthStream maintains one ManagerHealthStream stream per pooler. It replaces
 // the polling loop: instead of periodically calling the Status RPC, each pooler
 // pushes health snapshots to multiorch via a long-lived gRPC stream.
@@ -67,10 +58,16 @@ type streamEntry struct {
 // in the start message. The server echoes back the actual values it will use in
 // a ManagerHealthStreamStartResponse, which the client uses to arm its staleness
 // watchdog.
+//
+// HealthStream owns no per-pooler registry — the cache rider's Stream field
+// (a *store.StreamHandle) holds the cancel + live gRPC stream pointer for each
+// running stream. spawnStream is called from the cache's OnLive hook to
+// construct that handle and launch the goroutine; OnGone calls handle.Cancel
+// to tear it down.
 type HealthStream struct {
 	logger    *slog.Logger
 	rpcClient rpcclient.MultiPoolerClient
-	store     *store.PoolerCache
+	cache     *store.PoolerCache
 
 	// snapshotInterval is requested from the server as the proactive snapshot
 	// tick rate. Zero means use the server default (currently 5s).
@@ -81,14 +78,13 @@ type HealthStream struct {
 	// (timeouts.DefaultHealthStreamStalenessTimeout).
 	stalenessTimeout time.Duration
 
-	// Active stream goroutines, keyed by pooler ID string.
-	mu      sync.Mutex
-	streams map[topoclient.ComponentID]*streamEntry
-
-	// Parent context; cancelled by Stop().
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	// rootCtx is the parent of every per-pooler stream context. Cancelled by
+	// Shutdown(); also propagates from the engine-level context passed to
+	// NewHealthStream so engine ctx cancellation broadcasts to every stream
+	// goroutine.
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 // Option is a functional option for NewHealthStream.
@@ -110,24 +106,22 @@ func WithStalenessTimeout(d time.Duration) Option {
 	}
 }
 
-// NewHealthStream creates a HealthStream.
-//
-// Call Start() for each pooler that should be monitored.
+// NewHealthStream creates a HealthStream. The cache reference must be bound
+// via SetCache before cache.Start() is called — the cache's OnLive hook
+// reaches into HealthStream.spawnStream, which in turn reads the cache to
+// pick up topology updates on each reconnect.
 func NewHealthStream(
 	ctx context.Context,
 	rpcClient rpcclient.MultiPoolerClient,
-	cache *store.PoolerCache,
 	logger *slog.Logger,
 	options ...Option,
 ) *HealthStream {
-	smCtx, cancel := context.WithCancel(ctx)
+	rootCtx, cancel := context.WithCancel(ctx)
 	hs := &HealthStream{
-		logger:    logger,
-		rpcClient: rpcClient,
-		store:     cache,
-		streams:   make(map[topoclient.ComponentID]*streamEntry),
-		ctx:       smCtx,
-		cancel:    cancel,
+		logger:     logger,
+		rpcClient:  rpcClient,
+		rootCtx:    rootCtx,
+		rootCancel: cancel,
 	}
 
 	for _, opt := range options {
@@ -137,69 +131,37 @@ func NewHealthStream(
 	return hs
 }
 
-// Shutdown cancels all active streams and waits for their goroutines to exit.
+// SetCache binds the pooler cache that this HealthStream writes snapshots
+// into. Must be called before the cache starts emitting events.
+func (hs *HealthStream) SetCache(c *store.PoolerCache) { hs.cache = c }
+
+// Shutdown cancels every per-pooler stream goroutine and waits for them
+// to exit. Safe to call after cache.Shutdown (in which case every
+// goroutine has already exited via OnGone(GoneCacheShutdown) and Shutdown
+// just observes a drained wg).
 func (hs *HealthStream) Shutdown() {
-	hs.cancel()
+	hs.rootCancel()
 	hs.wg.Wait()
 }
 
-// Start starts a health stream for id.
-// If a stream is already running for this pooler the call is a no-op.
-// The pooler's MultiPooler metadata is read from the store on each
-// reconnect attempt so topology updates are automatically picked up.
-//
-// Dialing is unconditional: poolers whose lifecycle reads STOPPING in
-// topology are dialled the same as any other. If the pooler subsequently
-// goes away (its OnClose unregisterFunc deletes the topology entry),
-// the pooler watcher's onDeletedPooler callback invokes Stop, which
-// cancels the per-pooler context and unwinds the reconnect loop.
-func (hs *HealthStream) Start(id *clustermetadatapb.ID) {
-	poolerID := topoclient.ComponentIDString(id)
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	if _, exists := hs.streams[poolerID]; exists {
-		return
-	}
-
-	ctx, cancel := context.WithCancel(hs.ctx)
-	entry := &streamEntry{cancel: cancel}
-	hs.streams[poolerID] = entry
-
+// spawnStream is invoked from the cache's OnLive hook. It constructs a
+// StreamHandle, registers it for shutdown waiting, and launches the
+// runStream goroutine. The handle is returned to the hook so it can be
+// stored on the rider; OnGone calls handle.Cancel to terminate the
+// goroutine.
+func (hs *HealthStream) spawnStream(poolerID topoclient.ComponentID) *store.StreamHandle {
+	streamCtx, cancel := context.WithCancel(hs.rootCtx)
+	handle := store.NewStreamHandle(cancel)
 	hs.wg.Go(func() {
-		defer func() {
-			hs.mu.Lock()
-			delete(hs.streams, poolerID)
-			hs.mu.Unlock()
-		}()
-		hs.runStream(ctx, poolerID, entry)
+		hs.runStream(streamCtx, poolerID, handle)
 	})
-}
-
-// Stop the health stream for a pooler.
-//
-// The stream goroutine will exit and the pooler will be marked unreachable
-// until a new stream is started. The pooler's MultiPooler metadata must remain
-// in the store for the stream to reconnect if Start() is called again.
-//
-// If no stream is running for this pooler the call is a no-op.
-func (hs *HealthStream) Stop(id *clustermetadatapb.ID) {
-	poolerID := topoclient.ComponentIDString(id)
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	// The goroutine removes itself from hs.streams via its defer so we
-	// don't need to delete the entry here; just cancel it and let the
-	// goroutine clean up.
-	if entry, exists := hs.streams[poolerID]; exists {
-		entry.cancel()
-	}
+	return handle
 }
 
 // runStream manages the lifecycle of one stream, reconnecting with backoff on failure.
 // It reads the latest MultiPooler metadata from the store on each reconnect attempt
 // so hostname/port changes are picked up automatically.
-func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.ComponentID, entry *streamEntry) {
+func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.ComponentID, entry *store.StreamHandle) {
 	r := retry.New(streamReconnectInitialBackoff, streamReconnectMaxBackoff, retry.WithInitialDelay())
 	for _, err := range r.Attempts(ctx) {
 		if err != nil {
@@ -207,7 +169,7 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.Compo
 		}
 
 		// Read current pooler metadata from store on every attempt.
-		poolerHealth, ok := hs.store.GetRider(poolerID)
+		poolerHealth, ok := hs.cache.GetRider(poolerID)
 		if !ok || poolerHealth.MultiPooler == nil {
 			hs.logger.WarnContext(ctx, "pooler not found in store, stopping health stream",
 				"pooler_id", poolerID)
@@ -238,7 +200,7 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.Compo
 // streamOnce opens one ManagerHealthStream and reads until the stream fails or
 // the context is cancelled. Returns (connected, err): connected is true if the
 // stream was established before any error occurred.
-func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *store.Pooler, entry *streamEntry) (connected bool, _ error) {
+func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *store.Pooler, entry *store.StreamHandle) (connected bool, _ error) {
 	// Build the start request, sending the orchestrator's preferred timing.
 	// Zero values are omitted so the server uses its own defaults.
 	startReq := &multipoolermanagerdatapb.ManagerHealthStreamStartRequest{}
@@ -340,14 +302,8 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.Comp
 	}
 
 	// Expose the live stream so Poll() can send requests.
-	entry.mu.Lock()
-	entry.stream = stream
-	entry.mu.Unlock()
-	defer func() {
-		entry.mu.Lock()
-		entry.stream = nil
-		entry.mu.Unlock()
-	}()
+	entry.SetStream(stream)
+	defer entry.SetStream(nil)
 
 	hs.markConnected(poolerID)
 
@@ -385,16 +341,11 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.Comp
 // active or the send fails.
 func (hs *HealthStream) Poll(id *clustermetadatapb.ID) error {
 	poolerID := topoclient.ComponentIDString(id)
-	hs.mu.Lock()
-	entry, exists := hs.streams[poolerID]
-	hs.mu.Unlock()
-	if !exists {
+	pooler, ok := hs.cache.GetRider(poolerID)
+	if !ok || pooler.Stream == nil {
 		return fmt.Errorf("no active stream for pooler %s", poolerID)
 	}
-
-	entry.mu.Lock()
-	stream := entry.stream
-	entry.mu.Unlock()
+	stream := pooler.Stream.Stream()
 	if stream == nil {
 		return fmt.Errorf("stream not yet established for pooler %s", poolerID)
 	}
@@ -444,7 +395,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.C
 		return existing
 	}
 
-	hs.store.DoUpdate(poolerIDStr, update)
+	hs.cache.DoUpdate(poolerIDStr, update)
 
 	hs.logger.DebugContext(ctx, "health snapshot applied",
 		"pooler_id", poolerID,
@@ -462,7 +413,22 @@ func (hs *HealthStream) markConnected(poolerID topoclient.ComponentID) {
 		existing.StreamConnectedSince = now
 		return existing
 	}
-	hs.store.DoUpdate(poolerID, cb)
+	hs.cache.DoUpdate(poolerID, cb)
+}
+
+// StartForTest spawns a stream goroutine for id and stashes the resulting
+// StreamHandle on the existing cache rider. This mirrors what the cache's
+// OnLive hook does in production, allowing tests to drive a single pooler's
+// stream lifecycle without booting the full poolerwatch machinery. The
+// *testing.T argument keeps this helper out of production call paths.
+func (hs *HealthStream) StartForTest(t *testing.T, id *clustermetadatapb.ID) {
+	t.Helper()
+	poolerID := topoclient.ComponentIDString(id)
+	handle := hs.spawnStream(poolerID)
+	hs.cache.DoUpdate(poolerID, func(p *store.Pooler) *store.Pooler {
+		p.Stream = handle
+		return p
+	})
 }
 
 // markDisconnected records that the stream is disconnected and the pooler
@@ -477,5 +443,5 @@ func (hs *HealthStream) markDisconnected(poolerID topoclient.ComponentID) {
 		existing.StreamConnected = false
 		return existing
 	}
-	hs.store.DoUpdate(poolerID, cb)
+	hs.cache.DoUpdate(poolerID, cb)
 }

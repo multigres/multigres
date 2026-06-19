@@ -46,7 +46,7 @@ func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
 	seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.StartForTest(t, poolerID)
 	stream := <-streamCh
 	completeHandshake(t, stream)
 

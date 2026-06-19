@@ -247,29 +247,20 @@ func NewEngine(
 		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
-	// healthStream is created after the cache so that the cache's lifecycle
-	// hooks can capture it via closure. Hook closures resolve healthStream
-	// at fire time, which is after we set it below.
-	var healthStream *HealthStream
-
+	// The pooler cache and the HealthStream are mutually referential: the
+	// cache's OnLive hook needs HealthStream.spawnStream to launch the stream
+	// goroutine; HealthStream writes snapshots back into the cache via
+	// DoUpdate. Construct HealthStream first (no cache yet), then build the
+	// cache referencing it, then bind the cache back.
+	engine.healthStream = NewHealthStream(ctx, rpcClient, logger)
 	engine.poolerStore = newPoolerCache(
 		ctx,
 		ts,
 		engine.getWatchTargets,
-		func(id *clustermetadatapb.ID) {
-			if healthStream != nil {
-				healthStream.Start(id)
-			}
-		},
-		func(id *clustermetadatapb.ID) {
-			if healthStream != nil {
-				healthStream.Stop(id)
-			}
-		},
+		engine.healthStream,
 		logger,
 	)
-	healthStream = NewHealthStream(ctx, rpcClient, engine.poolerStore, logger)
-	engine.healthStream = healthStream
+	engine.healthStream.SetCache(engine.poolerStore)
 
 	// Initialize metrics
 	var err error

@@ -574,13 +574,15 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	// Track new-pooler callbacks via a channel.
-	discovered := make(chan *clustermetadata.ID, 10)
-	onNewPooler := func(id *clustermetadata.ID) { discovered <- id }
-
+	// Drive the cache with a fake-rpc-backed HealthStream so OnLive can
+	// spawn its per-pooler stream goroutines without booting real gRPC.
+	logger := slog.Default()
+	hs := NewHealthStream(ctx, rpcclient.NewFakeClient(), logger)
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, onNewPooler, nil /* onPoolerGone */, slog.Default())
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, hs, logger)
+	hs.SetCache(poolerStore)
 	startCache(t, poolerStore)
+	t.Cleanup(hs.Shutdown)
 
 	poolerStoreAtLeast := func(val int) func() bool {
 		return func() bool { return poolerStore.Len() >= val }
@@ -617,7 +619,8 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	_, ok = poolerStore.GetRider(poolerKey("zone1", "pooler2"))
 	require.False(t, ok, "pooler2 in tg2 should be filtered out by watcher")
 
-	// Verify a new pooler discovered via watcher triggers the onNewPooler callback.
+	// Verify a new pooler discovered via watcher fires OnLive, which is
+	// observable as a freshly-spawned StreamHandle on the rider.
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
 		ShardKey: &clustermetadata.ShardKey{
@@ -628,6 +631,8 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	}))
 
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "expected pooler3 to be discovered")
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return len(discovered) > 0 }),
-		"new pooler should trigger onNewPooler callback")
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+		p, ok := poolerStore.GetRider(poolerKey("zone1", "pooler3"))
+		return ok && p.Stream != nil
+	}), "new pooler should trigger OnLive and spawn a stream handle")
 }
