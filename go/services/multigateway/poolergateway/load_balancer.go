@@ -625,37 +625,3 @@ func (lb *LoadBalancer) Close() error {
 	}
 	return lastErr
 }
-
-// LoadBalancerListener adapts a LoadBalancer to the cache's prev/curr
-// change-event API: upserts route to AddPooler, deletions route to
-// RemovePooler.
-//
-// TODO: remove once the load balancer consumes poolerwatch's OnLive/OnUpdate/
-// OnGone hooks directly. This adapter is paired with
-// poolerwatch.PoolerCache.SubscribeChanges and will be deleted together.
-type LoadBalancerListener struct {
-	lb *LoadBalancer
-}
-
-// NewLoadBalancerListener creates a listener adapter for the given LoadBalancer.
-func NewLoadBalancerListener(lb *LoadBalancer) *LoadBalancerListener {
-	return &LoadBalancerListener{lb: lb}
-}
-
-// OnChange implements topoclient.ChangeFn.
-//
-//   - prev == nil → first-time insert: call AddPooler.
-//   - curr == nil → deletion: call RemovePooler using prev's identity.
-//   - both set    → metadata update: call AddPooler, which is idempotent and
-//     refreshes any cached topology fields (e.g. self_leadership).
-func (l *LoadBalancerListener) OnChange(prev, curr *clustermetadatapb.MultiPooler) {
-	if curr == nil {
-		l.lb.RemovePooler(topoclient.ComponentIDString(prev.Id))
-		return
-	}
-	if err := l.lb.AddPooler(curr); err != nil {
-		l.lb.logger.Error("failed to add pooler on change event",
-			"pooler_id", topoclient.ComponentIDString(curr.Id),
-			"error", err)
-	}
-}

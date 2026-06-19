@@ -444,45 +444,6 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 	return c.topoSource.CellStatuses()
 }
 
-// SubscribeChanges registers fn for every pooler change event observed by
-// the underlying topology watch. fn is called with (prev, curr):
-//   - prev == nil, curr != nil → insert
-//   - prev != nil, curr != nil → update
-//   - prev != nil, curr == nil → delete
-//
-// Events bypass the cache's lifecycle policy (grace periods, ghosts) — they
-// reflect the raw topology stream. If Config.Filter is set, events for
-// poolers that pass the filter on either side of the transition are kept;
-// fully-filtered transitions are dropped.
-//
-// The returned function unsubscribes fn. Returns a no-op if no topology
-// source was configured.
-//
-// TODO: remove once LoadBalancer is refactored to consume OnLive/OnUpdate/
-// OnGone hooks directly. This adapter exists to ease the gateway port off
-// the legacy topoclient.PoolerCache.
-func (c *PoolerCache[T]) SubscribeChanges(fn func(prev, curr *clustermetadatapb.MultiPooler)) func() {
-	if c.topoSource == nil {
-		return func() {}
-	}
-	filter := c.config.Filter
-	return c.topoSource.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
-		if filter != nil {
-			keep := false
-			if prev != nil && filter(prev) {
-				keep = true
-			}
-			if curr != nil && filter(curr) {
-				keep = true
-			}
-			if !keep {
-				return
-			}
-		}
-		fn(prev, curr)
-	})
-}
-
 // DoUpdate atomically reads the rider for id, calls fn to compute the new
 // rider, and writes it back. If no entry exists, fn is not called. The
 // cache lock is held for the duration of fn, so fn must not block, call

@@ -765,21 +765,6 @@ func TestLoadBalancer_ReplicaCandidatesExcludeLeader(t *testing.T) {
 	}
 }
 
-func TestLoadBalancerListener(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	listener := NewLoadBalancerListener(lb)
-
-	// First-time discovery (prev == nil) adds the pooler.
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	listener.OnChange(nil, pooler)
-	assert.Equal(t, 1, lb.ConnectionCount())
-
-	// Deletion (curr == nil) removes the pooler.
-	listener.OnChange(pooler, nil)
-	assert.Equal(t, 0, lb.ConnectionCount())
-}
-
 // TestLoadBalancer_StaleLeaderExcludedFromReplicas verifies that a stale leader
 // — a pooler whose own health observation still names it the leader at a rule
 // older than the confirmed leader's — is not selected for replica reads, while

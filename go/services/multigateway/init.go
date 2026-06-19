@@ -334,30 +334,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
-	// Start pooler discovery (watches all cells). The gateway does not need a
-	// per-pooler rider; it only consumes change events and the per-cell status
-	// view. ShutdownGrace/VanishedGrace are zero — load balancing wants
-	// immediate visibility into membership changes.
-	//
-	// TODO: collapse LoadBalancer's connections map into the rider. Today the
-	// LB keeps its own ID→*PoolerConnection registry (which owns the per-pooler
-	// health stream); making the rider *PoolerConnection would let OnLive
-	// construct it, OnGone close it, and the LB query the cache for
-	// connections — mirroring the same cleanup planned for orch's HealthStream.
-	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[struct{}]{
-		Source: mg.ts,
-		Logger: logger,
-	})
-	mg.poolerCache.Start()
-	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
-
 	// Build transport credentials for multipooler gRPC connections.
 	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
-	// Create LoadBalancer and register with discovery for real-time updates
+	// Create LoadBalancer first; the pooler cache hooks below drive it.
 	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
 	lowLagMs := mg.pgReplicaLowLagMs.Get()
 	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
@@ -367,8 +350,43 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			time.Duration(highToleranceMs)*time.Millisecond,
 		)
 	}
-	mg.poolerCache.SubscribeChanges(poolergateway.NewLoadBalancerListener(loadBalancer).OnChange)
-	logger.InfoContext(ctx, "LoadBalancer subscribed to pooler cache")
+
+	// Start pooler discovery (watches all cells). The gateway does not need a
+	// per-pooler rider; it only consumes lifecycle events and the per-cell
+	// status view. ShutdownGrace/VanishedGrace are zero — load balancing wants
+	// immediate visibility into membership changes.
+	//
+	// TODO: collapse LoadBalancer's connections map into the rider. Today the
+	// LB keeps its own ID→*PoolerConnection registry (which owns the per-pooler
+	// health stream); making the rider *PoolerConnection would let OnLive
+	// construct it, OnGone close it, and the LB query the cache for
+	// connections — mirroring the same cleanup planned for orch's HealthStream.
+	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[struct{}]{
+		Source: mg.ts,
+		Hooks: poolerwatch.Hooks[struct{}]{
+			OnLive: func(p *clustermetadatapb.MultiPooler, _ struct{}) struct{} {
+				if err := loadBalancer.AddPooler(p); err != nil {
+					logger.ErrorContext(mg.shutdownCtx, "failed to add pooler on live event",
+						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+				}
+				return struct{}{}
+			},
+			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ struct{}) {
+				// AddPooler is idempotent; it refreshes cached topology fields
+				// (e.g. self_leadership) on the existing connection.
+				if err := loadBalancer.AddPooler(curr); err != nil {
+					logger.ErrorContext(mg.shutdownCtx, "failed to refresh pooler on update event",
+						"pooler_id", topoclient.ComponentIDString(curr.Id), "error", err)
+				}
+			},
+			OnGone: func(p *clustermetadatapb.MultiPooler, _ struct{}, _ poolerwatch.GoneReason) {
+				loadBalancer.RemovePooler(topoclient.ComponentIDString(p.Id))
+			},
+		},
+		Logger: logger,
+	})
+	mg.poolerCache.Start()
+	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
 	// Create failover buffer if enabled.
 	if err := mg.bufferConfig.Validate(); err != nil {
