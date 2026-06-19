@@ -52,7 +52,6 @@ func newTestPoolerCache(
 		hs,
 		logger,
 	)
-	hs.SetCache(cache)
 	return cache
 }
 

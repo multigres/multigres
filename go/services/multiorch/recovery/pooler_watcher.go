@@ -58,7 +58,12 @@ func newPoolerCache(
 		return false
 	}
 
-	return poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
+	// Forward-declare the cache so the OnLive hook can capture it. The
+	// closure resolves it at fire time, which is after newPoolerCache
+	// returns. This lets HealthStream remain cache-agnostic — it receives
+	// the cache through spawnStream rather than holding a reference.
+	var cache *store.PoolerCache
+	cache = poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
 		Source: topoStore,
 		Filter: matchesAnyTarget,
 		Hooks: poolerwatch.Hooks[*store.Pooler]{
@@ -75,7 +80,7 @@ func newPoolerCache(
 						MultiPooler: p,
 						IsUpToDate:  false,
 					},
-					Stream: healthStream.spawnStream(topoclient.ComponentIDString(p.Id)),
+					Stream: healthStream.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
 				}
 			},
 
@@ -102,4 +107,5 @@ func newPoolerCache(
 		VanishedGrace: vanishedGracePeriod,
 		Logger:        logger,
 	})
+	return cache
 }

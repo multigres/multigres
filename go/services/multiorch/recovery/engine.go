@@ -247,11 +247,9 @@ func NewEngine(
 		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
-	// The pooler cache and the HealthStream are mutually referential: the
-	// cache's OnLive hook needs HealthStream.spawnStream to launch the stream
-	// goroutine; HealthStream writes snapshots back into the cache via
-	// DoUpdate. Construct HealthStream first (no cache yet), then build the
-	// cache referencing it, then bind the cache back.
+	// HealthStream is cache-agnostic — it holds no cache reference. The
+	// cache's OnLive hook passes the cache into spawnStream at spawn time,
+	// and the resulting goroutine captures it for the lifetime of the stream.
 	engine.healthStream = NewHealthStream(ctx, rpcClient, logger)
 	engine.poolerStore = newPoolerCache(
 		ctx,
@@ -260,7 +258,6 @@ func NewEngine(
 		engine.healthStream,
 		logger,
 	)
-	engine.healthStream.SetCache(engine.poolerStore)
 
 	// Initialize metrics
 	var err error
@@ -604,7 +601,7 @@ func (re *Engine) pollAllPoolers() {
 	for _, entry := range re.poolerStore.All() {
 		ph := entry.Rider
 		if ph != nil && ph.MultiPooler != nil && ph.MultiPooler.Id != nil {
-			_ = re.healthStream.Poll(ph.MultiPooler.Id)
+			_ = re.healthStream.Poll(ph)
 		}
 	}
 }

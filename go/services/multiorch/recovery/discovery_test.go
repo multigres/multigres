@@ -580,7 +580,6 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	hs := NewHealthStream(ctx, rpcclient.NewFakeClient(), logger)
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
 	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, hs, logger)
-	hs.SetCache(poolerStore)
 	startCache(t, poolerStore)
 	t.Cleanup(hs.Shutdown)
 
