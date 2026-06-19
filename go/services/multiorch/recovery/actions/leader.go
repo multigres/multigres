@@ -23,7 +23,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -42,7 +41,7 @@ import (
 //     (Status falls back to the cached rule position), so without the postgres-ready
 //     check appoint_leader would treat such a dead-primary as healthy and skip the
 //     failover it was dispatched to perform.
-func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, sl store.ShardMembers) (*multiorchdatapb.PoolerHealthState, error) {
+func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, sl store.ShardMembers) (*store.Pooler, error) {
 	leader := sl.Leader
 	if leader == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no consensus leader known")

@@ -31,12 +31,12 @@ import (
 // the same PoolerHealthState rider shape.
 func NewTestCache(t *testing.T) *PoolerCache {
 	t.Helper()
-	return poolerwatch.New(t.Context(), poolerwatch.Config[*multiorchdatapb.PoolerHealthState]{
-		Hooks: poolerwatch.Hooks[*multiorchdatapb.PoolerHealthState]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
-				return &multiorchdatapb.PoolerHealthState{MultiPooler: p}
+	return poolerwatch.New(t.Context(), poolerwatch.Config[*Pooler]{
+		Hooks: poolerwatch.Hooks[*Pooler]{
+			OnLive: func(p *clustermetadatapb.MultiPooler, _ *Pooler) *Pooler {
+				return &Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{MultiPooler: p}}
 			},
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *multiorchdatapb.PoolerHealthState) {
+			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *Pooler) {
 				rider.MultiPooler = curr
 			},
 		},
@@ -52,14 +52,14 @@ func NewTestCache(t *testing.T) *PoolerCache {
 // The *testing.T argument is required so production code cannot call this
 // (production code has no testing.T to pass). The cache itself has no Set
 // method; production code reaches state through OnLive hooks.
-func SeedCache(t *testing.T, cache *PoolerCache, state *multiorchdatapb.PoolerHealthState) topoclient.ComponentID {
+func SeedCache(t *testing.T, cache *PoolerCache, state *Pooler) topoclient.ComponentID {
 	t.Helper()
 	if state == nil || state.MultiPooler == nil {
 		return ""
 	}
 	poolerwatch.SeedForTest(t, cache, state.MultiPooler)
 	id := topoclient.ComponentIDString(state.MultiPooler.Id)
-	cache.DoUpdate(id, func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	cache.DoUpdate(id, func(*Pooler) *Pooler {
 		return state
 	})
 	return id

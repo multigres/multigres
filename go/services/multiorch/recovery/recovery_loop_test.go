@@ -742,7 +742,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		store.SeedCache(t, engine.poolerStore, primaryPooler)
+		store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -761,7 +761,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		store.SeedCache(t, engine.poolerStore, replicaPooler)
+		store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 		// Should detect both problems
 		problems := detectProblems(t, engine)
@@ -814,7 +814,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		store.SeedCache(t, engine.poolerStore, primaryPooler)
+		store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
@@ -833,7 +833,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		store.SeedCache(t, engine.poolerStore, replicaPooler)
+		store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 		// Should detect only replica problem
 		problems := detectProblems(t, engine)
@@ -926,7 +926,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, replicaPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 	// Generate initial analysis - problem should be detected
 	problems := detectProblems(t, engine)
@@ -1081,7 +1081,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, primaryPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1095,7 +1095,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica1Check),
 	}
-	store.SeedCache(t, engine.poolerStore, replica1Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica1Pooler})
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1109,7 +1109,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica2Check),
 	}
-	store.SeedCache(t, engine.poolerStore, replica2Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica2Pooler})
 
 	// Generate analysis and detect problem
 	problems := detectProblems(t, engine)
@@ -1261,7 +1261,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, primaryPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1280,7 +1280,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, replica1Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica1Pooler})
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1299,7 +1299,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, replica2Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica2Pooler})
 
 	// Run full recovery cycle
 	engine.performRecoveryCycle(t.Context())
@@ -1471,7 +1471,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, replicaPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 	// Should detect 3 problems with different priorities
 	problems := detectProblems(t, engine)
@@ -1591,7 +1591,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 			},
 		},
 	}
-	store.SeedCache(t, engine.poolerStore, replicaPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 	// Run a recovery cycle - this should create spans
 	engine.performRecoveryCycle(t.Context())
@@ -1713,7 +1713,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, primaryPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -1726,7 +1726,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, replicaPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 	// Track action execution with grace period configured
 	mockAction := &mockRecoveryAction{
@@ -1844,7 +1844,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, replicaPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replicaPooler})
 
 	// Track action execution
 	var executionCount int
@@ -2020,7 +2020,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, primaryPooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: primaryPooler})
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -2033,7 +2033,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, replica1Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica1Pooler})
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -2046,7 +2046,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	store.SeedCache(t, engine.poolerStore, replica2Pooler)
+	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: replica2Pooler})
 
 	// Track action execution per pooler
 	var mu sync.Mutex

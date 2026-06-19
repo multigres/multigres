@@ -29,6 +29,8 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
+
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // Compile-time assertion that AppointLeaderAction implements types.RecoveryAction.
@@ -89,7 +91,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if leader, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
-		if types.LeaderNeedsReplacement(leader) {
+		if types.LeaderNeedsReplacement(leader.PoolerHealthState) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
 				"primary", leader.MultiPooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
@@ -108,7 +110,11 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// Use the coordinator's AppointLeader to handle the election.
 	// Use the problem code as the reason for the election.
 	reason := string(problem.Code)
-	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, shard.Poolers, reason); err != nil {
+	cohort := make([]*multiorchdatapb.PoolerHealthState, len(shard.Poolers))
+	for i, p := range shard.Poolers {
+		cohort[i] = p.PoolerHealthState
+	}
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 

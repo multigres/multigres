@@ -75,8 +75,8 @@ var testShardInitShardKey = &clustermetadatapb.ShardKey{
 	Shard:      "0",
 }
 
-func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
-	return &multiorchdatapb.PoolerHealthState{
+func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *store.Pooler {
+	return &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: initialized,
 			CohortMembers: cohortMembers,
@@ -93,7 +93,7 @@ func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool,
 				Shard:      shard,
 			},
 		},
-	}
+	}}
 }
 
 func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.PoolerCache, ts topoclient.Store) *ShardInitAction {

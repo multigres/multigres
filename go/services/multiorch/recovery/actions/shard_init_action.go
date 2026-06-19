@@ -163,7 +163,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // recovery loop before Execute is called). It returns the list of initialized poolers, plus
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
-func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
+func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
 	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
@@ -180,7 +180,7 @@ func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.Shar
 
 // buildCohortFromIDs resolves committed cohort IDs to PoolerHealthState entries
 // from the local pooler store. Returns only the poolers we can find locally.
-func (a *ShardInitAction) buildCohortFromIDs(poolers []*multiorchdatapb.PoolerHealthState, committedIDs []*clustermetadatapb.ID) []*multiorchdatapb.PoolerHealthState {
+func (a *ShardInitAction) buildCohortFromIDs(poolers []*store.Pooler, committedIDs []*clustermetadatapb.ID) []*multiorchdatapb.PoolerHealthState {
 	idSet := make(map[string]struct{}, len(committedIDs))
 	for _, id := range committedIDs {
 		idSet[topoclient.ClusterIDString(id)] = struct{}{}
@@ -189,7 +189,7 @@ func (a *ShardInitAction) buildCohortFromIDs(poolers []*multiorchdatapb.PoolerHe
 	var result []*multiorchdatapb.PoolerHealthState
 	for _, p := range poolers {
 		if _, ok := idSet[topoclient.ClusterIDString(p.MultiPooler.Id)]; ok {
-			result = append(result, p)
+			result = append(result, p.PoolerHealthState)
 		}
 	}
 	return result

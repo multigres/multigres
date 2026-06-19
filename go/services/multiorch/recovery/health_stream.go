@@ -30,7 +30,6 @@ import (
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -239,7 +238,7 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.Compo
 // streamOnce opens one ManagerHealthStream and reads until the stream fails or
 // the context is cancelled. Returns (connected, err): connected is true if the
 // stream was established before any error occurred.
-func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState, entry *streamEntry) (connected bool, _ error) {
+func (hs *HealthStream) streamOnce(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *store.Pooler, entry *streamEntry) (connected bool, _ error) {
 	// Build the start request, sending the orchestrator's preferred timing.
 	// Zero values are omitted so the server uses its own defaults.
 	startReq := &multipoolermanagerdatapb.ManagerHealthStreamStartRequest{}
@@ -409,7 +408,7 @@ func (hs *HealthStream) Poll(id *clustermetadatapb.ID) error {
 
 // applySnapshot writes health fields from a snapshot into the pooler store.
 // This mirrors the field writes performed by the old pollPooler function on success.
-func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState, snapshot *multipoolermanagerdatapb.ManagerHealthSnapshot) {
+func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.ComponentID, poolerHealth *store.Pooler, snapshot *multipoolermanagerdatapb.ManagerHealthSnapshot) {
 	if snapshot.Status == nil || snapshot.Status.Status == nil {
 		hs.logger.WarnContext(ctx, "received snapshot with nil status, skipping",
 			"pooler_id", poolerID)
@@ -420,7 +419,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.C
 	now := timestamppb.Now()
 
 	poolerIDStr := topoclient.ComponentIDString(poolerHealth.MultiPooler.Id)
-	update := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	update := func(existing *store.Pooler) *store.Pooler {
 		existing.LastCheckSuccessful = now
 		existing.LastSeen = now
 		existing.IsUpToDate = true
@@ -458,7 +457,7 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerID topoclient.C
 // markConnected records that the stream is connected in the pooler store.
 func (hs *HealthStream) markConnected(poolerID topoclient.ComponentID) {
 	now := timestamppb.Now()
-	cb := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	cb := func(existing *store.Pooler) *store.Pooler {
 		existing.StreamConnected = true
 		existing.StreamConnectedSince = now
 		return existing
@@ -469,7 +468,7 @@ func (hs *HealthStream) markConnected(poolerID topoclient.ComponentID) {
 // markDisconnected records that the stream is disconnected and the pooler
 // should be treated as unreachable.
 func (hs *HealthStream) markDisconnected(poolerID topoclient.ComponentID) {
-	cb := func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+	cb := func(existing *store.Pooler) *store.Pooler {
 		existing.IsLastCheckValid = false
 		if existing.Status != nil {
 			existing.Status.PostgresReady = false

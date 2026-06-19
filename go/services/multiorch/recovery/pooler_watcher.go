@@ -71,11 +71,11 @@ func newPoolerCache(
 		return false
 	}
 
-	return poolerwatch.New(ctx, poolerwatch.Config[*multiorchdatapb.PoolerHealthState]{
+	return poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
 		Source: topoStore,
 		Filter: matchesAnyTarget,
-		Hooks: poolerwatch.Hooks[*multiorchdatapb.PoolerHealthState]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		Hooks: poolerwatch.Hooks[*store.Pooler]{
+			OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
 				if onPoolerLive != nil {
 					onPoolerLive(p.Id)
 				}
@@ -86,18 +86,20 @@ func newPoolerCache(
 					"shard", p.GetShardKey().GetShard(),
 					"leader", p.GetSelfLeadership().GetLeaderId() != nil,
 				)
-				return &multiorchdatapb.PoolerHealthState{
-					MultiPooler: p,
-					IsUpToDate:  false,
+				return &store.Pooler{
+					PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+						MultiPooler: p,
+						IsUpToDate:  false,
+					},
 				}
 			},
 
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *multiorchdatapb.PoolerHealthState) {
+			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *store.Pooler) {
 				// Atomic pointer swap; safe to do outside the cache lock.
 				rider.MultiPooler = curr
 			},
 
-			OnGone: func(p *clustermetadatapb.MultiPooler, _ *multiorchdatapb.PoolerHealthState, reason poolerwatch.GoneReason) {
+			OnGone: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler, reason poolerwatch.GoneReason) {
 				if onPoolerGone != nil {
 					onPoolerGone(p.Id)
 				}

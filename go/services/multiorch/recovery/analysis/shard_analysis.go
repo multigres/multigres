@@ -20,8 +20,8 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ShardAnalysis groups all per-pooler analyses for a single shard.
@@ -44,7 +44,7 @@ type ShardAnalysis struct {
 	// that need the leader's host/port (e.g. ReplicaNotReplicating) gate on Leader
 	// being non-nil rather than on reachability — an unreachable-but-known leader
 	// is still the official term leader.
-	Leader *multiorchdatapb.PoolerHealthState
+	Leader *store.Pooler
 
 	// NumInitialized is the count of reachable, initialized poolers in this shard.
 	// Pre-computed by the generator for use in analyzers.

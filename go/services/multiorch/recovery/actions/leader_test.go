@@ -34,9 +34,9 @@ func TestPollLeaderHealth(t *testing.T) {
 	ctx := context.Background()
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 
-	leaderState := &multiorchdatapb.PoolerHealthState{
+	leaderState := &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{Id: leaderID, Type: clustermetadatapb.PoolerType_PRIMARY},
-	}
+	}}
 	// A status that names leaderID as the leader (self-claim under a real rule).
 	servingStatus := &clustermetadatapb.ConsensusStatus{
 		Id: leaderID,

@@ -29,7 +29,6 @@ import (
 
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -163,8 +162,8 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 // the race where PostgreSQL starts, connects to primary, and updates its timeline.
 func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
-	primary *multiorchdatapb.PoolerHealthState,
+	replica *store.Pooler,
+	primary *store.Pooler,
 ) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.MultiPooler.Id.Name,
@@ -243,8 +242,8 @@ func (a *FixReplicationAction) fixNotReplicating(
 // If pg_rewind is not feasible (missing WAL), it marks the pooler as DRAINED.
 func (a *FixReplicationAction) tryPgRewind(
 	ctx context.Context,
-	primary *multiorchdatapb.PoolerHealthState,
-	replica *multiorchdatapb.PoolerHealthState,
+	primary *store.Pooler,
+	replica *store.Pooler,
 ) error {
 	a.logger.InfoContext(ctx, "attempting pg_rewind",
 		"replica", replica.MultiPooler.Id.Name,
@@ -294,8 +293,8 @@ func (a *FixReplicationAction) tryPgRewind(
 // Returns true if the problem persists, false if already resolved.
 func (a *FixReplicationAction) verifyProblemExists(
 	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
-	primary *multiorchdatapb.PoolerHealthState,
+	replica *store.Pooler,
+	primary *store.Pooler,
 	problemCode types.ProblemCode,
 ) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	switch problemCode {
@@ -311,8 +310,8 @@ func (a *FixReplicationAction) verifyProblemExists(
 // verifyReplicaNotReplicating checks if the replica still has no replication configured.
 func (a *FixReplicationAction) verifyReplicaNotReplicating(
 	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
-	primary *multiorchdatapb.PoolerHealthState,
+	replica *store.Pooler,
+	primary *store.Pooler,
 ) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	status, err := a.getReplicationStatus(ctx, replica)
 	if err != nil {
@@ -365,7 +364,7 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 // getReplicationStatus gets the current replication status from the replica.
 func (a *FixReplicationAction) getReplicationStatus(
 	ctx context.Context,
-	replica *multiorchdatapb.PoolerHealthState,
+	replica *store.Pooler,
 ) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	statusResp, err := a.rpcClient.Status(ctx, replica.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
@@ -379,7 +378,7 @@ func (a *FixReplicationAction) getReplicationStatus(
 
 // verifyReplicationStarted checks that replication is actively streaming.
 // It polls a few times to allow the WAL receiver to connect.
-func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
+func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *store.Pooler) error {
 	ticker := time.NewTicker(a.verifyPollInterval)
 	defer ticker.Stop()
 
