@@ -598,6 +598,13 @@ func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.MultiPooler) {
 	if c.config.Filter != nil && !c.config.Filter(pooler) {
 		return
 	}
+	c.upsert(pooler)
+}
+
+// upsert is applyUpsert without the filter check. Tests call this via
+// SeedForTest to inject state without having to know the cache's filter
+// configuration.
+func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 	id := topoclient.ComponentIDString(pooler.Id)
 	now := c.config.now()
 	isShutdown := pooler.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN
@@ -751,6 +758,32 @@ func (c *PoolerCache[T]) addGhostLocked(id topoclient.ComponentID, poolerID *clu
 //   - If the pooler is a ghost (we observed its SHUTDOWN earlier), the
 //     deletion confirms cleanup happened: the ghost is removed silently.
 //   - Unknown ID: no-op.
+//
+// deleteImmediate evicts an entry now, bypassing VanishedGrace. Test-only
+// (via DeleteForTest); applyDelete is the production path that honors
+// grace. Caller must not hold c.mu.
+func (c *PoolerCache[T]) deleteImmediate(id topoclient.ComponentID) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	e, ok := c.entries[id]
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+	delete(c.entries, e.id)
+	c.indexRemove(e)
+	hooks := c.config.Hooks
+	pooler := e.pooler
+	rider := e.rider
+	c.mu.Unlock()
+	if hooks.OnGone != nil {
+		hooks.OnGone(pooler, rider, GoneVanished)
+	}
+}
+
 func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 	now := c.config.now()
 	c.mu.Lock()

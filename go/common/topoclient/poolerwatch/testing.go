@@ -26,13 +26,19 @@ import (
 // cannot reach into the cache's ingress path.
 func SeedForTest[T any](t *testing.T, cache *PoolerCache[T], pooler *clustermetadatapb.MultiPooler) {
 	t.Helper()
-	cache.applyUpsert(pooler)
+	// Bypass Config.Filter — seeding is an explicit test intent that should
+	// not be gated by the cache's filter (which mirrors production targeting).
+	cache.upsert(pooler)
 }
 
-// DeleteForTest drives the cache through a topology-delete event for the
-// given ID. The *testing.T argument is required so production code cannot
-// reach into the cache's ingress path.
+// DeleteForTest evicts an entry from the cache outright, regardless of the
+// configured VanishedGrace. Equivalent to applyDelete with grace=0: OnGone
+// fires synchronously with GoneVanished and the entry is gone from reads.
+//
+// Tests that need to model a topology delete + grace window should advance
+// the test clock and rely on sweep() instead. DeleteForTest is the "remove
+// this from my fixture now" affordance.
 func DeleteForTest[T any](t *testing.T, cache *PoolerCache[T], id topoclient.ComponentID) {
 	t.Helper()
-	cache.applyDelete(id)
+	cache.deleteImmediate(id)
 }
