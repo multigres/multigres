@@ -180,32 +180,45 @@ func TestWatchAllPoolers_CellAddRemoveFlow(t *testing.T) {
 		)
 	}()
 
-	// Initial snapshot for zone1 should arrive (empty).
+	// syncCells drains in-flight events for every registered per-cell watcher
+	// so the test can deterministically assert post-conditions after each op.
+	syncCells := func() {
+		t.Helper()
+		syncCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		require.NoError(t, broadcaster.syncAll(syncCtx))
+	}
+
+	// Wait for the zone1 watcher to register itself in the broadcaster, then
+	// drain its initial OnSnapshot.
 	require.Eventually(t, func() bool {
-		return len(rec.snapshotsForCell("zone1")) >= 1
-	}, 2*time.Second, 5*time.Millisecond, "expected initial OnSnapshot for zone1")
+		return broadcaster.cellCount() >= 1
+	}, 2*time.Second, 5*time.Millisecond, "expected zone1 watcher to register")
+	syncCells()
+	require.Len(t, rec.snapshotsForCell("zone1"), 1, "expected one initial OnSnapshot for zone1")
 	require.Empty(t, rec.snapshotsForCell("zone1")[0], "empty cell should yield empty snapshot")
 
-	// Add a pooler to zone1 and observe OnUpsert.
+	// Add a pooler to zone1; after syncCells, OnUpsert must already have fired.
 	p1 := newPoolerProto("zone1", "p1", "tg", "0")
 	require.NoError(t, ts.CreateMultiPooler(ctx, p1))
-	require.Eventually(t, func() bool {
-		return slices.Contains(rec.upsertedIDs(), topoclient.ComponentIDString(p1.Id))
-	}, 2*time.Second, 5*time.Millisecond, "expected OnUpsert for p1")
+	syncCells()
+	require.Contains(t, rec.upsertedIDs(), topoclient.ComponentIDString(p1.Id))
 
-	// Add a new cell. A per-cell watcher should start and emit OnSnapshot.
+	// Add a new cell — wait for its watcher to register, then drain its snapshot.
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
 	require.Eventually(t, func() bool {
-		return len(rec.snapshotsForCell("zone2")) >= 1
-	}, 2*time.Second, 5*time.Millisecond, "expected OnSnapshot for zone2 after AddCell")
+		return broadcaster.cellCount() >= 2
+	}, 2*time.Second, 5*time.Millisecond, "expected zone2 watcher to register")
+	syncCells()
+	require.GreaterOrEqual(t, len(rec.snapshotsForCell("zone2")), 1, "expected OnSnapshot for zone2 after AddCell")
 
 	// Delete the pooler — OnDelete must fire.
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, p1.Id))
-	require.Eventually(t, func() bool {
-		return slices.Contains(rec.deletedIDs(), topoclient.ComponentIDString(p1.Id))
-	}, 2*time.Second, 5*time.Millisecond, "expected OnDelete for p1")
+	syncCells()
+	require.Contains(t, rec.deletedIDs(), topoclient.ComponentIDString(p1.Id))
 
-	// Remove zone2 — OnCellRemoved must fire for it.
+	// Remove zone2 — OnCellRemoved must fire. cellCount drops as the watcher
+	// deregisters, so we can't rely on syncCells alone here.
 	require.NoError(t, ts.DeleteCell(ctx, "zone2", true /*force*/))
 	require.Eventually(t, func() bool {
 		return slices.Contains(rec.cellsRemoved(), "zone2")

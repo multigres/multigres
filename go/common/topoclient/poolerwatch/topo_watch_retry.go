@@ -162,6 +162,13 @@ func (b *cellSyncBroadcaster) deregister(cell string) {
 	b.mu.Unlock()
 }
 
+// cellCount reports the number of currently-registered cell watchers. Test-only.
+func (b *cellSyncBroadcaster) cellCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.syncReqs)
+}
+
 // syncAll sends a sync function to each currently-registered cell watcher and
 // waits for every one to ack (or ctx to cancel). Watchers registered AFTER
 // syncAll snapshots the set do not participate in this call.
