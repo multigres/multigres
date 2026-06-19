@@ -89,7 +89,7 @@ import (
 //	  └──────────────────────┘                                    │ applySnapshot
 //	                                                              ▼
 //	                                                   ┌──────────────────────┐
-//	                                                   │    Pooler Store      │
+//	                                                   │    Pooler Cache      │
 //	                                                   └──────────────────────┘
 //
 // Recovery Loop:
@@ -223,7 +223,7 @@ type Engine struct {
 	cancel      context.CancelFunc
 }
 
-// NewEngine creates a new RecoveryEngine instance.
+// NewEngine creates a new Engine instance.
 func NewEngine(
 	ts topoclient.Store,
 	logger *slog.Logger,
@@ -303,7 +303,7 @@ func (re *Engine) SetConfigReloader(reloader func() []string) {
 	re.reloadConfig = reloader
 }
 
-// Start initializes and starts the RecoveryEngine loops.
+// Start initializes and starts the Engine loops.
 func (re *Engine) Start() error {
 	re.logger.Info("starting recovery engine",
 		"cell", re.config.GetCell(),
@@ -334,7 +334,7 @@ func (re *Engine) Start() error {
 	return nil
 }
 
-// Shutdown gracefully shuts down the RecoveryEngine.
+// Shutdown gracefully shuts down the Engine.
 // It cancels the context and waits for all goroutines to finish.
 func (re *Engine) Shutdown() {
 	re.logger.Info("stopping recovery engine")
@@ -388,7 +388,7 @@ func shardWatchTargetsEqual(a, b []config.WatchTarget) bool {
 }
 
 // getWatchTargets returns a snapshot of the current watch targets.
-// Used as the targets accessor for PoolerWatcher.
+// Used as the targets accessor for the pooler cache filter.
 func (re *Engine) getWatchTargets() []config.WatchTarget {
 	re.mu.Lock()
 	defer re.mu.Unlock()
@@ -593,18 +593,6 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	}
 }
 
-// pollAllPoolers sends a poll request on the active health stream for every
-// tracked pooler. Requests are fire-and-forget; the resulting snapshots will
-// be applied to the store asynchronously as they arrive.
-func (re *Engine) pollAllPoolers() {
-	for _, entry := range re.poolerCache.All() {
-		ph := entry.Rider
-		if ph != nil && ph.MultiPooler != nil && ph.MultiPooler.Id != nil && ph.HealthStream != nil {
-			_ = ph.HealthStream.Poll()
-		}
-	}
-}
-
 // pollAndWaitForNewSnapshots sends poll requests to all poolers and blocks
 // until each pooler that had an active stream delivers at least one new
 // snapshot, or until pollResponseWait elapses or the context is cancelled.
@@ -627,7 +615,15 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 		}
 	}
 
-	re.pollAllPoolers()
+	// Send poll requests on the active health stream for every tracked pooler.
+	// Requests are fire-and-forget; the resulting snapshots will be applied to
+	// the store asynchronously as they arrive.
+	for _, entry := range re.poolerCache.All() {
+		ph := entry.Rider
+		if ph != nil && ph.MultiPooler != nil && ph.MultiPooler.Id != nil && ph.HealthStream != nil {
+			_ = ph.HealthStream.Poll()
+		}
+	}
 
 	if len(baselines) == 0 {
 		return

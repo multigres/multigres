@@ -102,7 +102,8 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 // It wraps a QueryService and provides access to pooler metadata.
 //
 // A PoolerConnection exists if and only if we are actively connected to the pooler.
-// The loadBalancer creates and destroys PoolerConnections based on discovery events.
+// The pooler cache's OnLive hook constructs PoolerConnection instances; its OnGone
+// hook calls Shutdown.
 //
 // The connection maintains a health stream to the multipooler and tracks serving state.
 // Only connections that are serving should be used for query routing.

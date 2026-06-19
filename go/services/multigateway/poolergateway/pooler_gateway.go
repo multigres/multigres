@@ -512,13 +512,6 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	return resp, err
 }
 
-// Stats returns statistics about the gateway.
-func (pg *PoolerGateway) Stats() map[string]any {
-	return map[string]any{
-		"active_connections": pg.loadBalancer.connectionCount(),
-	}
-}
-
 // LeadershipFor returns the consensus leadership role of a single connected
 // pooler for the admin/status page. See loadBalancer.leadershipFor.
 func (pg *PoolerGateway) LeadershipFor(conn *PoolerConnection) string {

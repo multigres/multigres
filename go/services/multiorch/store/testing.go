@@ -28,7 +28,7 @@ import (
 // NewTestCache builds a standalone PoolerCache for tests. It has no
 // topology source; tests seed entries via SeedCache. The OnLive and
 // OnUpdate hooks mirror orch's production behavior so test paths yield
-// the same PoolerHealthState rider shape.
+// the same *Pooler rider shape.
 func NewTestCache(t *testing.T) *PoolerCache {
 	t.Helper()
 	cache := poolerwatch.New(t.Context(), poolerwatch.Config[*Pooler]{

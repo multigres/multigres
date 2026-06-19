@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package poolerwatch is a prototype for a unified pooler cache that
-// combines topology mirroring with lifecycle-aware retention policy:
-// entries stay observable past clean shutdown or accidental topology
-// deletion for a configurable grace period, then are disposed.
+// Package poolerwatch provides a lifecycle-aware cache mirroring topology
+// pooler discovery, with per-pooler rider state retained across configurable
+// grace periods.
 //
 // poolerwatch sits logically above topoclient: topoclient is the "talk to
 // etcd" layer; poolerwatch applies policy on top.
-//
-// PROTOTYPE NOTE: this file exposes the state machine via apply* methods
-// so it can be tested in isolation from the topology-watch wire-up. The
-// real cache will call these from a watch goroutine once the design settles.
 package poolerwatch
 
 import (
