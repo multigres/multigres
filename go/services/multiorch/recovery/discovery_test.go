@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -394,18 +395,20 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 
 	poolerInfo, ok := engine.poolerCache.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
-	require.Equal(t, "host1", poolerInfo.MultiPooler.Hostname)
-	require.Nil(t, poolerInfo.LastSeen, "LastSeen should be nil (not yet health checked successfully)")
+	require.Equal(t, "host1", poolerInfo.Health().MultiPooler.Hostname)
+	require.Nil(t, poolerInfo.Health().LastSeen, "LastSeen should be nil (not yet health checked successfully)")
 	// Note: IsUpToDate may already be true here - health workers run concurrently and set it
 	// to true even on a failed check (FakeClient returns an error but IsUpToDate is still set).
 
 	// Simulate health check by updating timestamps
 	now := timestamppb.Now()
-	poolerInfo.LastSeen = now
-	poolerInfo.LastCheckAttempted = now
-	poolerInfo.LastCheckSuccessful = now
-	poolerInfo.IsUpToDate = true
-	poolerInfo.IsLastCheckValid = true
+	poolerInfo.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.LastSeen = now
+		h.LastCheckAttempted = now
+		h.LastCheckSuccessful = now
+		h.IsUpToDate = true
+		h.IsLastCheckValid = true
+	})
 	store.SeedCache(t, engine.poolerCache, poolerInfo)
 
 	// Update topology record (hostname changed)
@@ -419,21 +422,22 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	// Watch event - should update MultiPooler but preserve timestamps
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		info, ok := engine.poolerCache.GetRider(poolerKey("zone1", "pooler1"))
-		return ok && info.MultiPooler.Hostname == "host2"
+		return ok && info.Health().MultiPooler.Hostname == "host2"
 	}), "expected hostname to be updated to host2")
 
 	updatedInfo, ok := engine.poolerCache.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
 
 	// MultiPooler record should be updated
-	require.Equal(t, "host2", updatedInfo.MultiPooler.Hostname, "hostname should be updated")
+	uh := updatedInfo.Health()
+	require.Equal(t, "host2", uh.MultiPooler.Hostname, "hostname should be updated")
 
 	// Timestamps and computed fields should be preserved (exact equality)
-	require.True(t, now.AsTime().Equal(updatedInfo.LastSeen.AsTime()), "LastSeen should be preserved")
-	require.True(t, now.AsTime().Equal(updatedInfo.LastCheckAttempted.AsTime()), "LastCheckAttempted should be preserved")
-	require.True(t, now.AsTime().Equal(updatedInfo.LastCheckSuccessful.AsTime()), "LastCheckSuccessful should be preserved")
-	require.True(t, updatedInfo.IsUpToDate, "IsUpToDate should be preserved")
-	require.True(t, updatedInfo.IsLastCheckValid, "IsLastCheckValid should be preserved")
+	require.True(t, now.AsTime().Equal(uh.LastSeen.AsTime()), "LastSeen should be preserved")
+	require.True(t, now.AsTime().Equal(uh.LastCheckAttempted.AsTime()), "LastCheckAttempted should be preserved")
+	require.True(t, now.AsTime().Equal(uh.LastCheckSuccessful.AsTime()), "LastCheckSuccessful should be preserved")
+	require.True(t, uh.IsUpToDate, "IsUpToDate should be preserved")
+	require.True(t, uh.IsLastCheckValid, "IsLastCheckValid should be preserved")
 }
 
 func TestDiscovery_MultipleWatchTargets(t *testing.T) {

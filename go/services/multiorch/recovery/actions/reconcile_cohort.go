@@ -112,17 +112,17 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// same-operation problems would cut RPC fanout and history churn.
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
-		StandbyIds:           []*clustermetadatapb.ID{target.MultiPooler.Id},
+		StandbyIds:           []*clustermetadatapb.ID{target.Health().MultiPooler.Id},
 		ExpectedOutgoingRule: members.HighestKnownRule.GetRuleNumber(),
 	}
 
-	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.MultiPooler, req); err != nil {
+	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().MultiPooler, req); err != nil {
 		return mterrors.Wrap(err, "UpdateConsensusRule failed")
 	}
 
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
-		"target", target.MultiPooler.Id.Name,
-		"primary", leader.MultiPooler.Id.Name,
+		"target", target.Health().MultiPooler.Id.Name,
+		"primary", leader.Health().MultiPooler.Id.Name,
 		"operation", op.String())
 	return nil
 }

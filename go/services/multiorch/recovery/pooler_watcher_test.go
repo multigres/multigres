@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -110,8 +111,8 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
-	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
-	assert.False(t, p1.IsUpToDate, "new pooler should not be marked up-to-date")
+	assert.Equal(t, "host1", p1.Health().MultiPooler.Hostname)
+	assert.False(t, p1.Health().IsUpToDate, "new pooler should not be marked up-to-date")
 
 	// OnLive must have run for each discovered pooler — the cache rider's
 	// Stream handle (installed by the OnLive hook via HealthStream.spawnStream)
@@ -157,7 +158,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
-	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
+	assert.Equal(t, "host1", p1.Health().MultiPooler.Hostname)
 	assert.NotNil(t, p1.HealthStream, "OnLive should have spawned a stream on discovery")
 }
 
@@ -198,8 +199,10 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	originalStream := existing.HealthStream
 
 	// Simulate a health-check populating some state
-	existing.IsUpToDate = true
-	existing.IsLastCheckValid = true
+	existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.IsUpToDate = true
+		h.IsLastCheckValid = true
+	})
 	store.SeedCache(t, poolerStore, existing)
 
 	// Update the pooler metadata in topology (e.g., hostname change)
@@ -213,15 +216,15 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	// Wait for the update to propagate
 	ok = waitForCondition(t, 5*time.Second, func() bool {
 		p, exists := poolerStore.GetRider(pid)
-		return exists && p.MultiPooler.Hostname == "host2"
+		return exists && p.Health().MultiPooler.Hostname == "host2"
 	})
 	require.True(t, ok, "expected hostname to be updated to host2")
 
 	// Health-check state should be preserved
 	updated, exists := poolerStore.GetRider(pid)
 	require.True(t, exists)
-	assert.True(t, updated.IsUpToDate, "IsUpToDate should be preserved")
-	assert.True(t, updated.IsLastCheckValid, "IsLastCheckValid should be preserved")
+	assert.True(t, updated.Health().IsUpToDate, "IsUpToDate should be preserved")
+	assert.True(t, updated.Health().IsLastCheckValid, "IsLastCheckValid should be preserved")
 
 	// An update to an existing pooler must NOT re-fire OnLive — that would
 	// install a fresh StreamHandle and replace the original one.

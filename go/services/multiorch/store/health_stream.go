@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -223,7 +224,7 @@ func (hs *HealthStream) run(ctx context.Context) {
 
 		// Read current pooler metadata from store on every attempt.
 		poolerHealth, ok := hs.cache.GetRider(hs.poolerID)
-		if !ok || poolerHealth.MultiPooler == nil {
+		if !ok || poolerHealth.Health().MultiPooler == nil {
 			logger.WarnContext(ctx, "pooler not found in store, stopping health stream",
 				"pooler_id", hs.poolerID)
 			return
@@ -313,7 +314,7 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerHealth *Pooler) (c
 		}
 	}()
 
-	stream, err := hs.factory.rpcClient.ManagerHealthStream(watchdogCtx, poolerHealth.MultiPooler)
+	stream, err := hs.factory.rpcClient.ManagerHealthStream(watchdogCtx, poolerHealth.Health().MultiPooler)
 	if err != nil {
 		return false, fmt.Errorf("open stream: %w", err)
 	}
@@ -403,29 +404,31 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 	status := snapshot.Status.Status
 	now := timestamppb.Now()
 
-	poolerIDStr := topoclient.ComponentIDString(poolerHealth.MultiPooler.Id)
+	poolerIDStr := topoclient.ComponentIDString(poolerHealth.Health().MultiPooler.Id)
 	update := func(existing *Pooler) *Pooler {
-		existing.LastCheckSuccessful = now
-		existing.LastSeen = now
-		existing.IsUpToDate = true
-		existing.IsLastCheckValid = true
-		existing.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
-		if snapshot.Status.AvailabilityStatus != nil {
-			existing.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
-		} else {
-			existing.AvailabilityStatus = nil
-		}
-		if snapshot.Status.ConsensusStatus != nil {
-			existing.ConsensusStatus = proto.Clone(snapshot.Status.ConsensusStatus).(*clustermetadatapb.ConsensusStatus)
-		} else {
-			existing.ConsensusStatus = nil
-		}
-		if status.PostgresReady {
-			existing.LastPostgresReadyTime = now
-		}
-		// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
-		// left at its previous value so callers can reason about "last known good" time.
-		existing.StreamSnapshotsReceived++
+		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.LastCheckSuccessful = now
+			h.LastSeen = now
+			h.IsUpToDate = true
+			h.IsLastCheckValid = true
+			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
+			if snapshot.Status.AvailabilityStatus != nil {
+				h.AvailabilityStatus = proto.Clone(snapshot.Status.AvailabilityStatus).(*clustermetadatapb.AvailabilityStatus)
+			} else {
+				h.AvailabilityStatus = nil
+			}
+			if snapshot.Status.ConsensusStatus != nil {
+				h.ConsensusStatus = proto.Clone(snapshot.Status.ConsensusStatus).(*clustermetadatapb.ConsensusStatus)
+			} else {
+				h.ConsensusStatus = nil
+			}
+			if status.PostgresReady {
+				h.LastPostgresReadyTime = now
+			}
+			// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
+			// left at its previous value so callers can reason about "last known good" time.
+			h.StreamSnapshotsReceived++
+		})
 		return existing
 	}
 
@@ -443,8 +446,10 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 func (hs *HealthStream) markConnected() {
 	now := timestamppb.Now()
 	cb := func(existing *Pooler) *Pooler {
-		existing.StreamConnected = true
-		existing.StreamConnectedSince = now
+		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.StreamConnected = true
+			h.StreamConnectedSince = now
+		})
 		return existing
 	}
 	hs.cache.DoUpdate(hs.poolerID, cb)
@@ -454,12 +459,14 @@ func (hs *HealthStream) markConnected() {
 // should be treated as unreachable.
 func (hs *HealthStream) markDisconnected() {
 	cb := func(existing *Pooler) *Pooler {
-		existing.IsLastCheckValid = false
-		if existing.Status != nil {
-			existing.Status.PostgresReady = false
-			existing.Status.PostgresRunning = false
-		}
-		existing.StreamConnected = false
+		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.IsLastCheckValid = false
+			if h.Status != nil {
+				h.Status.PostgresReady = false
+				h.Status.PostgresRunning = false
+			}
+			h.StreamConnected = false
+		})
 		return existing
 	}
 	hs.cache.DoUpdate(hs.poolerID, cb)

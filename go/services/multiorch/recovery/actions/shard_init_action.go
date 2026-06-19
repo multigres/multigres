@@ -110,7 +110,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	// Ensure the initialized poolers we see could ever satisfy the durability policy.
 	initializedIDs := make([]*clustermetadatapb.ID, len(initializedPoolers))
 	for i, p := range initializedPoolers {
-		initializedIDs[i] = p.MultiPooler.Id
+		initializedIDs[i] = p.Health().MultiPooler.Id
 	}
 	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -165,13 +165,13 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
 	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
 			continue
 		}
-		if len(pooler.GetStatus().GetCohortMembers()) > 0 {
+		if len(pooler.Health().GetStatus().GetCohortMembers()) > 0 {
 			return nil, true
 		}
-		if pooler.GetStatus().GetIsInitialized() {
+		if pooler.Health().GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
 	}
@@ -188,8 +188,8 @@ func (a *ShardInitAction) buildCohortFromIDs(poolers []*store.Pooler, committedI
 
 	var result []*multiorchdatapb.PoolerHealthState
 	for _, p := range poolers {
-		if _, ok := idSet[topoclient.ClusterIDString(p.MultiPooler.Id)]; ok {
-			result = append(result, p.PoolerHealthState)
+		if _, ok := idSet[topoclient.ClusterIDString(p.Health().MultiPooler.Id)]; ok {
+			result = append(result, p.Health())
 		}
 	}
 	return result

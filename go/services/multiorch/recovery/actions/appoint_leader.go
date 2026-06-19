@@ -91,13 +91,13 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if leader, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
-		if types.LeaderNeedsReplacement(leader.PoolerHealthState) {
+		if types.LeaderNeedsReplacement(leader.Health()) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
-				"primary", leader.MultiPooler.Id.Name,
+				"primary", leader.Health().MultiPooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		} else {
 			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
-				"primary", leader.MultiPooler.Id.Name,
+				"primary", leader.Health().MultiPooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 			return nil
 		}
@@ -112,7 +112,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	reason := string(problem.Code)
 	cohort := make([]*multiorchdatapb.PoolerHealthState, len(shard.Poolers))
 	for i, p := range shard.Poolers {
-		cohort[i] = p.PoolerHealthState
+		cohort[i] = p.Health()
 	}
 	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")

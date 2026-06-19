@@ -80,7 +80,7 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
 	for _, pooler := range poolers {
-		if cs := pooler.GetConsensusStatus(); cs != nil {
+		if cs := pooler.Health().GetConsensusStatus(); cs != nil {
 			statuses = append(statuses, cs)
 		}
 	}
@@ -91,7 +91,7 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 	var leader *Pooler
 	if leaderID != nil {
 		for _, pooler := range poolers {
-			if proto.Equal(pooler.GetMultiPooler().GetId(), leaderID) {
+			if proto.Equal(pooler.Health().GetMultiPooler().GetId(), leaderID) {
 				leader = pooler
 				break
 			}

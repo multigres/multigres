@@ -80,18 +80,19 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 				"shard", p.GetShardKey().GetShard(),
 				"leader", p.GetSelfLeadership().GetLeaderId() != nil,
 			)
-			return &store.Pooler{
-				PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+			return store.NewPooler(
+				&multiorchdatapb.PoolerHealthState{
 					MultiPooler: p,
 					IsUpToDate:  false,
 				},
-				HealthStream: factory.New(cache, topoclient.ComponentIDString(p.Id)),
-			}
+				factory.New(cache, topoclient.ComponentIDString(p.Id)),
+			)
 		},
 
 		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *store.Pooler) {
-			// Atomic pointer swap; safe to do outside the cache lock.
-			rider.MultiPooler = curr
+			rider.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.MultiPooler = curr
+			})
 		},
 
 		OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {

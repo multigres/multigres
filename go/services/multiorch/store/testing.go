@@ -38,10 +38,12 @@ func NewTestCache(t *testing.T) *PoolerCache {
 	})
 	cache.Start(poolerwatch.Hooks[*Pooler]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *Pooler) *Pooler {
-			return &Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{MultiPooler: p}}
+			return NewPooler(&multiorchdatapb.PoolerHealthState{MultiPooler: p}, nil)
 		},
 		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *Pooler) {
-			rider.MultiPooler = curr
+			rider.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.MultiPooler = curr
+			})
 		},
 	})
 	return cache
@@ -71,11 +73,11 @@ func (f *HealthStreamFactory) NewForTest(t *testing.T, cache *PoolerCache, id *c
 // method; production code reaches state through OnLive hooks.
 func SeedCache(t *testing.T, cache *PoolerCache, state *Pooler) topoclient.ComponentID {
 	t.Helper()
-	if state == nil || state.MultiPooler == nil {
+	if state == nil || state.Health().MultiPooler == nil {
 		return ""
 	}
-	poolerwatch.SeedForTest(t, cache, state.MultiPooler)
-	id := topoclient.ComponentIDString(state.MultiPooler.Id)
+	poolerwatch.SeedForTest(t, cache, state.Health().MultiPooler)
+	id := topoclient.ComponentIDString(state.Health().MultiPooler.Id)
 	cache.DoUpdate(id, func(*Pooler) *Pooler {
 		return state
 	})
