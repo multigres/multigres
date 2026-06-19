@@ -28,6 +28,7 @@ package poolerwatch
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -231,9 +232,12 @@ type PoolerCache[T any] struct {
 
 	// topoSource is the optional underlying watch (created in New if
 	// config.Source is provided). Owned and shut down by this cache.
-	topoSource     *topoWatch
-	topoUnsub      func()
-	topoSourceUsed bool
+	topoSource *topoWatch
+
+	// cellLastActivity records the wall-clock time of the most recent watch
+	// event observed for each cell. Surfaced via CellStatuses for admin
+	// pages. Updated under mu.
+	cellLastActivity map[string]time.Time
 
 	// Shutdown is one-shot. Concurrent callers (including the ctx-watcher
 	// goroutine spawned in New) all block on shutdownDone until disposal
@@ -265,18 +269,23 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		interval = 30 * time.Second
 	}
 	c := &PoolerCache[T]{
-		config:       config,
-		ctx:          ctx,
-		entries:      make(map[topoclient.ComponentID]*internalEntry[T]),
-		byCell:       make(map[string]map[topoclient.ComponentID]*internalEntry[T]),
-		byShard:      make(map[shardKey]map[topoclient.ComponentID]*internalEntry[T]),
-		ghosts:       make(map[topoclient.ComponentID]*ghostEntry),
-		sweeper:      timer.NewPeriodicRunner(ctx, interval),
-		shutdownDone: make(chan struct{}),
+		config:           config,
+		ctx:              ctx,
+		entries:          make(map[topoclient.ComponentID]*internalEntry[T]),
+		byCell:           make(map[string]map[topoclient.ComponentID]*internalEntry[T]),
+		byShard:          make(map[shardKey]map[topoclient.ComponentID]*internalEntry[T]),
+		ghosts:           make(map[topoclient.ComponentID]*ghostEntry),
+		cellLastActivity: make(map[string]time.Time),
+		sweeper:          timer.NewPeriodicRunner(ctx, interval),
+		shutdownDone:     make(chan struct{}),
 	}
 	if config.Source != nil {
-		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger)
-		c.topoSourceUsed = true
+		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger, topoWatchHandlers{
+			OnSnapshot:    c.reconcileCell,
+			OnUpsert:      c.applyUpsert,
+			OnDelete:      c.applyDelete,
+			OnCellRemoved: c.onCellRemoved,
+		})
 	}
 	// Auto-shutdown on parent context cancellation. The goroutine exits as
 	// soon as Shutdown has finished, regardless of who called it first.
@@ -297,13 +306,6 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 func (c *PoolerCache[T]) Start() {
 	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
 	if c.topoSource != nil {
-		c.topoUnsub = c.topoSource.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
-			if curr == nil {
-				c.applyDelete(topoclient.ComponentIDString(prev.Id))
-				return
-			}
-			c.applyUpsert(curr)
-		})
 		c.topoSource.Start()
 	}
 }
@@ -330,9 +332,6 @@ func (c *PoolerCache[T]) Shutdown() {
 	c.shutdownOnce.Do(func() {
 		defer close(c.shutdownDone)
 		// Stop the watch first so no new events arrive while we tear down.
-		if c.topoUnsub != nil {
-			c.topoUnsub()
-		}
 		if c.topoSource != nil {
 			c.topoSource.Stop()
 		}
@@ -429,14 +428,108 @@ func (c *PoolerCache[T]) Len() int {
 }
 
 // CellStatuses returns per-cell status sorted alphabetically by cell name.
-// Reflects the raw topology view (every observed pooler, including
-// SHUTDOWN); intended for admin/status pages, not the hot query path.
-// Returns nil if no topology source was configured.
+// Reflects the raw topology view: every observed pooler, including
+// SHUTDOWN (i.e. ghosts). Intended for admin/status pages, not the hot
+// query path.
 func (c *PoolerCache[T]) CellStatuses() []CellStatus {
-	if c.topoSource == nil {
-		return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cellSet := make(map[string]struct{}, len(c.byCell))
+	for cell := range c.byCell {
+		cellSet[cell] = struct{}{}
 	}
-	return c.topoSource.CellStatuses()
+	for cell := range c.cellLastActivity {
+		cellSet[cell] = struct{}{}
+	}
+	for _, g := range c.ghosts {
+		cellSet[g.poolerID.GetCell()] = struct{}{}
+	}
+
+	cellNames := make([]string, 0, len(cellSet))
+	for cell := range cellSet {
+		cellNames = append(cellNames, cell)
+	}
+	sort.Strings(cellNames)
+
+	statuses := make([]CellStatus, 0, len(cellNames))
+	for _, cell := range cellNames {
+		var poolers []*clustermetadatapb.MultiPooler
+		for _, e := range c.byCell[cell] {
+			poolers = append(poolers, proto.Clone(e.pooler).(*clustermetadatapb.MultiPooler))
+		}
+		// Ghosts (SHUTDOWN poolers) are part of the cell's view too — operators
+		// want to see them. They carry no full proto, only an ID.
+		for _, g := range c.ghosts {
+			if g.poolerID.GetCell() != cell {
+				continue
+			}
+			poolers = append(poolers, &clustermetadatapb.MultiPooler{
+				Id: g.poolerID,
+				LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+					Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
+				},
+			})
+		}
+		sort.Slice(poolers, func(i, j int) bool {
+			return topoclient.ComponentIDString(poolers[i].Id) < topoclient.ComponentIDString(poolers[j].Id)
+		})
+		statuses = append(statuses, CellStatus{
+			Cell:         cell,
+			LastActivity: c.cellLastActivity[cell],
+			Poolers:      poolers,
+		})
+	}
+	return statuses
+}
+
+// reconcileCell handles a per-cell topology snapshot from the underlying
+// topoWatch. The snapshot is the complete current state of the cell; any
+// entry the cache holds for this cell that's missing from the snapshot is
+// treated as deleted. Called on every per-cell watcher (re)connect.
+func (c *PoolerCache[T]) reconcileCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
+	seen := make(map[topoclient.ComponentID]struct{}, len(poolers))
+	for _, p := range poolers {
+		seen[topoclient.ComponentIDString(p.Id)] = struct{}{}
+	}
+
+	// Snapshot the IDs currently in this cell so we can compare without
+	// holding the lock during the apply* calls (which take it themselves).
+	c.mu.Lock()
+	c.cellLastActivity[cell] = c.config.now()
+	var existing []topoclient.ComponentID
+	for id := range c.byCell[cell] {
+		existing = append(existing, id)
+	}
+	c.mu.Unlock()
+
+	// Drop anything in this cell that's no longer present.
+	for _, id := range existing {
+		if _, ok := seen[id]; !ok {
+			c.applyDelete(id)
+		}
+	}
+	// Upsert everything present (applyUpsert suppresses proto.Equal no-ops).
+	for _, p := range poolers {
+		c.applyUpsert(p)
+	}
+}
+
+// onCellRemoved handles a cell-removed event from the underlying topoWatch.
+// Every entry in the cache for that cell is deleted, and the cell's
+// LastActivity is forgotten.
+func (c *PoolerCache[T]) onCellRemoved(cell string) {
+	c.mu.Lock()
+	var existing []topoclient.ComponentID
+	for id := range c.byCell[cell] {
+		existing = append(existing, id)
+	}
+	delete(c.cellLastActivity, cell)
+	c.mu.Unlock()
+
+	for _, id := range existing {
+		c.applyDelete(id)
+	}
 }
 
 // DoUpdate atomically reads the rider for id, calls fn to compute the new
@@ -608,6 +701,9 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 	if c.closed {
 		c.mu.Unlock()
 		return
+	}
+	if cell := pooler.GetId().GetCell(); cell != "" {
+		c.cellLastActivity[cell] = now
 	}
 
 	// --- Existing entry (Live or Vanished) ---
@@ -788,6 +884,9 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 	}
 
 	if e, ok := c.entries[id]; ok {
+		if cell := e.pooler.GetId().GetCell(); cell != "" {
+			c.cellLastActivity[cell] = now
+		}
 		switch e.state {
 		case StateLive:
 			e.state = StateVanished

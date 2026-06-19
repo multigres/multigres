@@ -511,3 +511,40 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 	assert.Equal(t, []string{"live:kept"}, rec.snapshot())
 	assert.Equal(t, 1, c.Len())
 }
+
+// TestCache_ReconcileCellEvictsMissingPoolers verifies that a per-cell
+// snapshot from the underlying topoWatch (the (re)connect path) evicts any
+// entry the cache holds for that cell that's missing from the snapshot. This
+// is the core contract that justifies topoWatch holding no pooler state.
+func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
+	clk := newFakeClock()
+	c, rec := newTestCache(t, clk, time.Hour, 0 /* VanishedGrace=0 so eviction is immediate */)
+	defer c.Shutdown()
+
+	// Seed two poolers in zone1 and one in zone2 via the watcher dispatch path.
+	c.reconcileCell("zone1", []*clustermetadatapb.MultiPooler{
+		pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+		pool("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+	})
+	c.reconcileCell("zone2", []*clustermetadatapb.MultiPooler{
+		pool("zone2", "q1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+	})
+	require.Equal(t, []string{"live:p1", "live:p2", "live:q1"}, rec.snapshot())
+
+	// A reconnect snapshot drops p2 and adds p3, leaving p1.
+	c.reconcileCell("zone1", []*clustermetadatapb.MultiPooler{
+		pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+		pool("zone1", "p3", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
+	})
+
+	// p2 vanished, p3 went live; p1 stayed (proto.Equal suppresses dup); zone2 untouched.
+	events := rec.snapshot()
+	assert.Contains(t, events, "gone-vanished:p2", "p2 must be evicted by reconcile")
+	assert.Contains(t, events, "live:p3", "p3 must be added by reconcile")
+	_, p1Ok := c.Get(componentID("zone1", "p1"))
+	_, p3Ok := c.Get(componentID("zone1", "p3"))
+	_, q1Ok := c.Get(componentID("zone2", "q1"))
+	assert.True(t, p1Ok)
+	assert.True(t, p3Ok)
+	assert.True(t, q1Ok, "cell zone2 must be untouched by zone1 reconcile")
+}
