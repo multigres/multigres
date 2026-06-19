@@ -45,14 +45,14 @@ const (
 	streamReconnectMaxBackoff = 30 * time.Second
 )
 
-// HealthStream maintains one ManagerHealthStream stream per pooler. It replaces
-// the polling loop: instead of periodically calling the Status RPC, each pooler
-// pushes health snapshots to multiorch via a long-lived gRPC stream.
+// HealthStream maintains one ManagerHealthStream stream per pooler. It
+// replaces the polling loop: instead of periodically calling the Status RPC,
+// each pooler pushes health snapshots to multiorch via a long-lived gRPC stream.
 //
-// When a snapshot arrives the HealthStream writes the same health fields into
-// the pooler store that the old pollPooler function wrote on success. On stream
-// disconnect the pooler is marked unreachable and reconnection is attempted
-// with exponential backoff (1s → 2s → … → 30s cap).
+// When a snapshot arrives the HealthStream writes the same health fields
+// into the pooler store that the old pollPooler function wrote on success. On
+// stream disconnect the pooler is marked unreachable and reconnection is
+// attempted with exponential backoff (1s → 2s → … → 30s cap).
 //
 // The orchestrator sends its preferred snapshot_interval and staleness_timeout
 // in the start message. The server echoes back the actual values it will use in
@@ -105,10 +105,10 @@ func WithStalenessTimeout(d time.Duration) Option {
 	}
 }
 
-// NewHealthStream creates a HealthStream. The cache reference is passed to
-// spawnStream from the cache's OnLive hook (bound via cache.Start), so the
-// HealthStream itself holds no cache pointer; each spawned goroutine closes
-// over the cache and pooler ID provided at spawn time.
+// NewHealthStream creates a HealthStream. The cache reference is
+// passed to spawnStream from the cache's OnLive hook (bound via cache.Start),
+// so the HealthStream itself holds no cache pointer; each spawned
+// goroutine closes over the cache and pooler ID provided at spawn time.
 func NewHealthStream(
 	ctx context.Context,
 	rpcClient rpcclient.MultiPoolerClient,

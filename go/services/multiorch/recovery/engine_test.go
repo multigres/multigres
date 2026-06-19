@@ -460,18 +460,18 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 
 	// Wait for discovery loop to pick up all poolers
 	require.Eventually(t, func() bool {
-		return re.poolerStore.Len() == 3
+		return re.poolerCache.Len() == 3
 	}, 1*time.Second, 50*time.Millisecond, "all 3 poolers should be discovered")
 
 	key1 := poolerKey("zone1", "pooler1")
 	key2 := poolerKey("zone1", "pooler2")
 	key3 := poolerKey("zone1", "pooler3")
 
-	_, ok := re.poolerStore.GetRider(key1)
+	_, ok := re.poolerCache.GetRider(key1)
 	require.True(t, ok, "pooler1 should be in store")
-	_, ok = re.poolerStore.GetRider(key2)
+	_, ok = re.poolerCache.GetRider(key2)
 	require.True(t, ok, "pooler2 should be in store")
-	_, ok = re.poolerStore.GetRider(key3)
+	_, ok = re.poolerCache.GetRider(key3)
 	require.True(t, ok, "pooler3 should be in store")
 }
 

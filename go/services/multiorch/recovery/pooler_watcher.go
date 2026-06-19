@@ -70,7 +70,7 @@ func newPoolerCache(
 // and stashes the handle on the rider; OnGone cancels via the handle. No
 // parallel registry — the cache is the single source of truth for
 // "everything we track about this pooler".
-func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, healthStream *HealthStream, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
+func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, streams *HealthStream, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
 	return poolerwatch.Hooks[*store.Pooler]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
 			logger.InfoContext(ctx, "pooler discovered live",
@@ -85,7 +85,7 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, healthStrea
 					MultiPooler: p,
 					IsUpToDate:  false,
 				},
-				Stream: healthStream.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
+				Stream: streams.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
 			}
 		},
 

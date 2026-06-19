@@ -298,7 +298,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	assert.Empty(t, data)
 
 	// Populate the store with two poolers with different stream states.
-	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, engine.poolerCache, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -309,7 +309,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 		StreamConnected:         true,
 		StreamSnapshotsReceived: 42,
 	}})
-	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, engine.poolerCache, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -359,7 +359,7 @@ func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
 	)
 
 	// An entry with nil MultiPooler should be silently skipped.
-	store.SeedCache(t, engine.poolerStore, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, engine.poolerCache, &store.Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{
 		MultiPooler:     nil,
 		StreamConnected: true,
 	}})

@@ -217,7 +217,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		ShardKey:          shardKey,
 		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.GetConsensusStatus()),
 		LastCheckValid:    pooler.IsLastCheckValid,
-		IsInitialized:     store.IsInitialized(pooler),
+		IsInitialized:     pooler.IsInitialized(),
 		HasDataDirectory:  pooler.GetStatus().GetHasDataDirectory(),
 		CohortMembers:     pooler.GetStatus().GetCohortMembers(),
 		AnalyzedAt:        time.Now(),

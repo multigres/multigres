@@ -72,3 +72,17 @@ func (h *StreamHandle) Stream() rpcclient.ManagerHealthStream {
 	defer h.mu.Unlock()
 	return h.stream
 }
+
+// IsInitialized reports whether the pooler has been initialized. A pooler is
+// considered initialized based on the IsInitialized field from the Status
+// RPC (data-directory state, not LSN). The node must also be reachable for
+// us to trust the value.
+func (p *Pooler) IsInitialized() bool {
+	if !p.IsLastCheckValid {
+		return false
+	}
+	if p.MultiPooler == nil {
+		return false
+	}
+	return p.GetStatus().GetIsInitialized()
+}

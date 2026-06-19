@@ -51,7 +51,7 @@ func (re *Engine) runBookkeeping() {
 // the ghost from the set.
 func (re *Engine) cleanupOldShutdownEntries() {
 	cutoff := time.Now().Add(-shutdownEtcdCleanupAge)
-	for _, g := range re.poolerStore.Ghosts() {
+	for _, g := range re.poolerCache.Ghosts() {
 		if !g.ShutdownAt.Before(cutoff) {
 			continue
 		}

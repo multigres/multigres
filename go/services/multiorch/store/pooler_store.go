@@ -100,17 +100,3 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 
 	return ShardMembers{Poolers: poolers, HighestKnownRule: rule, Leader: leader}
 }
-
-// IsInitialized reports whether the pooler has been initialized. A pooler is
-// considered initialized based on the IsInitialized field from the Status
-// RPC (data-directory state, not LSN). The node must also be reachable for
-// us to trust the value.
-func IsInitialized(p *Pooler) bool {
-	if !p.IsLastCheckValid {
-		return false
-	}
-	if p.MultiPooler == nil {
-		return false
-	}
-	return p.GetStatus().GetIsInitialized()
-}

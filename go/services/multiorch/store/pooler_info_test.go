@@ -106,7 +106,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsInitialized(&Pooler{PoolerHealthState: tt.pooler})
+			got := (&Pooler{PoolerHealthState: tt.pooler}).IsInitialized()
 			require.Equal(t, tt.expected, got)
 		})
 	}

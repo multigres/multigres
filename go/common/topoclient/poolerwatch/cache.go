@@ -142,7 +142,7 @@ type Hooks[T any] struct {
 // Config configures a PoolerCache. Hooks are NOT part of Config —
 // they are supplied at Start, which lets callers construct the cache,
 // then construct anything that wants to reference the cache (LB,
-// HealthStreamRunner, etc.), then bind hooks that close over those.
+// HealthStream, etc.), then bind hooks that close over those.
 type Config[T any] struct {
 	// Source is the topology backing store. The cache subscribes to it on
 	// Start to receive upserts and deletions. Required.
