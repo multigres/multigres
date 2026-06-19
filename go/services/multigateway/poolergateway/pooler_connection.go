@@ -102,7 +102,7 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 // It wraps a QueryService and provides access to pooler metadata.
 //
 // A PoolerConnection exists if and only if we are actively connected to the pooler.
-// The LoadBalancer creates and destroys PoolerConnections based on discovery events.
+// The loadBalancer creates and destroys PoolerConnections based on discovery events.
 //
 // The connection maintains a health stream to the multipooler and tracks serving state.
 // Only connections that are serving should be used for query routing.
@@ -142,11 +142,11 @@ type PoolerConnection struct {
 	healthTimedOut atomic.Bool
 
 	// onHealthUpdate is called when health state changes.
-	// Used by LoadBalancer to update its routing decisions.
+	// Used by loadBalancer to update its routing decisions.
 	onHealthUpdate func(*PoolerConnection)
 }
 
-// NewPoolerConnection creates a new connection to a multipooler instance and
+// newPoolerConnection creates a new connection to a multipooler instance and
 // starts health streaming automatically.
 //
 // The onHealthUpdate callback is invoked when health state changes. It may be
@@ -154,7 +154,7 @@ type PoolerConnection struct {
 //
 // Close must be called when the connection is no longer needed to stop the
 // health stream goroutine and release resources.
-func NewPoolerConnection(
+func newPoolerConnection(
 	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 	logger *slog.Logger,

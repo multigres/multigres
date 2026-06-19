@@ -39,80 +39,80 @@ type shardKey struct {
 	shard      string
 }
 
-// ShardSummary holds the gateway's per-shard consensus state.
-// One ShardSummary exists per (tableGroup, shard) pair while any pooler
+// shardSummary holds the gateway's per-shard consensus state.
+// One shardSummary exists per (tableGroup, shard) pair while any pooler
 // from that shard is tracked in the cache. It is auto-created on the
 // first observation for the shard and auto-cleared once no poolers from
 // the shard remain.
 //
-// Concurrency: leader is protected by mu. Read via Leader(), mutate via
-// MergeLeader(). The ShardKey field is immutable after construction and
+// Concurrency: leader is protected by mu. Read via leader(), mutate via
+// mergeLeader(). The shardKey field is immutable after construction and
 // safe to read without holding mu.
-type ShardSummary struct {
-	// ShardKey identifies the shard — database, tablegroup, shard.
-	ShardKey *clustermetadatapb.ShardKey
+type shardSummary struct {
+	// shardKey identifies the shard — database, tablegroup, shard.
+	shardKey *clustermetadatapb.ShardKey
 
 	mu sync.Mutex
-	// leader is the most-authoritative LeaderObservation seen across this
+	// leaderObs is the most-authoritative LeaderObservation seen across this
 	// shard's poolers — merged across self_leadership topology records
-	// (folded in at MergeTopologyLeader time) and LeaderObservation
-	// messages on health streams (folded in via OnPoolerHealthUpdate).
+	// (folded in at mergeTopologyLeader time) and LeaderObservation
+	// messages on health streams (folded in via onPoolerHealthUpdate).
 	// May be nil if no leader has been observed yet.
-	leader *clustermetadatapb.LeaderObservation
+	leaderObs *clustermetadatapb.LeaderObservation
 }
 
-// Leader returns a snapshot of the current leader observation, or nil
+// leader returns a snapshot of the current leader observation, or nil
 // if no leader has been observed yet. Safe to call concurrently.
-func (s *ShardSummary) Leader() *clustermetadatapb.LeaderObservation {
+func (s *shardSummary) leader() *clustermetadatapb.LeaderObservation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.leader
+	return s.leaderObs
 }
 
-// MergeLeader installs obs as this shard's leader if it strictly
+// mergeLeader installs obs as this shard's leader if it strictly
 // supersedes whatever's there now (or there's nothing there). Returns
 // true if installed. Safe to call concurrently.
-func (s *ShardSummary) MergeLeader(obs *clustermetadatapb.LeaderObservation) bool {
+func (s *shardSummary) mergeLeader(obs *clustermetadatapb.LeaderObservation) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	merged := commonconsensus.MostAuthoritativeObservation(s.leader, obs)
-	if merged == s.leader {
+	merged := commonconsensus.MostAuthoritativeObservation(s.leaderObs, obs)
+	if merged == s.leaderObs {
 		return false
 	}
-	s.leader = merged
+	s.leaderObs = merged
 	return true
 }
 
-// LoadBalancer selects PoolerConnections for queries. The set of tracked
+// loadBalancer selects PoolerConnections for queries. The set of tracked
 // poolers and each one's *PoolerConnection rider lives in the pooler cache
 // (poolerwatch.PoolerCache[*PoolerConnection]) — the cache's OnLive hook
-// constructs the connection, and OnGone closes it. LoadBalancer owns no
+// constructs the connection, and OnGone closes it. loadBalancer owns no
 // per-pooler registry of its own.
 //
 // Per-shard state is tracked via the shards map, populated from two sources
 // that both carry a rule number: a pooler's self_leadership in its topology
-// record (folded in when the hook calls MergeTopologyLeader) and
+// record (folded in when the hook calls mergeTopologyLeader) and
 // LeaderObservation messages on health streams (delivered via
-// OnPoolerHealthUpdate). The most-authoritative observation (highest rule
+// onPoolerHealthUpdate). The most-authoritative observation (highest rule
 // number) wins, regardless of source. The pooler.Type field from etcd
 // topology is never consulted for leader identity — only self_leadership is.
-// A ShardSummary survives connection lifecycle events except when the last
-// pooler in the shard leaves (see OnPoolerGone): removing one pooler does
+// A shardSummary survives connection lifecycle events except when the last
+// pooler in the shard leaves (see onPoolerGone): removing one pooler does
 // not erase consensus's choice of leader.
 //
 // Concurrency: a two-lock model is in play.
 //   - lb.mu protects ONLY the lb.shards map (lookups, inserts, deletes).
-//   - Each *ShardSummary has its own mu protecting its leader field; reads
-//     go through Leader(), mutations through MergeLeader().
+//   - Each *shardSummary has its own mu protecting its leader field; reads
+//     go through leader(), mutations through mergeLeader().
 //
 // Lock ordering: take lb.mu first (if needed), then summary.mu. No method
-// holds both at once — shardSummary() releases lb.mu before returning the
-// *ShardSummary, and callers then invoke summary methods which self-lock.
+// holds both at once — summaryForPooler() releases lb.mu before returning the
+// *shardSummary, and callers then invoke summary methods which self-lock.
 // Cache reads happen after lb.mu has been released, so the cache OnLive/
-// OnGone hooks (which call MergeTopologyLeader / NotifyIfLeaderServing →
+// OnGone hooks (which call mergeTopologyLeader / notifyIfLeaderServing →
 // lb.mu) can never deadlock against an LB method holding lb.mu and waiting
 // on the cache.
-type LoadBalancer struct {
+type loadBalancer struct {
 	// localCell is the cell where this gateway is running
 	localCell string
 
@@ -128,16 +128,16 @@ type LoadBalancer struct {
 	// shards maps shard key to the gateway's per-shard summary (currently the
 	// most-authoritative LeaderObservation seen for that shard). Populated
 	// from a pooler's self_leadership topology record (via
-	// MergeTopologyLeader) and from LeaderObservation messages on health
-	// streams (via OnPoolerHealthUpdate). The leader_id field of the
+	// mergeTopologyLeader) and from LeaderObservation messages on health
+	// streams (via onPoolerHealthUpdate). The leader_id field of the
 	// observation may name a pooler we are not currently connected to —
 	// GetConnection handles that case at read time by consulting the cache.
-	// Entries are auto-cleared by OnPoolerGone once no poolers remain in the
+	// Entries are auto-cleared by onPoolerGone once no poolers remain in the
 	// shard.
-	shards map[shardKey]*ShardSummary
+	shards map[shardKey]*shardSummary
 
 	// cache is the pooler cache that owns the per-pooler *PoolerConnection
-	// riders. Supplied at construction via LoadBalancerOpts.Cache; callers
+	// riders. Supplied at construction via loadBalancerOpts.Cache; callers
 	// build the cache first (without hooks), pass it in here, then call
 	// cache.Start with hooks that close over the LB.
 	cache *poolerwatch.PoolerCache[*PoolerConnection]
@@ -161,9 +161,9 @@ type LoadBalancer struct {
 	highReplicationLagToleranceNs int64
 }
 
-// LoadBalancerOpts groups the construction parameters for a LoadBalancer.
+// loadBalancerOpts groups the construction parameters for a loadBalancer.
 // All required fields must be set; optional fields default to zero/nil.
-type LoadBalancerOpts struct {
+type loadBalancerOpts struct {
 	// Ctx is the service-lifetime context; cancelled on Shutdown. Required.
 	Ctx context.Context
 	// LocalCell is the cell where this gateway runs. Required.
@@ -191,15 +191,15 @@ type LoadBalancerOpts struct {
 	Cache *poolerwatch.PoolerCache[*PoolerConnection]
 }
 
-// NewLoadBalancer creates a LoadBalancer. The cache supplied via opts.Cache
+// newLoadBalancer creates a loadBalancer. The cache supplied via opts.Cache
 // must be started by the caller after construction (via cache.Start with
 // hooks that close over this LB).
-func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
-	return &LoadBalancer{
+func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
+	return &loadBalancer{
 		localCell:                     opts.LocalCell,
 		logger:                        opts.Logger,
 		ctx:                           opts.Ctx,
-		shards:                        make(map[shardKey]*ShardSummary),
+		shards:                        make(map[shardKey]*shardSummary),
 		grpcDialOpt:                   opts.DialOpt,
 		onPrimaryServing:              opts.OnPrimaryServing,
 		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
@@ -208,8 +208,8 @@ func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
 	}
 }
 
-// MergeTopologyLeader folds a pooler's self_leadership observation (from its
-// topology record) into the shard's ShardSummary, keeping whichever
+// mergeTopologyLeader folds a pooler's self_leadership observation (from its
+// topology record) into the shard's shardSummary, keeping whichever
 // observation has the higher rule number. A pooler that is not the leader
 // carries no self_leadership, so this is a no-op for it — it never clears an
 // existing entry, since a higher observation from any source is what
@@ -218,13 +218,13 @@ func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
 // Called by the pooler cache's OnLive and OnUpdate hooks. Acquires lb.mu and
 // the summary's mu internally (in that order, non-overlapping); must not be
 // called while holding either.
-func (lb *LoadBalancer) MergeTopologyLeader(pooler *clustermetadatapb.MultiPooler) {
+func (lb *loadBalancer) mergeTopologyLeader(pooler *clustermetadatapb.MultiPooler) {
 	obs := pooler.GetSelfLeadership()
 	if obs == nil {
 		return
 	}
-	summary := lb.shardSummary(pooler)
-	if !summary.MergeLeader(obs) {
+	summary := lb.summaryForPooler(pooler)
+	if !summary.mergeLeader(obs) {
 		return
 	}
 
@@ -236,11 +236,11 @@ func (lb *LoadBalancer) MergeTopologyLeader(pooler *clustermetadatapb.MultiPoole
 }
 
 // shardSummary returns the existing summary for the shard, creating one if
-// absent. The returned *ShardSummary is owned by the cache; callers mutate
+// absent. The returned *shardSummary is owned by the cache; callers mutate
 // via its methods (which self-lock). Briefly holds lb.mu; releases it before
 // returning, so callers can freely invoke summary methods without nesting
 // locks.
-func (lb *LoadBalancer) shardSummary(p *clustermetadatapb.MultiPooler) *ShardSummary {
+func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shardSummary {
 	key := shardKey{
 		tableGroup: p.GetShardKey().GetTableGroup(),
 		shard:      p.GetShardKey().GetShard(),
@@ -249,13 +249,13 @@ func (lb *LoadBalancer) shardSummary(p *clustermetadatapb.MultiPooler) *ShardSum
 	defer lb.mu.Unlock()
 	summary, ok := lb.shards[key]
 	if !ok {
-		summary = &ShardSummary{ShardKey: p.GetShardKey()}
+		summary = &shardSummary{shardKey: p.GetShardKey()}
 		lb.shards[key] = summary
 	}
 	return summary
 }
 
-// NotifyIfLeaderServing calls onPrimaryServing if conn is the known leader of
+// notifyIfLeaderServing calls onPrimaryServing if conn is the known leader of
 // its shard and is both SERVING and self-reporting PoolerType_PRIMARY on its
 // health stream. StopBuffering is idempotent, so calling this on every
 // lifecycle / health update is safe and ensures buffering stops promptly once
@@ -268,9 +268,9 @@ func (lb *LoadBalancer) shardSummary(p *clustermetadatapb.MultiPooler) *ShardSum
 // a pooler that still rejects PRIMARY traffic.
 //
 // Called by the cache OnLive/OnUpdate hooks and internally by
-// OnPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
+// onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
 // not be called while holding lb.mu.
-func (lb *LoadBalancer) NotifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
+func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
 	if lb.onPrimaryServing == nil || conn == nil {
 		return
 	}
@@ -281,18 +281,18 @@ func (lb *LoadBalancer) NotifyIfLeaderServing(pooler *clustermetadatapb.MultiPoo
 	lb.mu.Lock()
 	summary := lb.shards[key]
 	lb.mu.Unlock()
-	lb.notifyIfLeaderServing(summary, conn)
+	lb.notifyLeaderServingFromSummary(summary, conn)
 }
 
-// notifyIfLeaderServing is the internal helper shared by NotifyIfLeaderServing
-// and OnPoolerHealthUpdate. The summary may be nil if no shard summary has
-// been created yet (no leader observed); callers obtain it from lb.shards
-// or via shardSummary().
-func (lb *LoadBalancer) notifyIfLeaderServing(summary *ShardSummary, conn *PoolerConnection) {
+// notifyLeaderServingFromSummary is the internal helper shared by
+// notifyIfLeaderServing and onPoolerHealthUpdate. The summary may be nil if no
+// shard summary has been created yet (no leader observed); callers obtain it
+// from lb.shards or via shardSummary().
+func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *PoolerConnection) {
 	if lb.onPrimaryServing == nil || summary == nil {
 		return
 	}
-	leader := summary.Leader()
+	leader := summary.leader()
 	if leader == nil || topoclient.ComponentIDString(leader.LeaderId) != conn.ID() {
 		return
 	}
@@ -303,10 +303,10 @@ func (lb *LoadBalancer) notifyIfLeaderServing(summary *ShardSummary, conn *Poole
 	if health.Target.GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 		return
 	}
-	lb.onPrimaryServing(summary.ShardKey.GetTableGroup(), summary.ShardKey.GetShard())
+	lb.onPrimaryServing(summary.shardKey.GetTableGroup(), summary.shardKey.GetShard())
 }
 
-// GetConnection returns a PoolerConnection matching the target specification.
+// getConnection returns a PoolerConnection matching the target specification.
 // Returns an error immediately if no suitable connection is available.
 //
 // Selection logic:
@@ -318,7 +318,7 @@ func (lb *LoadBalancer) notifyIfLeaderServing(summary *ShardSummary, conn *Poole
 //     itself the leader, judged per-connection from self_leadership and
 //     health-stream observations (see matchesReplicaTarget). This excludes both
 //     the current leader and a stale leader, never consulting pooler.Type.
-func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
+func (lb *loadBalancer) getConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
 	}
@@ -332,7 +332,7 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	lb.mu.Unlock()
 	var leaderObs *clustermetadatapb.LeaderObservation
 	if summary != nil {
-		leaderObs = summary.Leader()
+		leaderObs = summary.leader()
 	}
 
 	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
@@ -392,11 +392,11 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	return selected, nil
 }
 
-// GetConnectionByID returns a PoolerConnection for a specific pooler ID.
+// getConnectionByID returns a PoolerConnection for a specific pooler ID.
 // This is used for reserved connections where queries need to be routed to
 // a specific pooler instance (e.g., for session affinity with prepared statements).
 // Returns an error immediately if the pooler connection doesn't exist (fail-fast).
-func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*PoolerConnection, error) {
+func (lb *loadBalancer) getConnectionByID(poolerID *clustermetadatapb.ID) (*PoolerConnection, error) {
 	if poolerID == nil {
 		return nil, errors.New("pooler ID cannot be nil")
 	}
@@ -421,7 +421,7 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 //
 // Within each tier, selection prefers local-cell serving replicas with
 // randomization to distribute load.
-func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
+func (lb *loadBalancer) selectReplicaConnection(candidates []*PoolerConnection) *PoolerConnection {
 	lowThreshold := lb.lowReplicationLagNs
 	highThreshold := lb.highReplicationLagToleranceNs
 	hasLagFilter := lowThreshold > 0 || highThreshold > 0
@@ -513,15 +513,15 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 	return b.localNotServing[rand.IntN(len(b.localNotServing))]
 }
 
-// OnPoolerHealthUpdate is the callback invoked by PoolerConnection when health
+// onPoolerHealthUpdate is the callback invoked by PoolerConnection when health
 // state changes. It folds the LeaderObservation into the shard's
-// ShardSummary — recording the named leader unconditionally, regardless of
+// shardSummary — recording the named leader unconditionally, regardless of
 // whether we currently have a connection to that leader. The connection
 // lookup happens at GetConnection time via the cache, so identity survives
 // any connection lifecycle event.
 //
 // After folding the observation in, the SERVING-leader notification fires
-// unconditionally: NotifyIfLeaderServing is idempotent (StopBuffering is
+// unconditionally: notifyIfLeaderServing is idempotent (StopBuffering is
 // idempotent and the SERVING check is a pure read), so this covers both the
 // "new rule installed" case and the previously-distinct "same rule but the
 // leader has just become SERVING" case in one path.
@@ -532,36 +532,36 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 //
 // Safe to call concurrently: both processHealthResponse and setHealthError
 // release healthMu before invoking this callback.
-func (lb *LoadBalancer) OnPoolerHealthUpdate(conn *PoolerConnection) {
+func (lb *loadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 	health := conn.Health()
 	if health == nil || health.LeaderObservation == nil {
 		return
 	}
 
 	obs := health.LeaderObservation
-	summary := lb.shardSummary(conn.PoolerInfo().MultiPooler)
-	if summary.MergeLeader(obs) {
+	summary := lb.summaryForPooler(conn.PoolerInfo().MultiPooler)
+	if summary.mergeLeader(obs) {
 		lb.logger.Debug("leader observation recorded",
-			"tablegroup", summary.ShardKey.GetTableGroup(),
-			"shard", summary.ShardKey.GetShard(),
+			"tablegroup", summary.shardKey.GetTableGroup(),
+			"shard", summary.shardKey.GetShard(),
 			"leader_id", topoclient.ComponentIDString(obs.LeaderId),
 			"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
 	}
 
 	// Whether or not the observation was newly installed, re-check the
 	// SERVING-leader notification. A stale-rule observation can be ignored
-	// here entirely (MergeLeader returned false and the existing leader is
+	// here entirely (mergeLeader returned false and the existing leader is
 	// unrelated), but for the "same rule, leader has just become SERVING"
-	// case we still need to notify. NotifyIfLeaderServing's checks are
+	// case we still need to notify. notifyIfLeaderServing's checks are
 	// idempotent and cheap, so always calling it is simpler than retaining
 	// the cmp>0 / cmp==0 / cmp<0 split.
-	leader := summary.Leader()
+	leader := summary.leader()
 	if leader == nil || lb.cache == nil {
 		return
 	}
 	leaderID := topoclient.ComponentIDString(leader.LeaderId)
 	if leaderConn, ok := lb.cache.GetRider(leaderID); ok && leaderConn != nil {
-		lb.notifyIfLeaderServing(summary, leaderConn)
+		lb.notifyLeaderServingFromSummary(summary, leaderConn)
 	}
 }
 
@@ -606,9 +606,9 @@ func matchesReplicaTarget(conn *PoolerConnection, target *query.Target) bool {
 	return !conn.believesSelfLeader()
 }
 
-// ConnectionCount returns the number of active connections, sourced from the
+// connectionCount returns the number of active connections, sourced from the
 // pooler cache.
-func (lb *LoadBalancer) ConnectionCount() int {
+func (lb *loadBalancer) connectionCount() int {
 	if lb.cache == nil {
 		return 0
 	}
@@ -617,25 +617,25 @@ func (lb *LoadBalancer) ConnectionCount() int {
 
 // Consensus leadership roles reported by LeadershipFor for the status page.
 const (
-	// LeadershipLeader marks the shard's current consensus leader.
-	LeadershipLeader = "leader"
-	// LeadershipStaleLeader marks a pooler that still believes itself the leader
+	// leadershipLeader marks the shard's current consensus leader.
+	leadershipLeader = "leader"
+	// leadershipStaleLeader marks a pooler that still believes itself the leader
 	// (per its own self_leadership and health observation) even though consensus
 	// has moved on to a higher-rule leader. Such a pooler is excluded from
 	// replica reads; see matchesReplicaTarget.
-	LeadershipStaleLeader = "stale-leader"
-	// LeadershipFollower marks any other connected pooler.
-	LeadershipFollower = "follower"
+	leadershipStaleLeader = "stale-leader"
+	// leadershipFollower marks any other connected pooler.
+	leadershipFollower = "follower"
 )
 
-// LeadershipFor returns the consensus leadership role of a single connected
+// leadershipFor returns the consensus leadership role of a single connected
 // pooler for the admin/status page. The role reflects the gateway's merged
-// view — the shard's ShardSummary (self_leadership combined with
+// view — the shard's shardSummary (self_leadership combined with
 // health-stream observations) and the pooler's own belief — never the
 // topology Type label.
-func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
+func (lb *loadBalancer) leadershipFor(conn *PoolerConnection) string {
 	if conn == nil {
-		return LeadershipFollower
+		return leadershipFollower
 	}
 	info := conn.PoolerInfo()
 	key := shardKey{
@@ -648,7 +648,7 @@ func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
 	lb.mu.Unlock()
 	var leader *clustermetadatapb.LeaderObservation
 	if summary != nil {
-		leader = summary.Leader()
+		leader = summary.leader()
 	}
 
 	// The shard's consensus leader (merged across every pooler's
@@ -657,15 +657,15 @@ func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
 	// Otherwise a pooler that still believes itself leader is stale.
 	switch {
 	case leader != nil && topoclient.ComponentIDString(leader.LeaderId) == conn.ID():
-		return LeadershipLeader
+		return leadershipLeader
 	case conn.believesSelfLeader():
-		return LeadershipStaleLeader
+		return leadershipStaleLeader
 	}
-	return LeadershipFollower
+	return leadershipFollower
 }
 
-// OnPoolerGone is the LB's reaction to OnGone in the cache. If no poolers
-// remain in this shard after the eviction, the shard's ShardSummary is
+// onPoolerGone is the LB's reaction to OnGone in the cache. If no poolers
+// remain in this shard after the eviction, the shard's shardSummary is
 // removed. Called by the init.go OnGone hook AFTER the cache has already
 // removed the rider.
 //
@@ -673,8 +673,8 @@ func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
 // acquired briefly to delete the entry if the shard is empty. There is a
 // benign TOCTOU: a concurrent OnLive for the same shard between the cache
 // check and the lb.mu acquisition could race the delete, leaving a stale
-// ShardSummary or removing a freshly-created one. In the worst case we keep
-// a ShardSummary one cycle longer; the next OnPoolerGone (or first
+// shardSummary or removing a freshly-created one. In the worst case we keep
+// a shardSummary one cycle longer; the next onPoolerGone (or first
 // observation for a re-added pooler) will reconcile it.
 //
 // TODO: shardKey is currently database-agnostic — if two databases share a
@@ -683,7 +683,7 @@ func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
 // will re-populate it. Tolerable in practice but resolves cleanly once
 // query.Target carries a Database field and shardKey gains a database
 // component.
-func (lb *LoadBalancer) OnPoolerGone(p *clustermetadatapb.MultiPooler) {
+func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.MultiPooler) {
 	if p == nil || lb.cache == nil {
 		return
 	}

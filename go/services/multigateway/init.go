@@ -38,7 +38,6 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -333,91 +332,29 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
+	}
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+		logger.InfoContext(ctx, "Failover buffering enabled")
+	}
+
 	// Build transport credentials for multipooler gRPC connections.
 	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
-	// Create failover buffer before the load balancer so OnPrimaryServing
-	// (which drains the buffer when a new primary reports SERVING) can be
-	// supplied at LB construction time rather than via a post-hoc setter.
-	if err := mg.bufferConfig.Validate(); err != nil {
-		return fmt.Errorf("buffer config: %w", err)
-	}
-	var onPrimaryServing func(tableGroup, shard string)
-	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
-		onPrimaryServing = func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		}
-		logger.InfoContext(ctx, "Failover buffering enabled")
-	}
-
-	// Build the pooler cache first (without hooks) so the LB can hold a
-	// reference to it; then build the LB; then start the cache with hooks
-	// that close over the LB. This breaks the chicken-and-egg between the
-	// cache (which owns *PoolerConnection riders constructed by hooks that
-	// call into the LB) and the LB (which reads riders out of the cache).
-	poolerCache := poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[*poolergateway.PoolerConnection]{
-		Source: mg.ts,
-		Logger: logger,
-	})
-
-	loadBalancer := poolergateway.NewLoadBalancer(poolergateway.LoadBalancerOpts{
-		Ctx:              mg.shutdownCtx,
-		LocalCell:        mg.cell.Get(),
-		Logger:           logger,
-		DialOpt:          poolerTransportCreds,
-		LowLag:           time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
-		HighTolerance:    time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
-		OnPrimaryServing: onPrimaryServing,
-		Cache:            poolerCache,
-	})
-
-	// Build the PoolerGateway with both LB and cache before starting
-	// discovery so PG owns the cache's lifecycle. Hooks are bound (and the
-	// watch started) immediately after.
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, poolerCache, logger)
-
-	// Start pooler discovery (watches all cells). The cache owns the
-	// per-pooler *PoolerConnection rider: OnLive constructs the connection
-	// (and folds any topology self_leadership into the LB's leaders map),
-	// OnUpdate refreshes topology metadata, and OnGone closes it.
-	// ShutdownGrace/VanishedGrace are zero — load balancing wants immediate
-	// visibility into membership changes.
-	poolerCache.Start(poolerwatch.Hooks[*poolergateway.PoolerConnection]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolergateway.PoolerConnection) *poolergateway.PoolerConnection {
-			conn, err := poolergateway.NewPoolerConnection(mg.shutdownCtx, p, logger, poolerTransportCreds, loadBalancer.OnPoolerHealthUpdate)
-			if err != nil {
-				logger.ErrorContext(mg.shutdownCtx, "failed to create pooler connection",
-					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
-				return nil
-			}
-			loadBalancer.MergeTopologyLeader(p)
-			loadBalancer.NotifyIfLeaderServing(p, conn)
-			return conn
-		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection) {
-			if conn == nil {
-				return
-			}
-			conn.UpdatePoolerInfo(curr)
-			loadBalancer.MergeTopologyLeader(curr)
-			loadBalancer.NotifyIfLeaderServing(curr, conn)
-		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection, _ poolerwatch.GoneReason) {
-			if conn != nil {
-				if err := conn.Shutdown(); err != nil {
-					logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
-						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
-				}
-			}
-			loadBalancer.OnPoolerGone(p)
-		},
+	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
+		Ctx:           mg.shutdownCtx,
+		Source:        mg.ts,
+		LocalCell:     mg.cell.Get(),
+		Logger:        logger,
+		DialOpt:       poolerTransportCreds,
+		Buffer:        mg.buffer,
+		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 	})
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
@@ -535,7 +472,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
 		func() multipoolerpb.MultiPoolerServiceClient {
-			conn, err := loadBalancer.GetConnection(&querypb.Target{
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,

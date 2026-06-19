@@ -26,13 +26,13 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// newTestLB constructs a LoadBalancer wired to an in-memory pooler cache that
+// newTestLB constructs a loadBalancer wired to an in-memory pooler cache that
 // mirrors the production hook contract from multigateway init.go: OnLive
 // constructs a *PoolerConnection (with insecure transport for tests) and
 // merges any topology self_leadership; OnUpdate refreshes pooler info and
 // re-merges; OnGone closes the connection. The cache uses no topology
 // Source, so it is driven by SeedForTest / DeleteForTest in tests.
-func newTestLB(t *testing.T, localCell string) *LoadBalancer {
+func newTestLB(t *testing.T, localCell string) *loadBalancer {
 	t.Helper()
 	logger := slog.Default()
 	ctx := t.Context()
@@ -40,7 +40,7 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 	cache := poolerwatch.New(ctx, poolerwatch.Config[*PoolerConnection]{
 		Logger: logger,
 	})
-	lb := NewLoadBalancer(LoadBalancerOpts{
+	lb := newLoadBalancer(loadBalancerOpts{
 		Ctx:       ctx,
 		LocalCell: localCell,
 		Logger:    logger,
@@ -49,13 +49,13 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 	})
 	cache.Start(poolerwatch.Hooks[*PoolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
-			conn, err := NewPoolerConnection(ctx, p, logger, dialOpt, lb.OnPoolerHealthUpdate)
+			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, lb.onPoolerHealthUpdate)
 			if err != nil {
-				t.Errorf("NewPoolerConnection failed: %v", err)
+				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil
 			}
-			lb.MergeTopologyLeader(p)
-			lb.NotifyIfLeaderServing(p, conn)
+			lb.mergeTopologyLeader(p)
+			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
 		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
@@ -63,14 +63,14 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.MergeTopologyLeader(curr)
-			lb.NotifyIfLeaderServing(curr, conn)
+			lb.mergeTopologyLeader(curr)
+			lb.notifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
 				_ = conn.Shutdown()
 			}
-			lb.OnPoolerGone(p)
+			lb.onPoolerGone(p)
 		},
 	})
 	t.Cleanup(func() { cache.Shutdown() })
@@ -79,14 +79,14 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 
 // addPoolerForTest drives a topology upsert through the cache, firing OnLive
 // (which constructs the *PoolerConnection rider) or OnUpdate.
-func addPoolerForTest(t *testing.T, lb *LoadBalancer, p *clustermetadatapb.MultiPooler) {
+func addPoolerForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) {
 	t.Helper()
 	poolerwatch.SeedForTest(t, lb.cache, p)
 }
 
 // removePoolerForTest evicts a pooler from the cache, firing OnGone (which
 // closes the connection).
-func removePoolerForTest(t *testing.T, lb *LoadBalancer, id topoclient.ComponentID) {
+func removePoolerForTest(t *testing.T, lb *loadBalancer, id topoclient.ComponentID) {
 	t.Helper()
 	poolerwatch.DeleteForTest(t, lb.cache, id)
 }
@@ -94,7 +94,7 @@ func removePoolerForTest(t *testing.T, lb *LoadBalancer, id topoclient.Component
 // connForTest returns the cached *PoolerConnection rider for the given
 // pooler, or nil if absent. Used by tests that need to call into the
 // connection (e.g. simulateHealthUpdate).
-func connForTest(t *testing.T, lb *LoadBalancer, p *clustermetadatapb.MultiPooler) *PoolerConnection {
+func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) *PoolerConnection {
 	t.Helper()
 	conn, ok := lb.cache.GetRider(topoclient.ComponentIDString(p.Id))
 	if !ok {
@@ -106,16 +106,16 @@ func connForTest(t *testing.T, lb *LoadBalancer, p *clustermetadatapb.MultiPoole
 // setLeaderForTest installs a LeaderObservation directly into the LB's
 // per-shard leader map. Used by tests that need to model a peer observation
 // without wiring a second connection.
-func setLeaderForTest(t *testing.T, lb *LoadBalancer, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
+func setLeaderForTest(t *testing.T, lb *loadBalancer, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
 	t.Helper()
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	key := shardKey{tableGroup: tableGroup, shard: shard}
-	lb.shards[key] = &ShardSummary{
-		ShardKey: &clustermetadatapb.ShardKey{
+	lb.shards[key] = &shardSummary{
+		shardKey: &clustermetadatapb.ShardKey{
 			TableGroup: tableGroup,
 			Shard:      shard,
 		},
-		leader: obs,
+		leaderObs: obs,
 	}
 }

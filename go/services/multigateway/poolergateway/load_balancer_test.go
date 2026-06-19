@@ -28,7 +28,7 @@ import (
 )
 
 // poolerID returns the expected ID format for a pooler.
-// Uses the same format as LoadBalancer internally.
+// Uses the same format as loadBalancer internally.
 func poolerID(pooler *clustermetadatapb.MultiPooler) topoclient.ComponentID {
 	return topoclient.ComponentIDString(pooler.Id)
 }
@@ -68,21 +68,21 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Initially empty
-	assert.Equal(t, 0, lb.ConnectionCount())
+	assert.Equal(t, 0, lb.connectionCount())
 
 	// Add a pooler
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, pooler)
-	assert.Equal(t, 1, lb.ConnectionCount())
+	assert.Equal(t, 1, lb.connectionCount())
 
 	// Adding same pooler again is a no-op (but updates info)
 	addPoolerForTest(t, lb, pooler)
-	assert.Equal(t, 1, lb.ConnectionCount())
+	assert.Equal(t, 1, lb.connectionCount())
 
 	// Updating pooler type (simulating topology update from UNKNOWN to PRIMARY)
 	poolerUpdated := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, poolerUpdated)
-	assert.Equal(t, 1, lb.ConnectionCount(), "should still have only one connection")
+	assert.Equal(t, 1, lb.connectionCount(), "should still have only one connection")
 
 	// Verify the type was updated via GetConnection
 	target := &query.Target{
@@ -90,17 +90,17 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, conn.PoolerInfo().Type, "pooler type should be updated")
 
 	// Remove the pooler
 	removePoolerForTest(t, lb, poolerID(pooler))
-	assert.Equal(t, 0, lb.ConnectionCount())
+	assert.Equal(t, 0, lb.connectionCount())
 
 	// Removing non-existent pooler is a no-op
 	removePoolerForTest(t, lb, "multipooler-zone1-nonexistent")
-	assert.Equal(t, 0, lb.ConnectionCount())
+	assert.Equal(t, 0, lb.connectionCount())
 }
 
 func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
@@ -120,7 +120,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID())
 }
@@ -139,7 +139,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(localReplica), conn.ID(), "Should prefer local cell for replicas")
 }
@@ -161,7 +161,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(remotePrimary), conn.ID(), "Should find primary in remote cell")
 }
@@ -169,7 +169,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	_, err := lb.GetConnection(nil)
+	_, err := lb.getConnection(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target cannot be nil")
 }
@@ -186,7 +186,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	_, err := lb.GetConnection(target)
+	_, err := lb.getConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -213,7 +213,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 		Shard:      "1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(shard1), conn.ID())
 }
@@ -275,7 +275,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary2), conn.ID(), "Should select primary with highest term")
 	})
@@ -315,7 +315,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary1), conn.ID(), "Should trust replica's observation with highest term")
 	})
@@ -336,7 +336,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary), conn.ID(),
 			"Should return the self_leadership-named primary before health stream connects")
@@ -364,7 +364,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary), conn.ID())
 
@@ -374,7 +374,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		// from "no leader observed yet" (operational, never saw consensus).
 		removePoolerForTest(t, lb, poolerID(primary))
 
-		_, err = lb.GetConnection(target)
+		_, err = lb.getConnection(target)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not connected",
 			"Leader identity must persist while another pooler remains in the shard")
@@ -393,7 +393,7 @@ func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID(), "Should find primary seeded from self_leadership")
 }
@@ -420,7 +420,7 @@ func TestLoadBalancer_KnownLeaderSurvivesTopologyDemotion(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn2, err := lb.GetConnection(target)
+	conn2, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(pooler), conn2.ID(),
 		"Known leader must persist until a higher observation supersedes it")
@@ -449,7 +449,7 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		_, err := lb.GetConnection(target)
+		_, err := lb.getConnection(target)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no leader observed yet",
 			"Should not fall back to UNKNOWN type poolers")
@@ -472,7 +472,7 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 		// The health callback caches the observed primary with highest term (unknown2 at term 10).
 		// The cache returns the identified pooler regardless of type —
 		// the observation is authoritative.
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(unknown2), conn.ID(),
 			"Observation takes precedence over pooler type")
@@ -504,7 +504,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(localReplica2), conn.ID(),
 			"Should prefer local serving replica over remote serving")
@@ -519,7 +519,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(remoteReplica), conn.ID(),
 			"Should fall back to remote serving when no local serving")
@@ -534,7 +534,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		// Should pick one of the local not-serving replicas
 		assert.Equal(t, "zone1", conn.Cell(),
@@ -573,7 +573,7 @@ func TestLoadBalancer_LeaderObservationBeforeConnection(t *testing.T) {
 	}
 
 	// Leader identity must be recorded even though we have no connection.
-	_, err := lb.GetConnection(target)
+	_, err := lb.getConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected",
 		"Identity must be recorded; the gateway should distinguish 'known but unreachable' from 'unknown'")
@@ -581,7 +581,7 @@ func TestLoadBalancer_LeaderObservationBeforeConnection(t *testing.T) {
 	// AddPooler the leader. No additional observation needed — routing must
 	// work immediately, proving identity was not dropped at observation time.
 	addPoolerForTest(t, lb, futureLeader)
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(futureLeader), conn.ID())
 }
@@ -611,7 +611,7 @@ func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(newLeader), conn.ID())
 
@@ -622,12 +622,12 @@ func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 	addPoolerForTest(t, lb, demotedReasserted)
 
 	// Both connections must still be present — discovery does not evict, and
-	// the LoadBalancer ignores the topology hint for leader identity.
-	assert.Equal(t, 2, lb.ConnectionCount(),
+	// the loadBalancer ignores the topology hint for leader identity.
+	assert.Equal(t, 2, lb.connectionCount(),
 		"Stale Type=PRIMARY assertion must NOT cause the real leader's connection to be dropped")
 
 	// Routing must still go to new-leader, the consensus-elected term-2 leader.
-	conn, err = lb.GetConnection(target)
+	conn, err = lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(newLeader), conn.ID(),
 		"Stale topology must not redirect PRIMARY traffic away from the consensus-elected leader")
@@ -652,13 +652,13 @@ func TestLoadBalancer_TopologySelfLeadershipMergesByRule(t *testing.T) {
 	}
 
 	// new-leader's self_leadership (rule 2) supersedes old-leader's (rule 1).
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(newLeader), conn.ID(), "higher-rule self_leadership should win")
 
 	// Re-discovering old-leader's stale rule-1 record must not move the leader back.
 	addPoolerForTest(t, lb, withSelfLeadership(createTestMultiPooler("old-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1))
-	conn, err = lb.GetConnection(target)
+	conn, err = lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(newLeader), conn.ID(), "stale lower-rule self_leadership must be ignored")
 }
@@ -694,7 +694,7 @@ func TestLoadBalancer_ReplicaCandidatesExcludeLeader(t *testing.T) {
 	// Run several iterations: the leader must never be selected, regardless of
 	// which non-leader the load balancer picks at random.
 	for range 50 {
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.NotEqual(t, poolerID(a), conn.ID(),
 			"Known leader (pooler-a) must never be returned as a REPLICA candidate")
@@ -733,7 +733,7 @@ func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
 	// Only `replica` is eligible: new-leader is the leader (self_leadership) and
 	// stale believes itself the leader, so both are excluded.
 	for range 10 {
-		conn, err := lb.GetConnection(target)
+		conn, err := lb.getConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(replica), conn.ID(),
 			"reads must avoid both the leader and the stale leader")
@@ -776,7 +776,7 @@ func TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica(t *te
 	}
 	// `leader` is the only connection and is eligible despite the central map
 	// naming it the leader, so it is returned rather than erroring as no-candidate.
-	conn, err := lb.GetConnection(target)
+	conn, err := lb.getConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(leader), conn.ID(),
 		"a centrally-known leader unaware of its own leadership is eligible for replica reads")
@@ -806,13 +806,13 @@ func TestLoadBalancer_LeadershipFor(t *testing.T) {
 	simulateHealthUpdate(connFollower, clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
 
-	assert.Equal(t, LeadershipLeader, lb.LeadershipFor(connLeader))
-	assert.Equal(t, LeadershipStaleLeader, lb.LeadershipFor(connStale))
-	assert.Equal(t, LeadershipFollower, lb.LeadershipFor(connFollower))
+	assert.Equal(t, leadershipLeader, lb.leadershipFor(connLeader))
+	assert.Equal(t, leadershipStaleLeader, lb.leadershipFor(connStale))
+	assert.Equal(t, leadershipFollower, lb.leadershipFor(connFollower))
 }
 
 // TestLoadBalancer_ShardSummaryAutoClear verifies that removing the last
-// pooler from a shard clears the ShardSummary entry.
+// pooler from a shard clears the shardSummary entry.
 func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
@@ -826,6 +826,6 @@ func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	removePoolerForTest(t, lb, poolerID(primary))
 
 	lb.mu.Lock()
-	assert.Empty(t, lb.shards, "ShardSummary should be cleared once no poolers remain in the shard")
+	assert.Empty(t, lb.shards, "shardSummary should be cleared once no poolers remain in the shard")
 	lb.mu.Unlock()
 }

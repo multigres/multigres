@@ -100,7 +100,6 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 func (mg *MultiGateway) collectCellStatuses() []CellStatus {
 	cache := mg.poolerGateway.Cache()
 	cellStatuses := cache.CellStatuses()
-	lb := mg.poolerGateway.LoadBalancer()
 
 	cells := make([]CellStatus, 0, len(cellStatuses))
 	for _, cs := range cellStatuses {
@@ -114,7 +113,7 @@ func (mg *MultiGateway) collectCellStatuses() []CellStatus {
 			// look up the rider in the cache and consult the LB only when present.
 			var leadership string
 			if conn, ok := cache.GetRider(topoclient.ComponentIDString(pooler.Id)); ok && conn != nil {
-				leadership = lb.LeadershipFor(conn)
+				leadership = mg.poolerGateway.LeadershipFor(conn)
 			}
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
 				Name:       pooler.Id.GetName(),
