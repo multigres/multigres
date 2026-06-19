@@ -231,7 +231,7 @@ type PoolerCache[T any] struct {
 
 	// topoSource is the optional underlying watch (created in New if
 	// config.Source is provided). Owned and shut down by this cache.
-	topoSource     *topoclient.PoolerCache
+	topoSource     *topoWatch
 	topoUnsub      func()
 	topoSourceUsed bool
 
@@ -275,7 +275,7 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		shutdownDone: make(chan struct{}),
 	}
 	if config.Source != nil {
-		c.topoSource = topoclient.NewPoolerCache(ctx, config.Source, config.Logger)
+		c.topoSource = newTopoWatch(ctx, config.Source, config.Logger)
 		c.topoSourceUsed = true
 	}
 	// Auto-shutdown on parent context cancellation. The goroutine exits as
@@ -427,11 +427,6 @@ func (c *PoolerCache[T]) Len() int {
 	defer c.mu.Unlock()
 	return len(c.entries)
 }
-
-// CellStatus is a per-cell summary of the topology view: every pooler
-// observed in the cell (regardless of lifecycle state) and the wall-clock
-// time of the most recent watch event from that cell.
-type CellStatus = topoclient.CellStatus
 
 // CellStatuses returns per-cell status sorted alphabetically by cell name.
 // Reflects the raw topology view (every observed pooler, including

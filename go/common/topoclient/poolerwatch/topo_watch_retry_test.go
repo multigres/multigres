@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topoclient
+package poolerwatch
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/multigres/multigres/go/common/topoclient"
 )
 
 func TestExtractPoolerIDFromPath(t *testing.T) {
 	tests := []struct {
 		name     string
 		path     string
-		expected ComponentID
+		expected topoclient.ComponentID
 	}{
 		{"relative path", "poolers/multipooler-cell1-pooler1/Pooler", "multipooler-cell1-pooler1"},
 		{"simple id", "poolers/some-complex-id/Pooler", "some-complex-id"},

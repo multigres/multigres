@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topoclient
+package poolerwatch
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -33,8 +34,8 @@ type CellStatus struct {
 	Poolers      []*clustermetadatapb.MultiPooler
 }
 
-// PoolerCache maintains a typesafe in-memory copy of all poolers discovered across all
-// cells via WatchAllPoolersWithRetry. Reads never touch the network.
+// topoWatch maintains a typesafe in-memory copy of all poolers discovered across all
+// cells via watchAllPoolersWithRetry. Reads never touch the network.
 //
 // Subscriptions are delivered serially by a background goroutine outside any lock, so
 // handlers may safely call back into the cache. Delivery order is guaranteed: for any
@@ -44,8 +45,8 @@ type CellStatus struct {
 // initial snapshot) arrives from a cell. Enabling etcd ProgressNotify on the underlying
 // WatchRecursive calls would allow updating these timestamps even for quiet cells,
 // providing a stronger freshness guarantee — that is a planned follow-up.
-type PoolerCache struct {
-	store  ConnProvider
+type topoWatch struct {
+	store  topoclient.ConnProvider
 	logger *slog.Logger
 
 	ctx    context.Context
@@ -56,8 +57,8 @@ type PoolerCache struct {
 	// It may be acquired while holding notifMu.
 	// It must NOT be held while calling notify.
 	mu               sync.Mutex
-	poolers          map[ComponentID]*clustermetadatapb.MultiPooler            // poolerID → pooler
-	byCell           map[string]map[ComponentID]*clustermetadatapb.MultiPooler // cell → poolerID → pooler
+	poolers          map[topoclient.ComponentID]*clustermetadatapb.MultiPooler            // poolerID → pooler
+	byCell           map[string]map[topoclient.ComponentID]*clustermetadatapb.MultiPooler // cell → poolerID → pooler
 	cellLastActivity map[string]time.Time
 
 	// Notification queue (protected by notifMu).
@@ -109,7 +110,7 @@ type cacheNotif struct {
 //   - curr == nil → deletion (prev is the last-known pooler)
 //   - both set    → update (the cache already suppresses proto.Equal no-ops)
 //
-// Callbacks are invoked synchronously on PoolerCache's single delivery goroutine
+// Callbacks are invoked synchronously on topoWatch's single delivery goroutine
 // in strict FIFO order. Slow callbacks delay subsequent events for all subscribers.
 type ChangeFn func(prev, curr *clustermetadatapb.MultiPooler)
 
@@ -118,16 +119,16 @@ type cacheSubscription struct {
 	fn ChangeFn
 }
 
-// NewPoolerCache creates a new PoolerCache. Call Start to begin watching.
-func NewPoolerCache(ctx context.Context, store ConnProvider, logger *slog.Logger) *PoolerCache {
+// newTopoWatch creates a new topoWatch. Call Start to begin watching.
+func newTopoWatch(ctx context.Context, store topoclient.ConnProvider, logger *slog.Logger) *topoWatch {
 	cacheCtx, cancel := context.WithCancel(ctx)
-	return &PoolerCache{
+	return &topoWatch{
 		store:            store,
 		logger:           logger,
 		ctx:              cacheCtx,
 		cancel:           cancel,
-		poolers:          make(map[ComponentID]*clustermetadatapb.MultiPooler),
-		byCell:           make(map[string]map[ComponentID]*clustermetadatapb.MultiPooler),
+		poolers:          make(map[topoclient.ComponentID]*clustermetadatapb.MultiPooler),
+		byCell:           make(map[string]map[topoclient.ComponentID]*clustermetadatapb.MultiPooler),
 		cellLastActivity: make(map[string]time.Time),
 		notifCh:          make(chan struct{}, 1),
 		broadcaster:      newCellSyncBroadcaster(),
@@ -135,7 +136,7 @@ func NewPoolerCache(ctx context.Context, store ConnProvider, logger *slog.Logger
 }
 
 // Start launches the watch and notification delivery goroutines.
-func (c *PoolerCache) Start() {
+func (c *topoWatch) Start() {
 	c.wg.Go(c.deliverNotifications)
 	c.wg.Go(func() {
 		watchAllPoolersWithRetry(c.ctx, c.store, c.logger, c.broadcaster,
@@ -148,13 +149,13 @@ func (c *PoolerCache) Start() {
 }
 
 // Stop cancels the watch and waits for all background goroutines to exit.
-func (c *PoolerCache) Stop() {
+func (c *topoWatch) Stop() {
 	c.cancel()
 	c.wg.Wait()
 }
 
 // Get returns the pooler with the given ID (as returned by ComponentIDString).
-func (c *PoolerCache) Get(id ComponentID) (*clustermetadatapb.MultiPooler, bool) {
+func (c *topoWatch) Get(id topoclient.ComponentID) (*clustermetadatapb.MultiPooler, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	p, ok := c.poolers[id]
@@ -162,7 +163,7 @@ func (c *PoolerCache) Get(id ComponentID) (*clustermetadatapb.MultiPooler, bool)
 }
 
 // All returns a snapshot of all currently known poolers.
-func (c *PoolerCache) All() []*clustermetadatapb.MultiPooler {
+func (c *topoWatch) All() []*clustermetadatapb.MultiPooler {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make([]*clustermetadatapb.MultiPooler, 0, len(c.poolers))
@@ -173,7 +174,7 @@ func (c *PoolerCache) All() []*clustermetadatapb.MultiPooler {
 }
 
 // AllForCell returns a snapshot of all poolers in the given cell.
-func (c *PoolerCache) AllForCell(cell string) []*clustermetadatapb.MultiPooler {
+func (c *topoWatch) AllForCell(cell string) []*clustermetadatapb.MultiPooler {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cellMap := c.byCell[cell]
@@ -185,7 +186,7 @@ func (c *PoolerCache) AllForCell(cell string) []*clustermetadatapb.MultiPooler {
 }
 
 // Count returns the number of currently known poolers.
-func (c *PoolerCache) Count() int {
+func (c *topoWatch) Count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.poolers)
@@ -193,7 +194,7 @@ func (c *PoolerCache) Count() int {
 
 // CellStatuses returns per-cell status sorted alphabetically by cell name.
 // Intended for admin/status pages, not the hot query path.
-func (c *PoolerCache) CellStatuses() []CellStatus {
+func (c *topoWatch) CellStatuses() []CellStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -218,7 +219,7 @@ func (c *PoolerCache) CellStatuses() []CellStatus {
 			poolers = append(poolers, proto.Clone(p).(*clustermetadatapb.MultiPooler))
 		}
 		sort.Slice(poolers, func(i, j int) bool {
-			return ComponentIDString(poolers[i].Id) < ComponentIDString(poolers[j].Id)
+			return topoclient.ComponentIDString(poolers[i].Id) < topoclient.ComponentIDString(poolers[j].Id)
 		})
 		statuses = append(statuses, CellStatus{
 			Cell:         cell,
@@ -234,7 +235,7 @@ func (c *PoolerCache) CellStatuses() []CellStatus {
 // state before any subsequent broadcasts. No callbacks are made under any lock.
 //
 // The returned function unsubscribes fn and is safe to call from any goroutine.
-func (c *PoolerCache) Subscribe(fn ChangeFn) func() {
+func (c *topoWatch) Subscribe(fn ChangeFn) func() {
 	sub := &cacheSubscription{fn: fn}
 
 	// Hold mu while collecting the replay snapshot and enqueueing both the subscription
@@ -285,7 +286,7 @@ func (c *PoolerCache) Subscribe(fn ChangeFn) func() {
 //
 // Sync is intended for use in tests to replace time.Sleep barriers after
 // topology mutations. Production code should generally subscribe and react.
-func (c *PoolerCache) Sync(ctx context.Context) error {
+func (c *topoWatch) Sync(ctx context.Context) error {
 	if err := c.broadcaster.syncAll(ctx); err != nil {
 		return err
 	}
@@ -305,7 +306,7 @@ func (c *PoolerCache) Sync(ctx context.Context) error {
 }
 
 // wake signals the delivery goroutine without blocking.
-func (c *PoolerCache) wake() {
+func (c *topoWatch) wake() {
 	select {
 	case c.notifCh <- struct{}{}:
 	default:
@@ -314,7 +315,7 @@ func (c *PoolerCache) wake() {
 
 // deliverNotifications runs in a background goroutine, processing queued notifications
 // in order. It maintains its own subs list to avoid any lock during delivery.
-func (c *PoolerCache) deliverNotifications() {
+func (c *topoWatch) deliverNotifications() {
 	var subs []*cacheSubscription
 	for {
 		select {
@@ -360,16 +361,16 @@ func (c *PoolerCache) deliverNotifications() {
 }
 
 // addToCell inserts a pooler into the byCell secondary index. Must hold mu.
-func (c *PoolerCache) addToCell(id ComponentID, p *clustermetadatapb.MultiPooler) {
+func (c *topoWatch) addToCell(id topoclient.ComponentID, p *clustermetadatapb.MultiPooler) {
 	cell := p.Id.Cell
 	if c.byCell[cell] == nil {
-		c.byCell[cell] = make(map[ComponentID]*clustermetadatapb.MultiPooler)
+		c.byCell[cell] = make(map[topoclient.ComponentID]*clustermetadatapb.MultiPooler)
 	}
 	c.byCell[cell][id] = p
 }
 
 // removeFromCell removes a pooler from the byCell secondary index. Must hold mu.
-func (c *PoolerCache) removeFromCell(id ComponentID, cell string) {
+func (c *topoWatch) removeFromCell(id topoclient.ComponentID, cell string) {
 	delete(c.byCell[cell], id)
 	if len(c.byCell[cell]) == 0 {
 		delete(c.byCell, cell)
@@ -377,10 +378,10 @@ func (c *PoolerCache) removeFromCell(id ComponentID, cell string) {
 }
 
 // onInitialCell reconciles the pooler map for a cell against the new snapshot.
-func (c *PoolerCache) onInitialCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
-	newCellPoolers := make(map[ComponentID]*clustermetadatapb.MultiPooler, len(poolers))
+func (c *topoWatch) onInitialCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
+	newCellPoolers := make(map[topoclient.ComponentID]*clustermetadatapb.MultiPooler, len(poolers))
 	for _, p := range poolers {
-		newCellPoolers[ComponentIDString(p.Id)] = p
+		newCellPoolers[topoclient.ComponentIDString(p.Id)] = p
 	}
 
 	c.mu.Lock()
@@ -416,8 +417,8 @@ func (c *PoolerCache) onInitialCell(cell string, poolers []*clustermetadatapb.Mu
 }
 
 // onUpserted handles a pooler add or update event.
-func (c *PoolerCache) onUpserted(pooler *clustermetadatapb.MultiPooler) {
-	id := ComponentIDString(pooler.Id)
+func (c *topoWatch) onUpserted(pooler *clustermetadatapb.MultiPooler) {
+	id := topoclient.ComponentIDString(pooler.Id)
 
 	c.mu.Lock()
 	existing, exists := c.poolers[id]
@@ -438,7 +439,7 @@ func (c *PoolerCache) onUpserted(pooler *clustermetadatapb.MultiPooler) {
 }
 
 // onDeleted handles a pooler deletion event.
-func (c *PoolerCache) onDeleted(poolerID ComponentID) {
+func (c *topoWatch) onDeleted(poolerID topoclient.ComponentID) {
 	c.mu.Lock()
 	p, existed := c.poolers[poolerID]
 	if !existed {
@@ -457,7 +458,7 @@ func (c *PoolerCache) onDeleted(poolerID ComponentID) {
 }
 
 // onCellRemoved handles cell removal by evicting all poolers for that cell.
-func (c *PoolerCache) onCellRemoved(cell string) {
+func (c *topoWatch) onCellRemoved(cell string) {
 	c.mu.Lock()
 	var removed []*clustermetadatapb.MultiPooler
 	for id, p := range c.byCell[cell] {

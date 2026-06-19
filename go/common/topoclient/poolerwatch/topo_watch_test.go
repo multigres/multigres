@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topoclient_test
+package poolerwatch
 
 import (
 	"errors"
-	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -31,11 +30,11 @@ import (
 )
 
 func discardCacheLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // waitForCount polls until Count() reaches n or the timeout elapses.
-func waitForCacheCount(t *testing.T, cache *topoclient.PoolerCache, n int) bool {
+func waitForCacheCount(t *testing.T, cache *topoWatch, n int) bool {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -66,7 +65,7 @@ func TestPoolerCache_InitialDiscovery(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerType_PRIMARY)))
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerType_REPLICA)))
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -90,7 +89,7 @@ func TestPoolerCache_UpsertAfterStart(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -109,7 +108,7 @@ func TestPoolerCache_DeletionEventHandled(t *testing.T) {
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerType_PRIMARY)))
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -132,7 +131,7 @@ func TestPoolerCache_SubscribeReceivesReplay(t *testing.T) {
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerType_PRIMARY)))
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -174,7 +173,7 @@ func TestPoolerCache_SubscribeReceivesLiveEvents(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -202,7 +201,7 @@ func TestPoolerCache_SubscribeUnsubscribe(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -244,7 +243,7 @@ func TestPoolerCache_CellStatuses(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerType_PRIMARY)))
 
 	before := time.Now()
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -263,7 +262,7 @@ func TestPoolerCache_MultipleSubscribers(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 
@@ -306,7 +305,7 @@ func TestPoolerCache_NoSpuriousNotificationsOnReconnect(t *testing.T) {
 
 	require.NoError(t, ts.CreateMultiPooler(ctx, newTestPooler("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerType_PRIMARY)))
 
-	cache := topoclient.NewPoolerCache(ctx, ts, discardCacheLogger())
+	cache := newTopoWatch(ctx, ts, discardCacheLogger())
 	cache.Start()
 	defer cache.Stop()
 

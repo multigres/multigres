@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topoclient
+package poolerwatch
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -42,15 +43,15 @@ import (
 // for the watch loop to "catch up" to a known point. Pass nil to disable.
 func watchPoolersWithRetry(
 	ctx context.Context,
-	store ConnProvider,
+	store topoclient.ConnProvider,
 	cell string,
 	logger *slog.Logger,
 	syncReq <-chan func(),
 	onInitial func([]*clustermetadatapb.MultiPooler),
 	onUpserted func(*clustermetadatapb.MultiPooler),
-	onDeleted func(poolerID ComponentID),
+	onDeleted func(poolerID topoclient.ComponentID),
 ) {
-	processOne := func(wd *WatchDataRecursive) {
+	processOne := func(wd *topoclient.WatchDataRecursive) {
 		pooler, poolerID, isDelete, ok := parsePoolerWatchEntry(wd, logger)
 		if !ok {
 			return
@@ -61,7 +62,7 @@ func watchPoolersWithRetry(
 			onUpserted(pooler)
 		}
 	}
-	drainPending := func(changes <-chan *WatchDataRecursive) bool {
+	drainPending := func(changes <-chan *topoclient.WatchDataRecursive) bool {
 		for {
 			select {
 			case wd, ok := <-changes:
@@ -75,8 +76,8 @@ func watchPoolersWithRetry(
 		}
 	}
 
-	watchPathWithRetry(ctx, store, cell, PoolersPath, logger,
-		func(initial []*WatchDataRecursive) {
+	topoclient.WatchPathWithRetry(ctx, store, cell, topoclient.PoolersPath, logger,
+		func(initial []*topoclient.WatchDataRecursive) {
 			poolers := make([]*clustermetadatapb.MultiPooler, 0, len(initial))
 			for _, wd := range initial {
 				pooler, _, isDelete, ok := parsePoolerWatchEntry(wd, logger)
@@ -87,7 +88,7 @@ func watchPoolersWithRetry(
 			}
 			onInitial(poolers)
 		},
-		func(changes <-chan *WatchDataRecursive) {
+		func(changes <-chan *topoclient.WatchDataRecursive) {
 			for {
 				select {
 				case <-ctx.Done():
@@ -203,12 +204,12 @@ func (b *cellSyncBroadcaster) syncAll(ctx context.Context) error {
 // cross-goroutine sync barriers (see cellSyncBroadcaster.syncAll).
 func watchAllPoolersWithRetry(
 	ctx context.Context,
-	store ConnProvider,
+	store topoclient.ConnProvider,
 	logger *slog.Logger,
 	broadcaster *cellSyncBroadcaster,
 	onInitial func(cell string, poolers []*clustermetadatapb.MultiPooler),
 	onUpserted func(*clustermetadatapb.MultiPooler),
-	onDeleted func(poolerID ComponentID),
+	onDeleted func(poolerID topoclient.ComponentID),
 	onCellRemoved func(cell string),
 ) {
 	type cellEntry struct {
@@ -266,7 +267,7 @@ func watchAllPoolersWithRetry(
 		}
 	}
 
-	watchCellsWithRetry(ctx, store, logger,
+	topoclient.WatchCellsWithRetry(ctx, store, logger,
 		func(cells []string) {
 			for _, cell := range cells {
 				startCell(cell)
@@ -285,15 +286,15 @@ func watchAllPoolersWithRetry(
 //   - (pooler, "", false, true)  for an upsert event
 //   - (nil, poolerID, true, true) for a deletion event
 //   - (nil, "", false, false)     when the entry should be ignored (wrong path, unmarshal error, etc.)
-func parsePoolerWatchEntry(wd *WatchDataRecursive, logger *slog.Logger) (
-	pooler *clustermetadatapb.MultiPooler, poolerID ComponentID, isDelete bool, ok bool,
+func parsePoolerWatchEntry(wd *topoclient.WatchDataRecursive, logger *slog.Logger) (
+	pooler *clustermetadatapb.MultiPooler, poolerID topoclient.ComponentID, isDelete bool, ok bool,
 ) {
-	if !strings.HasSuffix(wd.Path, "/"+PoolerFile) {
+	if !strings.HasSuffix(wd.Path, "/"+topoclient.PoolerFile) {
 		return nil, "", false, false
 	}
 
 	if wd.Err != nil {
-		if errors.Is(wd.Err, &TopoError{Code: NoNode}) {
+		if errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 			id := extractPoolerIDFromPath(wd.Path)
 			if id == "" {
 				return nil, "", false, false
@@ -321,14 +322,14 @@ func parsePoolerWatchEntry(wd *WatchDataRecursive, logger *slog.Logger) (
 
 // extractPoolerIDFromPath extracts the pooler ID from a poolers-directory watch path.
 // The path format is: "[prefix/]poolers/{poolerID}/Pooler"
-func extractPoolerIDFromPath(watchPath string) ComponentID {
-	_, after, found := strings.Cut(watchPath, PoolersPath+"/")
+func extractPoolerIDFromPath(watchPath string) topoclient.ComponentID {
+	_, after, found := strings.Cut(watchPath, topoclient.PoolersPath+"/")
 	if !found {
 		return ""
 	}
-	name := strings.TrimSuffix(after, "/"+PoolerFile)
+	name := strings.TrimSuffix(after, "/"+topoclient.PoolerFile)
 	if name == after {
 		return ""
 	}
-	return ComponentID(name)
+	return topoclient.ComponentID(name)
 }

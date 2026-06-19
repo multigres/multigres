@@ -24,7 +24,7 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
-// watchPathWithRetry establishes a WatchRecursive watch in an exponential-backoff retry loop.
+// WatchPathWithRetry establishes a WatchRecursive watch in an exponential-backoff retry loop.
 //
 // For each attempt it:
 //  1. Calls store.ConnForCell(ctx, cell) to obtain a topo connection.
@@ -34,11 +34,11 @@ import (
 //  5. Calls watchFn(changes) to process ongoing events.
 //
 // When watchFn returns (channel closed or ctx cancelled), the loop retries with backoff.
-// watchPathWithRetry returns when ctx is cancelled.
+// WatchPathWithRetry returns when ctx is cancelled.
 //
 // watchFn is responsible for its own select loop. It should return when changes is closed
 // or ctx is done.
-func watchPathWithRetry(
+func WatchPathWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	cell string,
@@ -76,15 +76,15 @@ func watchPathWithRetry(
 	}
 }
 
-// watchCellsWithRetry watches the global cells directory and delivers typed cell events.
+// WatchCellsWithRetry watches the global cells directory and delivers typed cell events.
 // It handles retry/reconnect internally.
 //
 // onInitial is called with the names of all cells present in the initial snapshot.
 // onCellAdded is called when a new cell appears.
 // onCellRemoved is called when a cell is deleted from the topology.
 //
-// watchCellsWithRetry returns when ctx is cancelled.
-func watchCellsWithRetry(
+// WatchCellsWithRetry returns when ctx is cancelled.
+func WatchCellsWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	logger *slog.Logger,
@@ -92,7 +92,7 @@ func watchCellsWithRetry(
 	onCellAdded func(cell string),
 	onCellRemoved func(cell string),
 ) {
-	watchPathWithRetry(ctx, store, GlobalCell, CellsPath, logger,
+	WatchPathWithRetry(ctx, store, GlobalCell, CellsPath, logger,
 		func(initial []*WatchDataRecursive) {
 			var cells []string
 			for _, wd := range initial {

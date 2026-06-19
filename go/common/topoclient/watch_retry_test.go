@@ -16,7 +16,6 @@ package topoclient
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -53,7 +52,7 @@ func (s *staticConnProvider) ConnForCell(_ context.Context, _ string) (Conn, err
 func (s *staticConnProvider) Status() map[string]string { return nil }
 
 func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 func TestWatchPathWithRetry_InitialSnapshot(t *testing.T) {
@@ -75,7 +74,7 @@ func TestWatchPathWithRetry_InitialSnapshot(t *testing.T) {
 	var gotInitial []*WatchDataRecursive
 	initialDone := make(chan struct{})
 
-	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(items []*WatchDataRecursive) {
 			gotInitial = items
@@ -111,7 +110,7 @@ func TestWatchPathWithRetry_ChangeEvent(t *testing.T) {
 
 	gotEvent := make(chan *WatchDataRecursive, 1)
 
-	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(_ []*WatchDataRecursive) {},
 		func(changes <-chan *WatchDataRecursive) {
@@ -168,7 +167,7 @@ func TestWatchPathWithRetry_ReconnectsOnChannelClose(t *testing.T) {
 		return nil, ch, nil
 	}
 
-	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(_ []*WatchDataRecursive) {},
 		func(changes <-chan *WatchDataRecursive) {
@@ -196,7 +195,7 @@ func TestWatchPathWithRetry_ShutdownOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+		WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 			discardLogger(),
 			func(_ []*WatchDataRecursive) {},
 			func(changes <-chan *WatchDataRecursive) {
@@ -214,7 +213,7 @@ func TestWatchPathWithRetry_ShutdownOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("watchPathWithRetry did not return after ctx cancel within 1s")
+		t.Fatal("WatchPathWithRetry did not return after ctx cancel within 1s")
 	}
 }
 
