@@ -1,0 +1,107 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package poolergateway
+
+import (
+	"log/slog"
+	"testing"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+)
+
+// newTestLB constructs a LoadBalancer wired to an in-memory pooler cache that
+// mirrors the production hook contract from multigateway init.go: OnLive
+// constructs a *PoolerConnection (with insecure transport for tests) and
+// merges any topology self_leadership; OnUpdate refreshes pooler info and
+// re-merges; OnGone closes the connection. The cache uses no topology
+// Source, so it is driven by SeedForTest / DeleteForTest in tests.
+func newTestLB(t *testing.T, localCell string) *LoadBalancer {
+	t.Helper()
+	logger := slog.Default()
+	lb := NewLoadBalancer(t.Context(), localCell, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cache := poolerwatch.New(t.Context(), poolerwatch.Config[*PoolerConnection]{
+		Hooks: poolerwatch.Hooks[*PoolerConnection]{
+			OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
+				conn, err := NewPoolerConnection(lb.Ctx(), p, logger, lb.DialOpt(), lb.OnPoolerHealthUpdate)
+				if err != nil {
+					t.Errorf("NewPoolerConnection failed: %v", err)
+					return nil
+				}
+				lb.MergeTopologyLeader(p)
+				lb.NotifyIfLeaderServing(p, conn)
+				return conn
+			},
+			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
+				if conn == nil {
+					return
+				}
+				conn.UpdatePoolerInfo(curr)
+				lb.MergeTopologyLeader(curr)
+				lb.NotifyIfLeaderServing(curr, conn)
+			},
+			OnGone: func(_ *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
+				if conn == nil {
+					return
+				}
+				_ = conn.Close()
+			},
+		},
+		Logger: logger,
+	})
+	lb.SetCache(cache)
+	t.Cleanup(func() { cache.Shutdown() })
+	return lb
+}
+
+// addPoolerForTest drives a topology upsert through the cache, firing OnLive
+// (which constructs the *PoolerConnection rider) or OnUpdate.
+func addPoolerForTest(t *testing.T, lb *LoadBalancer, p *clustermetadatapb.MultiPooler) {
+	t.Helper()
+	poolerwatch.SeedForTest(t, lb.cache, p)
+}
+
+// removePoolerForTest evicts a pooler from the cache, firing OnGone (which
+// closes the connection).
+func removePoolerForTest(t *testing.T, lb *LoadBalancer, id topoclient.ComponentID) {
+	t.Helper()
+	poolerwatch.DeleteForTest(t, lb.cache, id)
+}
+
+// connForTest returns the cached *PoolerConnection rider for the given
+// pooler, or nil if absent. Used by tests that need to call into the
+// connection (e.g. simulateHealthUpdate).
+func connForTest(t *testing.T, lb *LoadBalancer, p *clustermetadatapb.MultiPooler) *PoolerConnection {
+	t.Helper()
+	conn, ok := lb.cache.GetRider(topoclient.ComponentIDString(p.Id))
+	if !ok {
+		return nil
+	}
+	return conn
+}
+
+// setLeaderForTest installs a LeaderObservation directly into the LB's
+// per-shard leader map. Used by tests that need to model a peer observation
+// without wiring a second connection.
+func setLeaderForTest(t *testing.T, lb *LoadBalancer, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
+	t.Helper()
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.leaders[shardKey{tableGroup: tableGroup, shard: shard}] = obs
+}
