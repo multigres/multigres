@@ -68,7 +68,7 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
-				_ = conn.Close()
+				_ = conn.Shutdown()
 			}
 			lb.OnPoolerGone(p)
 		},

@@ -270,10 +270,12 @@ func (pc *PoolerConnection) QueryService() queryservice.QueryService {
 	return pc.queryService
 }
 
-// Close stops the health stream goroutine and closes the gRPC connection.
-func (pc *PoolerConnection) Close() error {
+// Shutdown stops the health stream goroutine and closes the underlying
+// gRPC connection. One-shot: a PoolerConnection cannot be reopened. Called
+// from the pooler cache's OnGone hook when the pooler leaves the topology.
+func (pc *PoolerConnection) Shutdown() error {
 	poolerID := pc.ID()
-	pc.logger.Debug("closing pooler connection", "pooler_id", poolerID)
+	pc.logger.Debug("shutting down pooler connection", "pooler_id", poolerID)
 
 	// Cancel the health stream context to stop the checkConn goroutine
 	if pc.cancel != nil {

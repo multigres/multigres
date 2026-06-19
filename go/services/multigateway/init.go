@@ -66,13 +66,9 @@ type MultiGateway struct {
 	pgTLSKeyFile viperutil.Value[string]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
-	// poolerCache caches discovered multipoolers across all cells and owns the
-	// per-pooler *PoolerConnection rider. The cache is the single source of
-	// truth for "which poolers are tracked and each one's connection"; the
-	// load balancer reads it for connection lookups and snapshots leader
-	// observations alongside it.
-	poolerCache *poolerwatch.PoolerCache[*poolergateway.PoolerConnection]
-	// poolerGateway manages connections to poolers
+	// poolerGateway manages connections to poolers and owns the lifecycle
+	// of the underlying pooler cache (topology watch + per-pooler health
+	// streams + per-pooler *PoolerConnection riders).
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -366,7 +362,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// that close over the LB. This breaks the chicken-and-egg between the
 	// cache (which owns *PoolerConnection riders constructed by hooks that
 	// call into the LB) and the LB (which reads riders out of the cache).
-	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[*poolergateway.PoolerConnection]{
+	poolerCache := poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[*poolergateway.PoolerConnection]{
 		Source: mg.ts,
 		Logger: logger,
 	})
@@ -379,8 +375,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		LowLag:           time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
 		HighTolerance:    time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 		OnPrimaryServing: onPrimaryServing,
-		Cache:            mg.poolerCache,
+		Cache:            poolerCache,
 	})
+
+	// Build the PoolerGateway with both LB and cache before starting
+	// discovery so PG owns the cache's lifecycle. Hooks are bound (and the
+	// watch started) immediately after.
+	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, poolerCache, logger)
 
 	// Start pooler discovery (watches all cells). The cache owns the
 	// per-pooler *PoolerConnection rider: OnLive constructs the connection
@@ -388,7 +389,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// OnUpdate refreshes topology metadata, and OnGone closes it.
 	// ShutdownGrace/VanishedGrace are zero — load balancing wants immediate
 	// visibility into membership changes.
-	mg.poolerCache.Start(poolerwatch.Hooks[*poolergateway.PoolerConnection]{
+	poolerCache.Start(poolerwatch.Hooks[*poolergateway.PoolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolergateway.PoolerConnection) *poolergateway.PoolerConnection {
 			conn, err := poolergateway.NewPoolerConnection(mg.shutdownCtx, p, logger, poolerTransportCreds, loadBalancer.OnPoolerHealthUpdate)
 			if err != nil {
@@ -410,7 +411,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
-				if err := conn.Close(); err != nil {
+				if err := conn.Shutdown(); err != nil {
 					logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
 						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
 				}
@@ -419,9 +420,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		},
 	})
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
-
-	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
@@ -673,7 +671,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if len(mg.serverStatus.InitError) > 0 {
 			return errors.New(mg.serverStatus.InitError)
 		}
-		if mg.poolerCache.Len() == 0 {
+		if mg.poolerGateway.PoolerCount() == 0 {
 			return errors.New("no poolers discovered")
 		}
 		return nil
@@ -740,19 +738,14 @@ func (mg *MultiGateway) Shutdown() {
 		mg.buffer.Shutdown()
 	}
 
-	// Close pooler gateway connections
+	// Close pooler gateway: shuts down the cache, which in turn closes
+	// per-pooler connections and cancels per-pooler health-stream goroutines.
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
 			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Pooler gateway closed")
 		}
-	}
-
-	// Stop pooler cache
-	if mg.poolerCache != nil {
-		mg.poolerCache.Shutdown()
-		mg.senv.GetLogger().Info("Pooler cache stopped")
 	}
 
 	mg.tr.Unregister()

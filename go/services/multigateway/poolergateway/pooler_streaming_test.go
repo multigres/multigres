@@ -145,7 +145,7 @@ func setupStreamingTestWithCallback(
 	conn, err := NewPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = conn.Close()
+		_ = conn.Shutdown()
 	})
 
 	return &streamingTestSetup{

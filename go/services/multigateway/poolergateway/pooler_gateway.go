@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -80,6 +81,11 @@ type PoolerGateway struct {
 	// buffer holds requests during PRIMARY failovers. nil if buffering is disabled.
 	buffer *buffer.Buffer
 
+	// cache owns the pooler discovery lifecycle (topology watch, per-pooler
+	// health streams, and per-pooler *PoolerConnection riders). Closing the
+	// gateway shuts the cache down, which tears down everything in turn.
+	cache *poolerwatch.PoolerCache[*PoolerConnection]
+
 	// logger for debugging
 	logger *slog.Logger
 }
@@ -88,11 +94,13 @@ type PoolerGateway struct {
 func NewPoolerGateway(
 	loadBalancer *LoadBalancer,
 	buf *buffer.Buffer,
+	cache *poolerwatch.PoolerCache[*PoolerConnection],
 	logger *slog.Logger,
 ) *PoolerGateway {
 	return &PoolerGateway{
 		loadBalancer: loadBalancer,
 		buffer:       buf,
+		cache:        cache,
 		logger:       logger,
 	}
 }
@@ -379,10 +387,22 @@ func (pg *PoolerGateway) CopyOutStream(
 	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
 }
 
-// Close implements queryservice.QueryService.
-// It closes all connections to poolers.
+// Close tears down the pooler cache: stops the topology watch, fires
+// OnGone for every entry (which closes per-pooler connections + cancels
+// per-pooler health stream goroutines), waits for everything to exit.
 func (pg *PoolerGateway) Close() error {
-	return pg.loadBalancer.Close()
+	pg.cache.Shutdown()
+	return nil
+}
+
+// PoolerCount returns the number of poolers currently tracked by the cache.
+// Used by readiness checks.
+func (pg *PoolerGateway) PoolerCount() int { return pg.cache.Len() }
+
+// Cache returns the underlying pooler cache. Intended for status / admin
+// reads (CellStatuses, per-pooler rider lookup). Not for query dispatch.
+func (pg *PoolerGateway) Cache() *poolerwatch.PoolerCache[*PoolerConnection] {
+	return pg.cache
 }
 
 // Ensure PoolerGateway implements Gateway

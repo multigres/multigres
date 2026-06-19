@@ -85,7 +85,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	// Create a real PoolerConnection - this is what we're testing
 	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Shutdown() }()
 
 	// Make a gRPC call through the PoolerConnection to generate a span
 	healthClient := grpc_health_v1.NewHealthClient(conn.conn)
@@ -134,7 +134,7 @@ func TestNewPoolerConnection(t *testing.T) {
 	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	defer conn.Close()
+	defer func() { _ = conn.Shutdown() }()
 
 	// Verify basic properties
 	assert.Equal(t, "multipooler-zone1-pooler1", string(conn.ID()))
@@ -162,7 +162,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 			conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Shutdown() }()
 
 			assert.Equal(t, tt.expected, string(conn.ID()))
 		})

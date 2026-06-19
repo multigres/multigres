@@ -218,31 +218,6 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	assert.Equal(t, poolerID(shard1), conn.ID())
 }
 
-func TestLoadBalancer_Close(t *testing.T) {
-	lb := newTestLB(t, "zone1")
-
-	// Add some poolers; seed a leader observation to verify Close clears it.
-	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	pooler2 := createTestMultiPooler("pooler2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	addPoolerForTest(t, lb, pooler1)
-	addPoolerForTest(t, lb, pooler2)
-	assert.Equal(t, 2, lb.ConnectionCount())
-	setLeaderForTest(t, lb, constants.DefaultTableGroup, "0", &clustermetadatapb.LeaderObservation{
-		LeaderId:         pooler1.Id,
-		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-	})
-
-	// Close clears the leader state. Per-pooler connections are owned by the
-	// cache, so ConnectionCount stays non-zero until the cache is shut down
-	// (handled by the test cleanup attached in newTestLB).
-	err := lb.Close()
-	require.NoError(t, err)
-	target := &query.Target{TableGroup: constants.DefaultTableGroup, Shard: "0", PoolerType: clustermetadatapb.PoolerType_PRIMARY}
-	_, err = lb.GetConnection(target)
-	require.Error(t, err, "Close should clear the leader map so PRIMARY routing reports 'no leader observed yet'")
-	assert.Contains(t, err.Error(), "no leader observed yet")
-}
-
 // TODO: Add concurrent access tests:
 // - TestLoadBalancer_ConcurrentAddRemove: Multiple goroutines adding/removing poolers
 // - TestLoadBalancer_ConcurrentGetConnection: GetConnection while poolers are being added/removed
@@ -834,15 +809,6 @@ func TestLoadBalancer_LeadershipFor(t *testing.T) {
 	assert.Equal(t, LeadershipLeader, lb.LeadershipFor(connLeader))
 	assert.Equal(t, LeadershipStaleLeader, lb.LeadershipFor(connStale))
 	assert.Equal(t, LeadershipFollower, lb.LeadershipFor(connFollower))
-
-	// Shards() reports the per-shard summary for the (tableGroup, "0") pair.
-	summaries := lb.Shards()
-	require.Len(t, summaries, 1)
-	assert.Equal(t, constants.DefaultTableGroup, summaries[0].ShardKey.GetTableGroup())
-	assert.Equal(t, "0", summaries[0].ShardKey.GetShard())
-	leaderObs := summaries[0].Leader()
-	require.NotNil(t, leaderObs)
-	assert.Equal(t, poolerID(leader), topoclient.ComponentIDString(leaderObs.LeaderId))
 }
 
 // TestLoadBalancer_ShardSummaryAutoClear verifies that removing the last
@@ -853,11 +819,13 @@ func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	primary := withSelfLeadership(createTestMultiPooler("primary", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
 	addPoolerForTest(t, lb, primary)
 
-	summaries := lb.Shards()
-	require.Len(t, summaries, 1, "shard should be tracked after adding a pooler")
+	lb.mu.Lock()
+	require.Len(t, lb.shards, 1, "shard should be tracked after adding a pooler")
+	lb.mu.Unlock()
 
 	removePoolerForTest(t, lb, poolerID(primary))
 
-	summaries = lb.Shards()
-	assert.Empty(t, summaries, "ShardSummary should be cleared once no poolers remain in the shard")
+	lb.mu.Lock()
+	assert.Empty(t, lb.shards, "ShardSummary should be cleared once no poolers remain in the shard")
+	lb.mu.Unlock()
 }

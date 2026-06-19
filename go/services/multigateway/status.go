@@ -98,7 +98,8 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 // gateway is not connected to), and the load balancer supplies each connected
 // pooler's live consensus leadership. They are merged on serialized pooler ID.
 func (mg *MultiGateway) collectCellStatuses() []CellStatus {
-	cellStatuses := mg.poolerCache.CellStatuses()
+	cache := mg.poolerGateway.Cache()
+	cellStatuses := cache.CellStatuses()
 	lb := mg.poolerGateway.LoadBalancer()
 
 	cells := make([]CellStatus, 0, len(cellStatuses))
@@ -112,7 +113,7 @@ func (mg *MultiGateway) collectCellStatuses() []CellStatus {
 			// Leadership is empty for poolers the gateway is not connected to;
 			// look up the rider in the cache and consult the LB only when present.
 			var leadership string
-			if conn, ok := mg.poolerCache.GetRider(topoclient.ComponentIDString(pooler.Id)); ok && conn != nil {
+			if conn, ok := cache.GetRider(topoclient.ComponentIDString(pooler.Id)); ok && conn != nil {
 				leadership = lb.LeadershipFor(conn)
 			}
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{

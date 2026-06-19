@@ -19,7 +19,6 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
-	"sort"
 	"sync"
 	"time"
 
@@ -629,28 +628,6 @@ const (
 	LeadershipFollower = "follower"
 )
 
-// Shards returns the current per-shard summaries, sorted by (tableGroup,
-// shard) for deterministic output. Returned pointers reference the live
-// summaries owned by the LB; callers must read the leader observation via
-// summary.Leader() (concurrent-safe), not by reaching into unexported
-// fields.
-func (lb *LoadBalancer) Shards() []*ShardSummary {
-	lb.mu.Lock()
-	out := make([]*ShardSummary, 0, len(lb.shards))
-	for _, s := range lb.shards {
-		out = append(out, s)
-	}
-	lb.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool {
-		ai, aj := out[i].ShardKey, out[j].ShardKey
-		if ai.GetTableGroup() != aj.GetTableGroup() {
-			return ai.GetTableGroup() < aj.GetTableGroup()
-		}
-		return ai.GetShard() < aj.GetShard()
-	})
-	return out
-}
-
 // LeadershipFor returns the consensus leadership role of a single connected
 // pooler for the admin/status page. The role reflects the gateway's merged
 // view — the shard's ShardSummary (self_leadership combined with
@@ -699,42 +676,24 @@ func (lb *LoadBalancer) LeadershipFor(conn *PoolerConnection) string {
 // ShardSummary or removing a freshly-created one. In the worst case we keep
 // a ShardSummary one cycle longer; the next OnPoolerGone (or first
 // observation for a re-added pooler) will reconcile it.
+//
+// TODO: shardKey is currently database-agnostic — if two databases share a
+// (tableGroup, shard) name, draining poolers from one database can drop the
+// summary used by another. The next observation from the other database
+// will re-populate it. Tolerable in practice but resolves cleanly once
+// query.Target carries a Database field and shardKey gains a database
+// component.
 func (lb *LoadBalancer) OnPoolerGone(p *clustermetadatapb.MultiPooler) {
 	if p == nil || lb.cache == nil {
 		return
 	}
-	key := shardKey{
-		tableGroup: p.GetShardKey().GetTableGroup(),
-		shard:      p.GetShardKey().GetShard(),
+	sk := p.GetShardKey()
+	if len(lb.cache.GetByShard(sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())) > 0 {
+		return
 	}
-
-	// Check whether any poolers remain in this shard via the cache (separate
-	// mutex from lb.mu). Iterate cache.All() rather than GetByShard because
-	// the shardKey here is database-agnostic.
-	//
-	// TODO: use cache.GetByShard once query.Target carries a Database field.
-	// shardKey is currently database-agnostic, so a swap would collide across
-	// databases.
-	for _, entry := range lb.cache.All() {
-		sk := entry.Pooler.GetShardKey()
-		if sk.GetTableGroup() == key.tableGroup && sk.GetShard() == key.shard {
-			return
-		}
-	}
+	key := shardKey{tableGroup: sk.GetTableGroup(), shard: sk.GetShard()}
 
 	lb.mu.Lock()
 	delete(lb.shards, key)
 	lb.mu.Unlock()
-}
-
-// Close clears the shards map. Per-pooler connections are owned by the
-// pooler cache: shutting the cache down (which fires OnGone for every entry)
-// is what closes them. Close is a no-op aside from the shard map reset and
-// remains as a convenience for symmetry with the old API.
-func (lb *LoadBalancer) Close() error {
-	lb.mu.Lock()
-	lb.shards = make(map[shardKey]*ShardSummary)
-	lb.mu.Unlock()
-	lb.logger.Info("load balancer leader state cleared")
-	return nil
 }
