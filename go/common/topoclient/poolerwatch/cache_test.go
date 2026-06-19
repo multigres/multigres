@@ -187,7 +187,7 @@ func TestCache_DuplicateUpsertIsSuppressed(t *testing.T) {
 // entry is then invisible to reads.
 func TestCache_ShutdownFiresOnGoneImmediately(t *testing.T) {
 	clk := newFakeClock()
-	c, rec := newTestCache(t, clk, time.Hour, time.Hour) // ShutdownGrace is for ghost retention only
+	c, rec := newTestCache(t, clk, time.Hour, time.Hour) // ShutdownGrace is for tombstone retention only
 	defer c.Shutdown()
 
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
@@ -200,10 +200,10 @@ func TestCache_ShutdownFiresOnGoneImmediately(t *testing.T) {
 	_, ok := c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok, "shut-down pooler must not appear in Get")
 
-	// Ghost is retained for cleanup.
-	ghosts := c.Ghosts()
-	require.Len(t, ghosts, 1)
-	assert.Equal(t, "p1", ghosts[0].ID.Name)
+	// Tombstone is retained for cleanup.
+	tombstones := c.Tombstones()
+	require.Len(t, tombstones, 1)
+	assert.Equal(t, "p1", tombstones[0].ID.Name)
 }
 
 func TestCache_ColdShutdownDiscoveryIgnoresWithoutOnLive(t *testing.T) {
@@ -216,10 +216,10 @@ func TestCache_ColdShutdownDiscoveryIgnoresWithoutOnLive(t *testing.T) {
 	assert.Empty(t, rec.snapshot(), "cold-shutdown discovery must fire no hooks")
 	_, ok := c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok, "cold-shutdown pooler must not be visible")
-	require.Len(t, c.Ghosts(), 1, "cold-shutdown pooler must be tracked as a ghost")
+	require.Len(t, c.Tombstones(), 1, "cold-shutdown pooler must be tracked as a tombstone")
 }
 
-func TestCache_GhostsExpireSilentlyOnSweep(t *testing.T) {
+func TestCache_TombstonesExpireSilentlyOnSweep(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Minute, time.Hour)
 	defer c.Shutdown()
@@ -230,9 +230,9 @@ func TestCache_GhostsExpireSilentlyOnSweep(t *testing.T) {
 	clk.Advance(2 * time.Minute) // past ShutdownGrace
 	c.sweep()
 
-	// No new hook fires when the ghost expires — OnGone already happened.
+	// No new hook fires when the tombstone expires — OnGone already happened.
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot())
-	assert.Empty(t, c.Ghosts(), "ghost must be evicted after grace")
+	assert.Empty(t, c.Tombstones(), "tombstone must be evicted after grace")
 }
 
 // TestCache_VanishedIsSilentUntilGrace verifies that NoNode does NOT fire
@@ -292,7 +292,7 @@ func TestCache_RestartFromShutdownIsFreshOnLive(t *testing.T) {
 	rider1 := r1.Rider
 
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
-	clk.Advance(5 * time.Minute) // within ghost retention
+	clk.Advance(5 * time.Minute) // within tombstone retention
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	// Restart-from-shutdown is a fresh discovery: OnLive(prev=nil) fires.
@@ -315,24 +315,24 @@ func TestCache_VanishedToShutdownFiresOnGone(t *testing.T) {
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot())
 	_, ok := c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok)
-	require.Len(t, c.Ghosts(), 1)
+	require.Len(t, c.Tombstones(), 1)
 }
 
-func TestCache_DeleteOfGhostRemovesItSilently(t *testing.T) {
+func TestCache_DeleteOfTombstoneRemovesItSilently(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
-	require.Len(t, c.Ghosts(), 1)
+	require.Len(t, c.Tombstones(), 1)
 
 	// Topology cleanup happens (external etcd delete).
 	c.applyDelete(componentID("zone1", "p1"))
 
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot(),
-		"hard-deletion of a ghost must not produce any hook")
-	assert.Empty(t, c.Ghosts())
+		"hard-deletion of a tombstone must not produce any hook")
+	assert.Empty(t, c.Tombstones())
 }
 
 func TestCache_ZeroVanishedGraceFiresOnGoneInline(t *testing.T) {

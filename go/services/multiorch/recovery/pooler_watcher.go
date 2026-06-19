@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	// shutdownGracePeriod is how long the cache retains a ghost record of a
+	// shutdownGracePeriod is how long the cache retains a tombstone record of a
 	// SHUTDOWN pooler so future etcd-cleanup logic can find it.
 	shutdownGracePeriod = 4 * time.Hour
 	// vanishedGracePeriod is how long an unexpectedly-deleted entry stays

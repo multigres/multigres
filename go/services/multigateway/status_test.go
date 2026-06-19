@@ -225,35 +225,35 @@ func TestCollectCellStatuses_StaleLeader(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "expected new=leader, old=stale-leader")
 }
 
-// TestCollectCellStatuses_GhostHasEmptyLeadership verifies that a pooler
-// recorded as SHUTDOWN in topology shows up in CellStatuses (as a ghost) but
+// TestCollectCellStatuses_TombstoneHasEmptyLeadership verifies that a pooler
+// recorded as SHUTDOWN in topology shows up in CellStatuses (as a tombstone) but
 // reports an empty leadership string — there is no rider in the cache for it,
 // so LeadershipForID returns "".
-func TestCollectCellStatuses_GhostHasEmptyLeadership(t *testing.T) {
+func TestCollectCellStatuses_TombstoneHasEmptyLeadership(t *testing.T) {
 	mg, ts := newTestGateway(t, "zone1")
 	ctx := t.Context()
 
 	// Create a SHUTDOWN pooler. The cache's "cold-shutdown discovery"
-	// path records it as a ghost — no rider, no OnLive — but it still
+	// path records it as a tombstone — no rider, no OnLive — but it still
 	// appears in CellStatuses for operator visibility.
-	ghost := newTestPooler("zone1", "ghost1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN)
-	require.NoError(t, ts.CreateMultiPooler(ctx, ghost))
+	tombstone := newTestPooler("zone1", "tomb1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN)
+	require.NoError(t, ts.CreateMultiPooler(ctx, tombstone))
 
-	// Wait until the ghost shows up in collectCellStatuses (since PoolerCount
+	// Wait until the tombstone shows up in collectCellStatuses (since PoolerCount
 	// reflects only live entries, we poll the status directly).
 	require.Eventually(t, func() bool {
 		for _, cs := range mg.collectCellStatuses() {
 			for _, p := range cs.Poolers {
-				if p.Name == "ghost1" {
+				if p.Name == "tomb1" {
 					return true
 				}
 			}
 		}
 		return false
-	}, 2*time.Second, 5*time.Millisecond, "ghost pooler did not appear in CellStatuses")
+	}, 2*time.Second, 5*time.Millisecond, "tombstone pooler did not appear in CellStatuses")
 
 	statuses := mg.collectCellStatuses()
-	ps := findPoolerStatus(t, statuses, "zone1", "ghost1")
-	assert.Equal(t, "", ps.Leadership, "ghost pooler must have empty leadership")
+	ps := findPoolerStatus(t, statuses, "zone1", "tomb1")
+	assert.Equal(t, "", ps.Leadership, "tombstone pooler must have empty leadership")
 	assert.Equal(t, "shutdown", ps.Lifecycle)
 }

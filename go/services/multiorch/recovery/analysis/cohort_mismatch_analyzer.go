@@ -145,7 +145,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 			continue
 		}
 		isTombstone := false
-		if _, ok := sa.GhostIDs[key]; ok {
+		if _, ok := sa.TombstoneIDs[key]; ok {
 			isTombstone = true
 		}
 		// Tombstones are KNOWN dead — they aren't contributing to the cohort

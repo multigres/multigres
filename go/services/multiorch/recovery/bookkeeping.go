@@ -25,14 +25,14 @@ import (
 // shutdownEtcdCleanupAge is how long a pooler's topology entry must have
 // been observed in LIFECYCLE_SHUTDOWN before orch hard-deletes it from etcd.
 // The pooler should have stopped publishing updates by the time it entered
-// SHUTDOWN, so a stable ShutdownAt timestamp on the ghost means the entry
+// SHUTDOWN, so a stable ShutdownAt timestamp on the tombstone means the entry
 // has lingered without anyone reclaiming it.
 const shutdownEtcdCleanupAge = 24 * time.Hour
 
 // runBookkeeping performs periodic bookkeeping tasks.
 //
 // In the cache-driven design, in-memory eviction is owned by the cache:
-// SHUTDOWN triggers immediate removal (with a ghost retained), and NoNode
+// SHUTDOWN triggers immediate removal (with a tombstone retained), and NoNode
 // triggers vanish-grace removal. Bookkeeping handles the one task the cache
 // can't: hard-deleting topology entries for poolers that have been in
 // SHUTDOWN for long enough that no operator is reclaiming them.
@@ -44,14 +44,14 @@ func (re *Engine) runBookkeeping() {
 	re.cleanupOldShutdownEntries()
 }
 
-// cleanupOldShutdownEntries iterates the cache's ghost set (poolers observed
+// cleanupOldShutdownEntries iterates the cache's tombstone set (poolers observed
 // in SHUTDOWN whose topology entries still exist) and hard-deletes from
-// etcd any that have been ghosts longer than shutdownEtcdCleanupAge. The
+// etcd any that have been tombstones longer than shutdownEtcdCleanupAge. The
 // resulting NoNode event flows back through the cache's watch, which drops
-// the ghost from the set.
+// the tombstone from the set.
 func (re *Engine) cleanupOldShutdownEntries() {
 	cutoff := time.Now().Add(-shutdownEtcdCleanupAge)
-	for _, g := range re.poolerCache.Ghosts() {
+	for _, g := range re.poolerCache.Tombstones() {
 		if !g.ShutdownAt.Before(cutoff) {
 			continue
 		}
@@ -63,7 +63,7 @@ func (re *Engine) cleanupOldShutdownEntries() {
 			)
 			continue
 		}
-		re.audit("hard-delete-shutdown-ghost",
+		re.audit("hard-delete-shutdown-tombstone",
 			topoclient.ComponentIDString(g.ID),
 			nil,
 			"removed long-SHUTDOWN pooler entry from topology",

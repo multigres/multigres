@@ -36,8 +36,8 @@ import (
 
 // State is the cache's view of a pooler's lifecycle. Only Live and Vanished
 // entries are returned by read methods (Get, GetByShard, GetByCell). SHUTDOWN
-// poolers are not entries at all — they are tracked separately as "ghosts"
-// (see Ghosts) so external cleanup can hard-delete their topology records.
+// poolers are not entries at all — they are tracked separately as "tombstones"
+// (see Tombstones) so external cleanup can hard-delete their topology records.
 type State int
 
 const (
@@ -112,8 +112,8 @@ type Entry[T any] struct {
 // distinguish "currently in vanish grace" from "live" can read Entry.State.
 //
 // SHUTDOWN is different: OnGone fires immediately at the transition, the
-// rider is released, and the entry leaves the read-visible map. A "ghost"
-// pooler ID is retained separately (see Ghosts) so that future cleanup
+// rider is released, and the entry leaves the read-visible map. A "tombstone"
+// pooler ID is retained separately (see Tombstones) so that future cleanup
 // logic (etcd hard-delete) can find and remove the topology entry.
 type Hooks[T any] struct {
 	// OnLive fires when a pooler enters the Live state — either first
@@ -191,17 +191,17 @@ type internalEntry[T any] struct {
 	disposeAfter time.Time // zero iff state == StateLive
 }
 
-// Ghost is a record of a pooler that was observed in LIFECYCLE_SHUTDOWN
+// Tombstone is a record of a pooler that was observed in LIFECYCLE_SHUTDOWN
 // and has been soft-deleted from the read-visible cache. The rider has
-// already been released through OnGone. Ghosts are retained so external
+// already been released through OnGone. Tombstones are retained so external
 // cleanup logic can find them and hard-delete the topology record.
-type Ghost struct {
+type Tombstone struct {
 	ID         *clustermetadatapb.ID
 	ShutdownAt time.Time // wall-clock time when the cache first observed SHUTDOWN
 }
 
-// ghostEntry is the internal companion to Ghost.
-type ghostEntry struct {
+// tombstoneEntry is the internal companion to Tombstone.
+type tombstoneEntry struct {
 	id           topoclient.ComponentID
 	poolerID     *clustermetadatapb.ID
 	shutdownAt   time.Time
@@ -219,11 +219,11 @@ type PoolerCache[T any] struct {
 	entries map[topoclient.ComponentID]*internalEntry[T]
 	byCell  map[string]map[topoclient.ComponentID]*internalEntry[T]
 	byShard map[shardKey]map[topoclient.ComponentID]*internalEntry[T]
-	// ghosts holds SHUTDOWN poolers whose rider has been released. They are
-	// invisible to Get/GetByShard/GetByCell; surface via Ghosts() for
+	// tombstones holds SHUTDOWN poolers whose rider has been released. They are
+	// invisible to Get/GetByShard/GetByCell; surface via Tombstones() for
 	// future etcd-cleanup callers.
-	ghosts map[topoclient.ComponentID]*ghostEntry
-	closed bool
+	tombstones map[topoclient.ComponentID]*tombstoneEntry
+	closed     bool
 
 	sweeper *timer.PeriodicRunner
 
@@ -271,7 +271,7 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 		entries:          make(map[topoclient.ComponentID]*internalEntry[T]),
 		byCell:           make(map[string]map[topoclient.ComponentID]*internalEntry[T]),
 		byShard:          make(map[shardKey]map[topoclient.ComponentID]*internalEntry[T]),
-		ghosts:           make(map[topoclient.ComponentID]*ghostEntry),
+		tombstones:       make(map[topoclient.ComponentID]*tombstoneEntry),
 		cellLastActivity: make(map[string]time.Time),
 		sweeper:          timer.NewPeriodicRunner(ctx, interval),
 		shutdownDone:     make(chan struct{}),
@@ -345,7 +345,7 @@ func (c *PoolerCache[T]) Shutdown() {
 		c.entries = nil
 		c.byCell = nil
 		c.byShard = nil
-		c.ghosts = nil
+		c.tombstones = nil
 		c.mu.Unlock()
 		hooks := c.hooks
 		if hooks.OnGone == nil {
@@ -409,7 +409,7 @@ func (c *PoolerCache[T]) GetByShard(database, tableGroup, shard string) []Entry[
 	return out
 }
 
-// All returns every read-visible entry (Live or Vanished). Ghosts are not
+// All returns every read-visible entry (Live or Vanished). Tombstones are not
 // included. Intended for cross-shard scans like metric collection or
 // bookkeeping; for ordinary lookups prefer Get / GetByShard.
 func (c *PoolerCache[T]) All() []Entry[T] {
@@ -432,7 +432,7 @@ func (c *PoolerCache[T]) Len() int {
 
 // CellStatuses returns per-cell status sorted alphabetically by cell name.
 // Reflects the raw topology view: every observed pooler, including
-// SHUTDOWN (i.e. ghosts). Intended for admin/status pages, not the hot
+// SHUTDOWN (i.e. tombstones). Intended for admin/status pages, not the hot
 // query path.
 func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 	c.mu.Lock()
@@ -445,7 +445,7 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 	for cell := range c.cellLastActivity {
 		cellSet[cell] = struct{}{}
 	}
-	for _, g := range c.ghosts {
+	for _, g := range c.tombstones {
 		cellSet[g.poolerID.GetCell()] = struct{}{}
 	}
 
@@ -461,9 +461,9 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 		for _, e := range c.byCell[cell] {
 			poolers = append(poolers, proto.Clone(e.pooler).(*clustermetadatapb.MultiPooler))
 		}
-		// Ghosts (SHUTDOWN poolers) are part of the cell's view too — operators
+		// Tombstones (SHUTDOWN poolers) are part of the cell's view too — operators
 		// want to see them. They carry no full proto, only an ID.
-		for _, g := range c.ghosts {
+		for _, g := range c.tombstones {
 			if g.poolerID.GetCell() != cell {
 				continue
 			}
@@ -553,9 +553,9 @@ func (c *PoolerCache[T]) DoUpdate(id topoclient.ComponentID, fn func(curr T) T) 
 	e.rider = fn(e.rider)
 }
 
-// sweep scans for entries and ghosts whose grace deadline has passed:
+// sweep scans for entries and tombstones whose grace deadline has passed:
 //   - Vanished entries fire OnGone(Vanished) and are removed.
-//   - Ghosts (post-SHUTDOWN) are removed silently — OnGone already fired at
+//   - Tombstones (post-SHUTDOWN) are removed silently — OnGone already fired at
 //     the moment of SHUTDOWN.
 //
 // Called automatically by the background goroutine when Start was invoked;
@@ -577,9 +577,9 @@ func (c *PoolerCache[T]) sweep() {
 		delete(c.entries, e.id)
 		c.indexRemove(e)
 	}
-	for id, g := range c.ghosts {
+	for id, g := range c.tombstones {
 		if !now.Before(g.disposeAfter) {
-			delete(c.ghosts, id)
+			delete(c.tombstones, id)
 		}
 	}
 	hooks := c.hooks
@@ -720,10 +720,10 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 
 		if isShutdown {
 			// Live/Vanished → Shutdown: remove from read-visible map, fire
-			// OnGone, and retain a ghost for future cleanup.
+			// OnGone, and retain a tombstone for future cleanup.
 			delete(c.entries, e.id)
 			c.indexRemove(e)
-			c.addGhostLocked(id, pooler.Id, now)
+			c.addTombstoneLocked(id, pooler.Id, now)
 			hooks := c.hooks
 			c.mu.Unlock()
 			if hooks.OnGone != nil {
@@ -757,17 +757,17 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		return
 	}
 
-	// --- Not an entry. Maybe a ghost (restart from SHUTDOWN) or truly new. ---
-	if g, ok := c.ghosts[id]; ok {
+	// --- Not an entry. Maybe a tombstone (restart from SHUTDOWN) or truly new. ---
+	if g, ok := c.tombstones[id]; ok {
 		if isShutdown {
-			// Refresh the ghost timestamp; otherwise no-op.
+			// Refresh the tombstone timestamp; otherwise no-op.
 			g.shutdownAt = now
 			c.mu.Unlock()
 			return
 		}
-		// Ghost → Live: restart-from-shutdown. Drop the ghost; treat as a
+		// Tombstone → Live: restart-from-shutdown. Drop the tombstone; treat as a
 		// fresh discovery (the previous rider was released through OnGone).
-		delete(c.ghosts, id)
+		delete(c.tombstones, id)
 		hooks := c.hooks
 		c.mu.Unlock()
 		var zero T
@@ -798,9 +798,9 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 
 	// Truly first sight.
 	if isShutdown {
-		// Cold-discovered SHUTDOWN: record as a ghost so future cleanup can
+		// Cold-discovered SHUTDOWN: record as a tombstone so future cleanup can
 		// find it. No OnLive, no rider, no OnGone.
-		c.addGhostLocked(id, pooler.Id, now)
+		c.addTombstoneLocked(id, pooler.Id, now)
 		c.mu.Unlock()
 		return
 	}
@@ -831,9 +831,9 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 	c.mu.Unlock()
 }
 
-// addGhostLocked records a SHUTDOWN pooler as a ghost. Caller holds c.mu.
-func (c *PoolerCache[T]) addGhostLocked(id topoclient.ComponentID, poolerID *clustermetadatapb.ID, now time.Time) {
-	c.ghosts[id] = &ghostEntry{
+// addTombstoneLocked records a SHUTDOWN pooler as a tombstone. Caller holds c.mu.
+func (c *PoolerCache[T]) addTombstoneLocked(id topoclient.ComponentID, poolerID *clustermetadatapb.ID, now time.Time) {
+	c.tombstones[id] = &tombstoneEntry{
 		id:           id,
 		poolerID:     poolerID,
 		shutdownAt:   now,
@@ -849,8 +849,8 @@ func (c *PoolerCache[T]) addGhostLocked(id topoclient.ComponentID, poolerID *clu
 //     for VanishedGrace; if the pooler returns, the rider is preserved.
 //     If grace expires (Sweep), OnGone(Vanished) fires. VanishedGrace=0
 //     fires OnGone immediately and removes the entry.
-//   - If the pooler is a ghost (we observed its SHUTDOWN earlier), the
-//     deletion confirms cleanup happened: the ghost is removed silently.
+//   - If the pooler is a tombstone (we observed its SHUTDOWN earlier), the
+//     deletion confirms cleanup happened: the tombstone is removed silently.
 //   - Unknown ID: no-op.
 //
 // deleteImmediate evicts an entry now, bypassing VanishedGrace. Test-only
@@ -913,8 +913,8 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 		return
 	}
 
-	if _, ok := c.ghosts[id]; ok {
-		delete(c.ghosts, id)
+	if _, ok := c.tombstones[id]; ok {
+		delete(c.tombstones, id)
 		c.mu.Unlock()
 		return
 	}
@@ -922,16 +922,16 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 	c.mu.Unlock()
 }
 
-// Ghosts returns a snapshot of poolers observed in SHUTDOWN whose topology
+// Tombstones returns a snapshot of poolers observed in SHUTDOWN whose topology
 // records have not yet been hard-deleted (or have not yet been observed as
 // deleted by this cache). Intended for an external cleanup loop that
 // removes the topology entries.
-func (c *PoolerCache[T]) Ghosts() []Ghost {
+func (c *PoolerCache[T]) Tombstones() []Tombstone {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]Ghost, 0, len(c.ghosts))
-	for _, g := range c.ghosts {
-		out = append(out, Ghost{ID: g.poolerID, ShutdownAt: g.shutdownAt})
+	out := make([]Tombstone, 0, len(c.tombstones))
+	for _, g := range c.tombstones {
+		out = append(out, Tombstone{ID: g.poolerID, ShutdownAt: g.shutdownAt})
 	}
 	return out
 }

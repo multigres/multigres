@@ -386,7 +386,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 // TestPoolerWatcher_PoolerEntersShutdownLifecycle pins the SHUTDOWN contract:
 // from orch's perspective SHUTDOWN is dead. The watcher fires OnGone
 // immediately AND evicts the store entry — no soft-delete intermediate state
-// at the orch level. The cache layer below retains a ghost record for future
+// at the orch level. The cache layer below retains a tombstone record for future
 // etcd-cleanup, but that is invisible to orch's store. OnGone is responsible
 // for cancelling the per-pooler StreamHandle.
 func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
@@ -439,7 +439,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 // path: a pooler that transitioned to SHUTDOWN and then comes back up
 // (writes STARTING/ACTIVE via RegisterMultiPooler(allowUpdate=true))
 // re-triggers OnLive so the orchestrator restarts its health stream. The
-// cache entry is retained as a ghost across SHUTDOWN, so the watcher
+// cache entry is retained as a tombstone across SHUTDOWN, so the watcher
 // detects the SHUTDOWN→non-SHUTDOWN lifecycle transition and explicitly
 // re-fires OnLive — which in turn spawns a fresh per-pooler stream handle.
 func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
@@ -487,7 +487,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	require.Equal(t, 0, poolerStore.Len(), "SHUTDOWN must evict the store")
 
 	// Pooler comes back: lifecycle transitions back to ACTIVE. The cache
-	// recognizes restart-from-ghost and re-fires OnLive, which spawns a
+	// recognizes restart-from-tombstone and re-fires OnLive, which spawns a
 	// fresh StreamHandle (distinct from the one OnGone just cancelled).
 	_, err = ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
 		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
@@ -505,8 +505,8 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 
 // TestPoolerWatcher_ColdStartShutdownIgnored verifies that an already-SHUTDOWN
 // pooler discovered for the first time (e.g. orchestrator restart while the
-// entry is still in topology) is tracked as a ghost in the cache but never
-// becomes a live store entry. The ghost lets the watcher detect a future
+// entry is still in topology) is tracked as a tombstone in the cache but never
+// becomes a live store entry. The tombstone lets the watcher detect a future
 // SHUTDOWN→non-SHUTDOWN transition and fire OnLive then, but no health stream
 // is opened immediately — there's nothing live to monitor.
 func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
@@ -537,7 +537,7 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 
 	// Give the watcher time to process the initial SHUTDOWN entry; it should
 	// reach a steady state with the store empty (cold-discovered SHUTDOWN
-	// poolers are tracked as ghosts in the cache, not as store entries).
+	// poolers are tracked as tombstones in the cache, not as store entries).
 	require.NoError(t, poolerStore.Sync(ctx))
 
 	assert.Equal(t, 0, poolerStore.Len(), "cold-discovered SHUTDOWN must not populate the orch store")
