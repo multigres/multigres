@@ -24,6 +24,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 const (
@@ -35,33 +36,32 @@ const (
 	vanishedGracePeriod = 4 * time.Hour
 )
 
-// PoolerWatcher wires the orchestrator's per-pooler health-stream callbacks
-// to a topology cache. Its sole job is "start a health stream when a pooler
-// goes live; stop it when the pooler goes away."
-type PoolerWatcher struct {
-	cache  *poolerwatch.PoolerCache[*multiorchdatapb.PoolerHealthState]
-	logger *slog.Logger
-}
-
-// NewPoolerWatcher creates a new PoolerWatcher.
+// newPoolerCache builds the orchestrator's pooler cache. The cache is
+// lifecycle-aware and dispatches start/stop callbacks for per-pooler health
+// streams as poolers enter and leave the topology.
 //
 // onPoolerLive fires when a pooler enters the Live state — either first
 // discovery or a restart after a prior SHUTDOWN.
 //
 // onPoolerGone is the single terminal callback. It fires when the cache
 // stops tracking the pooler: lifecycle SHUTDOWN (immediate), NoNode after
-// vanish grace, or explicit eviction (Forget). Callers typically use this
-// to tear down per-pooler resources such as health streams.
-func NewPoolerWatcher(
+// vanish grace, or cache shutdown. Callers typically use this to tear down
+// per-pooler resources such as health streams.
+//
+// TODO: collapse the HealthStream registry into the rider. Today,
+// health_stream.go keeps its own ID→streamEntry map in parallel with this
+// cache. If PoolerHealthState owned the per-pooler stream state directly,
+// OnLive could spawn the stream and stash it on the rider, OnGone could
+// cancel via the rider, and the separate registry (plus the chicken-and-egg
+// healthStream/cache closure in engine.go) would disappear.
+func newPoolerCache(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
 	onPoolerLive func(id *clustermetadatapb.ID),
 	onPoolerGone func(id *clustermetadatapb.ID),
 	logger *slog.Logger,
-) *PoolerWatcher {
-	pw := &PoolerWatcher{logger: logger}
-
+) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.MultiPooler) bool {
 		for _, t := range targets() {
 			if t.MatchesShard(p.GetShardKey().GetDatabase(), p.GetShardKey().GetTableGroup(), p.GetShardKey().GetShard()) {
@@ -71,7 +71,7 @@ func NewPoolerWatcher(
 		return false
 	}
 
-	pw.cache = poolerwatch.New(ctx, poolerwatch.Config[*multiorchdatapb.PoolerHealthState]{
+	return poolerwatch.New(ctx, poolerwatch.Config[*multiorchdatapb.PoolerHealthState]{
 		Source: topoStore,
 		Filter: matchesAnyTarget,
 		Hooks: poolerwatch.Hooks[*multiorchdatapb.PoolerHealthState]{
@@ -79,7 +79,7 @@ func NewPoolerWatcher(
 				if onPoolerLive != nil {
 					onPoolerLive(p.Id)
 				}
-				logger.Info("pooler discovered live",
+				logger.InfoContext(ctx, "pooler discovered live",
 					"pooler_id", topoclient.ComponentIDString(p.Id),
 					"database", p.GetShardKey().GetDatabase(),
 					"tablegroup", p.GetShardKey().GetTableGroup(),
@@ -103,11 +103,11 @@ func NewPoolerWatcher(
 				}
 				switch reason {
 				case poolerwatch.GoneShutdown:
-					logger.Info("pooler entered SHUTDOWN lifecycle", "pooler_id", topoclient.ComponentIDString(p.Id))
+					logger.InfoContext(ctx, "pooler entered SHUTDOWN lifecycle", "pooler_id", topoclient.ComponentIDString(p.Id))
 				case poolerwatch.GoneVanished:
-					logger.Warn("pooler topology entry vanished after grace period", "pooler_id", topoclient.ComponentIDString(p.Id))
+					logger.WarnContext(ctx, "pooler topology entry vanished after grace period", "pooler_id", topoclient.ComponentIDString(p.Id))
 				case poolerwatch.GoneCacheShutdown:
-					logger.Debug("pooler released because cache is shutting down", "pooler_id", topoclient.ComponentIDString(p.Id))
+					logger.DebugContext(ctx, "pooler released because cache is shutting down", "pooler_id", topoclient.ComponentIDString(p.Id))
 				}
 			},
 		},
@@ -115,29 +115,4 @@ func NewPoolerWatcher(
 		VanishedGrace: vanishedGracePeriod,
 		Logger:        logger,
 	})
-
-	return pw
-}
-
-// Cache returns the underlying pooler cache. PoolerStore is built on it.
-func (pw *PoolerWatcher) Cache() *poolerwatch.PoolerCache[*multiorchdatapb.PoolerHealthState] {
-	return pw.cache
-}
-
-// Start launches the underlying cache (watch + sweeper).
-func (pw *PoolerWatcher) Start() {
-	pw.logger.Info("starting pooler watcher")
-	pw.cache.Start()
-}
-
-// Stop shuts down the underlying cache.
-func (pw *PoolerWatcher) Stop() {
-	pw.cache.Shutdown()
-	pw.logger.Info("pooler watcher stopped")
-}
-
-// Sync blocks until every event observed by the cache at the time of the
-// call has been processed by this watcher's hooks.
-func (pw *PoolerWatcher) Sync(ctx context.Context) error {
-	return pw.cache.Sync(ctx)
 }

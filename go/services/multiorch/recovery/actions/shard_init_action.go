@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"time"
 
-
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"

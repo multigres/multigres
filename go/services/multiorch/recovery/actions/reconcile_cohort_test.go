@@ -61,7 +61,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		t.Helper()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		ps := store.NewTestCache(t)
-		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		store.SeedCache(t, ps, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
 				ShardKey: shardKey,
@@ -80,7 +80,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				},
 			},
 		})
-		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		store.SeedCache(t, ps, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       replicaID,
 				ShardKey: shardKey,
@@ -183,7 +183,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		// Add only the target replica; the shard search uses the
 		// (database, table_group, shard) tuple, so an unrelated shard tuple
 		// finds no poolers and therefore no leader.
-		ps.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		store.SeedCache(t, ps, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       replicaID,
 				ShardKey: shardKey,

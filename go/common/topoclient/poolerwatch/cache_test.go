@@ -16,7 +16,6 @@ package poolerwatch
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -94,7 +93,7 @@ func pool(cell, name, db, tg, shard string, lifecycle clustermetadatapb.PoolerLi
 }
 
 func silentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // newTestCache builds a PoolerCache wired to a fake clock with the given
@@ -146,7 +145,7 @@ func TestCache_FirstDiscoveryFiresOnLive(t *testing.T) {
 	defer c.Shutdown()
 
 	p := pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)
-	c.ApplyUpsert(p)
+	c.applyUpsert(p)
 
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
 	entry, ok := c.Get(componentID("zone1", "p1"))
@@ -161,11 +160,11 @@ func TestCache_ProtoUpdateWhileLiveFiresOnUpdate(t *testing.T) {
 	defer c.Shutdown()
 
 	p := pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)
-	c.ApplyUpsert(p)
+	c.applyUpsert(p)
 	clk.Advance(1 * time.Second)
 	p2 := pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)
 	p2.Hostname = "newhost.local"
-	c.ApplyUpsert(p2)
+	c.applyUpsert(p2)
 
 	assert.Equal(t, []string{"live:p1", "update:p1"}, rec.snapshot())
 }
@@ -176,8 +175,8 @@ func TestCache_DuplicateUpsertIsSuppressed(t *testing.T) {
 	defer c.Shutdown()
 
 	p := pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)
-	c.ApplyUpsert(p)
-	c.ApplyUpsert(p) // proto.Equal — should suppress OnUpdate
+	c.applyUpsert(p)
+	c.applyUpsert(p) // proto.Equal — should suppress OnUpdate
 
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
 }
@@ -190,8 +189,8 @@ func TestCache_ShutdownFiresOnGoneImmediately(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour) // ShutdownGrace is for ghost retention only
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
 	// OnGone fired immediately, even though ShutdownGrace > 0.
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot())
@@ -211,7 +210,7 @@ func TestCache_ColdShutdownDiscoveryIgnoresWithoutOnLive(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
 	assert.Empty(t, rec.snapshot(), "cold-shutdown discovery must fire no hooks")
 	_, ok := c.Get(componentID("zone1", "p1"))
@@ -224,11 +223,11 @@ func TestCache_GhostsExpireSilentlyOnSweep(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Minute, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
 	clk.Advance(2 * time.Minute) // past ShutdownGrace
-	c.Sweep()
+	c.sweep()
 
 	// No new hook fires when the ghost expires — OnGone already happened.
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot())
@@ -242,8 +241,8 @@ func TestCache_VanishedIsSilentUntilGrace(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyDelete(componentID("zone1", "p1"))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyDelete(componentID("zone1", "p1"))
 
 	// No hook fires on vanish; the entry remains visible (as Vanished).
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
@@ -253,7 +252,7 @@ func TestCache_VanishedIsSilentUntilGrace(t *testing.T) {
 
 	// Past grace, sweep fires OnGone(Vanished) and removes the entry.
 	clk.Advance(2 * time.Hour)
-	c.Sweep()
+	c.sweep()
 	assert.Equal(t, []string{"live:p1", "gone-vanished:p1"}, rec.snapshot())
 	_, ok = c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok)
@@ -264,15 +263,15 @@ func TestCache_VanishedRecoveryWithinGracePreservesRider(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	r1, _ := c.Get(componentID("zone1", "p1"))
 	originalRider := r1.Rider
 
-	c.ApplyDelete(componentID("zone1", "p1"))
+	c.applyDelete(componentID("zone1", "p1"))
 	clk.Advance(10 * time.Minute) // within grace
 	updated := pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE)
 	updated.Hostname = "recovered.local"
-	c.ApplyUpsert(updated)
+	c.applyUpsert(updated)
 
 	// Recovery looks like an OnUpdate: no OnGone fired, rider preserved.
 	assert.Equal(t, []string{"live:p1", "update:p1"}, rec.snapshot())
@@ -287,13 +286,13 @@ func TestCache_RestartFromShutdownIsFreshOnLive(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	r1, _ := c.Get(componentID("zone1", "p1"))
 	rider1 := r1.Rider
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 	clk.Advance(5 * time.Minute) // within ghost retention
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	// Restart-from-shutdown is a fresh discovery: OnLive(prev=nil) fires.
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1", "live:p1"}, rec.snapshot())
@@ -306,11 +305,11 @@ func TestCache_VanishedToShutdownFiresOnGone(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyDelete(componentID("zone1", "p1"))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyDelete(componentID("zone1", "p1"))
 	// Entry is now Vanished. Pooler reappears as SHUTDOWN — first time OnGone
 	// fires for this entry.
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot())
 	_, ok := c.Get(componentID("zone1", "p1"))
@@ -323,12 +322,12 @@ func TestCache_DeleteOfGhostRemovesItSilently(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 	require.Len(t, c.Ghosts(), 1)
 
 	// Topology cleanup happens (external etcd delete).
-	c.ApplyDelete(componentID("zone1", "p1"))
+	c.applyDelete(componentID("zone1", "p1"))
 
 	assert.Equal(t, []string{"live:p1", "gone-shutdown:p1"}, rec.snapshot(),
 		"hard-deletion of a ghost must not produce any hook")
@@ -340,8 +339,8 @@ func TestCache_ZeroVanishedGraceFiresOnGoneInline(t *testing.T) {
 	c, rec := newTestCache(t, clk, time.Hour, 0)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyDelete(componentID("zone1", "p1"))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyDelete(componentID("zone1", "p1"))
 
 	assert.Equal(t, []string{"live:p1", "gone-vanished:p1"}, rec.snapshot())
 	_, ok := c.Get(componentID("zone1", "p1"))
@@ -353,26 +352,22 @@ func TestCache_GetByShardAndCellExcludeShutdownPoolers(t *testing.T) {
 	c, _ := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "alive", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "dead", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "dead", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	c.applyUpsert(pool("zone1", "alive", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "dead", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "dead", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
 	shard := c.GetByShard("db", "tg", "0")
 	require.Len(t, shard, 1, "shutdown pooler must not appear in shard reads")
 	assert.Equal(t, "alive", shard[0].Pooler.Id.Name)
-
-	zone := c.GetByCell("zone1")
-	require.Len(t, zone, 1)
-	assert.Equal(t, "alive", zone[0].Pooler.Id.Name)
 }
 
 func TestCache_ShutdownDisposesEverythingRemaining(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyDelete(componentID("zone1", "p2"))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyDelete(componentID("zone1", "p2"))
 
 	// Now: p1 is Live, p2 is Vanished. Both should fire OnGone on Shutdown.
 	c.Shutdown()
@@ -412,7 +407,7 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 		now:           clk.Now,
 	}
 	c := New(ctx, cfg)
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	cancel()
 
@@ -430,7 +425,7 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 func TestCache_RepeatShutdownIsIdempotent(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	c.Shutdown()
 	c.Shutdown()
@@ -463,7 +458,7 @@ func TestCache_ConcurrentShutdownAllBlockUntilDone(t *testing.T) {
 		now:           clk.Now,
 	}
 	c := New(t.Context(), cfg)
-	c.ApplyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	firstDone := make(chan struct{})
 	go func() {
@@ -510,9 +505,9 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 	c := New(t.Context(), cfg)
 	defer c.Shutdown()
 
-	c.ApplyUpsert(pool("zone1", "kept", "mydb", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
-	c.ApplyUpsert(pool("zone1", "dropped", "otherdb", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "kept", "mydb", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "dropped", "otherdb", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	assert.Equal(t, []string{"live:kept"}, rec.snapshot())
-	assert.Equal(t, 1, c.Count())
+	assert.Equal(t, 1, c.Len())
 }

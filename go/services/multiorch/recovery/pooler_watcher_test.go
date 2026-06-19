@@ -32,23 +32,21 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// newTestPoolerWatcher creates a PoolerWatcher backed by memorytopo for testing.
+// newTestPoolerCache creates a PoolerCache backed by memorytopo for testing.
 // onPoolerStopped and onPoolerDeleted default to nil; tests that need to
-// observe those events call NewPoolerWatcher directly (both branches in
+// observe those events call newPoolerCache directly (both branches in
 // handlePoolerEvent nil-check before invoking).
-func newTestPoolerWatcher(
+func newTestPoolerCache(
 	ctx context.Context,
 	ts topoclient.Store,
 	targets []config.WatchTarget,
-	poolerStore *store.PoolerCache,
 	onNewPooler func(*clustermetadata.ID),
 	logger *slog.Logger,
-) *PoolerWatcher {
-	return NewPoolerWatcher(
+) *store.PoolerCache {
+	return newPoolerCache(
 		ctx,
 		ts,
 		func() []config.WatchTarget { return targets },
-		poolerStore,
 		onNewPooler,
 		nil, /* onPoolerGone */
 		logger,
@@ -115,13 +113,12 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newTestPoolerCache(ctx, ts, targets, onNew, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Both poolers should be discovered
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -129,7 +126,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	})
 	require.True(t, ok, "expected 2 poolers to be discovered, got %d", poolerStore.Len())
 
-	p1, exists := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
 	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
 	assert.False(t, p1.IsUpToDate, "new pooler should not be marked up-to-date")
@@ -146,16 +143,15 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newTestPoolerCache(ctx, ts, targets, onNew, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Sync to confirm watcher started and processed initial (empty) topology
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 	assert.Equal(t, 0, poolerStore.Len())
 
 	// Add a pooler after the watcher has started
@@ -175,7 +171,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	})
 	require.True(t, ok, "expected pooler to be discovered after add")
 
-	p1, exists := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
 	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
 
@@ -201,13 +197,12 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, onNew, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newTestPoolerCache(ctx, ts, targets, onNew, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Wait for initial discovery
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -222,10 +217,10 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	// Simulate a health-check populating some state
 	pid := poolerKey("zone1", "pooler1")
-	existing, _ := poolerStore.Get(pid)
+	existing, _ := poolerStore.GetRider(pid)
 	existing.IsUpToDate = true
 	existing.IsLastCheckValid = true
-	poolerStore.Set(existing.MultiPooler, existing)
+	store.SeedCache(t, poolerStore, existing)
 
 	// Update the pooler metadata in topology (e.g., hostname change)
 	retrieved, err := ts.GetMultiPooler(ctx, &clustermetadata.ID{
@@ -237,19 +232,19 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	// Wait for the update to propagate
 	ok = waitForCondition(t, 5*time.Second, func() bool {
-		p, exists := poolerStore.Get(pid)
+		p, exists := poolerStore.GetRider(pid)
 		return exists && p.MultiPooler.Hostname == "host2"
 	})
 	require.True(t, ok, "expected hostname to be updated to host2")
 
 	// Health-check state should be preserved
-	updated, exists := poolerStore.Get(pid)
+	updated, exists := poolerStore.GetRider(pid)
 	require.True(t, exists)
 	assert.True(t, updated.IsUpToDate, "IsUpToDate should be preserved")
 	assert.True(t, updated.IsLastCheckValid, "IsLastCheckValid should be preserved")
 
 	// An update to an existing pooler should NOT trigger another onNewPooler callback
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 	assert.Equal(t, callbacksAfterDiscovery, countNew(), "existing pooler should not re-trigger callback on metadata update")
 }
 
@@ -286,13 +281,12 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 
 	// Only watch mydb/tg1
 	targets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newTestPoolerCache(ctx, ts, targets, func(*clustermetadata.ID) {}, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
 		return poolerStore.Len() >= 1
@@ -300,13 +294,13 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	require.True(t, ok)
 
 	// Sync to ensure all events (including filtered ones) have been processed
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 	assert.Equal(t, 1, poolerStore.Len(), "only the watched pooler should be in the store")
-	_, exists := poolerStore.Get(poolerKey("zone1", "watched"))
+	_, exists := poolerStore.GetRider(poolerKey("zone1", "watched"))
 	assert.True(t, exists)
-	_, exists = poolerStore.Get(poolerKey("zone1", "other-db"))
+	_, exists = poolerStore.GetRider(poolerKey("zone1", "other-db"))
 	assert.False(t, exists, "pooler in other database should be filtered out")
-	_, exists = poolerStore.Get(poolerKey("zone1", "other-tg"))
+	_, exists = poolerStore.GetRider(poolerKey("zone1", "other-tg"))
 	assert.False(t, exists, "pooler in other tablegroup should be filtered out")
 }
 
@@ -318,12 +312,11 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := newTestPoolerWatcher(ctx, ts, targets, poolerStore, func(*clustermetadata.ID) {}, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newTestPoolerCache(ctx, ts, targets, func(*clustermetadata.ID) {}, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Add a pooler in zone1
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -356,7 +349,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	})
 	require.True(t, ok, "expected zone2 pooler to be discovered after new cell added")
 
-	_, exists := poolerStore.Get(poolerKey("zone2", "pooler2"))
+	_, exists := poolerStore.GetRider(poolerKey("zone2", "pooler2"))
 	assert.True(t, exists)
 }
 
@@ -392,7 +385,6 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 
 	var goneIDs []*clustermetadata.ID
 	var goneMu sync.Mutex
@@ -403,21 +395,21 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	}
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
-		poolerStore, func(*clustermetadata.ID) {}, onGone, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return targets },
+		func(*clustermetadata.ID) {}, onGone, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		return poolerStore.Len() == 1
 	}))
 
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 
 	// Entry remains cached so analyzers see it during vanish grace.
 	assert.Equal(t, 1, poolerStore.Len(), "NoNode must leave the entry visible during grace")
-	_, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	_, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	assert.True(t, ok, "vanished pooler should still be cached during grace")
 
 	// onPoolerGone must not fire immediately — only after grace expiry.
@@ -451,7 +443,6 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 
 	var goneIDs []*clustermetadata.ID
 	var goneMu sync.Mutex
@@ -462,10 +453,10 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	}
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
-		poolerStore, func(*clustermetadata.ID) {}, onGone, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return targets },
+		func(*clustermetadata.ID) {}, onGone, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		return poolerStore.Len() == 1
@@ -480,11 +471,11 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 
 	// Store entry must be evicted: SHUTDOWN means gone.
 	assert.Equal(t, 0, poolerStore.Len(), "SHUTDOWN must evict the orch store")
-	_, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	_, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	assert.False(t, ok, "store entry must be gone after SHUTDOWN")
 
 	// onPoolerGone fires exactly once.
@@ -522,14 +513,13 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnNewPooler(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 	onNew, countNew := newCallbackTracker()
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
-		poolerStore, onNew, nil /* onPoolerGone */, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return targets },
+		onNew, nil /* onPoolerGone */, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Initial discovery fires onPoolerLive once.
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return countNew() == 1 }),
@@ -543,7 +533,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnNewPooler(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 	require.Equal(t, 0, poolerStore.Len(), "SHUTDOWN must evict the store")
 
 	// Pooler comes back: lifecycle transitions back to ACTIVE. The cache
@@ -587,7 +577,6 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewTestCache(t)
 	onNew, countNew := newCallbackTracker()
 
 	var goneCalls int
@@ -595,15 +584,15 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 	onGone := func(*clustermetadata.ID) { cbMu.Lock(); goneCalls++; cbMu.Unlock() }
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
-	watcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return targets },
-		poolerStore, onNew, onGone, logger)
-	watcher.Start()
-	defer watcher.Stop()
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return targets },
+		onNew, onGone, logger)
+	poolerStore.Start()
+	defer poolerStore.Shutdown()
 
 	// Give the watcher time to process the initial SHUTDOWN entry; it should
 	// reach a steady state with the store empty (cold-discovered SHUTDOWN
 	// poolers are tracked as ghosts in the cache, not as store entries).
-	require.NoError(t, watcher.Sync(ctx))
+	require.NoError(t, poolerStore.Sync(ctx))
 
 	assert.Equal(t, 0, poolerStore.Len(), "cold-discovered SHUTDOWN must not populate the orch store")
 	assert.Equal(t, 0, countNew(), "onPoolerLive must not fire for cold-discovered SHUTDOWN")

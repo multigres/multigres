@@ -106,7 +106,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -166,7 +166,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -177,7 +177,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -257,7 +257,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -275,7 +275,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		},
 		Lsn: "0/1234",
 	}
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -370,7 +370,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -381,7 +381,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
@@ -658,10 +658,10 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
 	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
 
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: replica,
 	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -781,10 +781,10 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
 	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
 
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: replica,
 	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{

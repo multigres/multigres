@@ -213,7 +213,7 @@ func (mo *MultiOrch) Init() error {
 func (mo *MultiOrch) Shutdown() {
 	mo.senv.GetLogger().Info("multiorch shutting down")
 	if mo.recoveryEngine != nil {
-		mo.recoveryEngine.Stop()
+		mo.recoveryEngine.Shutdown()
 	}
 	mo.tr.Unregister()
 	mo.ts.Close()

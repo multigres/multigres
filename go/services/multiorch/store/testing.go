@@ -19,16 +19,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 // NewTestCache builds a standalone PoolerCache for tests. It has no
-// topology source, so tests seed entries directly via Set or ApplyUpsert.
-// The OnLive and OnUpdate hooks mirror orch's production behavior so
-// production-flavored test paths (driving via ApplyUpsert) yield the same
-// PoolerHealthState rider shape.
+// topology source; tests seed entries via SeedCache. The OnLive and
+// OnUpdate hooks mirror orch's production behavior so test paths yield
+// the same PoolerHealthState rider shape.
 func NewTestCache(t *testing.T) *PoolerCache {
 	t.Helper()
 	return poolerwatch.New(t.Context(), poolerwatch.Config[*multiorchdatapb.PoolerHealthState]{
@@ -44,4 +44,23 @@ func NewTestCache(t *testing.T) *PoolerCache {
 		VanishedGrace: time.Hour,
 		Logger:        slog.Default(),
 	})
+}
+
+// SeedCache inserts a fully-formed PoolerHealthState via the legitimate
+// cache path (SeedForTest upsert + DoUpdate) and returns the entry's ID.
+//
+// The *testing.T argument is required so production code cannot call this
+// (production code has no testing.T to pass). The cache itself has no Set
+// method; production code reaches state through OnLive hooks.
+func SeedCache(t *testing.T, cache *PoolerCache, state *multiorchdatapb.PoolerHealthState) topoclient.ComponentID {
+	t.Helper()
+	if state == nil || state.MultiPooler == nil {
+		return ""
+	}
+	poolerwatch.SeedForTest(t, cache, state.MultiPooler)
+	id := topoclient.ComponentIDString(state.MultiPooler.Id)
+	cache.DoUpdate(id, func(*multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
+		return state
+	})
+	return id
 }

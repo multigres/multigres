@@ -135,10 +135,10 @@ func TestShardInitAction_GracePeriod(t *testing.T) {
 
 func TestShardInitAction_GetInitializedPoolers_FiltersByShard(t *testing.T) {
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-other", makePoolerState("cell1", "other", "otherdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-shard1", makePoolerState("cell1", "shard1", "testdb", "default", "1", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "other", "otherdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "shard1", "testdb", "default", "1", true, nil))
 
 	action := newTestAction(t, nil, ps, nil)
 	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
@@ -154,8 +154,8 @@ func TestShardInitAction_GetInitializedPoolers_CohortAlreadyEstablished(t *testi
 	existingCohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
 	}
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	action := newTestAction(t, nil, ps, nil)
 	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
@@ -166,7 +166,7 @@ func TestShardInitAction_GetInitializedPoolers_CohortAlreadyEstablished(t *testi
 
 func TestShardInitAction_GetInitializedPoolers_NotYetInitialized(t *testing.T) {
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", false, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", false, nil))
 
 	action := newTestAction(t, nil, ps, nil)
 	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
@@ -180,7 +180,7 @@ func TestShardInitAction_GetInitializedPoolers_NotYetInitialized(t *testing.T) {
 func TestShardInitAction_Execute_NoInitializedPoolers(t *testing.T) {
 	ps := newPoolerStore(t)
 	// Pooler exists but is not initialized
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", false, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", false, nil))
 
 	action := newTestAction(t, nil, ps, nil)
 	err := action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
@@ -193,7 +193,7 @@ func TestShardInitAction_Execute_CohortAlreadyEstablished(t *testing.T) {
 	existingCohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
 	}
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
 
 	coord := &mockCoordinator{}
 	action := newTestAction(t, coord, ps, nil)
@@ -205,7 +205,7 @@ func TestShardInitAction_Execute_CohortAlreadyEstablished(t *testing.T) {
 
 func TestShardInitAction_Execute_GetBootstrapPolicyError(t *testing.T) {
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicyErr: errors.New("etcd unreachable")}
 	action := newTestAction(t, coord, ps, nil)
@@ -219,7 +219,7 @@ func TestShardInitAction_Execute_GetBootstrapPolicyError(t *testing.T) {
 func TestShardInitAction_Execute_InsufficientInitializedPoolers(t *testing.T) {
 	ps := newPoolerStore(t)
 	// Only 1 initialized pooler but policy requires 2
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	action := newTestAction(t, coord, ps, nil)
@@ -232,8 +232,8 @@ func TestShardInitAction_Execute_InsufficientInitializedPoolers(t *testing.T) {
 
 func TestShardInitAction_Execute_Success(t *testing.T) {
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
@@ -254,10 +254,10 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	// from etcd, NOT the current pooler store contents.
 	ps := newPoolerStore(t)
 	// Pooler store has all four poolers, but the committed cohort only has prior-p1/prior-p2.
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-prior-p1", makePoolerState("cell1", "prior-p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-prior-p2", makePoolerState("cell1", "prior-p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
@@ -287,8 +287,8 @@ func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 	// A different coordinator already claimed this shard. We should back off
 	// without calling AppointInitialLeader.
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
@@ -311,8 +311,8 @@ func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 
 func TestShardInitAction_Execute_AppointInitialLeaderError(t *testing.T) {
 	ps := newPoolerStore(t)
-	ps.Set("multipooler-cell1-p1", makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
-	ps.Set("multipooler-cell1-p2", makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{
 		bootstrapPolicy:         topoclient.AtLeastN(2),

@@ -626,9 +626,13 @@ func (lb *LoadBalancer) Close() error {
 	return lastErr
 }
 
-// LoadBalancerListener adapts a LoadBalancer to topoclient.PoolerCache's
-// ChangeFn subscription API: upserts route to AddPooler, deletions route to
+// LoadBalancerListener adapts a LoadBalancer to the cache's prev/curr
+// change-event API: upserts route to AddPooler, deletions route to
 // RemovePooler.
+//
+// TODO: remove once the load balancer consumes poolerwatch's OnLive/OnUpdate/
+// OnGone hooks directly. This adapter is paired with
+// poolerwatch.PoolerCache.SubscribeChanges and will be deleted together.
 type LoadBalancerListener struct {
 	lb *LoadBalancer
 }

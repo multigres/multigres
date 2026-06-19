@@ -204,9 +204,6 @@ type Engine struct {
 	bookkeepingRunner *timer.PeriodicRunner
 	recoveryRunner    *timer.PeriodicRunner
 
-	// Watcher-based topology discovery
-	poolerWatcher *PoolerWatcher
-
 	// Detected problems tracking (replaced each cycle)
 	detectedProblemsMu sync.Mutex
 	detectedProblems   []types.Problem // For metrics and gRPC diagnostics
@@ -256,7 +253,7 @@ func NewEngine(
 	// at fire time, which is after we set it below.
 	var healthStream *HealthStream
 
-	engine.poolerWatcher = NewPoolerWatcher(
+	engine.poolerStore = newPoolerCache(
 		ctx,
 		ts,
 		engine.getWatchTargets,
@@ -272,7 +269,6 @@ func NewEngine(
 		},
 		logger,
 	)
-	engine.poolerStore = engine.poolerWatcher.Cache()
 	healthStream = NewHealthStream(ctx, rpcClient, engine.poolerStore, logger)
 	engine.healthStream = healthStream
 
@@ -283,7 +279,7 @@ func NewEngine(
 		logger.Error("failed to initialize recovery metrics", "error", err)
 	}
 
-	err = engine.metrics.RegisterPoolerStoreSizeCallback(engine.poolerStore.Count)
+	err = engine.metrics.RegisterPoolerStoreSizeCallback(engine.poolerStore.Len)
 	if err != nil {
 		logger.Error("failed to monitor pooler store size", "error", err)
 	}
@@ -343,23 +339,23 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle(ctx)
 	}, nil)
 
-	// Start watcher-based topology discovery.
-	// New poolers discovered by the watcher will have a stream started via the
-	// healthStream.Start callback registered in NewEngine.
-	re.poolerWatcher.Start()
+	// Start the pooler cache (watch + sweeper). New poolers discovered will
+	// have a stream started via the healthStream.Start callback registered in
+	// NewEngine.
+	re.poolerStore.Start()
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
 }
 
-// Stop gracefully shuts down the RecoveryEngine.
+// Shutdown gracefully shuts down the RecoveryEngine.
 // It cancels the context and waits for all goroutines to finish.
-func (re *Engine) Stop() {
+func (re *Engine) Shutdown() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
-	re.poolerWatcher.Stop()
+	re.poolerStore.Shutdown()
 	re.healthStream.Shutdown()
 	re.logger.Info("recovery engine stopped")
 }

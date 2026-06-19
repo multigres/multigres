@@ -155,7 +155,6 @@ type Config[T any] struct {
 	// (e.g., a configurable WatchTargets list). It must not block.
 	Filter func(*clustermetadatapb.MultiPooler) bool
 
-
 	// ShutdownGrace is how long an entry is retained after lifecycle
 	// transitions to LIFECYCLE_SHUTDOWN. Zero means OnDispose fires
 	// synchronously after OnGone (no waiting for a sweep).
@@ -296,14 +295,14 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 // deletes. Tests that drive disposal via Sweep() and events via the
 // package-internal apply helpers can skip Start.
 func (c *PoolerCache[T]) Start() {
-	c.sweeper.Start(func(context.Context) { c.Sweep() }, nil)
+	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
 	if c.topoSource != nil {
 		c.topoUnsub = c.topoSource.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
 			if curr == nil {
-				c.ApplyDelete(topoclient.ComponentIDString(prev.Id))
+				c.applyDelete(topoclient.ComponentIDString(prev.Id))
 				return
 			}
-			c.ApplyUpsert(curr)
+			c.applyUpsert(curr)
 		})
 		c.topoSource.Start()
 	}
@@ -408,21 +407,9 @@ func (c *PoolerCache[T]) GetByShard(database, tableGroup, shard string) []Entry[
 	return out
 }
 
-// GetByCell returns every entry in the given cell. Returns all states.
-func (c *PoolerCache[T]) GetByCell(cell string) []Entry[T] {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	bucket := c.byCell[cell]
-	out := make([]Entry[T], 0, len(bucket))
-	for _, e := range bucket {
-		out = append(out, entrySnapshot(e))
-	}
-	return out
-}
-
 // All returns every read-visible entry (Live or Vanished). Ghosts are not
 // included. Intended for cross-shard scans like metric collection or
-// bookkeeping; for ordinary lookups prefer Get / GetByShard / GetByCell.
+// bookkeeping; for ordinary lookups prefer Get / GetByShard.
 func (c *PoolerCache[T]) All() []Entry[T] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -433,12 +420,67 @@ func (c *PoolerCache[T]) All() []Entry[T] {
 	return out
 }
 
-// Count returns the number of entries currently tracked, including those
+// Len returns the number of entries currently tracked, including those
 // in Stopped or Vanished state awaiting disposal.
-func (c *PoolerCache[T]) Count() int {
+func (c *PoolerCache[T]) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.entries)
+}
+
+// CellStatus is a per-cell summary of the topology view: every pooler
+// observed in the cell (regardless of lifecycle state) and the wall-clock
+// time of the most recent watch event from that cell.
+type CellStatus = topoclient.CellStatus
+
+// CellStatuses returns per-cell status sorted alphabetically by cell name.
+// Reflects the raw topology view (every observed pooler, including
+// SHUTDOWN); intended for admin/status pages, not the hot query path.
+// Returns nil if no topology source was configured.
+func (c *PoolerCache[T]) CellStatuses() []CellStatus {
+	if c.topoSource == nil {
+		return nil
+	}
+	return c.topoSource.CellStatuses()
+}
+
+// SubscribeChanges registers fn for every pooler change event observed by
+// the underlying topology watch. fn is called with (prev, curr):
+//   - prev == nil, curr != nil → insert
+//   - prev != nil, curr != nil → update
+//   - prev != nil, curr == nil → delete
+//
+// Events bypass the cache's lifecycle policy (grace periods, ghosts) — they
+// reflect the raw topology stream. If Config.Filter is set, events for
+// poolers that pass the filter on either side of the transition are kept;
+// fully-filtered transitions are dropped.
+//
+// The returned function unsubscribes fn. Returns a no-op if no topology
+// source was configured.
+//
+// TODO: remove once LoadBalancer is refactored to consume OnLive/OnUpdate/
+// OnGone hooks directly. This adapter exists to ease the gateway port off
+// the legacy topoclient.PoolerCache.
+func (c *PoolerCache[T]) SubscribeChanges(fn func(prev, curr *clustermetadatapb.MultiPooler)) func() {
+	if c.topoSource == nil {
+		return func() {}
+	}
+	filter := c.config.Filter
+	return c.topoSource.Subscribe(func(prev, curr *clustermetadatapb.MultiPooler) {
+		if filter != nil {
+			keep := false
+			if prev != nil && filter(prev) {
+				keep = true
+			}
+			if curr != nil && filter(curr) {
+				keep = true
+			}
+			if !keep {
+				return
+			}
+		}
+		fn(prev, curr)
+	})
 }
 
 // DoUpdate atomically reads the rider for id, calls fn to compute the new
@@ -459,41 +501,14 @@ func (c *PoolerCache[T]) DoUpdate(id topoclient.ComponentID, fn func(curr T) T) 
 	e.rider = fn(e.rider)
 }
 
-// Len is an alias for Count, kept for ergonomic familiarity.
-func (c *PoolerCache[T]) Len() int { return c.Count() }
-
-// Forget explicitly removes a read-visible entry and fires OnGone(reason).
-// Used by callers (e.g. health-stale bookkeeping) that need to evict an
-// entry based on out-of-band signals the cache itself cannot observe.
-//
-// If the entry is not in the read-visible map (already removed, never
-// existed, or currently a Ghost), Forget is a no-op.
-func (c *PoolerCache[T]) Forget(id topoclient.ComponentID, reason GoneReason) {
-	c.mu.Lock()
-	e, ok := c.entries[id]
-	if !ok {
-		c.mu.Unlock()
-		return
-	}
-	delete(c.entries, id)
-	c.indexRemove(e)
-	hooks := c.config.Hooks
-	pooler := e.pooler
-	rider := e.rider
-	c.mu.Unlock()
-	if hooks.OnGone != nil {
-		hooks.OnGone(pooler, rider, reason)
-	}
-}
-
-// Sweep scans for entries and ghosts whose grace deadline has passed:
+// sweep scans for entries and ghosts whose grace deadline has passed:
 //   - Vanished entries fire OnGone(Vanished) and are removed.
 //   - Ghosts (post-SHUTDOWN) are removed silently — OnGone already fired at
 //     the moment of SHUTDOWN.
 //
 // Called automatically by the background goroutine when Start was invoked;
 // tests can call it directly.
-func (c *PoolerCache[T]) Sweep() {
+func (c *PoolerCache[T]) sweep() {
 	now := c.config.now()
 	c.mu.Lock()
 	if c.closed {
@@ -596,7 +611,7 @@ func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermet
 	c.indexInsert(e)
 }
 
-// ApplyUpsert ingests an upsert event from a topology source. Until this
+// applyUpsert ingests an upsert event from a topology source. Until this
 // package owns its own watch loop, callers wire it to an external watch.
 //
 // Events are silently dropped if Config.Filter is set and returns false for
@@ -618,7 +633,7 @@ func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermet
 //   - Stopped → Live (restart-from-shutdown): OnLive(p, zero) fires fresh —
 //     the previous rider was already released through OnGone.
 //   - Stopped → SHUTDOWN: silent proto refresh; no hooks.
-func (c *PoolerCache[T]) ApplyUpsert(pooler *clustermetadatapb.MultiPooler) {
+func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.MultiPooler) {
 	if c.config.Filter != nil && !c.config.Filter(pooler) {
 		return
 	}
@@ -764,7 +779,7 @@ func (c *PoolerCache[T]) addGhostLocked(id topoclient.ComponentID, poolerID *clu
 	}
 }
 
-// ApplyDelete ingests a topology deletion (NoNode) event for the given
+// applyDelete ingests a topology deletion (NoNode) event for the given
 // pooler ID.
 //
 //   - If the pooler is currently a read-visible entry (Live or Vanished),
@@ -775,7 +790,7 @@ func (c *PoolerCache[T]) addGhostLocked(id topoclient.ComponentID, poolerID *clu
 //   - If the pooler is a ghost (we observed its SHUTDOWN earlier), the
 //     deletion confirms cleanup happened: the ghost is removed silently.
 //   - Unknown ID: no-op.
-func (c *PoolerCache[T]) ApplyDelete(id topoclient.ComponentID) {
+func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 	now := c.config.now()
 	c.mu.Lock()
 	if c.closed {

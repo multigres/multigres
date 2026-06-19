@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -67,7 +68,7 @@ type MultiGateway struct {
 	pgRequireSSL viperutil.Value[bool]
 	// poolerCache caches discovered multipoolers across all cells and fans out
 	// change notifications to subscribers (e.g. the load balancer, status page).
-	poolerCache *topoclient.PoolerCache
+	poolerCache *poolerwatch.PoolerCache[struct{}]
 	// poolerGateway manages connections to poolers
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
@@ -333,8 +334,20 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
-	// Start pooler discovery (watches all cells).
-	mg.poolerCache = topoclient.NewPoolerCache(mg.shutdownCtx, mg.ts, logger)
+	// Start pooler discovery (watches all cells). The gateway does not need a
+	// per-pooler rider; it only consumes change events and the per-cell status
+	// view. ShutdownGrace/VanishedGrace are zero — load balancing wants
+	// immediate visibility into membership changes.
+	//
+	// TODO: collapse LoadBalancer's connections map into the rider. Today the
+	// LB keeps its own ID→*PoolerConnection registry (which owns the per-pooler
+	// health stream); making the rider *PoolerConnection would let OnLive
+	// construct it, OnGone close it, and the LB query the cache for
+	// connections — mirroring the same cleanup planned for orch's HealthStream.
+	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[struct{}]{
+		Source: mg.ts,
+		Logger: logger,
+	})
 	mg.poolerCache.Start()
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
@@ -354,7 +367,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			time.Duration(highToleranceMs)*time.Millisecond,
 		)
 	}
-	mg.poolerCache.Subscribe(poolergateway.NewLoadBalancerListener(loadBalancer).OnChange)
+	mg.poolerCache.SubscribeChanges(poolergateway.NewLoadBalancerListener(loadBalancer).OnChange)
 	logger.InfoContext(ctx, "LoadBalancer subscribed to pooler cache")
 
 	// Create failover buffer if enabled.
@@ -626,7 +639,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if len(mg.serverStatus.InitError) > 0 {
 			return errors.New(mg.serverStatus.InitError)
 		}
-		if mg.poolerCache.Count() == 0 {
+		if mg.poolerCache.Len() == 0 {
 			return errors.New("no poolers discovered")
 		}
 		return nil
@@ -704,7 +717,7 @@ func (mg *MultiGateway) Shutdown() {
 
 	// Stop pooler cache
 	if mg.poolerCache != nil {
-		mg.poolerCache.Stop()
+		mg.poolerCache.Shutdown()
 		mg.senv.GetLogger().Info("Pooler cache stopped")
 	}
 
