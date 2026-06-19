@@ -103,6 +103,12 @@ func TestPostgreSQLRegression(t *testing.T) {
 		builder.Cleanup()
 	})
 
+	// The core compression regression test expects lz4 support in PostgreSQL;
+	// without --with-lz4, a stock run fails before exercising Multigres behavior.
+	if runRegress {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, "--with-lz4")
+	}
+
 	// Two contrib modules need optional build features enabled at ./configure.
 	// Enable them only when the contrib suite runs so regression/isolation-only
 	// builds (and other pgbuilder callers) are unaffected and can't be broken

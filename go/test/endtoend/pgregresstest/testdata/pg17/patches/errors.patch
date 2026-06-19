@@ -49,17 +49,6 @@
  -- no such relation
  alter table nonesuch rename to newnonesuch;
  ERROR: relation "nonesuch" does not exist
-@@ -114,10 +106,8 @@
- -- TRANSACTION STUFF
- -- not in a xact
- abort;
--WARNING: there is no transaction in progress
- -- not in a xact
- end;
--WARNING: there is no transaction in progress
- --
- -- CREATE AGGREGATE
- -- sfunc/finalfunc type disagreement
 @@ -136,14 +126,10 @@
  -- DROP INDEX
  -- missing index name
