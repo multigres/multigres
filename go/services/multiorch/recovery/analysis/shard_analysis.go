@@ -19,6 +19,7 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -29,6 +30,16 @@ import (
 type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 	Analyses []*PoolerAnalysis
+
+	// GhostIDs is the set of pooler IDs the cache has marked as SHUTDOWN
+	// ghosts cluster-wide. Analyzers consult it to detect cohort members
+	// that have explicitly drained (and therefore had their riders evicted
+	// from the live cache, so they don't appear in Analyses) versus poolers
+	// that are merely missing from the cache for transient reasons. Cohort
+	// scope is enforced naturally: cohort membership is per-shard, so a
+	// missing cohort member found here is necessarily a shutdown of THIS
+	// shard's pooler.
+	GhostIDs map[topoclient.ComponentID]struct{}
 
 	// HighestShardRule is the highest known consensus rule across all poolers in
 	// the shard (commonconsensus.HighestKnownRule), or nil if no leader is known.

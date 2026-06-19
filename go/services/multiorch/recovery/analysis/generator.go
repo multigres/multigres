@@ -53,6 +53,10 @@ type PoolersByShard map[string]map[string]map[string]map[topoclient.ComponentID]
 type AnalysisGenerator struct {
 	poolerStore    *store.PoolerCache
 	poolersByShard PoolersByShard
+	// ghostIDs is the set of pooler IDs the cache currently tracks as
+	// SHUTDOWN ghosts — riders evicted by OnGone but retained for cleanup.
+	// Surfaced to analyzers via ShardAnalysis.GhostIDs.
+	ghostIDs map[topoclient.ComponentID]struct{}
 	// policyLookup returns the bootstrap durability policy for a database name.
 	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
 	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
@@ -60,8 +64,9 @@ type AnalysisGenerator struct {
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
-// It eagerly builds the poolersByShard map from the current store state.
-// policyLookup is optional; pass nil if the bootstrap policy is unavailable.
+// It eagerly builds the poolersByShard map and ghost set from the current
+// store state. policyLookup is optional; pass nil if the bootstrap policy
+// is unavailable.
 func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore:  poolerStore,
@@ -69,6 +74,13 @@ func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(data
 		now:          time.Now,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
+	if poolerStore != nil {
+		ghosts := poolerStore.Ghosts()
+		g.ghostIDs = make(map[topoclient.ComponentID]struct{}, len(ghosts))
+		for _, gh := range ghosts {
+			g.ghostIDs[topoclient.ComponentIDString(gh.ID)] = struct{}{}
+		}
+	}
 	return g
 }
 
@@ -108,7 +120,7 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.Sh
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
 func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*store.Pooler) *ShardAnalysis {
-	sa := &ShardAnalysis{ShardKey: shardKey}
+	sa := &ShardAnalysis{ShardKey: shardKey, GhostIDs: g.ghostIDs}
 	for _, pooler := range poolers {
 		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
 	}

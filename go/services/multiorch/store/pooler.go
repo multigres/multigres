@@ -16,6 +16,7 @@ package store
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"google.golang.org/protobuf/proto"
 
@@ -63,49 +64,63 @@ import (
 type Pooler struct {
 	HealthStream *HealthStream
 
+	// state is an immutable snapshot published by Mutate via copy-on-write
+	// and read by Health via atomic load. mu serializes concurrent Mutate
+	// callers (so their clone+modify+store sequences don't lose updates).
+	// Readers never need the mutex — atomic.Load yields a published snapshot
+	// that is by-construction never modified.
 	mu    sync.Mutex
-	state *multiorchdatapb.PoolerHealthState
+	state atomic.Pointer[multiorchdatapb.PoolerHealthState]
 }
 
 // NewPooler constructs a Pooler with the given initial health state.
 // The initial state is stored as-is (no clone) since the caller is
 // surrendering ownership to the rider.
 func NewPooler(initial *multiorchdatapb.PoolerHealthState, hs *HealthStream) *Pooler {
-	return &Pooler{HealthStream: hs, state: initial}
-}
-
-// Health returns an independent clone of the pooler's health state.
-// Callers may mutate the returned proto freely — it is not shared with
-// any future Mutate. Returns nil if the rider was constructed with a
-// nil initial state.
-func (p *Pooler) Health() *multiorchdatapb.PoolerHealthState {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.state == nil {
-		return nil
+	p := &Pooler{HealthStream: hs}
+	if initial != nil {
+		p.state.Store(initial)
 	}
-	return proto.Clone(p.state).(*multiorchdatapb.PoolerHealthState)
+	return p
 }
 
-// Mutate runs fn against the pooler's health state under the rider's
-// lock. fn may read AND write fields freely; the snapshot it sees is
-// consistent for the duration of the call (no concurrent Mutate or
-// reader can observe a partial update). fn is invoked at most once.
+// Health returns the pooler's current health state snapshot. Returns nil
+// if no state has been published yet.
 //
-// The state passed to fn is a clone of the current state, so subsequent
-// readers (who get their own clones) are unaffected if fn returns early
-// or panics before completing — only fn's final mutations are published.
+// IMPORTANT: callers MUST NOT mutate the returned proto. The snapshot is
+// shared with other readers and with future Mutate calls (which copy the
+// current pointer as their starting point). Mutating it would corrupt
+// state visible to other goroutines.
+//
+// (Why no clone-on-read: snapshots are immutable by construction —
+// Mutate always allocates a new proto and atomic-publishes it — so the
+// safety contract is "writers don't reach in," not "readers defensively
+// copy." Read paths are hot — analyzers call Health() in tight loops —
+// so cloning every read would be wasteful.)
+func (p *Pooler) Health() *multiorchdatapb.PoolerHealthState {
+	return p.state.Load()
+}
+
+// Mutate copy-on-writes the health state. fn receives a clone of the
+// current state; mutate it freely. The clone is atomically published as
+// the new snapshot when fn returns.
+//
+// The rider's mu serializes concurrent Mutate callers so that one's
+// store doesn't overwrite another's mutations. Inside fn, no concurrent
+// Mutate or reader can observe a partial update (the new pointer is
+// only published at function return).
 func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	curr := p.state.Load()
 	var next *multiorchdatapb.PoolerHealthState
-	if p.state == nil {
+	if curr == nil {
 		next = &multiorchdatapb.PoolerHealthState{}
 	} else {
-		next = proto.Clone(p.state).(*multiorchdatapb.PoolerHealthState)
+		next = proto.Clone(curr).(*multiorchdatapb.PoolerHealthState)
 	}
 	fn(next)
-	p.state = next
+	p.state.Store(next)
 }
 
 // IsInitialized reports whether the pooler has been initialized. A pooler is

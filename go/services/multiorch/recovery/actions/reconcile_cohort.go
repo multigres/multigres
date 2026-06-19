@@ -80,18 +80,6 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to find target pooler")
-	}
-
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
-	leader := members.Leader
-	if leader == nil || members.HighestKnownRule == nil {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", problem.ShardKey)
-	}
-
 	var op multipoolermanagerdatapb.CohortUpdateOperation
 	switch problem.Code {
 	case types.ProblemPoolerNotInCohort:
@@ -103,6 +91,28 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
 	}
 
+	// For ADD we need the pooler to be live in the cache (the cohort grows
+	// only if we have a healthy replica). For REMOVE the pooler may already
+	// be gone from the cache (the whole point of "cohort member is no longer
+	// tracked"), so we operate on the problem's raw ID directly.
+	var targetID *clustermetadatapb.ID
+	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD {
+		target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to find target pooler")
+		}
+		targetID = target.Health().MultiPooler.Id
+	} else {
+		targetID = problem.PoolerID
+	}
+
+	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	leader := members.Leader
+	if leader == nil || members.HighestKnownRule == nil {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no consensus leader known for shard %s", problem.ShardKey)
+	}
+
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
 	// call. The proto already accepts repeated standby_ids; the analyzer emits
 	// one Problem per pooler and the recovery engine dispatches one action per
@@ -112,7 +122,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// same-operation problems would cut RPC fanout and history churn.
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
-		StandbyIds:           []*clustermetadatapb.ID{target.Health().MultiPooler.Id},
+		StandbyIds:           []*clustermetadatapb.ID{targetID},
 		ExpectedOutgoingRule: members.HighestKnownRule.GetRuleNumber(),
 	}
 
@@ -121,7 +131,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	}
 
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
-		"target", target.Health().MultiPooler.Id.Name,
+		"target", targetID.Name,
 		"primary", leader.Health().MultiPooler.Id.Name,
 		"operation", op.String())
 	return nil
