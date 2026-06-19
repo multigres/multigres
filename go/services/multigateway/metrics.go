@@ -241,10 +241,10 @@ func (m *GatewayMetrics) RecordTLSHandshake(ctx context.Context, negotiation, ou
 			attribute.String("outcome", outcome)))
 }
 
-// RecordTLSConnection increments the completed-TLS-connections counter tagged
-// with the negotiation style (negotiated vs direct) plus the negotiated
-// tls_version and cipher_suite. Names come from crypto/tls so they match
-// Go's published constants (e.g. "TLS 1.3", "TLS_AES_128_GCM_SHA256").
+// RecordTLSConnection increments the admitted completed-TLS-connections
+// counter tagged with the negotiation style (negotiated vs direct) plus the
+// negotiated tls_version and cipher_suite. Names come from crypto/tls so they
+// match Go's published constants (e.g. "TLS 1.3", "TLS_AES_128_GCM_SHA256").
 func (m *GatewayMetrics) RecordTLSConnection(ctx context.Context, negotiation string, version, cipher uint16) {
 	if m == nil {
 		return

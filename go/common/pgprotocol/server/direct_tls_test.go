@@ -30,6 +30,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"io"
@@ -72,6 +73,37 @@ func startDirectTLSServer(t *testing.T, tlsConfig *tls.Config, configure func(*C
 	}()
 
 	return ln, errCh
+}
+
+type recordingAuthMetrics struct {
+	tlsHandshakes  map[string]int
+	tlsConnections []string
+	directRejected map[string]int
+}
+
+func newRecordingAuthMetrics() *recordingAuthMetrics {
+	return &recordingAuthMetrics{
+		tlsHandshakes:  make(map[string]int),
+		directRejected: make(map[string]int),
+	}
+}
+
+func (r *recordingAuthMetrics) RecordSCRAMDuration(context.Context, string, time.Duration) {}
+func (r *recordingAuthMetrics) RecordAuthAttempt(context.Context, string)                  {}
+func (r *recordingAuthMetrics) RecordCredentialLookup(context.Context, time.Duration)      {}
+func (r *recordingAuthMetrics) RecordPlaintextRejected(context.Context, string)            {}
+func (r *recordingAuthMetrics) RecordSSLRequestDeclined(context.Context)                   {}
+
+func (r *recordingAuthMetrics) RecordTLSHandshake(_ context.Context, negotiation, outcome string, _ time.Duration) {
+	r.tlsHandshakes[negotiation+"/"+outcome]++
+}
+
+func (r *recordingAuthMetrics) RecordTLSConnection(_ context.Context, negotiation string, _, _ uint16) {
+	r.tlsConnections = append(r.tlsConnections, negotiation)
+}
+
+func (r *recordingAuthMetrics) RecordDirectTLSRejected(_ context.Context, reason string) {
+	r.directRejected[reason]++
 }
 
 // dialDirect opens a TCP connection and immediately performs a client-side
@@ -162,6 +194,54 @@ func TestDirectTLS_RejectedWithoutALPN(t *testing.T) {
 	assert.Equal(t, "FATAL", diag.Severity)
 	assert.Equal(t, mterrors.PgSSProtocolViolation, diag.Code)
 	assert.Contains(t, diag.Message, "without ALPN protocol negotiation extension")
+}
+
+func TestDirectTLS_MetricsCountOnlyAdmittedConnections(t *testing.T) {
+	t.Run("missing ALPN is rejected but not counted as a TLS connection", func(t *testing.T) {
+		tlsConfig, caPool := generateTestTLSConfig(t)
+		metrics := newRecordingAuthMetrics()
+		ln, errCh := startDirectTLSServer(t, tlsConfig, func(c *Conn) {
+			c.authMetrics = metrics
+		})
+
+		dialDirect(t, ln.Addr().String(), &tls.Config{
+			RootCAs:    caPool,
+			ServerName: "localhost",
+			MinVersion: tls.VersionTLS12,
+		})
+
+		err := <-errCh
+		require.Error(t, err)
+		assert.Equal(t, 1, metrics.tlsHandshakes[TLSNegotiationDirect+"/"+TLSOutcomeSuccess],
+			"TLS handshake still completed successfully")
+		assert.Empty(t, metrics.tlsConnections,
+			"ALPN-rejected direct TLS must not be counted as an admitted TLS connection")
+		assert.Equal(t, 1, metrics.directRejected[DirectTLSRejectedReasonNoALPN])
+	})
+
+	t.Run("accepted direct TLS is counted after ALPN validation", func(t *testing.T) {
+		tlsConfig, caPool := generateTestTLSConfig(t)
+		metrics := newRecordingAuthMetrics()
+		ln, errCh := startDirectTLSServer(t, tlsConfig, func(c *Conn) {
+			c.authMetrics = metrics
+		})
+
+		tlsConn := dialDirect(t, ln.Addr().String(), &tls.Config{
+			RootCAs:    caPool,
+			ServerName: "localhost",
+			MinVersion: tls.VersionTLS12,
+			NextProtos: []string{protocol.ALPNProtocol},
+		})
+		writeStartupPacketToPipe(t, tlsConn, protocol.ProtocolVersionNumber, map[string]string{
+			"user": "metrics_direct_user",
+		})
+		scramClientHelper(t, tlsConn, "metrics_direct_user", "postgres")
+
+		require.NoError(t, <-errCh)
+		assert.Equal(t, 1, metrics.tlsHandshakes[TLSNegotiationDirect+"/"+TLSOutcomeSuccess])
+		assert.Equal(t, []string{TLSNegotiationDirect}, metrics.tlsConnections)
+		assert.Empty(t, metrics.directRejected)
+	})
 }
 
 // TestDirectTLS_RejectedWithoutALPN_WireLevel drives the full serve() path

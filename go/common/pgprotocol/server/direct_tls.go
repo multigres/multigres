@@ -136,13 +136,15 @@ func (c *Conn) handleDirectTLS() error {
 	// let serve()'s startup-error path deliver it through the tunnel —
 	// strictly more debuggable for the operator of a misconfigured client,
 	// and wire-safe because the bytes are encrypted.
-	if tlsConn.ConnectionState().NegotiatedProtocol != protocol.ALPNProtocol {
+	connState := tlsConn.ConnectionState()
+	if connState.NegotiatedProtocol != protocol.ALPNProtocol {
 		c.metrics().RecordDirectTLSRejected(c.ctx, DirectTLSRejectedReasonNoALPN)
 		c.logger.Warn("rejecting direct TLS connection: no ALPN protocol negotiated",
 			"remote_addr", c.RemoteAddr())
 		return mterrors.NewPgError("FATAL", mterrors.PgSSProtocolViolation,
 			"received direct SSL connection request without ALPN protocol negotiation extension", "")
 	}
+	c.metrics().RecordTLSConnection(c.ctx, TLSNegotiationDirect, connState.Version, connState.CipherSuite)
 
 	return nil
 }

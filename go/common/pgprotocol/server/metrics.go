@@ -96,11 +96,13 @@ type AuthMetricsRecorder interface {
 	// handshake wall-clock duration, and one of the TLSOutcome* values.
 	RecordTLSHandshake(ctx context.Context, negotiation, outcome string, d time.Duration)
 
-	// RecordTLSConnection is called once per connection that completed
+	// RecordTLSConnection is called once per admitted connection that completed
 	// TLS negotiation, tagged with the negotiation style (one of the
 	// TLSNegotiation* values) plus the negotiated tls_version and
 	// cipher_suite (raw uint16 values from crypto/tls; the recorder
-	// stringifies via tls.VersionName / tls.CipherSuiteName).
+	// stringifies via tls.VersionName / tls.CipherSuiteName). Direct-TLS
+	// handshakes rejected after TLS (for example, missing ALPN) are tracked via
+	// RecordDirectTLSRejected but are not counted here.
 	RecordTLSConnection(ctx context.Context, negotiation string, version, cipher uint16)
 
 	// RecordDirectTLSRejected is called when a direct-TLS (TLS-first)

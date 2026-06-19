@@ -212,17 +212,20 @@ func (c *Conn) handleSSLRequest() error {
 		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
-	if _, err := c.completeTLSHandshake(c.conn, c.tlsConfig, TLSNegotiationNegotiated); err != nil {
+	tlsConn, err := c.completeTLSHandshake(c.conn, c.tlsConfig, TLSNegotiationNegotiated)
+	if err != nil {
 		return err
 	}
+	connState := tlsConn.ConnectionState()
+	c.metrics().RecordTLSConnection(c.ctx, TLSNegotiationNegotiated, connState.Version, connState.CipherSuite)
 
 	// Read the actual startup message over the encrypted connection.
 	return c.readAndDispatchStartup()
 }
 
 // completeTLSHandshake runs the server-side TLS handshake on transport using
-// the supplied base config, records the handshake metrics tagged with the
-// negotiation style (negotiated vs direct), and on success installs the TLS
+// the supplied base config, records the handshake-attempt metrics tagged with
+// the negotiation style (negotiated vs direct), and on success installs the TLS
 // connection as this connection's transport: c.conn is swapped to the
 // *tls.Conn, the buffered reader is reset onto it, and tlsHandshakeComplete
 // is set. It also captures the server leaf certificate so SCRAM-SHA-256-PLUS
@@ -256,7 +259,6 @@ func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, neg
 	handshakeDuration := time.Since(handshakeStart)
 	c.metrics().RecordTLSHandshake(c.ctx, negotiation, TLSOutcomeSuccess, handshakeDuration)
 	connState := tlsConn.ConnectionState()
-	c.metrics().RecordTLSConnection(c.ctx, negotiation, connState.Version, connState.CipherSuite)
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
