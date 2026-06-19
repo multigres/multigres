@@ -55,7 +55,7 @@ const StaleLeaderDrainTimeout = 5 * time.Second
 type DemoteStaleLeaderAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.PoolerStore
+	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -64,7 +64,7 @@ type DemoteStaleLeaderAction struct {
 func NewDemoteStaleLeaderAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerStore,
+	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *DemoteStaleLeaderAction {
@@ -115,7 +115,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 		"stale_leader", poolerIDStr)
 
 	// Get the stale leader from the store
-	staleLeader, ok := a.poolerStore.Get(poolerIDStr)
+	staleLeader, ok := a.poolerStore.GetRider(poolerIDStr)
 	if !ok {
 		return fmt.Errorf("stale leader %s not found in store", poolerIDStr)
 	}
@@ -132,7 +132,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// Identify the rewind target from cached consensus state: the leader named by
 	// the highest known rule across the shard (the global consensus view, never a
 	// node's local self-claim).
-	members := a.poolerStore.FindShardMembers(problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	correctLeader, correctRule := members.Leader, members.HighestKnownRule
 	if correctLeader == nil || correctRule == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,

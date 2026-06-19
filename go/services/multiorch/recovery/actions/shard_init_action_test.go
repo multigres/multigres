@@ -96,7 +96,7 @@ func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool,
 	}
 }
 
-func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.PoolerStore, ts topoclient.Store) *ShardInitAction {
+func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.PoolerCache, ts topoclient.Store) *ShardInitAction {
 	t.Helper()
 	if ts == nil {
 		ts = memorytopo.NewServer(t.Context(), "cell1")
@@ -104,9 +104,9 @@ func newTestAction(t *testing.T, coord shardInitCoordinator, poolerStore *store.
 	return NewShardInitAction(nil, coord, poolerStore, ts, slog.Default())
 }
 
-func newPoolerStore(t *testing.T) *store.PoolerStore {
+func newPoolerStore(t *testing.T) *store.PoolerCache {
 	t.Helper()
-	return store.NewPoolerStore()
+	return store.NewTestCache(t)
 }
 
 // --- Interface / metadata ---

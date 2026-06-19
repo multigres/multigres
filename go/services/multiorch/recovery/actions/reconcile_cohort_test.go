@@ -57,10 +57,10 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
 
-	setupStore := func(t *testing.T, fakeClient *rpcclient.FakeClient) (*store.PoolerStore, func()) {
+	setupStore := func(t *testing.T, fakeClient *rpcclient.FakeClient) (*store.PoolerCache, func()) {
 		t.Helper()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 		ps.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:       primaryID,
@@ -160,7 +160,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{}
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 		// No poolers added to the store — FindPoolerByID will fail.
 
 		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
@@ -179,7 +179,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{}
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 		// Add only the target replica; the shard search uses the
 		// (database, table_group, shard) tuple, so an unrelated shard tuple
 		// finds no poolers and therefore no leader.

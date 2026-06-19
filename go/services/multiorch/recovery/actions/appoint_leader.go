@@ -43,7 +43,7 @@ type AppointLeaderAction struct {
 	config      *config.Config
 	consensus   *consensus.Coordinator
 	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.PoolerStore
+	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -53,7 +53,7 @@ func NewAppointLeaderAction(
 	cfg *config.Config,
 	consensus *consensus.Coordinator,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerStore,
+	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
@@ -73,7 +73,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 
 	// Gather every pooler known for the shard, then recheck the problem.
-	shard := a.poolerStore.FindShardMembers(problem.ShardKey)
+	shard := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	if len(shard.Poolers) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}

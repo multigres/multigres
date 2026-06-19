@@ -70,7 +70,7 @@ const (
 type FixReplicationAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.PoolerStore
+	poolerStore *store.PoolerCache
 	logger      *slog.Logger
 
 	// Polling parameters for verifyReplicationStarted.
@@ -82,7 +82,7 @@ type FixReplicationAction struct {
 func NewFixReplicationAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerStore,
+	poolerStore *store.PoolerCache,
 	logger *slog.Logger,
 ) *FixReplicationAction {
 	maxAttempts := DefaultVerifyMaxAttempts
@@ -111,12 +111,12 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		"problem_code", string(problem.Code))
 
 	// Find the affected replica
-	replica, err := a.poolerStore.FindPoolerByID(problem.PoolerID)
+	replica, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find affected replica")
 	}
 
-	primary := a.poolerStore.FindShardMembers(problem.ShardKey).Leader
+	primary := store.FindShardMembers(a.poolerStore, problem.ShardKey).Leader
 	if primary == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
@@ -205,7 +205,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 		// primary postgres is no longer running the stop will leave two nodes down.
 		// Return an error for retry — the next cycle will detect PrimaryIsDead.
 		primaryKey := topoclient.ComponentIDString(primary.MultiPooler.Id)
-		if latest, ok := a.poolerStore.Get(primaryKey); !ok || !latest.GetStatus().GetPostgresReady() {
+		if latest, ok := a.poolerStore.GetRider(primaryKey); !ok || !latest.GetStatus().GetPostgresReady() {
 			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"primary postgres not running, skipping pg_rewind to avoid leaving two nodes down")
 		}

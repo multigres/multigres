@@ -519,7 +519,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		LastCheckSuccessful: timestamppb.New(oldTime),
 		IsUpToDate:          true,
 	}
-	re.poolerStore.Set(key1, oldPooler)
+	re.poolerStore.Set(oldPooler.MultiPooler, oldPooler)
 	key2 := poolerKey("zone1", "never-seen")
 
 	neverSeenPooler := &multiorchdatapb.PoolerHealthState{
@@ -535,7 +535,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		LastSeen:           nil, // Never seen
 		IsUpToDate:         false,
 	}
-	re.poolerStore.Set(key2, neverSeenPooler)
+	re.poolerStore.Set(neverSeenPooler.MultiPooler, neverSeenPooler)
 
 	key3 := poolerKey("zone1", "healthy-pooler")
 	recentTime := time.Now().Add(-1 * time.Hour) // 1 hour ago (< 4 hour threshold)
@@ -554,7 +554,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		LastCheckSuccessful: timestamppb.New(recentTime),
 		IsUpToDate:          true,
 	}
-	re.poolerStore.Set(key3, healthyPooler)
+	re.poolerStore.Set(healthyPooler.MultiPooler, healthyPooler)
 
 	// Initially 3 poolers
 	require.Equal(t, 3, re.poolerStore.Len())
@@ -633,7 +633,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		LastCheckAttempted:  timestamppb.New(oldTime),
 		LastCheckSuccessful: timestamppb.New(oldTime),
 	}
-	re.poolerStore.Set(keyOld, oldPooler)
+	re.poolerStore.Set(oldPooler.MultiPooler, oldPooler)
 
 	// Start the engine
 	err := re.Start()
@@ -659,7 +659,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	info.LastCheckAttempted = timestamppb.New(now)
 	info.LastCheckSuccessful = timestamppb.New(now)
 	info.IsUpToDate = true
-	re.poolerStore.Set(keyNew, info)
+	re.poolerStore.Set(info.MultiPooler, info)
 
 	// Update topology (change hostname)
 	retrieved, err := ts.GetMultiPooler(ctx, &clustermetadata.ID{

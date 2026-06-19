@@ -68,7 +68,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
@@ -98,7 +98,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add only replicas, no primary
 	replicaID := &clustermetadatapb.ID{
@@ -158,7 +158,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -250,7 +250,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			"multipooler-cell1-replica1": {},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -362,7 +362,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -623,7 +623,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		FakeClient:        baseFakeClient,
 		nonStreamingCalls: verifyAttempts,
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -744,7 +744,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 
 	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: "stopping"}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{

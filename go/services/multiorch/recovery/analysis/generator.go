@@ -52,7 +52,7 @@ type PoolersByShard map[string]map[string]map[string]map[topoclient.ComponentID]
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
 type AnalysisGenerator struct {
-	poolerStore    *store.PoolerStore
+	poolerStore    *store.PoolerCache
 	poolersByShard PoolersByShard
 	// policyLookup returns the bootstrap durability policy for a database name.
 	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
@@ -63,7 +63,7 @@ type AnalysisGenerator struct {
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
 // policyLookup is optional; pass nil if the bootstrap policy is unavailable.
-func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
+func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore:  poolerStore,
 		policyLookup: policyLookup,
@@ -117,21 +117,20 @@ func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.Shard
 	return sa
 }
 
-// buildPoolersByShard creates a structured map by iterating the store once.
-// Since ProtoStore.Range() returns clones, we don't need explicit DeepCopy.
+// buildPoolersByShard creates a structured map by iterating the cache once.
 func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 	poolersByShard := make(PoolersByShard)
 
-	g.poolerStore.Range(func(poolerID topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
+	for _, entry := range g.poolerStore.All() {
+		pooler := entry.Rider
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true // skip nil entries
+			continue
 		}
 
 		database := pooler.MultiPooler.GetShardKey().GetDatabase()
 		tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
 		shard := pooler.MultiPooler.GetShardKey().GetShard()
 
-		// Initialize nested maps if needed
 		if poolersByShard[database] == nil {
 			poolersByShard[database] = make(map[string]map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
 		}
@@ -142,10 +141,8 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 			poolersByShard[database][tableGroup][shard] = make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
 		}
 
-		// Store the pooler (already a clone from Range)
-		poolersByShard[database][tableGroup][shard][poolerID] = pooler
-		return true // continue
-	})
+		poolersByShard[database][tableGroup][shard][topoclient.ComponentIDString(pooler.MultiPooler.Id)] = pooler
+	}
 
 	return poolersByShard
 }
@@ -154,7 +151,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 // Uses the cached poolersByShard for efficient lookup.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID) ([]topoclient.ComponentID, error) {
 	// Get pooler from store to determine its shard
-	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	pooler, ok := g.poolerStore.GetRider(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
@@ -190,7 +187,7 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID
 // Migrate the test call sites to GenerateShardAnalysis(shardKey) — they already
 // know the shard key — and delete this poolerID→shardKey convenience wrapper.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.ComponentID) (*ShardAnalysis, error) {
-	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	pooler, ok := g.poolerStore.GetRider(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}

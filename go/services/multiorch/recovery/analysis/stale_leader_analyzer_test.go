@@ -41,7 +41,7 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 }
 
 func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore()}
+	factory := &RecoveryActionFactory{poolerStore: store.NewTestCache(t)}
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}

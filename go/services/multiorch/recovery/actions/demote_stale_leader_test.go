@@ -39,7 +39,7 @@ import (
 // PoolerHealthState pair that places the correct leader in the same shard.
 // The "correct" leader has the higher term and is recognized by IsLeader
 // (current_position.rule.leader_id == self.id).
-func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (staleLeaderID *clustermetadatapb.ID) {
+func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (staleLeaderID *clustermetadatapb.ID) {
 	t.Helper()
 	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
@@ -127,7 +127,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
 
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
 
 	cfg := config.NewTestConfig()
@@ -165,7 +165,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	staleLeaderID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -216,7 +216,7 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	// Stale leader: still self-claims term 5 and is the demote target.
 	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
@@ -265,7 +265,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T
 	nodeID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
 
 	fakeClient := rpcclient.NewFakeClient()
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 	// The node multiorch flagged as stale is actually the highest known leader.
 	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
 		MultiPooler:     &clustermetadatapb.MultiPooler{Id: nodeID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},

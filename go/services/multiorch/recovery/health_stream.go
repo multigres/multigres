@@ -71,7 +71,7 @@ type streamEntry struct {
 type HealthStream struct {
 	logger    *slog.Logger
 	rpcClient rpcclient.MultiPoolerClient
-	store     *store.PoolerStore
+	store     *store.PoolerCache
 
 	// snapshotInterval is requested from the server as the proactive snapshot
 	// tick rate. Zero means use the server default (currently 5s).
@@ -117,7 +117,7 @@ func WithStalenessTimeout(d time.Duration) Option {
 func NewHealthStream(
 	ctx context.Context,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerStore,
+	cache *store.PoolerCache,
 	logger *slog.Logger,
 	options ...Option,
 ) *HealthStream {
@@ -125,7 +125,7 @@ func NewHealthStream(
 	hs := &HealthStream{
 		logger:    logger,
 		rpcClient: rpcClient,
-		store:     poolerStore,
+		store:     cache,
 		streams:   make(map[topoclient.ComponentID]*streamEntry),
 		ctx:       smCtx,
 		cancel:    cancel,
@@ -208,7 +208,7 @@ func (hs *HealthStream) runStream(ctx context.Context, poolerID topoclient.Compo
 		}
 
 		// Read current pooler metadata from store on every attempt.
-		poolerHealth, ok := hs.store.Get(poolerID)
+		poolerHealth, ok := hs.store.GetRider(poolerID)
 		if !ok || poolerHealth.MultiPooler == nil {
 			hs.logger.WarnContext(ctx, "pooler not found in store, stopping health stream",
 				"pooler_id", poolerID)

@@ -47,7 +47,7 @@ func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetada
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_EmptyStore(t *testing.T) {
-	generator := NewAnalysisGenerator(store.NewPoolerStore(), nil)
+	generator := NewAnalysisGenerator(store.NewTestCache(t), nil)
 
 	analyses := flattenShardAnalyses(generator.GenerateShardAnalyses())
 
@@ -55,7 +55,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_EmptyStore(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	// Add a single primary pooler
 	primaryID := &clustermetadatapb.ID{
@@ -102,7 +102,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -216,7 +216,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -295,7 +295,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	// Add poolers from two different table groups
 	tg1Primary := &multiorchdatapb.PoolerHealthState{
@@ -361,7 +361,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 
 // Task 6: Test for skipping nil entries
 func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	// Add a nil entry
 	ps.Set("nil-pooler", nil)
@@ -396,7 +396,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 
 // Task 7: Test for no primary in shard
 func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	replicaID := topoclient.ComponentID("multipooler-cell1-replica")
 	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
@@ -432,7 +432,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 
 // Task 7: Test for primary with postgres down
 func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 	replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -527,7 +527,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		// After REVOKE, postgres restarts as standby → PoolerType=REPLICA.
 		// The committed rule still names this node as primary (before new rule replicates),
 		// so IsPrimary(ConsensusStatus) remains true and term > 0.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 		formerPrimaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -574,7 +574,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		// Simulates etcd being stopped before the promotion: topology still shows this node
 		// as REPLICA (initial assignment), but it was promoted later (term=4) and then
 		// revoked. HighestTermDiscoveredPrimaryID must still be found via ConsensusStatus.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 		formerPrimaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -637,7 +637,7 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 		Name:      "follower",
 	}
 
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 	// Only the follower is in the store. Its replication primary rule names the
 	// leader at term 5, so consensus identifies a leader the store has no health for.
 	ps.Set("multipooler-cell1-follower", &multiorchdatapb.PoolerHealthState{
@@ -684,7 +684,7 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 	newLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
 	followerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "follower"}
 
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 	// Stale leader: still self-claims leadership at the old term (term 5) and is
 	// reachable and ready. Under the old self-claim-only logic this would be
 	// picked as the leader.
@@ -722,7 +722,7 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 }
 
 func TestIsInStandbyList(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -860,7 +860,7 @@ func TestIsInStandbyList(t *testing.T) {
 
 func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -922,7 +922,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -982,7 +982,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 
 func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
@@ -1081,7 +1081,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
@@ -1172,7 +1172,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replica1ID := topoclient.ComponentID("multipooler-cell1-replica1")
@@ -1230,7 +1230,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 
@@ -1267,7 +1267,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1333,7 +1333,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	})
 
 	t.Run("returns false when WAL receiver is not streaming", func(t *testing.T) {
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1390,7 +1390,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 	t.Run("returns false when last_msg_receive_time is stale (default threshold)", func(t *testing.T) {
 		// No WalReceiverStatusInterval supplied — falls back to defaultReplicationHeartbeatStalenessThreshold.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1451,7 +1451,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 	t.Run("returns false when last_msg_receive_time is stale (dynamic threshold)", func(t *testing.T) {
 		// WalReceiverStatusInterval supplied — threshold is multiplier × interval.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1515,7 +1515,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 	t.Run("returns false when last_msg_receive_time exceeds wal_receiver_timeout", func(t *testing.T) {
 		// Even if the delay is below the staleness threshold, if it exceeds the
 		// WAL receiver timeout the connection is effectively dead.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1583,7 +1583,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// Backward compatibility: replicas that don't report last_msg_receive_time
 		// (e.g. running an older version) should still be considered connected if
 		// the WAL receiver is streaming.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		primaryID := topoclient.ComponentID("multipooler-cell1-primary")
 		replicaID := topoclient.ComponentID("multipooler-cell1-replica")
@@ -1645,7 +1645,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// otherwise it would make allReplicasConnectedToLeader return false and
 		// disable the LeaderIsDeadAnalyzer suppression window, risking a
 		// premature failover.
-		ps := store.NewPoolerStore()
+		ps := store.NewTestCache(t)
 
 		now := time.Now()
 
@@ -1708,7 +1708,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 }
 
 func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1835,7 +1835,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 // coexist (e.g. during failover), the replica's analysis references the one with the higher
 // PrimaryTerm — not an arbitrary one from non-deterministic map iteration.
 func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	newPrimaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -2011,7 +2011,7 @@ type primaryConfigWithReachability struct {
 	reachable bool
 }
 
-func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store.PoolerStore {
+func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store.PoolerCache {
 	configs := make([]primaryConfigWithReachability, len(primaries))
 	for i, p := range primaries {
 		configs[i] = primaryConfigWithReachability{
@@ -2022,8 +2022,8 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 	return setupMultiplePrimariesStoreWithReachability(t, configs)
 }
 
-func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
-	ps := store.NewPoolerStore()
+func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []primaryConfigWithReachability) *store.PoolerCache {
+	ps := store.NewTestCache(t)
 
 	for _, p := range primaries {
 		poolerID := topoclient.ComponentID("multipooler-cell1-" + p.id)
@@ -2066,7 +2066,7 @@ func setupMultiplePrimariesStoreWithReachability(_ *testing.T, primaries []prima
 }
 
 func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	makePooler := func(name, db, tg, shard string, typ clustermetadatapb.PoolerType) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
@@ -2100,7 +2100,7 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 }
 
 func TestGenerateShardAnalysis_ErrorOnMissingShard(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 	gen := NewAnalysisGenerator(ps, nil)
 
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
@@ -2110,7 +2110,7 @@ func TestGenerateShardAnalysis_ErrorOnMissingShard(t *testing.T) {
 }
 
 func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	ps.Set("multipooler-c1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{

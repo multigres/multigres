@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -54,7 +53,7 @@ var _ types.RecoveryAction = (*ShardInitAction)(nil)
 type ShardInitAction struct {
 	config      *config.Config
 	coordinator shardInitCoordinator
-	poolerStore *store.PoolerStore
+	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -63,7 +62,7 @@ type ShardInitAction struct {
 func NewShardInitAction(
 	cfg *config.Config,
 	coordinator shardInitCoordinator,
-	poolerStore *store.PoolerStore,
+	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *ShardInitAction {
@@ -166,24 +165,18 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // a bool indicating whether the cohort is already established (any pooler has CohortMembers).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*multiorchdatapb.PoolerHealthState, cohortEstablished bool) {
-	a.poolerStore.Range(func(_ topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
+	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true
-		}
-		if !proto.Equal(pooler.MultiPooler.GetShardKey(), shardKey) {
-			return true
+			continue
 		}
 		if len(pooler.GetStatus().GetCohortMembers()) > 0 {
-			cohortEstablished = true
-			initialized = nil
-			return false // stop iteration
+			return nil, true
 		}
 		if pooler.GetStatus().GetIsInitialized() {
 			initialized = append(initialized, pooler)
 		}
-		return true
-	})
-	return initialized, cohortEstablished
+	}
+	return initialized, false
 }
 
 // buildCohortFromIDs resolves committed cohort IDs to PoolerHealthState entries

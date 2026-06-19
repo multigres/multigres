@@ -41,6 +41,7 @@ func poolerKey(cell, name string) topoclient.ComponentID {
 	})
 }
 
+
 // startWatcher starts a PoolerWatcher and registers Stop() as a cleanup function.
 func startWatcher(t *testing.T, pw *PoolerWatcher) {
 	t.Helper()
@@ -404,7 +405,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	poolerInfo.LastCheckSuccessful = now
 	poolerInfo.IsUpToDate = true
 	poolerInfo.IsLastCheckValid = true
-	engine.poolerStore.Set(poolerKey("zone1", "pooler1"), poolerInfo)
+	engine.poolerStore.Set(poolerInfo.MultiPooler, poolerInfo)
 
 	// Update topology record (hostname changed)
 	retrieved, err := ts.GetMultiPooler(ctx, &clustermetadata.ID{
@@ -574,14 +575,14 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Track new-pooler callbacks via a channel.
 	discovered := make(chan *clustermetadata.ID, 10)
 	onNewPooler := func(id *clustermetadata.ID) { discovered <- id }
 
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, onNewPooler, nil /* onPoolerStopped */, nil /* onPoolerDeleted */, slog.Default())
+	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, onNewPooler, nil /* onPoolerGone */, slog.Default())
 	startWatcher(t, poolerWatcher)
 
 	poolerStoreAtLeast := func(val int) func() bool {

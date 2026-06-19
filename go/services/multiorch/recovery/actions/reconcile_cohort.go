@@ -51,7 +51,7 @@ var _ types.RecoveryAction = (*ReconcileCohortAction)(nil)
 type ReconcileCohortAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.PoolerStore
+	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -60,7 +60,7 @@ type ReconcileCohortAction struct {
 func NewReconcileCohortAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerStore,
+	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *ReconcileCohortAction {
@@ -80,12 +80,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	target, err := a.poolerStore.FindPoolerByID(problem.PoolerID)
+	target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find target pooler")
 	}
 
-	members := a.poolerStore.FindShardMembers(problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	leader := members.Leader
 	if leader == nil || members.HighestKnownRule == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
