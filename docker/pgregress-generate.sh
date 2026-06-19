@@ -30,6 +30,7 @@
 #   PGREGRESS_PATCH_MODE   defaults to "generate" here; set "verify" to dry-run a check
 #   PGREGRESS_TESTS / PGCONTRIB_TESTS / PGEXTERNAL_TESTS   optional subsets
 #   PGREGRESS_TIMEOUT  go test timeout (default 90m)
+#   MULTIGRES_PG_CACHE_DIR  optional in-container PostgreSQL cache dir
 #   PLATFORM           docker platform (default: host arch; set linux/amd64 for exact CI parity)
 
 set -euo pipefail
@@ -87,7 +88,7 @@ if [[ -n "${PGREGRESS_DEBUG_DIR:-}" ]]; then
   debug_mount=(-v "${PGREGRESS_DEBUG_DIR}:/pgregress-debug")
   env_args+=(-e "TMPDIR=/pgregress-debug")
 fi
-for v in PGREGRESS_TESTS PGISOLATION_TESTS PGCONTRIB_TESTS PGEXTERNAL_TESTS PG_CONFIGURE_EXTRA_ARGS; do
+for v in PGREGRESS_TESTS PGISOLATION_TESTS PGCONTRIB_TESTS PGEXTERNAL_TESTS PG_CONFIGURE_EXTRA_ARGS MULTIGRES_PG_CACHE_DIR; do
   [[ -n "${!v:-}" ]] && env_args+=(-e "${v}=${!v}")
 done
 

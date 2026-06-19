@@ -184,7 +184,8 @@ pinned to a tag (or a commit, for upstreams that never tag): `vector`
 `pg_graphql` (Supabase GraphQL), `index_advisor` (Supabase), `plpgsql_check`
 (okbob), `pgjwt` (michelp), `pgsodium` (michelp), `pg_partman` (pgTAP suite),
 `hypopg` (partial), `http`, `pg_jsonschema`, `pgtap` (its own pg_regress suite),
-and build-only `pgaudit`.
+`postgis` (PostGIS core, topology, raster, and SFCGAL components, via its own
+`run_test.pl`), and build-only `pgaudit`.
 `externalSpecs` also holds dependency-only modules that are installed before
 dependents (see `DependsOn` below).
 
@@ -205,7 +206,11 @@ How it works, and how it differs from the contrib suite:
   dependency), then `cargo pgrx init --pgNN <pg_config>` adopts the from-source
   server and `cargo pgrx install --pg-config <pg_config>` builds and installs the
   extension into it. CI provisions the Rust toolchain; the from-source server
-  guarantees the same ABI as the PGXS path.
+  guarantees the same ABI as the PGXS path. PostGIS (`BuildSystem: "postgis"`) is
+  the exception: it uses its autotools build (`./configure
+--with-pgconfig=<built pg_config>`, `make`, `make install`) because it builds
+  shared libraries, loader/dumper tools, and multiple extension components rather
+  than a single PGXS module.
 
   For suites whose dependencies need optional `./configure` features (pgjwt
   depends on contrib pgcrypto, which needs `--with-ssl=openssl`), the harness
@@ -222,7 +227,27 @@ How it works, and how it differs from the contrib suite:
   (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
   DATABASE) plus the extension's `--inputdir`. The test list is derived from
   `<TestSubdir>/sql/*.sql`, mirroring the extension's
-  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`.
+  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`. PostGIS is again
+  special: it ships `regress/run_test.pl`, `*_expected` files, and generated
+  Makefile test lists rather than `sql/` + `expected/`; the harness asks those
+  Makefiles for the fully-expanded regress order, then drives the runner with
+  `--nocreate --nodrop --extensions` against the existing `postgres` database
+  and parses its `ok` / `failed` / `skipped` output into the same `results.json`
+  shape.
+- **PostGIS primary pre-install**: PostGIS is the one external suite whose
+  extension install intentionally bypasses multigateway. The topology component's
+  install script runs `ALTER DATABASE <db> SET search_path = ..., topology` so
+  later tests can resolve unqualified topology objects. If that install is routed
+  through the gateway, the catalog default changes, but already-open pooled
+  PostgreSQL backends keep the old startup `search_path`; subsequent statements
+  can be scattered across a mix of old and new backend defaults. The harness
+  therefore creates the PostGIS extensions directly on the primary before
+  `run_test.pl`, then terminates existing client backends for the shared
+  `postgres` database so multipooler reconnects and every backend used by the
+  suite is born with the topology-aware default. This is a test-harness
+  workaround for the current connection-start-default limitation, not a product
+  guarantee that `ALTER DATABASE/ROLE SET` changes are propagated across already
+  pooled backends.
 - **Per-extension isolation** and **verification** work exactly like contrib:
   the shared database is reset to a clean baseline on the primary between
   extensions — every extension except plpgsql is dropped, every user schema
@@ -243,8 +268,13 @@ on `ExternalExtension` (`extensions.go`):
   never tag releases (pgjwt) or whose last tag predates a needed fix
   (pgsodium: v3.1.9's test fixtures predate PostgreSQL 17's automatic array
   types). Exactly one of `Tag`/`Commit` must be set.
-- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make) or `"pgrx"`
-  (cargo-pgrx, Rust). pg_graphql is `pgrx`; everything else is PGXS.
+- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make), `"pgrx"`
+  (cargo-pgrx, Rust), or `"postgis"` (autotools). pg_graphql is `pgrx`;
+  PostGIS is `postgis`; everything else is PGXS.
+- **`TestRunner`** — empty means the generic direct `pg_regress` path.
+  `postgis` uses PostGIS's own `regress/run_test.pl`; `postgis-alias` marks
+  component catalog rows (`postgis_topology`, `postgis_raster`,
+  `postgis_sfcgal`) as covered by the single PostGIS run.
 - **`PkgConfigDeps`** — pkg-config packages whose headers/libs the PGXS build
   needs (pgsodium: `libsodium`). Resolved to `-I`/`-L` flags and passed to make
   as `COPT`, the documented PostgreSQL hook that appends to both CFLAGS and

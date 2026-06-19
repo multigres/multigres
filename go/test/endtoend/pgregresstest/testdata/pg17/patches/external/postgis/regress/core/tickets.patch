@@ -1,0 +1,28 @@
+# Known divergence: error/notice cursor offset only ("at character N"). NOT a
+# multigres bug. multigateway rewrites the submitted query text before
+# forwarding it to PostgreSQL (parse + deparse), which shifts the byte offset
+# PostgreSQL records for an error/notice cursor. The message text, ordering, and
+# every result row are byte-identical to stock PostgreSQL; only the trailing
+# "at character N" position differs. This patch records that offset shift so the
+# test is verified against multigres's deparsed-query cursor positions.
+--- a
++++ b
+@@ -166,12 +166,12 @@
+ #1305.1|POINT(10 10)
+ #1305.2|t
+ #1305.3|t
+-ERROR: MultiPolygon cannot contain MultiPoint element at character 8
+-ERROR: MultiLineString cannot contain MultiPoint element at character 8
+-ERROR: MultiPoint cannot contain MultiPoint element at character 8
+-ERROR: CompoundCurve cannot contain MultiPoint element at character 8
+-ERROR: MultiCurve cannot contain MultiPoint element at character 8
+-ERROR: MultiSurface cannot contain MultiPoint element at character 8
++ERROR: MultiPolygon cannot contain MultiPoint element at character 13
++ERROR: MultiLineString cannot contain MultiPoint element at character 13
++ERROR: MultiPoint cannot contain MultiPoint element at character 13
++ERROR: CompoundCurve cannot contain MultiPoint element at character 13
++ERROR: MultiCurve cannot contain MultiPoint element at character 13
++ERROR: MultiSurface cannot contain MultiPoint element at character 13
+ #1453.1|t
+ #1453.2|f
+ #1454|t

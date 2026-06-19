@@ -279,13 +279,40 @@ is itself non-literal are not caught.
 ## Other Allowed Statements With Known Risk
 
 Beyond Tier 1 (allowed pending body analysis), a few more statements
-execute opaque server-side code and cannot be usefully blocked.
+execute opaque server-side code or mutate connection-start defaults and cannot
+be usefully blocked wholesale.
 
-| Statement                                                  | AST Node                | Risk                                                                                                                                                      |
-| ---------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CALL proc()`                                              | `T_CallStmt`            | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.                                                                      |
-| `CREATE EXTENSION`                                         | `T_CreateExtensionStmt` | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).                                                                 |
-| User-defined functions in expressions (`SELECT my_func()`) | N/A (expression-level)  | Opaque function bodies. The expression-level filter only blocks built-ins known to breach the pooler boundary; arbitrary user functions are out of scope. |
+| Statement                                                  | AST Node                                        | Risk                                                                                                                                                             |
+| ---------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CALL proc()`                                              | `T_CallStmt`                                    | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.                                                                             |
+| `CREATE EXTENSION`                                         | `T_CreateExtensionStmt`                         | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).                                                                        |
+| `ALTER DATABASE ... SET` / `ALTER ROLE ... SET`            | `T_AlterDatabaseSetStmt` / `T_AlterRoleSetStmt` | Changes connection-start defaults; existing pooled backends keep old values. See [Connection-start defaults](#connection-start-defaults-alter-databaserole-set). |
+| User-defined functions in expressions (`SELECT my_func()`) | N/A (expression-level)                          | Opaque function bodies. The expression-level filter only blocks built-ins known to breach the pooler boundary; arbitrary user functions are out of scope.        |
+
+### Connection-start defaults (`ALTER DATABASE/ROLE SET`)
+
+PostgreSQL stores `ALTER DATABASE ... SET` and `ALTER ROLE ... SET` values in
+catalogs such as `pg_db_role_setting` and applies them when a backend connection
+is established. In a transaction pooler, backend connections are long-lived and
+shared across client sessions. Changing a database or role default therefore has
+a delayed and partial effect: new PostgreSQL backends see the new default, but
+already-open pooled backends continue with the values they had at connection
+startup.
+
+Multigateway tracks explicit session-level `SET` / accepted `set_config(...)`
+changes made through the gateway, but it does not currently detect arbitrary
+catalog changes to role/database defaults and proactively refresh or replay those
+defaults across the pool. A client can therefore observe mixed behavior after an
+`ALTER DATABASE/ROLE SET` until the affected backend connections are closed and
+reopened.
+
+Current mitigations are operational/test-harness scoped rather than a general
+product guarantee. For example, the PostGIS regression harness installs PostGIS
+directly on the primary because `postgis_topology` runs `ALTER DATABASE <db> SET
+search_path = ..., topology`; after that install it terminates existing client
+backends so multipooler reconnects with the new topology-aware startup default.
+A future connection-default refresh mechanism could make this automatic, but it
+must preserve reserved-session state and transaction-pinning invariants.
 
 ## Implementation
 

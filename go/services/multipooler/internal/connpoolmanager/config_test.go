@@ -133,6 +133,23 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Second, config.DialTimeout())
 }
 
+func TestConfig_GlobalCapacityFromEnv(t *testing.T) {
+	viper.Reset()
+	defer func() { viper.Reset() }()
+
+	// The cluster docker image sets CONNPOOL_GLOBAL_CAPACITY (max_connections
+	// minus a reserve) so the pooler sizes itself to the backing PostgreSQL.
+	t.Setenv("CONNPOOL_GLOBAL_CAPACITY", "90")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	cmd := &cobra.Command{}
+	config.RegisterFlags(cmd.Flags())
+
+	assert.Equal(t, int64(90), config.GlobalCapacity())
+}
+
 func TestConfig_NewManager(t *testing.T) {
 	viper.Reset()
 	defer func() { viper.Reset() }()

@@ -18,4 +18,10 @@ const (
 	// MaxBufferingRetries is the maximum number of times a query will be
 	// retried after failover buffering completes.
 	MaxBufferingRetries = 3
+
+	// MaxStatementTimeoutMS is PostgreSQL's upper bound for statement_timeout:
+	// the max of the underlying integer GUC, measured in its base unit
+	// (milliseconds). Values outside 0 .. MaxStatementTimeoutMS are rejected,
+	// matching PostgreSQL.
+	MaxStatementTimeoutMS = 2147483647
 )
