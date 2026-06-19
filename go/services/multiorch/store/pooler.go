@@ -32,6 +32,34 @@ import (
 // callback). Health() callers may safely modify the returned proto since
 // it is independent of any future mutation. The HealthStream field is
 // set once at OnLive and pointer-stable.
+//
+// TODO (design cleanup, follow-up PR): PoolerHealthState shouldn't be a
+// proto at all — it's never serialized over any RPC (zero references
+// in multiorchservice.proto or any other .proto service). The proto
+// machinery is overhead with no payoff: schema rigidity, proto.Clone
+// cost on every Health()/Mutate(), generated code, etc.
+//
+// Beyond the proto issue, the type itself amalgamates three unrelated
+// concerns:
+//
+//	(a) a COPY of the etcd MultiPooler — already authoritatively held
+//	    in the cache's entry.Pooler, so this is needless duplication.
+//	(b) the multipooler's reported Status (the actual pooler health
+//	    reply, multipoolermanagerdata.Status — itself a real wire type).
+//	(c) orch bookkeeping fields (last_check_*, stream_*, etc.) that
+//	    grew organically without intent.
+//
+// Target shape:
+//   - entry.Pooler stays the single source of truth for etcd identity.
+//   - The rider becomes a small Go struct (not a proto) holding the
+//     pooler's *multipoolermanagerdata.Status plus only the orch
+//     bookkeeping that has a justified consumer. Every field needs a
+//     real reader; if nobody reads it, it doesn't exist.
+//   - Helpers (FindPoolerByID, FindPoolersInShard, FindShardMembers)
+//     read identity from entry.Pooler and runtime state from the rider.
+//
+// Don't accrete fields on PoolerHealthState in the meantime — every new
+// field makes the cleanup more invasive.
 type Pooler struct {
 	HealthStream *HealthStream
 
