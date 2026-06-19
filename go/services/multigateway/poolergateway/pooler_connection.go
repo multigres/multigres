@@ -112,7 +112,10 @@ type PoolerConnection struct {
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
 	poolerInfo atomic.Pointer[topoclient.MultiPoolerInfo]
 
-	// conn is the underlying gRPC connection
+	// conn is the underlying gRPC connection. Production code reaches the
+	// connection only via queryService (which owns its lifecycle: Shutdown
+	// calls queryService.Close()). The field is retained so telemetry tests
+	// can inspect the dial's OpenTelemetry attributes directly.
 	conn *grpc.ClientConn
 
 	// client is the gRPC client for health streaming
