@@ -316,24 +316,29 @@ func TestPoolerConnection_StreamHealth_ContextCancellation(t *testing.T) {
 		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// Cancel the context. This should cause checkConn to exit.
+	// Cancel the context. checkConn must exit; we wait deterministically on
+	// the loop's done channel rather than guessing with a sleep.
 	cancel()
-
-	// Give the goroutine time to exit. We verify it doesn't open a new stream
-	// (no retry after context cancellation).
 	select {
-	case <-setup.server.streamOpened:
-		// It's OK if a stream open was already buffered before cancel took effect.
-		// But no further opens should happen.
-		time.Sleep(200 * time.Millisecond)
+	case <-setup.conn.checkConnDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("checkConn did not exit after context cancellation")
+	}
+
+	// Drain any already-buffered streamOpened signals from before the cancel
+	// landed, then assert no further opens happen — the loop is gone.
+	for {
 		select {
 		case <-setup.server.streamOpened:
-			t.Fatal("stream should not be opened after context cancellation")
+			continue
 		default:
-			// Good - no more stream opens.
 		}
-	case <-time.After(1 * time.Second):
-		// Good - no stream opened after cancel.
+		break
+	}
+	select {
+	case <-setup.server.streamOpened:
+		t.Fatal("stream should not be opened after context cancellation")
+	default:
 	}
 }
 

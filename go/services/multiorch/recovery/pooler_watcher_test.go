@@ -56,19 +56,6 @@ func newTestPoolerCache(
 	return cache
 }
 
-// waitForCondition polls fn until it returns true or the timeout elapses.
-func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) bool {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if fn() {
-			return true
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return false
-}
-
 func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	ctx := t.Context()
 
@@ -104,10 +91,9 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	defer poolerStore.Shutdown()
 
 	// Both poolers should be discovered
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 2
-	})
-	require.True(t, ok, "expected 2 poolers to be discovered, got %d", poolerStore.Len())
+	}, 5*time.Second, 10*time.Millisecond, "expected 2 poolers to be discovered, got %d", poolerStore.Len())
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
@@ -151,10 +137,9 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 		Hostname: "host1",
 	}))
 
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 1
-	})
-	require.True(t, ok, "expected pooler to be discovered after add")
+	}, 5*time.Second, 10*time.Millisecond, "expected pooler to be discovered after add")
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
@@ -186,10 +171,9 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	defer poolerStore.Shutdown()
 
 	// Wait for initial discovery
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 1
-	})
-	require.True(t, ok)
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Capture the StreamHandle installed by OnLive so we can confirm a metadata
 	// update doesn't trigger a second OnLive (which would replace the handle).
@@ -214,11 +198,10 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	require.NoError(t, ts.UpdateMultiPooler(ctx, retrieved))
 
 	// Wait for the update to propagate
-	ok = waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		p, exists := poolerStore.GetRider(pid)
 		return exists && p.Health().MultiPooler.Hostname == "host2"
-	})
-	require.True(t, ok, "expected hostname to be updated to host2")
+	}, 5*time.Second, 10*time.Millisecond, "expected hostname to be updated to host2")
 
 	// Health-check state should be preserved
 	updated, exists := poolerStore.GetRider(pid)
@@ -272,10 +255,9 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
 	defer poolerStore.Shutdown()
 
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() >= 1
-	})
-	require.True(t, ok)
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Sync to ensure all events (including filtered ones) have been processed
 	require.NoError(t, poolerStore.Sync(ctx))
@@ -311,10 +293,9 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 		},
 	}))
 
-	ok := waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 1
-	})
-	require.True(t, ok, "expected zone1 pooler to be discovered")
+	}, 5*time.Second, 10*time.Millisecond, "expected zone1 pooler to be discovered")
 
 	// Add zone2 cell and a pooler in it
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
@@ -327,10 +308,9 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 		},
 	}))
 
-	ok = waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 2
-	})
-	require.True(t, ok, "expected zone2 pooler to be discovered after new cell added")
+	}, 5*time.Second, 10*time.Millisecond, "expected zone2 pooler to be discovered after new cell added")
 
 	_, exists := poolerStore.GetRider(poolerKey("zone2", "pooler2"))
 	assert.True(t, exists)
@@ -367,9 +347,9 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
 	defer poolerStore.Shutdown()
 
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 1
-	}))
+	}, 5*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
 	require.NoError(t, poolerStore.Sync(ctx))
@@ -414,9 +394,9 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
 	defer poolerStore.Shutdown()
 
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		return poolerStore.Len() == 1
-	}))
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Transition ACTIVE -> SHUTDOWN.
 	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
@@ -468,7 +448,8 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	defer poolerStore.Shutdown()
 
 	// Initial discovery installs a stream handle on the rider.
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return poolerStore.Len() == 1 }),
+	require.Eventually(t, func() bool { return poolerStore.Len() == 1 },
+		5*time.Second, 10*time.Millisecond,
 		"new pooler should be discovered")
 	first, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
@@ -497,10 +478,11 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		p, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 		return ok && p.HealthStream != nil && p.HealthStream != originalStream
-	}), "restart after SHUTDOWN must re-fire OnLive and install a fresh StreamHandle")
+	}, 5*time.Second, 10*time.Millisecond,
+		"restart after SHUTDOWN must re-fire OnLive and install a fresh StreamHandle")
 }
 
 // TestPoolerWatcher_ColdStartShutdownIgnored verifies that an already-SHUTDOWN

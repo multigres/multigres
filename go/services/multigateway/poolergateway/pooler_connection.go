@@ -133,6 +133,11 @@ type poolerConnection struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// checkConnDone is closed by checkConn when its loop exits. Useful for
+	// tests that need to assert the loop has stopped after context cancel,
+	// rather than guessing with a sleep.
+	checkConnDone chan struct{}
+
 	// healthMu protects the health field
 	healthMu sync.Mutex
 
@@ -206,6 +211,7 @@ func newPoolerConnection(
 		logger:         logger,
 		ctx:            ctx,
 		cancel:         cancel,
+		checkConnDone:  make(chan struct{}),
 		onHealthUpdate: onHealthUpdate,
 		health: &poolerHealth{
 			Target:        initialTarget,
@@ -306,6 +312,7 @@ func (pc *poolerConnection) Health() *poolerHealth {
 // It continuously attempts to maintain a health stream, retrying with
 // exponential backoff on failures.
 func (pc *poolerConnection) checkConn() {
+	defer close(pc.checkConnDone)
 	poolerID := pc.ID()
 	pc.logger.Debug("starting health check loop", "pooler_id", poolerID)
 
