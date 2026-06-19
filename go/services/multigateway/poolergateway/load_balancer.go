@@ -84,10 +84,9 @@ type LoadBalancer struct {
 	leaders map[shardKey]*clustermetadatapb.LeaderObservation
 
 	// cache is the pooler cache that owns the per-pooler *PoolerConnection
-	// riders. Set by SetCache after construction; the chicken-and-egg between
-	// cache hooks (which need to call back into LB methods) and LB reads
-	// (which need cache lookups) is broken by constructing the LB first, then
-	// the cache, then calling SetCache.
+	// riders. Supplied at construction via LoadBalancerOpts.Cache; callers
+	// build the cache first (without hooks), pass it in here, then call
+	// cache.Start with hooks that close over the LB.
 	cache *poolerwatch.PoolerCache[*PoolerConnection]
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
@@ -132,12 +131,16 @@ type LoadBalancerOpts struct {
 	// OnPrimaryServing fires when a new primary is observed serving on its
 	// health stream; used to drain the failover buffer. Optional.
 	OnPrimaryServing func(tableGroup, shard string)
+
+	// Cache is the pooler cache that owns the per-pooler *PoolerConnection
+	// riders. Callers construct the cache without hooks, pass it here, then
+	// call cache.Start with hooks that close over the resulting LB.
+	Cache *poolerwatch.PoolerCache[*PoolerConnection]
 }
 
-// NewLoadBalancer creates a LoadBalancer. The caller must wire the pooler
-// cache via SetCache once the cache has been constructed; until then
-// GetConnection / ConnectionCount / LeadershipByID return as if no poolers
-// are tracked.
+// NewLoadBalancer creates a LoadBalancer. The cache supplied via opts.Cache
+// must be started by the caller after construction (via cache.Start with
+// hooks that close over this LB).
 func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
 	return &LoadBalancer{
 		localCell:                     opts.LocalCell,
@@ -148,16 +151,8 @@ func NewLoadBalancer(opts LoadBalancerOpts) *LoadBalancer {
 		onPrimaryServing:              opts.OnPrimaryServing,
 		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
 		highReplicationLagToleranceNs: opts.HighTolerance.Nanoseconds(),
+		cache:                         opts.Cache,
 	}
-}
-
-// SetCache attaches the pooler cache that owns per-pooler *PoolerConnection
-// riders. Must be called once after construction, before any GetConnection
-// traffic. The two-step wiring (construct LB → construct cache referencing
-// LB's hooks → SetCache) breaks the chicken-and-egg between cache hooks and
-// LB reads.
-func (lb *LoadBalancer) SetCache(c *poolerwatch.PoolerCache[*PoolerConnection]) {
-	lb.cache = c
 }
 
 // MergeTopologyLeader folds a pooler's self_leadership observation (from its

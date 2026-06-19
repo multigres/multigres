@@ -248,14 +248,14 @@ func NewEngine(
 	}
 
 	// HealthStream is cache-agnostic — it holds no cache reference. The
-	// cache's OnLive hook passes the cache into spawnStream at spawn time,
-	// and the resulting goroutine captures it for the lifetime of the stream.
+	// cache's OnLive hook (bound at cache.Start in engine.Start) passes the
+	// cache into spawnStream, and the resulting goroutine captures it for
+	// the lifetime of the stream.
 	engine.healthStream = NewHealthStream(ctx, rpcClient, logger)
 	engine.poolerStore = newPoolerCache(
 		ctx,
 		ts,
 		engine.getWatchTargets,
-		engine.healthStream,
 		logger,
 	)
 
@@ -326,10 +326,9 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle(ctx)
 	}, nil)
 
-	// Start the pooler cache (watch + sweeper). New poolers discovered will
-	// have a stream started via the healthStream.Start callback registered in
-	// NewEngine.
-	re.poolerStore.Start()
+	// Start the pooler cache (watch + sweeper) with the lifecycle hooks
+	// that drive per-pooler health streams via HealthStream.spawnStream.
+	re.poolerStore.Start(poolerCacheHooks(re.shutdownCtx, re.poolerStore, re.healthStream, re.logger))
 
 	re.logger.Info("recovery engine started successfully")
 	return nil

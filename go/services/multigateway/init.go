@@ -361,7 +361,16 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		logger.InfoContext(ctx, "Failover buffering enabled")
 	}
 
-	// Create LoadBalancer first; the pooler cache hooks below drive it.
+	// Build the pooler cache first (without hooks) so the LB can hold a
+	// reference to it; then build the LB; then start the cache with hooks
+	// that close over the LB. This breaks the chicken-and-egg between the
+	// cache (which owns *PoolerConnection riders constructed by hooks that
+	// call into the LB) and the LB (which reads riders out of the cache).
+	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[*poolergateway.PoolerConnection]{
+		Source: mg.ts,
+		Logger: logger,
+	})
+
 	loadBalancer := poolergateway.NewLoadBalancer(poolergateway.LoadBalancerOpts{
 		Ctx:              mg.shutdownCtx,
 		LocalCell:        mg.cell.Get(),
@@ -370,6 +379,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		LowLag:           time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
 		HighTolerance:    time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
 		OnPrimaryServing: onPrimaryServing,
+		Cache:            mg.poolerCache,
 	})
 
 	// Start pooler discovery (watches all cells). The cache owns the
@@ -378,42 +388,36 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// OnUpdate refreshes topology metadata, and OnGone closes it.
 	// ShutdownGrace/VanishedGrace are zero — load balancing wants immediate
 	// visibility into membership changes.
-	mg.poolerCache = poolerwatch.New(mg.shutdownCtx, poolerwatch.Config[*poolergateway.PoolerConnection]{
-		Source: mg.ts,
-		Hooks: poolerwatch.Hooks[*poolergateway.PoolerConnection]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolergateway.PoolerConnection) *poolergateway.PoolerConnection {
-				conn, err := poolergateway.NewPoolerConnection(mg.shutdownCtx, p, logger, poolerTransportCreds, loadBalancer.OnPoolerHealthUpdate)
-				if err != nil {
-					logger.ErrorContext(mg.shutdownCtx, "failed to create pooler connection",
-						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
-					return nil
-				}
-				loadBalancer.MergeTopologyLeader(p)
-				loadBalancer.NotifyIfLeaderServing(p, conn)
-				return conn
-			},
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection) {
-				if conn == nil {
-					return
-				}
-				conn.UpdatePoolerInfo(curr)
-				loadBalancer.MergeTopologyLeader(curr)
-				loadBalancer.NotifyIfLeaderServing(curr, conn)
-			},
-			OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection, _ poolerwatch.GoneReason) {
-				if conn == nil {
-					return
-				}
-				if err := conn.Close(); err != nil {
-					logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
-						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
-				}
-			},
+	mg.poolerCache.Start(poolerwatch.Hooks[*poolergateway.PoolerConnection]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolergateway.PoolerConnection) *poolergateway.PoolerConnection {
+			conn, err := poolergateway.NewPoolerConnection(mg.shutdownCtx, p, logger, poolerTransportCreds, loadBalancer.OnPoolerHealthUpdate)
+			if err != nil {
+				logger.ErrorContext(mg.shutdownCtx, "failed to create pooler connection",
+					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+				return nil
+			}
+			loadBalancer.MergeTopologyLeader(p)
+			loadBalancer.NotifyIfLeaderServing(p, conn)
+			return conn
 		},
-		Logger: logger,
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection) {
+			if conn == nil {
+				return
+			}
+			conn.UpdatePoolerInfo(curr)
+			loadBalancer.MergeTopologyLeader(curr)
+			loadBalancer.NotifyIfLeaderServing(curr, conn)
+		},
+		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolergateway.PoolerConnection, _ poolerwatch.GoneReason) {
+			if conn == nil {
+				return
+			}
+			if err := conn.Close(); err != nil {
+				logger.ErrorContext(mg.shutdownCtx, "error closing pooler connection",
+					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+			}
+		},
 	})
-	loadBalancer.SetCache(mg.poolerCache)
-	mg.poolerCache.Start()
 	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
 	// Initialize PoolerGateway for managing pooler connections

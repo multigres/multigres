@@ -103,28 +103,29 @@ func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, vanishedGrace tim
 	t.Helper()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		Hooks: Hooks[*testRider]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, prev *testRider) *testRider {
-				if prev != nil {
-					rec.record("resume:" + p.Id.Name)
-					return prev
-				}
-				rec.record("live:" + p.Id.Name)
-				return newRider()
-			},
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ *testRider) {
-				rec.record("update:" + curr.Id.Name)
-			},
-			OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
-				rec.record("gone-" + r.String() + ":" + p.Id.Name)
-			},
-		},
 		ShutdownGrace: shutdownGrace,
 		VanishedGrace: vanishedGrace,
 		Logger:        silentLogger(),
 		now:           clk.Now,
 	}
-	return New(t.Context(), cfg), rec
+	cache := New(t.Context(), cfg)
+	cache.hooks = Hooks[*testRider]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, prev *testRider) *testRider {
+			if prev != nil {
+				rec.record("resume:" + p.Id.Name)
+				return prev
+			}
+			rec.record("live:" + p.Id.Name)
+			return newRider()
+		},
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ *testRider) {
+			rec.record("update:" + curr.Id.Name)
+		},
+		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+			rec.record("gone-" + r.String() + ":" + p.Id.Name)
+		},
+	}
+	return cache, rec
 }
 
 func componentID(cell, name string) topoclient.ComponentID {
@@ -392,21 +393,21 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 	clk := newFakeClock()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		Hooks: Hooks[*testRider]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
-				rec.record("live:" + p.Id.Name)
-				return newRider()
-			},
-			OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
-				rec.record("gone-" + r.String() + ":" + p.Id.Name)
-			},
-		},
 		ShutdownGrace: time.Hour,
 		VanishedGrace: time.Hour,
 		Logger:        silentLogger(),
 		now:           clk.Now,
 	}
 	c := New(ctx, cfg)
+	c.hooks = Hooks[*testRider]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+			rec.record("live:" + p.Id.Name)
+			return newRider()
+		},
+		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+			rec.record("gone-" + r.String() + ":" + p.Id.Name)
+		},
+	}
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	cancel()
@@ -445,19 +446,19 @@ func TestCache_ConcurrentShutdownAllBlockUntilDone(t *testing.T) {
 	disposeStart := make(chan struct{})
 	disposeRelease := make(chan struct{})
 	cfg := Config[*testRider]{
-		Hooks: Hooks[*testRider]{
-			OnLive: func(*clustermetadatapb.MultiPooler, *testRider) *testRider { return newRider() },
-			OnGone: func(*clustermetadatapb.MultiPooler, *testRider, GoneReason) {
-				close(disposeStart)
-				<-disposeRelease
-			},
-		},
 		ShutdownGrace: time.Hour,
 		VanishedGrace: time.Hour,
 		Logger:        silentLogger(),
 		now:           clk.Now,
 	}
 	c := New(t.Context(), cfg)
+	c.hooks = Hooks[*testRider]{
+		OnLive: func(*clustermetadatapb.MultiPooler, *testRider) *testRider { return newRider() },
+		OnGone: func(*clustermetadatapb.MultiPooler, *testRider, GoneReason) {
+			close(disposeStart)
+			<-disposeRelease
+		},
+	}
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 
 	firstDone := make(chan struct{})
@@ -491,18 +492,18 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 		Filter: func(p *clustermetadatapb.MultiPooler) bool {
 			return p.GetShardKey().GetDatabase() == "mydb"
 		},
-		Hooks: Hooks[*testRider]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
-				rec.record("live:" + p.Id.Name)
-				return newRider()
-			},
-		},
 		ShutdownGrace: time.Hour,
 		VanishedGrace: time.Hour,
 		Logger:        silentLogger(),
 		now:           clk.Now,
 	}
 	c := New(t.Context(), cfg)
+	c.hooks = Hooks[*testRider]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+			rec.record("live:" + p.Id.Name)
+			return newRider()
+		},
+	}
 	defer c.Shutdown()
 
 	c.applyUpsert(pool("zone1", "kept", "mydb", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))

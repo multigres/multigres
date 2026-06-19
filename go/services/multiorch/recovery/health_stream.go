@@ -105,10 +105,10 @@ func WithStalenessTimeout(d time.Duration) Option {
 	}
 }
 
-// NewHealthStream creates a HealthStream. The cache reference must be bound
-// via SetCache before cache.Start() is called — the cache's OnLive hook
-// reaches into HealthStream.spawnStream, which in turn reads the cache to
-// pick up topology updates on each reconnect.
+// NewHealthStream creates a HealthStream. The cache reference is passed to
+// spawnStream from the cache's OnLive hook (bound via cache.Start), so the
+// HealthStream itself holds no cache pointer; each spawned goroutine closes
+// over the cache and pooler ID provided at spawn time.
 func NewHealthStream(
 	ctx context.Context,
 	rpcClient rpcclient.MultiPoolerClient,

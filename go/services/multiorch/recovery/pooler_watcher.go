@@ -36,17 +36,12 @@ const (
 	vanishedGracePeriod = 4 * time.Hour
 )
 
-// newPoolerCache builds the orchestrator's pooler cache. The cache is
-// lifecycle-aware and owns each pooler's stream goroutine via the rider's
-// StreamHandle: OnLive spawns the stream through HealthStream.spawnStream
-// and stashes the handle on the rider; OnGone cancels via the handle. No
-// parallel registry — the cache is the single source of truth for
-// "everything we track about this pooler".
+// newPoolerCache builds the orchestrator's pooler cache (without binding
+// hooks — the caller passes hooks to cache.Start).
 func newPoolerCache(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
-	healthStream *HealthStream,
 	logger *slog.Logger,
 ) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.MultiPooler) bool {
@@ -58,54 +53,59 @@ func newPoolerCache(
 		return false
 	}
 
-	// Forward-declare the cache so the OnLive hook can capture it. The
-	// closure resolves it at fire time, which is after newPoolerCache
-	// returns. This lets HealthStream remain cache-agnostic — it receives
-	// the cache through spawnStream rather than holding a reference.
-	var cache *store.PoolerCache
-	cache = poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
-		Source: topoStore,
-		Filter: matchesAnyTarget,
-		Hooks: poolerwatch.Hooks[*store.Pooler]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
-				logger.InfoContext(ctx, "pooler discovered live",
-					"pooler_id", topoclient.ComponentIDString(p.Id),
-					"database", p.GetShardKey().GetDatabase(),
-					"tablegroup", p.GetShardKey().GetTableGroup(),
-					"shard", p.GetShardKey().GetShard(),
-					"leader", p.GetSelfLeadership().GetLeaderId() != nil,
-				)
-				return &store.Pooler{
-					PoolerHealthState: &multiorchdatapb.PoolerHealthState{
-						MultiPooler: p,
-						IsUpToDate:  false,
-					},
-					Stream: healthStream.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
-				}
-			},
-
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *store.Pooler) {
-				// Atomic pointer swap; safe to do outside the cache lock.
-				rider.MultiPooler = curr
-			},
-
-			OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
-				if rider.Stream != nil {
-					rider.Stream.Cancel()
-				}
-				switch reason {
-				case poolerwatch.GoneShutdown:
-					logger.InfoContext(ctx, "pooler entered SHUTDOWN lifecycle", "pooler_id", topoclient.ComponentIDString(p.Id))
-				case poolerwatch.GoneVanished:
-					logger.WarnContext(ctx, "pooler topology entry vanished after grace period", "pooler_id", topoclient.ComponentIDString(p.Id))
-				case poolerwatch.GoneCacheShutdown:
-					logger.DebugContext(ctx, "pooler released because cache is shutting down", "pooler_id", topoclient.ComponentIDString(p.Id))
-				}
-			},
-		},
+	return poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
+		Source:        topoStore,
+		Filter:        matchesAnyTarget,
 		ShutdownGrace: shutdownGracePeriod,
 		VanishedGrace: vanishedGracePeriod,
 		Logger:        logger,
 	})
-	return cache
+}
+
+// poolerCacheHooks builds the hook set for the orchestrator's pooler
+// cache. Bound at cache.Start (when both the cache and the
+// HealthStream-stream-spawner are fully constructed).
+//
+// OnLive spawns the per-pooler health stream via HealthStream.spawnStream
+// and stashes the handle on the rider; OnGone cancels via the handle. No
+// parallel registry — the cache is the single source of truth for
+// "everything we track about this pooler".
+func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, healthStream *HealthStream, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
+	return poolerwatch.Hooks[*store.Pooler]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
+			logger.InfoContext(ctx, "pooler discovered live",
+				"pooler_id", topoclient.ComponentIDString(p.Id),
+				"database", p.GetShardKey().GetDatabase(),
+				"tablegroup", p.GetShardKey().GetTableGroup(),
+				"shard", p.GetShardKey().GetShard(),
+				"leader", p.GetSelfLeadership().GetLeaderId() != nil,
+			)
+			return &store.Pooler{
+				PoolerHealthState: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: p,
+					IsUpToDate:  false,
+				},
+				Stream: healthStream.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
+			}
+		},
+
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *store.Pooler) {
+			// Atomic pointer swap; safe to do outside the cache lock.
+			rider.MultiPooler = curr
+		},
+
+		OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
+			if rider.Stream != nil {
+				rider.Stream.Cancel()
+			}
+			switch reason {
+			case poolerwatch.GoneShutdown:
+				logger.InfoContext(ctx, "pooler entered SHUTDOWN lifecycle", "pooler_id", topoclient.ComponentIDString(p.Id))
+			case poolerwatch.GoneVanished:
+				logger.WarnContext(ctx, "pooler topology entry vanished after grace period", "pooler_id", topoclient.ComponentIDString(p.Id))
+			case poolerwatch.GoneCacheShutdown:
+				logger.DebugContext(ctx, "pooler released because cache is shutting down", "pooler_id", topoclient.ComponentIDString(p.Id))
+			}
+		},
+	}
 }

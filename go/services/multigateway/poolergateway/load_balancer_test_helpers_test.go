@@ -37,42 +37,42 @@ func newTestLB(t *testing.T, localCell string) *LoadBalancer {
 	logger := slog.Default()
 	ctx := t.Context()
 	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
+	cache := poolerwatch.New(ctx, poolerwatch.Config[*PoolerConnection]{
+		Logger: logger,
+	})
 	lb := NewLoadBalancer(LoadBalancerOpts{
 		Ctx:       ctx,
 		LocalCell: localCell,
 		Logger:    logger,
 		DialOpt:   dialOpt,
+		Cache:     cache,
 	})
-	cache := poolerwatch.New(ctx, poolerwatch.Config[*PoolerConnection]{
-		Hooks: poolerwatch.Hooks[*PoolerConnection]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
-				conn, err := NewPoolerConnection(ctx, p, logger, dialOpt, lb.OnPoolerHealthUpdate)
-				if err != nil {
-					t.Errorf("NewPoolerConnection failed: %v", err)
-					return nil
-				}
-				lb.MergeTopologyLeader(p)
-				lb.NotifyIfLeaderServing(p, conn)
-				return conn
-			},
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
-				if conn == nil {
-					return
-				}
-				conn.UpdatePoolerInfo(curr)
-				lb.MergeTopologyLeader(curr)
-				lb.NotifyIfLeaderServing(curr, conn)
-			},
-			OnGone: func(_ *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
-				if conn == nil {
-					return
-				}
-				_ = conn.Close()
-			},
+	cache.Start(poolerwatch.Hooks[*PoolerConnection]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *PoolerConnection) *PoolerConnection {
+			conn, err := NewPoolerConnection(ctx, p, logger, dialOpt, lb.OnPoolerHealthUpdate)
+			if err != nil {
+				t.Errorf("NewPoolerConnection failed: %v", err)
+				return nil
+			}
+			lb.MergeTopologyLeader(p)
+			lb.NotifyIfLeaderServing(p, conn)
+			return conn
 		},
-		Logger: logger,
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *PoolerConnection) {
+			if conn == nil {
+				return
+			}
+			conn.UpdatePoolerInfo(curr)
+			lb.MergeTopologyLeader(curr)
+			lb.NotifyIfLeaderServing(curr, conn)
+		},
+		OnGone: func(_ *clustermetadatapb.MultiPooler, conn *PoolerConnection, _ poolerwatch.GoneReason) {
+			if conn == nil {
+				return
+			}
+			_ = conn.Close()
+		},
 	})
-	lb.SetCache(cache)
 	t.Cleanup(func() { cache.Shutdown() })
 	return lb
 }

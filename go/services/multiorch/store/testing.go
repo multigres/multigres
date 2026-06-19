@@ -31,19 +31,20 @@ import (
 // the same PoolerHealthState rider shape.
 func NewTestCache(t *testing.T) *PoolerCache {
 	t.Helper()
-	return poolerwatch.New(t.Context(), poolerwatch.Config[*Pooler]{
-		Hooks: poolerwatch.Hooks[*Pooler]{
-			OnLive: func(p *clustermetadatapb.MultiPooler, _ *Pooler) *Pooler {
-				return &Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{MultiPooler: p}}
-			},
-			OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *Pooler) {
-				rider.MultiPooler = curr
-			},
-		},
+	cache := poolerwatch.New(t.Context(), poolerwatch.Config[*Pooler]{
 		ShutdownGrace: time.Hour,
 		VanishedGrace: time.Hour,
 		Logger:        slog.Default(),
 	})
+	cache.Start(poolerwatch.Hooks[*Pooler]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *Pooler) *Pooler {
+			return &Pooler{PoolerHealthState: &multiorchdatapb.PoolerHealthState{MultiPooler: p}}
+		},
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *Pooler) {
+			rider.MultiPooler = curr
+		},
+	})
+	return cache
 }
 
 // SeedCache inserts a fully-formed PoolerHealthState via the legitimate

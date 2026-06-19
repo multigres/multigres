@@ -139,13 +139,14 @@ type Hooks[T any] struct {
 	OnGone func(pooler *clustermetadatapb.MultiPooler, rider T, reason GoneReason)
 }
 
-// Config configures a PoolerCache.
+// Config configures a PoolerCache. Hooks are NOT part of Config —
+// they are supplied at Start, which lets callers construct the cache,
+// then construct anything that wants to reference the cache (LB,
+// HealthStreamRunner, etc.), then bind hooks that close over those.
 type Config[T any] struct {
 	// Source is the topology backing store. The cache subscribes to it on
 	// Start to receive upserts and deletions. Required.
 	Source topoclient.Store
-
-	Hooks Hooks[T]
 
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
@@ -216,6 +217,7 @@ type ghostEntry struct {
 // See package doc for full semantics.
 type PoolerCache[T any] struct {
 	config Config[T]
+	hooks  Hooks[T] // bound at Start; zero value if Start has not run
 	ctx    context.Context
 
 	mu      sync.Mutex
@@ -299,11 +301,17 @@ func New[T any](ctx context.Context, config Config[T]) *PoolerCache[T] {
 	return c
 }
 
-// Start launches the background sweeper that disposes expired entries and,
-// if config.Source was provided, the topology watch that drives upserts and
-// deletes. Tests that drive disposal via Sweep() and events via the
-// package-internal apply helpers can skip Start.
-func (c *PoolerCache[T]) Start() {
+// Start binds hooks and launches the background sweeper that disposes
+// expired entries. If config.Source was provided, also starts the
+// topology watch that drives upserts and deletes. Hooks may safely
+// reference the cache itself, since by the time hooks fire the cache
+// is fully constructed.
+//
+// Must be called exactly once. Tests that drive events via the
+// package-internal apply helpers also call Start (with their test
+// hooks) so the cache's hooks field is populated.
+func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
+	c.hooks = hooks
 	c.sweeper.Start(func(context.Context) { c.sweep() }, nil)
 	if c.topoSource != nil {
 		c.topoSource.Start()
@@ -344,7 +352,7 @@ func (c *PoolerCache[T]) Shutdown() {
 		c.byShard = nil
 		c.ghosts = nil
 		c.mu.Unlock()
-		hooks := c.config.Hooks
+		hooks := c.hooks
 		if hooks.OnGone == nil {
 			return
 		}
@@ -579,7 +587,7 @@ func (c *PoolerCache[T]) sweep() {
 			delete(c.ghosts, id)
 		}
 	}
-	hooks := c.config.Hooks
+	hooks := c.hooks
 	c.mu.Unlock()
 
 	if hooks.OnGone == nil {
@@ -721,7 +729,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 			delete(c.entries, e.id)
 			c.indexRemove(e)
 			c.addGhostLocked(id, pooler.Id, now)
-			hooks := c.config.Hooks
+			hooks := c.hooks
 			c.mu.Unlock()
 			if hooks.OnGone != nil {
 				hooks.OnGone(pooler, rider, GoneShutdown)
@@ -734,7 +742,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 			if !unchanged {
 				e.lastChange = now
 			}
-			hooks := c.config.Hooks
+			hooks := c.hooks
 			c.mu.Unlock()
 			if !unchanged && hooks.OnUpdate != nil {
 				hooks.OnUpdate(prevPooler, pooler, rider)
@@ -746,7 +754,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		e.state = StateLive
 		e.lastChange = now
 		e.disposeAfter = time.Time{}
-		hooks := c.config.Hooks
+		hooks := c.hooks
 		c.mu.Unlock()
 		if !unchanged && hooks.OnUpdate != nil {
 			hooks.OnUpdate(prevPooler, pooler, rider)
@@ -765,7 +773,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		// Ghost → Live: restart-from-shutdown. Drop the ghost; treat as a
 		// fresh discovery (the previous rider was released through OnGone).
 		delete(c.ghosts, id)
-		hooks := c.config.Hooks
+		hooks := c.hooks
 		c.mu.Unlock()
 		var zero T
 		var rider T
@@ -801,7 +809,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		c.mu.Unlock()
 		return
 	}
-	hooks := c.config.Hooks
+	hooks := c.hooks
 	c.mu.Unlock()
 	var zero T
 	var rider T
@@ -866,7 +874,7 @@ func (c *PoolerCache[T]) deleteImmediate(id topoclient.ComponentID) {
 	}
 	delete(c.entries, e.id)
 	c.indexRemove(e)
-	hooks := c.config.Hooks
+	hooks := c.hooks
 	pooler := e.pooler
 	rider := e.rider
 	c.mu.Unlock()
@@ -892,7 +900,7 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 			e.state = StateVanished
 			e.lastChange = now
 			e.disposeAfter = now.Add(c.config.VanishedGrace)
-			hooks := c.config.Hooks
+			hooks := c.hooks
 			pooler := e.pooler
 			rider := e.rider
 			removeNow := c.config.VanishedGrace == 0

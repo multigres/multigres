@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -41,10 +42,11 @@ func poolerKey(cell, name string) topoclient.ComponentID {
 	})
 }
 
-// startCache starts a PoolerCache and registers Shutdown() as a cleanup function.
-func startCache(t *testing.T, cache *store.PoolerCache) {
+// startCache starts a PoolerCache with the given hooks and registers
+// Shutdown() as a cleanup function.
+func startCache(t *testing.T, cache *store.PoolerCache, hooks poolerwatch.Hooks[*store.Pooler]) {
 	t.Helper()
-	cache.Start()
+	cache.Start(hooks)
 	t.Cleanup(func() { cache.Shutdown() })
 }
 
@@ -579,8 +581,8 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	logger := slog.Default()
 	hs := NewHealthStream(ctx, rpcclient.NewFakeClient(), logger)
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
-	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, hs, logger)
-	startCache(t, poolerStore)
+	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, logger)
+	startCache(t, poolerStore, poolerCacheHooks(ctx, poolerStore, hs, logger))
 	t.Cleanup(hs.Shutdown)
 
 	poolerStoreAtLeast := func(val int) func() bool {

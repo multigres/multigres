@@ -49,9 +49,9 @@ func newTestPoolerCache(
 		ctx,
 		ts,
 		func() []config.WatchTarget { return targets },
-		hs,
 		logger,
 	)
+	cache.Start(poolerCacheHooks(ctx, cache, hs, logger))
 	return cache
 }
 
@@ -100,7 +100,6 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Both poolers should be discovered
@@ -133,7 +132,6 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Sync to confirm watcher started and processed initial (empty) topology
@@ -184,7 +182,6 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Wait for initial discovery
@@ -270,7 +267,6 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	// Only watch mydb/tg1
 	targets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	ok := waitForCondition(t, 5*time.Second, func() bool {
@@ -300,7 +296,6 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Add a pooler in zone1
@@ -367,7 +362,6 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
@@ -415,7 +409,6 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
@@ -469,7 +462,6 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Initial discovery installs a stream handle on the rider.
@@ -538,7 +530,6 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 
 	targets := []config.WatchTarget{{Database: "mydb"}}
 	poolerStore := newTestPoolerCache(ctx, ts, targets, logger)
-	poolerStore.Start()
 	defer poolerStore.Shutdown()
 
 	// Give the watcher time to process the initial SHUTDOWN entry; it should
