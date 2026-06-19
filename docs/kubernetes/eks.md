@@ -36,16 +36,16 @@ The multi-AZ example below uses three cells to show an HA-oriented layout.
 
 Complete these steps before applying the `MultigresCluster` manifest:
 
-| Step                                   | Command or check                                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Step                                   | Command or check                                                                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Install the Multigres operator         | `kubectl apply --server-side=true -f https://github.com/multigres/multigres-operator/releases/download/v0.1.0/install.yaml` |
-| Choose a namespace                     | `kubectl create namespace multigres-demo`                                                                          |
-| Confirm persistent volume provisioning | `kubectl get storageclass`                                                                                         |
-| Confirm EKS zone labels                | `kubectl get nodes -L topology.k8s.aws/zone-id,topology.kubernetes.io/zone`                                        |
-| Prepare an S3 backup bucket and prefix | Create or select a bucket, choose a unique `keyPrefix`, and grant the backup service account access to that prefix |
-| Create the PostgreSQL password secret  | `kubectl create secret generic multigres-admin-password --from-literal=password='<replace-me>'`                    |
-| Apply the `MultigresCluster` manifest  | `kubectl apply -f multigres-demo.yaml`                                                                             |
-| Verify the cluster with a SQL query    | Run the `psql` check in [Verify Query Serving](#8-verify-query-serving)                                            |
+| Choose a namespace                     | `kubectl create namespace multigres-demo`                                                                                   |
+| Confirm persistent volume provisioning | `kubectl get storageclass`                                                                                                  |
+| Confirm EKS zone labels                | `kubectl get nodes -L topology.k8s.aws/zone-id,topology.kubernetes.io/zone`                                                 |
+| Prepare an S3 backup bucket and prefix | Create or select a bucket, choose a unique `keyPrefix`, and grant the backup service account access to that prefix          |
+| Create the PostgreSQL password secret  | `kubectl create secret generic multigres-admin-password --from-literal=password='<replace-me>'`                             |
+| Apply the `MultigresCluster` manifest  | `kubectl apply -f multigres-demo.yaml`                                                                                      |
+| Verify the cluster with a SQL query    | Run the `psql` check in [Verify Query Serving](#8-verify-query-serving)                                                     |
 
 ## 1. Install The Operator
 
