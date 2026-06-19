@@ -44,7 +44,7 @@ func newTestPoolerCache(
 	targets []config.WatchTarget,
 	logger *slog.Logger,
 ) *store.PoolerCache {
-	hs := NewHealthStream(ctx, rpcclient.NewFakeClient(), logger)
+	hs := store.NewHealthStreamFactory(ctx, rpcclient.NewFakeClient(), logger)
 	cache := newPoolerCache(
 		ctx,
 		ts,
@@ -116,10 +116,10 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	// OnLive must have run for each discovered pooler — the cache rider's
 	// Stream handle (installed by the OnLive hook via HealthStream.spawnStream)
 	// is the observable proof.
-	assert.NotNil(t, p1.Stream, "OnLive should have spawned a stream for pooler1")
+	assert.NotNil(t, p1.HealthStream, "OnLive should have spawned a stream for pooler1")
 	p2, exists := poolerStore.GetRider(poolerKey("zone1", "pooler2"))
 	require.True(t, exists)
-	assert.NotNil(t, p2.Stream, "OnLive should have spawned a stream for pooler2")
+	assert.NotNil(t, p2.HealthStream, "OnLive should have spawned a stream for pooler2")
 }
 
 func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
@@ -158,7 +158,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
 	assert.Equal(t, "host1", p1.MultiPooler.Hostname)
-	assert.NotNil(t, p1.Stream, "OnLive should have spawned a stream on discovery")
+	assert.NotNil(t, p1.HealthStream, "OnLive should have spawned a stream on discovery")
 }
 
 func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
@@ -194,8 +194,8 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	// update doesn't trigger a second OnLive (which would replace the handle).
 	pid := poolerKey("zone1", "pooler1")
 	existing, _ := poolerStore.GetRider(pid)
-	require.NotNil(t, existing.Stream, "OnLive should have spawned a stream on discovery")
-	originalStream := existing.Stream
+	require.NotNil(t, existing.HealthStream, "OnLive should have spawned a stream on discovery")
+	originalStream := existing.HealthStream
 
 	// Simulate a health-check populating some state
 	existing.IsUpToDate = true
@@ -226,7 +226,7 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	// An update to an existing pooler must NOT re-fire OnLive — that would
 	// install a fresh StreamHandle and replace the original one.
 	require.NoError(t, poolerStore.Sync(ctx))
-	assert.Same(t, originalStream, updated.Stream,
+	assert.Same(t, originalStream, updated.HealthStream,
 		"existing pooler should not re-trigger OnLive on metadata update")
 }
 
@@ -377,7 +377,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	assert.True(t, ok, "vanished pooler should still be cached during grace")
 	// OnGone must not have fired: the StreamHandle installed by OnLive is
 	// still attached to the rider.
-	assert.NotNil(t, rider.Stream, "stream handle must persist while entry is in vanish grace")
+	assert.NotNil(t, rider.HealthStream, "stream handle must persist while entry is in vanish grace")
 }
 
 // TestPoolerWatcher_PoolerEntersShutdownLifecycle pins the SHUTDOWN contract:
@@ -469,8 +469,8 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 		"new pooler should be discovered")
 	first, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
-	require.NotNil(t, first.Stream, "OnLive should have spawned a stream on initial discovery")
-	originalStream := first.Stream
+	require.NotNil(t, first.HealthStream, "OnLive should have spawned a stream on initial discovery")
+	originalStream := first.HealthStream
 
 	// Transition ACTIVE -> SHUTDOWN evicts the store entry.
 	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
@@ -496,7 +496,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		p, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
-		return ok && p.Stream != nil && p.Stream != originalStream
+		return ok && p.HealthStream != nil && p.HealthStream != originalStream
 	}), "restart after SHUTDOWN must re-fire OnLive and install a fresh StreamHandle")
 }
 

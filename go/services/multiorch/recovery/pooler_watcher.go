@@ -64,13 +64,13 @@ func newPoolerCache(
 
 // poolerCacheHooks builds the hook set for the orchestrator's pooler
 // cache. Bound at cache.Start (when both the cache and the
-// HealthStream-stream-spawner are fully constructed).
+// HealthStreamFactory are fully constructed).
 //
-// OnLive spawns the per-pooler health stream via HealthStream.spawnStream
-// and stashes the handle on the rider; OnGone cancels via the handle. No
-// parallel registry — the cache is the single source of truth for
+// OnLive spawns the per-pooler health stream via factory.New and stashes
+// the resulting HealthStream on the rider; OnGone cancels via the rider.
+// No parallel registry — the cache is the single source of truth for
 // "everything we track about this pooler".
-func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, streams *HealthStream, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
+func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *store.HealthStreamFactory, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
 	return poolerwatch.Hooks[*store.Pooler]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
 			logger.InfoContext(ctx, "pooler discovered live",
@@ -85,7 +85,7 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, streams *He
 					MultiPooler: p,
 					IsUpToDate:  false,
 				},
-				Stream: streams.spawnStream(cache, topoclient.ComponentIDString(p.Id)),
+				HealthStream: factory.New(cache, topoclient.ComponentIDString(p.Id)),
 			}
 		},
 
@@ -95,8 +95,8 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, streams *He
 		},
 
 		OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
-			if rider.Stream != nil {
-				rider.Stream.Cancel()
+			if rider.HealthStream != nil {
+				rider.HealthStream.Cancel()
 			}
 			switch reason {
 			case poolerwatch.GoneShutdown:

@@ -47,6 +47,22 @@ func NewTestCache(t *testing.T) *PoolerCache {
 	return cache
 }
 
+// NewForTest spawns a HealthStream for id via the factory and stashes the
+// resulting stream on the existing cache rider. This mirrors what the cache's
+// OnLive hook does in production, allowing tests to drive a single pooler's
+// stream lifecycle without booting the full poolerwatch machinery. The
+// *testing.T argument keeps this helper out of production call paths.
+func (f *HealthStreamFactory) NewForTest(t *testing.T, cache *PoolerCache, id *clustermetadatapb.ID) *HealthStream {
+	t.Helper()
+	poolerID := topoclient.ComponentIDString(id)
+	hs := f.New(cache, poolerID)
+	cache.DoUpdate(poolerID, func(p *Pooler) *Pooler {
+		p.HealthStream = hs
+		return p
+	})
+	return hs
+}
+
 // SeedCache inserts a fully-formed PoolerHealthState via the legitimate
 // cache path (SeedForTest upsert + DoUpdate) and returns the entry's ID.
 //

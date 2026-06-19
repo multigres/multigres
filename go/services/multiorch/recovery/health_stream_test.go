@@ -69,9 +69,9 @@ func completeHandshake(t *testing.T, stream *rpcclient.FakeManagerHealthStream) 
 }
 
 // newTestHealthStream creates a HealthStream wired to the given FakeClient and store.
-func newTestHealthStream(ctx context.Context, fakeClient *rpcclient.FakeClient, poolerStore *store.PoolerCache, opts ...Option) *HealthStream {
+func newTestHealthStreamFactory(ctx context.Context, fakeClient *rpcclient.FakeClient, poolerStore *store.PoolerCache, opts ...store.Option) *store.HealthStreamFactory {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	hs := NewHealthStream(ctx, fakeClient, logger, opts...)
+	hs := store.NewHealthStreamFactory(ctx, fakeClient, logger, opts...)
 	return hs
 }
 
@@ -125,12 +125,12 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -175,12 +175,12 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -232,12 +232,12 @@ func TestHealthStream_Poll(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -254,7 +254,7 @@ func TestHealthStream_Poll(t *testing.T) {
 
 	// Trigger a poll.
 	rider, _ := poolerStore.GetRider(key)
-	require.NoError(t, sm.Poll(rider))
+	require.NoError(t, rider.HealthStream.Poll())
 	waitForPoll(t, stream.Sent)
 
 	// Inject updated snapshot (as if pooler responded to the poll).
@@ -280,7 +280,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "failed-pooler"}
 	lastSeenTime := time.Now().Add(-1 * time.Hour)
@@ -295,7 +295,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 		LastSeen:         timestamppb.New(lastSeenTime),
 	}})
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -336,12 +336,12 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -394,12 +394,12 @@ func TestHealthStream_DeletedDuringStream(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -431,11 +431,11 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		}
 
 		poolerStore := store.NewTestCache(t)
-		sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+		sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 		poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
 		key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-		sm.StartForTest(t, poolerStore, poolerID)
+		sm.NewForTest(t, poolerStore, poolerID)
 		stream := <-streamCh
 		completeHandshake(t, stream)
 
@@ -464,7 +464,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		}
 
 		poolerStore := store.NewTestCache(t)
-		sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+		sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 		poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"}
 		key := topoclient.ComponentIDString(poolerID)
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
@@ -477,7 +477,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 			LastPostgresReadyTime: lastReadyTime,
 		}})
 
-		sm.StartForTest(t, poolerStore, poolerID)
+		sm.NewForTest(t, poolerStore, poolerID)
 		stream := <-streamCh
 		completeHandshake(t, stream)
 
@@ -514,12 +514,12 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 
 	poolerStore := store.NewTestCache(t)
 	// Use a very short staleness timeout so the test completes quickly.
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore, WithStalenessTimeout(100*time.Millisecond))
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore, store.WithStalenessTimeout(100*time.Millisecond))
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "silent-pooler"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	// First stream connection.
 	stream := <-streamCh
@@ -567,15 +567,15 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 
 	poolerStore := store.NewTestCache(t)
 	// Request snapshot_interval=2s and staleness_timeout=20s.
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore,
-		WithSnapshotInterval(2*time.Second),
-		WithStalenessTimeout(20*time.Second),
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore,
+		store.WithSnapshotInterval(2*time.Second),
+		store.WithStalenessTimeout(20*time.Second),
 	)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "config-pooler"}
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 
@@ -616,13 +616,13 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 	}
 
 	poolerStore := store.NewTestCache(t)
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "confused-pooler"}
 	// Topology says REPLICA.
 	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.StartForTest(t, poolerStore, poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 	stream := <-streamCh
 	completeHandshake(t, stream)
 

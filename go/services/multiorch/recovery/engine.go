@@ -189,8 +189,8 @@ type Engine struct {
 	// In-memory state store
 	poolerCache *store.PoolerCache
 
-	// Health stream manager — one stream per pooler.
-	healthStreams *HealthStream
+	// Health stream factory — spawns one HealthStream per pooler.
+	healthStreams *store.HealthStreamFactory
 
 	// Current configuration values
 	mu                sync.Mutex // protects shardWatchTargets
@@ -247,11 +247,11 @@ func NewEngine(
 		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
-	// HealthStream is cache-agnostic — it holds no cache reference. The
+	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
 	// cache's OnLive hook (bound at cache.Start in engine.Start) passes the
-	// cache into spawnStream, and the resulting goroutine captures it for
+	// cache into factory.New, and the resulting goroutine captures it for
 	// the lifetime of the stream.
-	engine.healthStreams = NewHealthStream(ctx, rpcClient, logger)
+	engine.healthStreams = store.NewHealthStreamFactory(ctx, rpcClient, logger)
 	engine.poolerCache = newPoolerCache(
 		ctx,
 		ts,
@@ -599,8 +599,8 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 func (re *Engine) pollAllPoolers() {
 	for _, entry := range re.poolerCache.All() {
 		ph := entry.Rider
-		if ph != nil && ph.MultiPooler != nil && ph.MultiPooler.Id != nil {
-			_ = re.healthStreams.Poll(ph)
+		if ph != nil && ph.MultiPooler != nil && ph.MultiPooler.Id != nil && ph.HealthStream != nil {
+			_ = ph.HealthStream.Poll()
 		}
 	}
 }

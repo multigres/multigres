@@ -579,7 +579,7 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	// Drive the cache with a fake-rpc-backed HealthStream so OnLive can
 	// spawn its per-pooler stream goroutines without booting real gRPC.
 	logger := slog.Default()
-	hs := NewHealthStream(ctx, rpcclient.NewFakeClient(), logger)
+	hs := store.NewHealthStreamFactory(ctx, rpcclient.NewFakeClient(), logger)
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
 	poolerStore := newPoolerCache(ctx, ts, func() []config.WatchTarget { return watchTargets }, logger)
 	startCache(t, poolerStore, poolerCacheHooks(ctx, poolerStore, hs, logger))
@@ -634,6 +634,6 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "expected pooler3 to be discovered")
 	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
 		p, ok := poolerStore.GetRider(poolerKey("zone1", "pooler3"))
-		return ok && p.Stream != nil
+		return ok && p.HealthStream != nil
 	}), "new pooler should trigger OnLive and spawn a stream handle")
 }
