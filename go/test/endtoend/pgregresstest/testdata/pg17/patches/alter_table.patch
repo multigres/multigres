@@ -1,3 +1,8 @@
+# Known divergence (by design): this malformed statement is rejected by
+# multigateway's own SQL parser before it reaches PostgreSQL, so the error is
+# "parse error at position 27: syntax error" instead of PostgreSQL's "syntax
+# error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Real COPY behavior differences in this test are intentionally left unpatched.
 --- a
 +++ b
 @@ -1445,9 +1445,7 @@
@@ -11,40 +16,24 @@
  -- try dropping the xmin column, should fail
  alter table atacc1 drop xmin;
  ERROR: cannot drop system column "xmin"
-@@ -1631,14 +1629,13 @@
- insert into attest values (1,2,3);
- alter table attest drop a;
- copy attest to stdout;
--2 3
-+ERROR: COPY TO STDOUT not yet supported
- copy attest(a) to stdout;
--ERROR: column "a" of relation "attest" does not exist
-+ERROR: COPY TO STDOUT not yet supported
- copy attest("........pg.dropped.1........") to stdout;
--ERROR: column "........pg.dropped.1........" of relation "attest" does not exist
-+ERROR: COPY TO STDOUT not yet supported
- copy attest from stdin;
--ERROR: extra data after last expected column
--CONTEXT: COPY attest, line 1: "10 11 12"
-+ERROR: failed to finalize COPY: COPY finalization failed: COPY operation failed: ERROR: extra data after last expected column
- select * from attest;
- b | c
- ---+---
-@@ -1654,9 +1651,15 @@
- (2 rows)
+@@ -3523,6 +3521,8 @@
+ DROP TABLE old_system_table;
+ -- set logged
+ CREATE UNLOGGED TABLE unlogged1(f1 SERIAL PRIMARY KEY, f2 TEXT); -- has sequence, toast
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ -- check relpersistence of an unlogged table
+ SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1'
+ UNION ALL
+@@ -3540,7 +3540,11 @@
+ (5 rows)
 
- copy attest(a) from stdin;
--ERROR: column "a" of relation "attest" does not exist
-+ERROR: failed to initiate COPY: failed to initiate COPY: Code: INTERNAL
-+failed to initiate COPY: failed to create reserved connection for COPY: failed to initiate COPY FROM STDIN: ERROR: column "a" of relation "attest" does not exist
-+
-+failed to receive READY response
- copy attest("........pg.dropped.1........") from stdin;
--ERROR: column "........pg.dropped.1........" of relation "attest" does not exist
-+ERROR: failed to initiate COPY: failed to initiate COPY: Code: INTERNAL
-+failed to initiate COPY: failed to create reserved connection for COPY: failed to initiate COPY FROM STDIN: ERROR: column "........pg.dropped.1........" of relation "attest" does not exist
-+
-+failed to receive READY response
- copy attest(b,c) from stdin;
- select * from attest;
- b | c
+ CREATE UNLOGGED TABLE unlogged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged1); -- foreign key
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ CREATE UNLOGGED TABLE unlogged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged3); -- self-referencing foreign key
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ ALTER TABLE unlogged3 SET LOGGED; -- skip self-referencing foreign key
+ ALTER TABLE unlogged2 SET LOGGED; -- fails because a foreign key to an unlogged table exists
+ ERROR: could not change table "unlogged2" to logged because it references unlogged table "unlogged1"

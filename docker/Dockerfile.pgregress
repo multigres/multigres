@@ -35,6 +35,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Build/test dependencies — same packages CI installs.
 #   build-essential bison flex libreadline-dev zlib1g-dev : build PostgreSQL 17.6 from source
+#   liblz4-dev : ./configure --with-lz4       (compression regression suite)
 #   uuid-dev   : ./configure --with-uuid       (uuid-ossp contrib)
 #   libssl-dev : ./configure --with-ssl=openssl (pgcrypto, PG16+; pgjwt depends on it)
 #   libsodium-dev pkg-config : pgsodium external extension (PkgConfigDeps)
@@ -50,7 +51,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   locales : glibc locales the regression collate suite needs (see locale-gen below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential autoconf automake libtool bison flex libreadline-dev zlib1g-dev \
-      uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev \
+      liblz4-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev \
       libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
       libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev \
       clang libclang-dev \
