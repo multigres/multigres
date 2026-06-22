@@ -201,6 +201,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				BuildSubdir:   ext.BuildSubdir,
 				BuildSystem:   ext.BuildSystem,
 				PgrxVersion:   ext.PgrxVersion,
+				PgrxFeatures:  ext.PgrxFeatures,
 				PkgConfigDeps: ext.PkgConfigDeps,
 				ConfigureArgs: ext.ConfigureArgs,
 			}
