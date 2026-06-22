@@ -235,6 +235,27 @@ func TestSettingsQueries(t *testing.T) {
 	assert.Equal(t, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL", s.ResetQuery())
 }
 
+func TestSettingsApplyQueryRoleSessionAuthorizationOrder(t *testing.T) {
+	s := NewSettings(map[string]string{
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+		"search_path":           "public",
+	}, 1)
+
+	expected := "SELECT pg_catalog.set_config('search_path', 'public', false); SET SESSION AUTHORIZATION 'regress_parent'; SET ROLE 'regress_child'"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
+func TestSettingsApplyQueryRoleSessionAuthorizationEscaping(t *testing.T) {
+	s := NewSettings(map[string]string{
+		"role":                  "child'role",
+		"session_authorization": "parent'role",
+	}, 1)
+
+	expected := "SET SESSION AUTHORIZATION 'parent''role'; SET ROLE 'child''role'"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
 func TestSettingsApplyQueryListGUC(t *testing.T) {
 	// Regression test: list-valued GUCs like search_path must not be wrapped
 	// in a single pair of quotes. set_config() handles the comma-separated

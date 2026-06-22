@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,29 +115,52 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 	// Build SQL: RESET removed variables, then SET desired variables.
 	var b strings.Builder
 
-	// RESET variables present in current but absent from desired.
-	// Note: "role" and "session_authorization" have GUC_NO_RESET_ALL in
-	// PostgreSQL, so they MUST be reset individually — RESET ALL won't
-	// touch them. We handle them here with explicit RESET commands.
+	appendStmt := func(sql string) {
+		if b.Len() > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(sql)
+	}
+
+	// RESET variables present in current but absent from desired. Role/session
+	// authorization are special: reset role first, then session authorization
+	// when it is absent or changing, before applying ordinary desired GUCs and
+	// then any desired session authorization/role below.
 	if current != nil {
-		for name := range current.Vars {
-			if _, ok := desired.Vars[name]; !ok {
-				if b.Len() > 0 {
-					b.WriteString("; ")
-				}
-				b.WriteString("RESET ")
-				b.WriteString(ast.QuoteQualifiedIdentifier(name))
+		if _, had := current.Vars["role"]; had {
+			_, wantRole := desired.Vars["role"]
+			currentSessionAuth := current.Vars["session_authorization"]
+			desiredSessionAuth, changingSessionAuth := desired.Vars["session_authorization"]
+			if !wantRole || (changingSessionAuth && desiredSessionAuth != currentSessionAuth) {
+				appendStmt("RESET ROLE")
 			}
+		}
+		if currentSessionAuth, had := current.Vars["session_authorization"]; had {
+			if desiredSessionAuth, want := desired.Vars["session_authorization"]; !want || desiredSessionAuth != currentSessionAuth {
+				appendStmt("RESET SESSION AUTHORIZATION")
+			}
+		}
+
+		var resetKeys []string
+		for name := range current.Vars {
+			switch strings.ToLower(name) {
+			case "role", "session_authorization":
+				continue
+			}
+			if _, ok := desired.Vars[name]; !ok {
+				resetKeys = append(resetKeys, name)
+			}
+		}
+		sort.Strings(resetKeys)
+		for _, name := range resetKeys {
+			appendStmt("RESET " + ast.QuoteQualifiedIdentifier(name))
 		}
 	}
 
 	// SET all desired variables.
 	applySQL := desired.ApplyQuery()
 	if applySQL != "" {
-		if b.Len() > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(applySQL)
+		appendStmt(applySQL)
 	}
 
 	if b.Len() == 0 {

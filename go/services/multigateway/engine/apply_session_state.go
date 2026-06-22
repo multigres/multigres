@@ -329,6 +329,8 @@ func (s *ApplySessionState) StreamExecute(
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
 		return s.executeSet(ctx, conn, state, callback)
+	case ast.VAR_SET_DEFAULT:
+		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return s.executeReset(ctx, state, callback)
 	default:
@@ -382,7 +384,7 @@ func (s *ApplySessionState) applyTracked(
 		if handled, err := state.ApplyGatewayManagedVariable(name, value, isLocal); err != nil {
 			return err
 		} else if !handled {
-			state.SetSessionVariable(name, value)
+			applyTrackedSessionVariable(state, name, value)
 		}
 	}
 
@@ -393,6 +395,64 @@ func (s *ApplySessionState) applyTracked(
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "SET",
 	})
+}
+
+func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name, value string) {
+	switch strings.ToLower(name) {
+	case "session_authorization":
+		// PostgreSQL sets both session_user and current_user when session
+		// authorization changes. Any prior SET ROLE is cleared and must not be
+		// replayed after the new session authorization.
+		state.SetSessionVariable("session_authorization", value)
+		state.ResetSessionVariable("role")
+	case "role":
+		if strings.EqualFold(value, "none") || strings.EqualFold(value, "default") {
+			state.ResetSessionVariable("role")
+			return
+		}
+		state.SetSessionVariable("role", value)
+	default:
+		state.SetSessionVariable(name, value)
+	}
+}
+
+func resetTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name string) {
+	switch strings.ToLower(name) {
+	case "session_authorization":
+		// RESET SESSION AUTHORIZATION restores the original session user and also
+		// clears the active role.
+		state.ResetSessionVariable("session_authorization")
+		state.ResetSessionVariable("role")
+	case "role":
+		state.ResetSessionVariable("role")
+	default:
+		state.ResetSessionVariable(name)
+	}
+}
+
+func resetAllSessionVariablesPreservingRoleAuth(state *handler.MultiGatewayConnectionState) {
+	sessionAuth, hasSessionAuth := state.GetSessionVariable("session_authorization")
+	role, hasRole := state.GetSessionVariable("role")
+	state.ResetAllSessionVariables()
+	if hasSessionAuth {
+		state.SetSessionVariable("session_authorization", sessionAuth)
+	}
+	if hasRole {
+		state.SetSessionVariable("role", role)
+	}
+}
+
+func (s *ApplySessionState) executeSetDefault(
+	ctx context.Context,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	resetTrackedSessionVariable(state, s.VariableStmt.Name)
+
+	if s.SilentTracking {
+		return nil
+	}
+	return callback(ctx, &sqltypes.Result{CommandTag: "SET"})
 }
 
 // executeReset handles RESET/RESET ALL: update state, return synthetic response.
@@ -411,10 +471,13 @@ func (s *ApplySessionState) executeReset(
 	switch s.VariableStmt.Kind {
 	case ast.VAR_RESET:
 		// RESET variable
-		state.ResetSessionVariable(s.VariableStmt.Name)
+		resetTrackedSessionVariable(state, s.VariableStmt.Name)
 
 	case ast.VAR_RESET_ALL:
-		state.ResetAllSessionVariables()
+		// PostgreSQL RESET ALL does not reset role or session_authorization
+		// (GUC_NO_RESET_ALL). Preserve those replay entries while clearing every
+		// ordinary session setting.
+		resetAllSessionVariablesPreservingRoleAuth(state)
 		// Also reset gateway-managed variables that live outside SessionSettings.
 		state.ResetGatewayManagedVariables()
 	default:
