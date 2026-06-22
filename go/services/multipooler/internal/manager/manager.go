@@ -202,6 +202,14 @@ type MultiPoolerManager struct {
 	// owns the gRPC handlers, delegating the pgBackRest steps to the engine.
 	backup *backupengine.Engine
 
+	// backupHealthEnabled records whether the service layer opted this manager
+	// into the background backup-health poller (via StartBackupHealth). When
+	// set, openLocked (re)launches the poller on every open so it survives
+	// Pause/resume cycles, which recreate pm.ctx. RPC/consensus unit tests that
+	// never call StartBackupHealth leave this false, so they don't spin up
+	// background pg queries. Guarded by pm.mu.
+	backupHealthEnabled bool
+
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
@@ -476,6 +484,15 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Relaunch the backup-health poller on the fresh context when the service
+	// layer has opted in (see StartBackupHealth). closeLocked cancels pm.ctx,
+	// which stops the previous poller goroutine; without this, a Pause/resume
+	// cycle (pg_rewind, restart-as-standby, stale-primary demote) would leave
+	// the passive backup-health gauges frozen for the rest of the process.
+	if pm.backupHealthEnabled {
+		pm.startBackupHealthPollerLocked()
+	}
 
 	// Start health heartbeat goroutine and transition to the target status.
 	// SetState notifies all components (query service, heartbeat, health
@@ -1623,22 +1640,42 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	})
 }
 
-// StartBackupHealth launches the background backup-health poller and, once the
-// manager reaches its ready state, captures an initial snapshot so the
-// gauges/status page reflect post-bootstrap state without waiting a poll
-// interval. Both goroutines are bound to pm.ctx and stop on shutdown.
+// StartBackupHealth opts this manager into the background backup-health poller
+// and launches it. Once the manager reaches its ready state, it captures an
+// initial snapshot so the gauges/status page reflect post-bootstrap state
+// without waiting a poll interval.
+//
+// The poller is bound to the open/close lifecycle (pm.ctx), not the manager
+// lifetime: closeLocked cancels pm.ctx and openLocked recreates it, so the
+// poller is paused during maintenance (e.g. pg_rewind, when the connection
+// pool is closed) and relaunched on resume. Setting backupHealthEnabled makes
+// openLocked restart the poller on every subsequent open.
 //
 // This is invoked by the multipooler service rather than from Start() so that
 // manager RPC/consensus unit tests, which drive Start() directly against a
 // strict mock DB, do not spin up background health queries (pg_is_in_recovery,
 // pg_settings, pg_stat_archiver) that would race with their query expectations.
 func (pm *MultiPoolerManager) StartBackupHealth() {
-	go pm.backup.RunHealthPoller(pm.ctx, 0)
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.backupHealthEnabled = true
+	pm.startBackupHealthPollerLocked()
+}
+
+// startBackupHealthPollerLocked launches the backup-health poller goroutine on
+// the current pm.ctx, plus a one-shot goroutine that captures an initial
+// snapshot once the manager is ready. Both stop when pm.ctx is cancelled.
+//
+// Caller must hold pm.mu (read of pm.ctx). Invoked from StartBackupHealth (first
+// launch) and from openLocked on every reopen when backupHealthEnabled is set.
+func (pm *MultiPoolerManager) startBackupHealthPollerLocked() {
+	ctx := pm.ctx
+	go pm.backup.RunHealthPoller(ctx, 0)
 	go func() {
-		if err := pm.WaitUntilReady(pm.ctx); err != nil {
+		if err := pm.WaitUntilReady(ctx); err != nil {
 			return // ctx cancelled before ready (shutdown); nothing to refresh
 		}
-		pm.backup.RefreshHealthNow(pm.ctx)
+		pm.backup.RefreshHealthNow(ctx)
 	}()
 }
 
