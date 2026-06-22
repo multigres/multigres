@@ -1,0 +1,14 @@
+# Known divergence (by design): CREATE UNLOGGED TABLE emits an extra WARNING +
+# HINT because unlogged data is not replicated and is lost on failover. Planner
+# differences in this test are intentionally left unpatched.
+--- a
++++ b
+@@ -569,6 +569,8 @@
+ RESET enable_seqscan;
+ -- test an unlogged table, mostly to get coverage of brinbuildempty
+ CREATE UNLOGGED TABLE brintest_unlogged (n numrange);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ CREATE INDEX brinidx_unlogged ON brintest_unlogged USING brin (n);
+ INSERT INTO brintest_unlogged VALUES (numrange(0, 2^1000::numeric));
+ DROP TABLE brintest_unlogged;
