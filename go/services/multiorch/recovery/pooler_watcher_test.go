@@ -319,7 +319,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 // TestPoolerWatcher_PoolerDeletedFromTopology pins the NoNode contract:
 // NoNode is presumed accidental. The watcher does NOT evict the cache and
 // does NOT fire OnGone immediately. The entry remains visible to analyzers
-// during the vanish grace window so accidental etcd deletes can self-heal
+// during the missing-from-topo grace window so accidental etcd deletes can self-heal
 // if the pooler reappears. OnGone fires only at grace expiry (hours away in
 // this configuration), so the rider's StreamHandle stays uncancelled.
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
@@ -354,13 +354,13 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
 	require.NoError(t, poolerStore.Sync(ctx))
 
-	// Entry remains cached so analyzers see it during vanish grace.
+	// Entry remains cached so analyzers see it during missing-from-topo grace.
 	assert.Equal(t, 1, poolerStore.Len(), "NoNode must leave the entry visible during grace")
 	rider, ok := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
-	assert.True(t, ok, "vanished pooler should still be cached during grace")
+	assert.True(t, ok, "missing-from-topology pooler should still be cached during grace")
 	// OnGone must not have fired: the StreamHandle installed by OnLive is
 	// still attached to the rider.
-	assert.NotNil(t, rider.HealthStream, "stream handle must persist while entry is in vanish grace")
+	assert.NotNil(t, rider.HealthStream, "stream handle must persist while entry is in missing-from-topo grace")
 }
 
 // TestPoolerWatcher_PoolerEntersShutdownLifecycle pins the SHUTDOWN contract:

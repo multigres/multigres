@@ -148,7 +148,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
 	// rider: OnLive constructs the connection (and folds any topology
 	// self_leadership into the LB's leaders map), OnUpdate refreshes topology
-	// metadata, and OnGone closes it. ShutdownGrace/VanishedGrace are zero —
+	// metadata, and OnGone closes it. ShutdownGrace/MissingFromTopoGrace are zero —
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {

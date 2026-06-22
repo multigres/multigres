@@ -33,7 +33,7 @@ const shutdownEtcdCleanupAge = 24 * time.Hour
 //
 // In the cache-driven design, in-memory eviction is owned by the cache:
 // SHUTDOWN triggers immediate removal (with a tombstone retained), and NoNode
-// triggers vanish-grace removal. Bookkeeping handles the one task the cache
+// triggers missing-from-topo grace removal. Bookkeeping handles the one task the cache
 // can't: hard-deleting topology entries for poolers that have been in
 // SHUTDOWN for long enough that no operator is reclaiming them.
 func (re *Engine) runBookkeeping() {

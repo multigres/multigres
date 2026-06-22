@@ -99,14 +99,14 @@ func silentLogger() *slog.Logger {
 // newTestCache builds a PoolerCache wired to a fake clock with the given
 // grace periods. The hookRecorder captures every hook invocation in a
 // human-readable form.
-func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, vanishedGrace time.Duration) (*PoolerCache[*testRider], *hookRecorder) {
+func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, missingFromTopoGrace time.Duration) (*PoolerCache[*testRider], *hookRecorder) {
 	t.Helper()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		ShutdownGrace: shutdownGrace,
-		VanishedGrace: vanishedGrace,
-		Logger:        silentLogger(),
-		now:           clk.Now,
+		ShutdownGrace:        shutdownGrace,
+		MissingFromTopoGrace: missingFromTopoGrace,
+		Logger:               silentLogger(),
+		now:                  clk.Now,
 	}
 	cache := New(t.Context(), cfg)
 	cache.hooks = Hooks[*testRider]{
@@ -235,9 +235,9 @@ func TestCache_TombstonesExpireSilentlyOnSweep(t *testing.T) {
 	assert.Empty(t, c.Tombstones(), "tombstone must be evicted after grace")
 }
 
-// TestCache_VanishedIsSilentUntilGrace verifies that NoNode does NOT fire
-// OnGone immediately. The entry stays visible to reads for VanishedGrace.
-func TestCache_VanishedIsSilentUntilGrace(t *testing.T) {
+// TestCache_MissingFromTopoIsSilentUntilGrace verifies that NoNode does NOT fire
+// OnGone immediately. The entry stays visible to reads for MissingFromTopoGrace.
+func TestCache_MissingFromTopoIsSilentUntilGrace(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
@@ -245,21 +245,21 @@ func TestCache_VanishedIsSilentUntilGrace(t *testing.T) {
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	c.applyDelete(componentID("zone1", "p1"))
 
-	// No hook fires on vanish; the entry remains visible (as Vanished).
+	// No hook fires on topology removal; the entry remains visible (as MissingFromTopo).
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
 	entry, ok := c.Get(componentID("zone1", "p1"))
-	require.True(t, ok, "vanished pooler stays visible to reads during grace")
-	assert.Equal(t, StateVanished, entry.State)
+	require.True(t, ok, "missing-from-topology pooler stays visible to reads during grace")
+	assert.Equal(t, StateMissingFromTopo, entry.State)
 
-	// Past grace, sweep fires OnGone(Vanished) and removes the entry.
+	// Past grace, sweep fires OnGone(MissingFromTopo) and removes the entry.
 	clk.Advance(2 * time.Hour)
 	c.sweep()
-	assert.Equal(t, []string{"live:p1", "gone-vanished:p1"}, rec.snapshot())
+	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot())
 	_, ok = c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok)
 }
 
-func TestCache_VanishedRecoveryWithinGracePreservesRider(t *testing.T) {
+func TestCache_MissingFromTopoRecoveryWithinGracePreservesRider(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
@@ -279,7 +279,7 @@ func TestCache_VanishedRecoveryWithinGracePreservesRider(t *testing.T) {
 	r2, ok := c.Get(componentID("zone1", "p1"))
 	require.True(t, ok)
 	assert.Equal(t, StateLive, r2.State)
-	assert.Same(t, originalRider, r2.Rider, "rider preserved across vanish-recovery")
+	assert.Same(t, originalRider, r2.Rider, "rider preserved across missing-from-topo recovery")
 }
 
 func TestCache_RestartFromShutdownIsFreshOnLive(t *testing.T) {
@@ -301,14 +301,14 @@ func TestCache_RestartFromShutdownIsFreshOnLive(t *testing.T) {
 	assert.NotSame(t, rider1, r2.Rider, "restart-from-shutdown must allocate a fresh rider")
 }
 
-func TestCache_VanishedToShutdownFiresOnGone(t *testing.T) {
+func TestCache_MissingFromTopoToShutdownFiresOnGone(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
 	defer c.Shutdown()
 
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	c.applyDelete(componentID("zone1", "p1"))
-	// Entry is now Vanished. Pooler reappears as SHUTDOWN — first time OnGone
+	// Entry is now MissingFromTopo. Pooler reappears as SHUTDOWN — first time OnGone
 	// fires for this entry.
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
 
@@ -335,7 +335,7 @@ func TestCache_DeleteOfTombstoneRemovesItSilently(t *testing.T) {
 	assert.Empty(t, c.Tombstones())
 }
 
-func TestCache_ZeroVanishedGraceFiresOnGoneInline(t *testing.T) {
+func TestCache_ZeroMissingFromTopoGraceFiresOnGoneInline(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, 0)
 	defer c.Shutdown()
@@ -343,7 +343,7 @@ func TestCache_ZeroVanishedGraceFiresOnGoneInline(t *testing.T) {
 	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	c.applyDelete(componentID("zone1", "p1"))
 
-	assert.Equal(t, []string{"live:p1", "gone-vanished:p1"}, rec.snapshot())
+	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot())
 	_, ok := c.Get(componentID("zone1", "p1"))
 	assert.False(t, ok)
 }
@@ -370,22 +370,22 @@ func TestCache_ShutdownDisposesEverythingRemaining(t *testing.T) {
 	c.applyUpsert(pool("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
 	c.applyDelete(componentID("zone1", "p2"))
 
-	// Now: p1 is Live, p2 is Vanished. Both should fire OnGone on Shutdown.
+	// Now: p1 is Live, p2 is MissingFromTopo. Both should fire OnGone on Shutdown.
 	c.Shutdown()
 
 	got := rec.snapshot()
 	// Count OnGone events; reasons reflect their state at shutdown.
-	cacheShutdown, vanished := 0, 0
+	cacheShutdown, missingFromTopo := 0, 0
 	for _, e := range got {
 		switch e {
 		case "gone-cache-shutdown:p1":
 			cacheShutdown++
-		case "gone-vanished:p2":
-			vanished++
+		case "gone-missing-from-topo:p2":
+			missingFromTopo++
 		}
 	}
 	assert.Equal(t, 1, cacheShutdown, "Live entry must fire OnGone(CacheShutdown), got: %v", got)
-	assert.Equal(t, 1, vanished, "Vanished entry must fire OnGone(Vanished), got: %v", got)
+	assert.Equal(t, 1, missingFromTopo, "MissingFromTopo entry must fire OnGone(MissingFromTopo), got: %v", got)
 }
 
 func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
@@ -393,10 +393,10 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 	clk := newFakeClock()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		ShutdownGrace: time.Hour,
-		VanishedGrace: time.Hour,
-		Logger:        silentLogger(),
-		now:           clk.Now,
+		ShutdownGrace:        time.Hour,
+		MissingFromTopoGrace: time.Hour,
+		Logger:               silentLogger(),
+		now:                  clk.Now,
 	}
 	c := New(ctx, cfg)
 	c.hooks = Hooks[*testRider]{
@@ -446,10 +446,10 @@ func TestCache_ConcurrentShutdownAllBlockUntilDone(t *testing.T) {
 	disposeStart := make(chan struct{})
 	disposeRelease := make(chan struct{})
 	cfg := Config[*testRider]{
-		ShutdownGrace: time.Hour,
-		VanishedGrace: time.Hour,
-		Logger:        silentLogger(),
-		now:           clk.Now,
+		ShutdownGrace:        time.Hour,
+		MissingFromTopoGrace: time.Hour,
+		Logger:               silentLogger(),
+		now:                  clk.Now,
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
@@ -492,10 +492,10 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 		Filter: func(p *clustermetadatapb.MultiPooler) bool {
 			return p.GetShardKey().GetDatabase() == "mydb"
 		},
-		ShutdownGrace: time.Hour,
-		VanishedGrace: time.Hour,
-		Logger:        silentLogger(),
-		now:           clk.Now,
+		ShutdownGrace:        time.Hour,
+		MissingFromTopoGrace: time.Hour,
+		Logger:               silentLogger(),
+		now:                  clk.Now,
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
@@ -519,7 +519,7 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 // is the core contract that justifies topoWatch holding no pooler state.
 func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 	clk := newFakeClock()
-	c, rec := newTestCache(t, clk, time.Hour, 0 /* VanishedGrace=0 so eviction is immediate */)
+	c, rec := newTestCache(t, clk, time.Hour, 0 /* MissingFromTopoGrace=0 so eviction is immediate */)
 	defer c.Shutdown()
 
 	// Seed two poolers in zone1 and one in zone2 via the watcher dispatch path.
@@ -538,9 +538,9 @@ func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 		pool("zone1", "p3", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	})
 
-	// p2 vanished, p3 went live; p1 stayed (proto.Equal suppresses dup); zone2 untouched.
+	// p2 missing-from-topology, p3 went live; p1 stayed (proto.Equal suppresses dup); zone2 untouched.
 	events := rec.snapshot()
-	assert.Contains(t, events, "gone-vanished:p2", "p2 must be evicted by reconcile")
+	assert.Contains(t, events, "gone-missing-from-topo:p2", "p2 must be evicted by reconcile")
 	assert.Contains(t, events, "live:p3", "p3 must be added by reconcile")
 	_, p1Ok := c.Get(componentID("zone1", "p1"))
 	_, p3Ok := c.Get(componentID("zone1", "p3"))

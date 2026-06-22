@@ -45,8 +45,8 @@ func SeedTombstoneForTest[T any](t *testing.T, cache *PoolerCache[T], id *cluste
 }
 
 // DeleteForTest evicts an entry from the cache outright, regardless of the
-// configured VanishedGrace. Equivalent to applyDelete with grace=0: OnGone
-// fires synchronously with GoneVanished and the entry is gone from reads.
+// configured MissingFromTopoGrace. Equivalent to applyDelete with grace=0: OnGone
+// fires synchronously with GoneMissingFromTopo and the entry is gone from reads.
 //
 // Tests that need to model a topology delete + grace window should advance
 // the test clock and rely on sweep() instead. DeleteForTest is the "remove

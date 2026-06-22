@@ -34,7 +34,7 @@ import (
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
-// State is the cache's view of a pooler's lifecycle. Only Live and Vanished
+// State is the cache's view of a pooler's lifecycle. Only Live and MissingFromTopo
 // entries are returned by read methods (Get, GetByShard, GetByCell). SHUTDOWN
 // poolers are not entries at all — they are tracked separately as "tombstones"
 // (see Tombstones) so external cleanup can hard-delete their topology records.
@@ -43,18 +43,18 @@ type State int
 const (
 	// StateLive — the pooler is in topology with a non-SHUTDOWN lifecycle.
 	StateLive State = iota
-	// StateVanished — the pooler's topology entry has been deleted (NoNode)
+	// StateMissingFromTopo — the pooler's topology entry has been deleted (NoNode)
 	// without a prior SHUTDOWN. The entry is retained, visible to reads,
-	// for Config.VanishedGrace before OnGone fires and it is removed.
-	StateVanished
+	// for Config.MissingFromTopoGrace before OnGone fires and it is removed.
+	StateMissingFromTopo
 )
 
 func (s State) String() string {
 	switch s {
 	case StateLive:
 		return "live"
-	case StateVanished:
-		return "vanished"
+	case StateMissingFromTopo:
+		return "missing-from-topo"
 	default:
 		return "unknown"
 	}
@@ -67,10 +67,10 @@ const (
 	// GoneShutdown — the pooler's lifecycle was SHUTDOWN at the moment it was
 	// removed (immediately on transition with grace=0, or at grace expiry).
 	GoneShutdown GoneReason = iota
-	// GoneVanished — the pooler's topology entry was deleted (NoNode) and the
-	// vanished grace period expired without recovery (or grace=0 took effect
+	// GoneMissingFromTopo — the pooler's topology entry was deleted (NoNode) and the
+	// missing-from-topology grace period expired without recovery (or grace=0 took effect
 	// immediately).
-	GoneVanished
+	GoneMissingFromTopo
 	// GoneCacheShutdown — the cache itself was shut down while this entry was
 	// still being tracked. Lets callers tear down their riders symmetrically
 	// with OnLive on graceful service exit.
@@ -81,8 +81,8 @@ func (r GoneReason) String() string {
 	switch r {
 	case GoneShutdown:
 		return "shutdown"
-	case GoneVanished:
-		return "vanished"
+	case GoneMissingFromTopo:
+		return "missing-from-topo"
 	case GoneCacheShutdown:
 		return "cache-shutdown"
 	default:
@@ -105,11 +105,11 @@ type Entry[T any] struct {
 // observe events in topology order. Hooks may safely call back into the
 // cache's read methods. Slow hooks delay subsequent events for that pooler.
 //
-// Vanished (NoNode grace) is invisible at the hook level: no hook fires
+// MissingFromTopo (NoNode grace) is invisible at the hook level: no hook fires
 // when a Live entry enters grace, nor while it stays in grace. Hooks fire
 // only on Live-relevant transitions (OnLive, OnUpdate) and at the moment
 // the cache permanently lets the entry go (OnGone). Callers that want to
-// distinguish "currently in vanish grace" from "live" can read Entry.State.
+// distinguish "currently in missing-from-topo grace" from "live" can read Entry.State.
 //
 // SHUTDOWN is different: OnGone fires immediately at the transition, the
 // rider is released, and the entry leaves the read-visible map. A "tombstone"
@@ -118,7 +118,7 @@ type Entry[T any] struct {
 type Hooks[T any] struct {
 	// OnLive fires when a pooler enters the Live state — either first
 	// discovery (prevRider is the zero value of T) or recovery from
-	// Vanished within the grace window (prevRider is whatever was attached
+	// MissingFromTopo within the grace window (prevRider is whatever was attached
 	// when the entry departed Live). The returned value becomes the new
 	// rider; returning prevRider unchanged preserves it.
 	OnLive func(pooler *clustermetadatapb.MultiPooler, prevRider T) T
@@ -129,7 +129,7 @@ type Hooks[T any] struct {
 
 	// OnGone fires once, terminally, when the cache stops tracking the
 	// pooler — either lifecycle SHUTDOWN observed (subject to ShutdownGrace)
-	// or topology entry gone (subject to VanishedGrace). After return, the
+	// or topology entry gone (subject to MissingFromTopoGrace). After return, the
 	// entry is no longer in the cache.
 	OnGone func(pooler *clustermetadatapb.MultiPooler, rider T, reason GoneReason)
 }
@@ -157,10 +157,10 @@ type Config[T any] struct {
 	// removed at the next sweep with no extra retention window.
 	ShutdownGrace time.Duration
 
-	// VanishedGrace is how long an entry is retained after the topology
+	// MissingFromTopoGrace is how long an entry is retained after the topology
 	// record disappears (NoNode) without prior SHUTDOWN. Generous values
 	// protect against accidental etcd deletes.
-	VanishedGrace time.Duration
+	MissingFromTopoGrace time.Duration
 
 	// SweepInterval is how often the background goroutine scans for entries
 	// whose grace deadline has passed and invokes OnGone. Zero defaults
@@ -360,11 +360,11 @@ func (c *PoolerCache[T]) Shutdown() {
 
 // goneReasonFor maps an entry's current state to the GoneReason passed to
 // OnGone when the entry is finally removed. Only called for entries still
-// in the read-visible map (i.e., StateLive or StateVanished).
+// in the read-visible map (i.e., StateLive or StateMissingFromTopo).
 func goneReasonFor(s State) GoneReason {
 	switch s {
-	case StateVanished:
-		return GoneVanished
+	case StateMissingFromTopo:
+		return GoneMissingFromTopo
 	default:
 		// State == StateLive happens at cache shutdown only.
 		return GoneCacheShutdown
@@ -409,7 +409,7 @@ func (c *PoolerCache[T]) GetByShard(database, tableGroup, shard string) []Entry[
 	return out
 }
 
-// All returns every read-visible entry (Live or Vanished). Tombstones are not
+// All returns every read-visible entry (Live or MissingFromTopo). Tombstones are not
 // included. Intended for cross-shard scans like metric collection or
 // bookkeeping; for ordinary lookups prefer Get / GetByShard.
 func (c *PoolerCache[T]) All() []Entry[T] {
@@ -423,7 +423,7 @@ func (c *PoolerCache[T]) All() []Entry[T] {
 }
 
 // Len returns the number of entries currently tracked, including those
-// in Vanished state awaiting eviction. Tombstones (post-SHUTDOWN) are
+// in MissingFromTopo state awaiting eviction. Tombstones (post-SHUTDOWN) are
 // not counted — they leave the entries map at OnGone time.
 func (c *PoolerCache[T]) Len() int {
 	c.mu.Lock()
@@ -555,7 +555,7 @@ func (c *PoolerCache[T]) DoUpdate(id topoclient.ComponentID, fn func(curr T) T) 
 }
 
 // sweep scans for entries and tombstones whose grace deadline has passed:
-//   - Vanished entries fire OnGone(Vanished) and are removed.
+//   - MissingFromTopo entries fire OnGone(MissingFromTopo) and are removed.
 //   - Tombstones (post-SHUTDOWN) are removed silently — OnGone already fired at
 //     the moment of SHUTDOWN.
 //
@@ -570,7 +570,7 @@ func (c *PoolerCache[T]) sweep() {
 	}
 	var due []*internalEntry[T]
 	for _, e := range c.entries {
-		if e.state == StateVanished && !now.Before(e.disposeAfter) {
+		if e.state == StateMissingFromTopo && !now.Before(e.disposeAfter) {
 			due = append(due, e)
 		}
 	}
@@ -679,9 +679,9 @@ func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermet
 //   - Live → SHUTDOWN: OnGone(Shutdown) fires immediately; the entry is
 //     removed from the read-visible map and a tombstone is retained for
 //     ShutdownGrace so external cleanup can find it.
-//   - Vanished → Live (recovery): OnUpdate fires (rider was preserved through
+//   - MissingFromTopo → Live (recovery): OnUpdate fires (rider was preserved through
 //     grace; the pooler was never "gone" from caller's POV).
-//   - Vanished → SHUTDOWN: OnGone(Shutdown) fires (first time for this entry);
+//   - MissingFromTopo → SHUTDOWN: OnGone(Shutdown) fires (first time for this entry);
 //     entry removed, tombstone retained.
 //   - Tombstone → Live (restart-from-shutdown): OnLive(p, zero) fires fresh —
 //     the previous rider was already released through OnGone; the tombstone
@@ -711,7 +711,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		c.cellLastActivity[cell] = now
 	}
 
-	// --- Existing entry (Live or Vanished) ---
+	// --- Existing entry (Live or MissingFromTopo) ---
 	if e, exists := c.entries[id]; exists {
 		prevPooler := e.pooler
 		prevState := e.state
@@ -721,7 +721,7 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		c.indexUpdate(e, prevPooler)
 
 		if isShutdown {
-			// Live/Vanished → Shutdown: remove from read-visible map, fire
+			// Live/MissingFromTopo → Shutdown: remove from read-visible map, fire
 			// OnGone, and retain a tombstone for future cleanup.
 			delete(c.entries, e.id)
 			c.indexRemove(e)
@@ -746,13 +746,13 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 			}
 			return
 		}
-		// prevState == StateVanished: the topology entry came back inside
-		// the grace window. Vanished is a topology-layer state ("etcd
+		// prevState == StateMissingFromTopo: the topology entry came back inside
+		// the grace window. MissingFromTopo is a topology-layer state ("etcd
 		// said NoNode"), not a health signal — the pooler process itself
 		// may have been reachable the whole time, which is exactly why
 		// we keep the rider and its resources (e.g. orch's per-pooler
 		// health stream) running through the window. No hook fires on
-		// the Live → Vanished transition under grace > 0, so the rider
+		// the Live → MissingFromTopo transition under grace > 0, so the rider
 		// is the same instance we had before, with state intact.
 		//
 		// On recovery we treat it as a proto-update: OnUpdate fires iff
@@ -762,12 +762,12 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		// OnLive is intentionally NOT fired.
 		//
 		// Invariant: rider exists ⇔ its per-pooler resources are
-		// running. A Vanished entry whose grace deadline passes is
+		// running. A MissingFromTopo entry whose grace deadline passes is
 		// swept (OnGone fires, resources cancelled); a subsequent
 		// reappearance comes through the "truly first sight" path and
-		// gets a fresh rider with fresh resources. So vanished-then-
-		// expired-then-reappear restarts cleanly; vanished-then-
-		// reappear-within-grace continues seamlessly.
+		// gets a fresh rider with fresh resources. So gone-past-grace-
+		// then-reappear restarts cleanly; gone-within-grace-then-reappear
+		// continues seamlessly.
 		e.state = StateLive
 		e.lastChange = now
 		e.disposeAfter = time.Time{}
@@ -881,16 +881,16 @@ func (c *PoolerCache[T]) addTombstoneLocked(id topoclient.ComponentID, poolerID 
 // applyDelete ingests a topology deletion (NoNode) event for the given
 // pooler ID.
 //
-//   - If the pooler is currently a read-visible entry (Live or Vanished),
-//     it transitions to StateVanished. The entry stays visible to reads
-//     for VanishedGrace; if the pooler returns, the rider is preserved.
-//     If grace expires (Sweep), OnGone(Vanished) fires. VanishedGrace=0
+//   - If the pooler is currently a read-visible entry (Live or MissingFromTopo),
+//     it transitions to StateMissingFromTopo. The entry stays visible to reads
+//     for MissingFromTopoGrace; if the pooler returns, the rider is preserved.
+//     If grace expires (Sweep), OnGone(MissingFromTopo) fires. MissingFromTopoGrace=0
 //     fires OnGone immediately and removes the entry.
 //   - If the pooler is a tombstone (we observed its SHUTDOWN earlier), the
 //     deletion confirms cleanup happened: the tombstone is removed silently.
 //   - Unknown ID: no-op.
 //
-// deleteImmediate evicts an entry now, bypassing VanishedGrace. Test-only
+// deleteImmediate evicts an entry now, bypassing MissingFromTopoGrace. Test-only
 // (via DeleteForTest); applyDelete is the production path that honors
 // grace. Caller must not hold c.mu.
 func (c *PoolerCache[T]) deleteImmediate(id topoclient.ComponentID) {
@@ -911,7 +911,7 @@ func (c *PoolerCache[T]) deleteImmediate(id topoclient.ComponentID) {
 	rider := e.rider
 	c.mu.Unlock()
 	if hooks.OnGone != nil {
-		hooks.OnGone(pooler, rider, GoneVanished)
+		hooks.OnGone(pooler, rider, GoneMissingFromTopo)
 	}
 }
 
@@ -929,22 +929,22 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 		}
 		switch e.state {
 		case StateLive:
-			e.state = StateVanished
+			e.state = StateMissingFromTopo
 			e.lastChange = now
-			e.disposeAfter = now.Add(c.config.VanishedGrace)
+			e.disposeAfter = now.Add(c.config.MissingFromTopoGrace)
 			hooks := c.hooks
 			pooler := e.pooler
 			rider := e.rider
-			removeNow := c.config.VanishedGrace == 0
+			removeNow := c.config.MissingFromTopoGrace == 0
 			if removeNow {
 				delete(c.entries, e.id)
 				c.indexRemove(e)
 			}
 			c.mu.Unlock()
 			if removeNow && hooks.OnGone != nil {
-				hooks.OnGone(pooler, rider, GoneVanished)
+				hooks.OnGone(pooler, rider, GoneMissingFromTopo)
 			}
-		case StateVanished:
+		case StateMissingFromTopo:
 			c.mu.Unlock()
 		}
 		return
