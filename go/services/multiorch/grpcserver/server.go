@@ -196,9 +196,6 @@ func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequ
 	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))
 	for _, p := range poolers {
 		h := p.Health()
-		if p == nil || h.MultiPooler == nil {
-			continue
-		}
 
 		// Get pooler type string
 		poolerType := h.GetStatus().GetPoolerType().String()

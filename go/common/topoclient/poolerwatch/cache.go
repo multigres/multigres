@@ -746,8 +746,28 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 			}
 			return
 		}
-		// prevState == StateVanished: recovery within grace. Rider survived
-		// because no hook fired on departure. Treat as proto-update.
+		// prevState == StateVanished: the topology entry came back inside
+		// the grace window. Vanished is a topology-layer state ("etcd
+		// said NoNode"), not a health signal — the pooler process itself
+		// may have been reachable the whole time, which is exactly why
+		// we keep the rider and its resources (e.g. orch's per-pooler
+		// health stream) running through the window. No hook fires on
+		// the Live → Vanished transition under grace > 0, so the rider
+		// is the same instance we had before, with state intact.
+		//
+		// On recovery we treat it as a proto-update: OnUpdate fires iff
+		// the proto changed. An unchanged recovery (transient etcd blip
+		// that resolves with no real diff) is silent on purpose — the
+		// entry was never observably "gone" from the caller's POV.
+		// OnLive is intentionally NOT fired.
+		//
+		// Invariant: rider exists ⇔ its per-pooler resources are
+		// running. A Vanished entry whose grace deadline passes is
+		// swept (OnGone fires, resources cancelled); a subsequent
+		// reappearance comes through the "truly first sight" path and
+		// gets a fresh rider with fresh resources. So vanished-then-
+		// expired-then-reappear restarts cleanly; vanished-then-
+		// reappear-within-grace continues seamlessly.
 		e.state = StateLive
 		e.lastChange = now
 		e.disposeAfter = time.Time{}
@@ -771,6 +791,13 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		// fresh discovery (the previous rider was released through OnGone).
 		delete(c.tombstones, id)
 		hooks := c.hooks
+		// Drop c.mu around OnLive: hooks may take their own locks or block
+		// on IO; holding the cache lock through that would invite deadlock
+		// (sync.Mutex isn't reentrant) and starve other readers. The
+		// watch goroutine is single-threaded per cell, so no concurrent
+		// event for this pooler can race the OnLive callback. Shutdown
+		// can land during the window — handled by the c.closed check
+		// after we reacquire.
 		c.mu.Unlock()
 		var zero T
 		var rider T
@@ -779,6 +806,9 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		}
 		c.mu.Lock()
 		if c.closed {
+			// Shutdown completed during OnLive. Dispose the fresh rider
+			// directly via OnGone(GoneCacheShutdown) — it never made it
+			// into the entries map for Shutdown's iteration to find.
 			c.mu.Unlock()
 			if hooks.OnGone != nil {
 				hooks.OnGone(pooler, rider, GoneCacheShutdown)
@@ -807,6 +837,11 @@ func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
 		return
 	}
 	hooks := c.hooks
+	// First-sight Live: same release/reacquire pattern as the tombstone
+	// restart path above — drop c.mu around OnLive (no reentrancy /
+	// deadlock risk), then reacquire to insert the entry. If Shutdown
+	// lands during the window, the c.closed check disposes the fresh
+	// rider directly.
 	c.mu.Unlock()
 	var zero T
 	var rider T
