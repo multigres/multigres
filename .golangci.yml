@@ -15,6 +15,8 @@
 version: "2"
 run:
   timeout: 10m
+  # Keep the full-repo analysis under GitHub-hosted runner memory limits.
+  concurrency: 1
   build-tags:
     - ruleguard
 linters:

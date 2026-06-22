@@ -1054,3 +1054,70 @@ func TestPause_PreservesPublisher(t *testing.T) {
 
 	resume(lockCtx)
 }
+
+// TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
+// survives a Pause/resume cycle. The poller is bound to pm.ctx, which
+// closeLocked cancels and openLocked recreates; StartBackupHealth opts the
+// manager in so openLocked relaunches the poller on resume. Without that, the
+// passive backup-health gauges would freeze after maintenance paths like
+// pg_rewind / restart-as-standby.
+//
+// LastRefresh advances on every poll. The poll interval is 5 minutes, so within
+// this test it only advances if resume actually relaunches the poller (which
+// does an immediate refresh on launch) — making this a tight regression guard.
+func TestPause_RestartsBackupHealthPoller(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pause-backup-health",
+	}
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		PoolerDir:     t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	pm, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	// No-op query service so Open's heartbeat start doesn't panic on a nil pool.
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-pause-backup-health")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	pm.Open(lockCtx)
+
+	// Opt into the poller (init.go does this once after Start in production).
+	pm.StartBackupHealth()
+
+	// Wait for the initial poll to populate the snapshot.
+	require.Eventually(t, func() bool {
+		return !pm.backup.Health().Snapshot().LastRefresh.IsZero()
+	}, 2*time.Second, 25*time.Millisecond, "poller should refresh once after StartBackupHealth")
+	beforeResume := pm.backup.Health().Snapshot().LastRefresh
+
+	// Pause cancels pm.ctx (stopping the poller); resume recreates it and must
+	// relaunch the poller, which refreshes again.
+	resume := pm.Pause(lockCtx)
+	resume(lockCtx)
+
+	require.Eventually(t, func() bool {
+		return pm.backup.Health().Snapshot().LastRefresh.After(beforeResume)
+	}, 2*time.Second, 25*time.Millisecond, "poller should refresh again after resume")
+}

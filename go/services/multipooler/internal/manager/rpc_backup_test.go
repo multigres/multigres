@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -597,6 +598,117 @@ pg1-path=/tmp/pg_data
 		assert.NotContains(t, file.Name(), "pgbackrest-backup.conf", "temp backup config should not be created")
 		assert.NotContains(t, file.Name(), "tmp", "no temp files should be created")
 	}
+}
+
+func TestRecordLeaseLossIfApplicable(t *testing.T) {
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, t.TempDir())
+
+	t.Run("no error → not recorded", func(t *testing.T) {
+		assert.False(t, pm.recordLeaseLossIfApplicable(t.Context(), nil))
+	})
+
+	t.Run("error without lease-lost cause → not recorded", func(t *testing.T) {
+		assert.False(t, pm.recordLeaseLossIfApplicable(t.Context(), errors.New("some other failure")))
+	})
+
+	t.Run("error with lease-lost cause → recorded", func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		cancel(topoclient.ErrLeaseLost)
+		assert.True(t, pm.recordLeaseLossIfApplicable(ctx, errors.New("backup aborted")))
+	})
+}
+
+func TestBackup_TracksFailuresAndInProgress(t *testing.T) {
+	// Drive a real backup through pm.Backup with a pgbackrest stub that fails
+	// the first backup and succeeds the second, asserting the health tracker's
+	// failure streak and in-progress timer are maintained inline.
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	marker := filepath.Join(tmpDir, "backup_attempted_marker")
+	mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+cat << 'JSONEOF'
+[{"backup":[{"label":"20250104-100000F","annotation":{"multipooler_id":"test-multipooler","job_id":"test-job-id"}}]}]
+JSONEOF
+exit 0
+fi
+if [[ "$*" == *"backup"* ]]; then
+  if [[ -f ` + marker + ` ]]; then exit 0; fi
+  touch ` + marker + `
+  echo "ERROR: simulated backup failure" >&2
+  exit 1
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(configPath)
+	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+	overrides := map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")}
+
+	// First backup fails → streak 1, in-progress cleared.
+	_, err := pm.Backup(ctx, false, "full", "test-job-id", overrides)
+	require.Error(t, err)
+	snap := pm.backup.Health().Snapshot()
+	assert.Equal(t, int64(1), snap.FailuresSinceSuccess)
+	assert.True(t, snap.InProgressStart.IsZero(), "in-progress must be cleared after a failed backup")
+	assert.NotEmpty(t, snap.LastFailErr)
+
+	// Second backup succeeds → streak resets, in-progress cleared.
+	_, err = pm.Backup(ctx, false, "full", "test-job-id", overrides)
+	require.NoError(t, err)
+	snap = pm.backup.Health().Snapshot()
+	assert.Zero(t, snap.FailuresSinceSuccess, "streak resets after a successful backup")
+	assert.True(t, snap.InProgressStart.IsZero(), "in-progress must be cleared after a successful backup")
+}
+
+func TestBackup_RefreshesRepoGaugesOnSuccess(t *testing.T) {
+	// After a successful backup, the taker should reflect the new backup in its
+	// age/count gauges immediately (RefreshRepoNow), not wait for the next poll.
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	// info returns one COMPLETE backup whose annotations match this pooler's
+	// shard (default / 0-inf) so parseBackups includes it; backup/verify exit 0.
+	mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+cat << 'JSONEOF'
+[{"backup":[{"label":"20260101-000000F","error":false,"timestamp":{"start":1735689600,"stop":1735689660},"annotation":{"job_id":"test-job-id","multipooler_id":"test-multipooler","pooler_type":"REPLICA","table_group":"default","shard":"0-inf"}}]}]
+JSONEOF
+exit 0
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(configPath)
+	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+
+	// Gauges start empty before any backup.
+	require.Zero(t, pm.backup.Health().Snapshot().CompleteCount)
+
+	_, err := pm.Backup(ctx, false, "full", "test-job-id", map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")})
+	require.NoError(t, err)
+
+	snap := pm.backup.Health().Snapshot()
+	assert.Equal(t, int64(1), snap.CompleteCount, "completed backup should be reflected immediately")
+	assert.Equal(t, int64(1735689660), snap.LastSuccessStop.Unix(), "last-success time should come from the backup's stop timestamp")
 }
 
 func TestBackup_RejectsEmptyTableGroup(t *testing.T) {

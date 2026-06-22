@@ -29,10 +29,22 @@ import (
 // This includes SSL negotiation (if configured), sending the startup message,
 // and handling authentication.
 func (c *Conn) startup(ctx context.Context) error {
+	// libpq parity: sslnegotiation=direct may only pair with a TLS-enforcing
+	// sslmode — there is no plaintext fallback once the first wire byte is a
+	// TLS ClientHello. Checked before any bytes are exchanged so a
+	// misconfiguration fails fast on every dial (Connect and Reconnect).
+	if err := ValidateSSLNegotiation(c.config.SSLNegotiation, c.config.SSLMode); err != nil {
+		return err
+	}
+
 	// Honor libpq-style sslmode. Unix-socket connections always run plaintext,
 	// matching libpq behavior.
 	if c.config.SocketFile == "" && c.config.SSLMode.AttemptsTLS() {
-		if err := c.negotiateSSL(ctx); err != nil {
+		if c.config.SSLNegotiation == SSLNegotiationDirect {
+			if err := c.directTLS(ctx); err != nil {
+				return fmt.Errorf("direct TLS failed: %w", err)
+			}
+		} else if err := c.negotiateSSL(ctx); err != nil {
 			return fmt.Errorf("SSL negotiation failed: %w", err)
 		}
 	}
@@ -104,6 +116,49 @@ func (c *Conn) negotiateSSL(ctx context.Context) error {
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
+	c.conn = tlsConn
+	c.bufferedReader = bufio.NewReaderSize(tlsConn, connBufferSize)
+	c.bufferedWriter = bufio.NewWriterSize(tlsConn, connBufferSize)
+	return nil
+}
+
+// directTLS implements libpq's sslnegotiation=direct (PostgreSQL 17): the
+// TLS handshake starts immediately on the fresh TCP connection — no
+// SSLRequest round trip — with the "postgresql" ALPN protocol offered and
+// required. The server disambiguates on the first byte (0x16, TLS handshake
+// record), so nothing may be written before the ClientHello.
+//
+// Caller guarantees ValidateSSLNegotiation passed (TLS-enforcing sslmode)
+// and c.config.SocketFile is empty.
+func (c *Conn) directTLS(ctx context.Context) error {
+	if c.config.TLSConfig == nil {
+		return errors.New("TLS config is nil but sslnegotiation=direct requested TLS")
+	}
+
+	// Offer ALPN "postgresql" (RFC 7301). libpq always offers it in direct
+	// mode, and PostgreSQL 17 rejects direct connections without it. Clone
+	// so a shared TLSConfig isn't mutated under the caller.
+	tlsCfg := c.config.TLSConfig
+	if !slices.Contains(tlsCfg.NextProtos, protocol.ALPNProtocol) {
+		tlsCfg = tlsCfg.Clone()
+		tlsCfg.NextProtos = append(tlsCfg.NextProtos, protocol.ALPNProtocol)
+	}
+
+	tlsConn := tls.Client(c.conn, tlsCfg)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		return fmt.Errorf("TLS handshake failed: %w", err)
+	}
+
+	// libpq parity: "ALPN is mandatory with direct SSL connections". A
+	// server that completed the handshake without selecting "postgresql"
+	// is either not PostgreSQL or predates direct-TLS support; using the
+	// channel anyway would defeat the cross-protocol hardening ALPN exists
+	// for (fe-secure-openssl.c emits the same diagnostic).
+	if tlsConn.ConnectionState().NegotiatedProtocol != protocol.ALPNProtocol {
+		_ = tlsConn.Close()
+		return errors.New("direct SSL connection was established without ALPN protocol negotiation extension")
+	}
+
 	c.conn = tlsConn
 	c.bufferedReader = bufio.NewReaderSize(tlsConn, connBufferSize)
 	c.bufferedWriter = bufio.NewWriterSize(tlsConn, connBufferSize)

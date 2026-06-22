@@ -2543,9 +2543,13 @@ type BackupMetadata struct {
 	// Multipooler ID that created this backup (from pgbackrest annotation)
 	MultipoolerId string `protobuf:"bytes,9,opt,name=multipooler_id,json=multipoolerId,proto3" json:"multipooler_id,omitempty"`
 	// Pooler type that created this backup (from pgbackrest annotation)
-	PoolerType    clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PoolerType clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	// When the backup started/stopped, parsed from pgbackrest info's
+	// backup[].timestamp.{start,stop}. Unset if unknown.
+	StartTimestamp *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=start_timestamp,json=startTimestamp,proto3" json:"start_timestamp,omitempty"`
+	StopTimestamp  *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=stop_timestamp,json=stopTimestamp,proto3" json:"stop_timestamp,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BackupMetadata) Reset() {
@@ -2646,6 +2650,20 @@ func (x *BackupMetadata) GetPoolerType() clustermetadata.PoolerType {
 		return x.PoolerType
 	}
 	return clustermetadata.PoolerType(0)
+}
+
+func (x *BackupMetadata) GetStartTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTimestamp
+	}
+	return nil
+}
+
+func (x *BackupMetadata) GetStopTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StopTimestamp
+	}
+	return nil
 }
 
 // RewindToSourceRequest requests pg_rewind to synchronize with a source server.
@@ -2978,7 +2996,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
-	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xb9\x03\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xc1\x04\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -2992,7 +3010,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x0emultipooler_id\x18\t \x01(\tR\rmultipoolerId\x12<\n" +
 	"\vpooler_type\x18\n" +
 	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerType\"3\n" +
+	"poolerType\x12C\n" +
+	"\x0fstart_timestamp\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x0estartTimestamp\x12A\n" +
+	"\x0estop_timestamp\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rstopTimestamp\"3\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -3161,12 +3181,14 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	48, // 42: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
 	7,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
 	51, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	55, // 45: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	49, // 45: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
+	49, // 46: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
+	55, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	48, // [48:48] is the sub-list for method output_type
+	48, // [48:48] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

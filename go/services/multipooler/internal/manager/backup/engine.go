@@ -23,6 +23,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -55,21 +56,60 @@ type Settings struct {
 // lifecycle/logging policy.
 type RunFunc func(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error)
 
+// RoleFunc reports whether the local PostgreSQL is currently a primary. It is
+// injected by the manager (which owns the pg connection) so the health poller
+// can be role-aware — e.g. only a primary archives WAL — without the engine
+// owning a connection.
+type RoleFunc func(ctx context.Context) (isPrimary bool, err error)
+
+// ArchiverStats is a snapshot of pg_stat_archiver relevant to WAL archive lag.
+// Zero time fields mean the corresponding timestamp was NULL (never archived /
+// never failed).
+type ArchiverStats struct {
+	LastArchived time.Time
+	LastFailed   time.Time
+	FailedCount  int64
+}
+
+// ArchiverStatsFunc returns pg_stat_archiver stats for the local primary. It is
+// injected by the manager (which owns the pg connection + result scanning) so
+// the health poller can compute WAL archive lag without coupling the engine to
+// the SQL result types or owning a connection.
+type ArchiverStatsFunc func(ctx context.Context) (ArchiverStats, error)
+
+// PGSettings holds the PostgreSQL settings relevant to backup readiness. Empty
+// strings mean the setting is unset.
+type PGSettings struct {
+	ArchiveCommand string
+	ArchiveMode    string // "on" / "off" / "always"
+	RestoreCommand string
+}
+
+// PGSettingsFunc returns the backup-relevant PostgreSQL settings. It is injected
+// by the manager (which owns the pg connection) so the health poller can
+// validate configuration via cheap pg_settings reads without owning a
+// connection.
+type PGSettingsFunc func(ctx context.Context) (PGSettings, error)
+
 // Engine owns all pgBackRest interaction for a single multipooler.
 type Engine struct {
 	logger   *slog.Logger
 	run      RunFunc
 	metrics  *Metrics
+	health   *HealthTracker
 	id       Identity
 	settings Settings
 
 	// mu guards the config resolved at runtime: the pgbackrest.conf path and
-	// pgpass file (resolved when topology loads) and the repo config (resolved
-	// at DB-open). All may be re-set on reopen.
+	// pgpass file (resolved when topology loads), the repo config (resolved
+	// at DB-open), and the role provider. All may be re-set on reopen.
 	mu         sync.Mutex
 	configPath string
 	pgpassPath string
 	backupCfg  *commonbackup.Config
+	roleFn     RoleFunc
+	archiverFn ArchiverStatsFunc
+	settingsFn PGSettingsFunc
 }
 
 // NewEngine constructs a backup engine and its metrics from the given fixed
@@ -81,11 +121,15 @@ type Engine struct {
 // still returned rather than failing construction (which previously left the
 // manager with a nil engine that panicked on first use).
 func NewEngine(logger *slog.Logger, run RunFunc, id Identity, settings Settings) *Engine {
+	health := NewHealthTracker()
 	metrics, err := NewMetrics()
 	if err != nil {
 		logger.Warn("pgBackRest metric registration partially failed; backup metrics may be incomplete", "error", err)
 	}
-	return &Engine{logger: logger, run: run, metrics: metrics, id: id, settings: settings, pgpassPath: settings.PgpassPath}
+	if err := metrics.RegisterHealthCallback(health); err != nil {
+		logger.Warn("pgBackRest health gauge registration failed; backup health metrics may be missing", "error", err)
+	}
+	return &Engine{logger: logger, run: run, metrics: metrics, health: health, id: id, settings: settings, pgpassPath: settings.PgpassPath}
 }
 
 // SetConfigPath sets the path to this pooler's pgbackrest.conf, resolved once
@@ -111,6 +155,53 @@ func (e *Engine) SetPgpassPath(path string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.pgpassPath = path
+}
+
+// SetRoleProvider injects the function the health poller uses to learn whether
+// the local postgres is a primary. The manager wires this to its own role
+// check (which owns the pg connection).
+func (e *Engine) SetRoleProvider(fn RoleFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.roleFn = fn
+}
+
+// roleProvider returns the currently-set role provider, or nil.
+func (e *Engine) roleProvider() RoleFunc {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.roleFn
+}
+
+// SetArchiverStatsProvider injects the function the health poller uses to read
+// pg_stat_archiver. The manager wires this to its own query path.
+func (e *Engine) SetArchiverStatsProvider(fn ArchiverStatsFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.archiverFn = fn
+}
+
+// archiverStatsProvider returns the currently-set archiver stats provider, or nil.
+func (e *Engine) archiverStatsProvider() ArchiverStatsFunc {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.archiverFn
+}
+
+// SetPGSettingsProvider injects the function the health poller uses to read the
+// backup-relevant PostgreSQL settings. The manager wires this to its own query
+// path.
+func (e *Engine) SetPGSettingsProvider(fn PGSettingsFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.settingsFn = fn
+}
+
+// settingsProvider returns the currently-set PG settings provider, or nil.
+func (e *Engine) settingsProvider() PGSettingsFunc {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.settingsFn
 }
 
 // requireConfigPath returns the pgbackrest.conf path or an error if topology
@@ -158,4 +249,11 @@ func (e *Engine) shardID() string {
 // restore lifecycle).
 func (e *Engine) Metrics() *Metrics {
 	return e.metrics
+}
+
+// Health returns the engine's backup-health tracker. The manager uses this to
+// expose a snapshot on the status page and to update inline counters from the
+// Backup() path.
+func (e *Engine) Health() *HealthTracker {
+	return e.health
 }

@@ -554,6 +554,11 @@ message BackupMetadata {
   // Pooler type that created this backup (from pgbackrest annotation)
   clustermetadata.PoolerType pooler_type = 10;
 
+  // When the backup started/stopped, parsed from pgbackrest info's
+  // backup[].timestamp.{start,stop}. Unset if unknown.
+  google.protobuf.Timestamp start_timestamp = 11;
+  google.protobuf.Timestamp stop_timestamp = 12;
+
   // Status represents the state of a backup
   enum Status {
     UNKNOWN = 0;

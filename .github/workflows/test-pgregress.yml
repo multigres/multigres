@@ -58,6 +58,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
+          # liblz4-dev is required for ./configure --with-lz4 (compression regression suite).
           # uuid-dev (libuuid / e2fs) is required for ./configure --with-uuid (uuid-ossp);
           # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+;
           # enabled for the contrib suite, and for external runs whose extensions
@@ -71,7 +72,7 @@ jobs:
           # JSON-C, and SFCGAL when those libraries are present.
           sudo apt-get install -y \
             build-essential autoconf automake libtool bison flex \
-            libreadline-dev zlib1g-dev uuid-dev libssl-dev \
+            libreadline-dev zlib1g-dev liblz4-dev uuid-dev libssl-dev \
             libsodium-dev pkg-config libcurl4-openssl-dev \
             libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
             libgdal-dev libjson-c-dev libprotobuf-c-dev \

@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -76,6 +77,67 @@ func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
 	}
 
 	return inRecovery, nil
+}
+
+// archiverStats reads pg_stat_archiver for the backup-health poller. NULL
+// timestamps map to zero time.Time values. It reuses the manager's query path
+// (no new connection pool) and is injected into the backup engine via
+// SetArchiverStatsProvider.
+func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.ArchiverStats, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	sql := `SELECT
+		COALESCE(EXTRACT(EPOCH FROM last_archived_time)::bigint, 0) AS last_archived,
+		COALESCE(EXTRACT(EPOCH FROM last_failed_time)::bigint, 0)   AS last_failed,
+		failed_count
+	FROM pg_stat_archiver`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to query pg_stat_archiver")
+	}
+
+	var lastArchived, lastFailed, failedCount int64
+	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount); err != nil {
+		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to scan pg_stat_archiver result")
+	}
+
+	stats := backupengine.ArchiverStats{FailedCount: failedCount}
+	if lastArchived > 0 {
+		stats.LastArchived = time.Unix(lastArchived, 0)
+	}
+	if lastFailed > 0 {
+		stats.LastFailed = time.Unix(lastFailed, 0)
+	}
+	return stats, nil
+}
+
+// backupSettings reads the backup-relevant PostgreSQL settings for the
+// backup-health poller. These are cheap pg_settings reads (no forced I/O). It
+// reuses the manager's query path and is injected into the backup engine via
+// SetPGSettingsProvider.
+func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	sql := `SELECT
+		COALESCE(current_setting('archive_command', true), '') AS archive_command,
+		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
+		COALESCE(current_setting('restore_command', true), '') AS restore_command`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
+	}
+
+	var archiveCommand, archiveMode, restoreCommand string
+	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand); err != nil {
+		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to scan backup settings result")
+	}
+	return backupengine.PGSettings{
+		ArchiveCommand: archiveCommand,
+		ArchiveMode:    archiveMode,
+		RestoreCommand: restoreCommand,
+	}, nil
 }
 
 // getPrimaryLSN gets the current WAL write location (primary only)
