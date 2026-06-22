@@ -112,8 +112,9 @@ func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.A
 	return stats, nil
 }
 
-// backupSettings reads the backup-relevant PostgreSQL settings for the
-// backup-health poller. These are cheap pg_settings reads (no forced I/O). It
+// backupSettings reads the backup-relevant PostgreSQL settings, used both by
+// the backup-health poller and to capture server_version for the backup-time
+// pg_version annotation. These are cheap pg_settings reads (no forced I/O). It
 // reuses the manager's query path and is injected into the backup engine via
 // SetPGSettingsProvider.
 func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
@@ -123,20 +124,22 @@ func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.
 	sql := `SELECT
 		COALESCE(current_setting('archive_command', true), '') AS archive_command,
 		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
-		COALESCE(current_setting('restore_command', true), '') AS restore_command`
+		COALESCE(current_setting('restore_command', true), '') AS restore_command,
+		COALESCE(split_part(current_setting('server_version', true), ' ', 1), '') AS server_version`
 	result, err := pm.query(queryCtx, sql)
 	if err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
 	}
 
-	var archiveCommand, archiveMode, restoreCommand string
-	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand); err != nil {
+	var archiveCommand, archiveMode, restoreCommand, serverVersion string
+	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand, &serverVersion); err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to scan backup settings result")
 	}
 	return backupengine.PGSettings{
 		ArchiveCommand: archiveCommand,
 		ArchiveMode:    archiveMode,
 		RestoreCommand: restoreCommand,
+		ServerVersion:  serverVersion,
 	}, nil
 }
 
