@@ -55,7 +55,7 @@ func TestExtractPoolerIDFromPath(t *testing.T) {
 	}
 }
 
-// watchEventRecorder collects callbacks fired by watchAllPoolersWithRetry so
+// watchEventRecorder collects callbacks fired by watchPoolersAcrossCells so
 // tests can assert on the observed event stream. All access is serialized
 // through mu so tests can read snapshots safely from another goroutine.
 type watchEventRecorder struct {
@@ -174,7 +174,7 @@ func TestWatchAllPoolers_CellAddRemoveFlow(t *testing.T) {
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
-		watchAllPoolersWithRetry(ctx, ts, logger, broadcaster,
+		watchPoolersAcrossCells(ctx, ts, logger, broadcaster,
 			rec.onInitial,
 			rec.onUpserted,
 			rec.onDeleted,
@@ -230,7 +230,7 @@ func TestWatchAllPoolers_CellAddRemoveFlow(t *testing.T) {
 	select {
 	case <-watchDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("watchAllPoolersWithRetry did not return after ctx cancel")
+		t.Fatal("watchPoolersAcrossCells did not return after ctx cancel")
 	}
 }
 
@@ -265,7 +265,7 @@ func TestCellSyncBroadcaster_SyncAllCtxCancel(t *testing.T) {
 }
 
 // TestCellSyncBroadcaster_SyncAllDispatchesAllEvents verifies that, in a
-// full watchAllPoolersWithRetry deployment, syncAll waits for every
+// full watchPoolersAcrossCells deployment, syncAll waits for every
 // per-cell watcher to drain its in-flight events. We create several
 // poolers across two cells; on each Create, memorytopo posts an event
 // onto the watcher's changes channel. Calling syncAll must guarantee
@@ -285,7 +285,7 @@ func TestCellSyncBroadcaster_SyncAllDispatchesAllEvents(t *testing.T) {
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
-		watchAllPoolersWithRetry(ctx, ts, logger, broadcaster,
+		watchPoolersAcrossCells(ctx, ts, logger, broadcaster,
 			rec.onInitial,
 			rec.onUpserted,
 			rec.onDeleted,
@@ -326,7 +326,7 @@ func TestCellSyncBroadcaster_SyncAllDispatchesAllEvents(t *testing.T) {
 	select {
 	case <-watchDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("watchAllPoolersWithRetry did not return after ctx cancel")
+		t.Fatal("watchPoolersAcrossCells did not return after ctx cancel")
 	}
 }
 

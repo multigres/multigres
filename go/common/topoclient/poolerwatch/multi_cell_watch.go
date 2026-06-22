@@ -27,21 +27,21 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// watchPoolersWithRetry watches the poolers directory for a single cell, delivering
+// watchPoolersInCell watches the poolers directory for a single cell, delivering
 // typed events. It handles retry/reconnect internally.
 //
 // onInitial is called with all poolers present in the initial snapshot (including on reconnect).
 // onUpserted is called when a pooler is added or its metadata changes.
 // onDeleted is called with the pooler ID string when a pooler is removed from the topology.
 //
-// watchPoolersWithRetry returns when ctx is cancelled.
+// watchPoolersInCell returns when ctx is cancelled.
 //
 // syncReq is an optional channel for in-band sync requests. When a function is
 // received on syncReq, the watch loop first drains every event currently
 // available in `changes` (so onUpserted/onDeleted have fired for them) and then
 // invokes the received function. This lets callers build a barrier that waits
 // for the watch loop to "catch up" to a known point. Pass nil to disable.
-func watchPoolersWithRetry(
+func watchPoolersInCell(
 	ctx context.Context,
 	store topoclient.ConnProvider,
 	cell string,
@@ -115,7 +115,7 @@ func watchPoolersWithRetry(
 	)
 }
 
-// watchAllPoolersWithRetry discovers cells automatically and watches poolers in each cell.
+// watchPoolersAcrossCells discovers cells automatically and watches poolers in each cell.
 // It starts a per-cell pooler watcher when a cell is discovered, and cancels it when the
 // cell is removed. The function handles all retry/reconnect logic internally.
 //
@@ -129,8 +129,8 @@ func watchPoolersWithRetry(
 // completed, so callers can safely clean up per-cell state.
 //
 // cellSyncBroadcaster coordinates in-band sync barriers across the per-cell
-// watcher goroutines started by watchAllPoolersWithRetry. Callers create one
-// (newCellSyncBroadcaster), pass it to watchAllPoolersWithRetry, and call
+// watcher goroutines started by watchPoolersAcrossCells. Callers create one
+// (newCellSyncBroadcaster), pass it to watchPoolersAcrossCells, and call
 // syncAll() to wait for every active cell watcher to drain its pending events.
 //
 // Internally each cell watcher owns a syncReq channel that its select loop
@@ -208,10 +208,10 @@ func (b *cellSyncBroadcaster) syncAll(ctx context.Context) error {
 	}
 }
 
-// watchAllPoolersWithRetry returns when ctx is cancelled. If broadcaster is
+// watchPoolersAcrossCells returns when ctx is cancelled. If broadcaster is
 // non-nil, it is populated with sync channels as cells start/stop, enabling
 // cross-goroutine sync barriers (see cellSyncBroadcaster.syncAll).
-func watchAllPoolersWithRetry(
+func watchPoolersAcrossCells(
 	ctx context.Context,
 	store topoclient.ConnProvider,
 	logger *slog.Logger,
@@ -248,7 +248,7 @@ func watchAllPoolersWithRetry(
 			if broadcaster != nil {
 				defer broadcaster.deregister(cell)
 			}
-			watchPoolersWithRetry(cellCtx, store, cell, logger.With("cell", cell),
+			watchPoolersInCell(cellCtx, store, cell, logger.With("cell", cell),
 				syncReq,
 				func(poolers []*clustermetadatapb.MultiPooler) { onInitial(cell, poolers) },
 				onUpserted,

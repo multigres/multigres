@@ -90,7 +90,7 @@ func newTopoWatch(ctx context.Context, store topoclient.ConnProvider, logger *sl
 // Start launches the per-cell watcher goroutines.
 func (c *topoWatch) Start() {
 	c.wg.Go(func() {
-		watchAllPoolersWithRetry(c.ctx, c.store, c.logger, c.broadcaster,
+		watchPoolersAcrossCells(c.ctx, c.store, c.logger, c.broadcaster,
 			c.handlers.OnSnapshot,
 			c.handlers.OnUpsert,
 			c.handlers.OnDelete,
@@ -105,14 +105,14 @@ func (c *topoWatch) Stop() {
 	c.wg.Wait()
 }
 
-// Sync blocks until every per-cell watcher has drained the events it had
+// sync blocks until every per-cell watcher has drained the events it had
 // already observed at the time of the call. Because handlers run
-// synchronously on the watcher goroutines, by the time Sync returns the
+// synchronously on the watcher goroutines, by the time sync returns the
 // handlers have observed and processed those events.
 //
-// Sync is intended for use in tests to replace time.Sleep barriers after
-// topology mutations. Production code should generally react to events
-// as they arrive.
-func (c *topoWatch) Sync(ctx context.Context) error {
+// Test-only: the sole caller is poolerwatch.SyncForTest. Lowercase to
+// match that constraint — production code reacts to events as they
+// arrive rather than polling for state.
+func (c *topoWatch) sync(ctx context.Context) error {
 	return c.broadcaster.syncAll(ctx)
 }

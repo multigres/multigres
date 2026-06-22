@@ -773,7 +773,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "zone1 watcher must register")
 
 	// Sync against an empty cell: should return cleanly with no events.
-	require.NoError(t, cache.Sync(ctx))
+	require.NoError(t, SyncForTest(t, cache, ctx))
 	assert.Empty(t, rec.snapshot())
 	assert.Empty(t, cache.All())
 
@@ -785,7 +785,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 		Hostname: "p1.local",
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, p1))
-	require.NoError(t, cache.Sync(ctx))
+	require.NoError(t, SyncForTest(t, cache, ctx))
 
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
 
@@ -820,7 +820,7 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return cache.topoSource.broadcaster.cellCount() >= 2
 	}, 2*time.Second, 5*time.Millisecond)
-	require.NoError(t, cache.Sync(ctx))
+	require.NoError(t, SyncForTest(t, cache, ctx))
 
 	// OnLive fired for both poolers; CellStatuses surfaces both cells.
 	require.Contains(t, rec.snapshot(), "live:p2")

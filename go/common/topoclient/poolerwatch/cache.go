@@ -365,16 +365,6 @@ func (c *PoolerCache[T]) Start(hooks Hooks[T]) {
 	}
 }
 
-// Sync blocks until every event already enqueued by the underlying topology
-// watch has been observed by this cache. Returns immediately if no source
-// is configured.
-func (c *PoolerCache[T]) Sync(ctx context.Context) error {
-	if c.topoSource == nil {
-		return nil
-	}
-	return c.topoSource.Sync(ctx)
-}
-
 // Shutdown stops the background sweeper and disposes every remaining entry.
 // After Shutdown returns, every rider has been passed through OnGone,
 // subsequent reads return zero/false, and apply* events are ignored.

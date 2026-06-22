@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -122,7 +123,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	defer poolerStore.Shutdown()
 
 	// Sync to confirm watcher started and processed initial (empty) topology
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 	assert.Equal(t, 0, poolerStore.Len())
 
 	// Add a pooler after the watcher has started
@@ -211,7 +212,7 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	// An update to an existing pooler must NOT re-fire OnLive — that would
 	// install a fresh StreamHandle and replace the original one.
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 	assert.Same(t, originalStream, updated.HealthStream,
 		"existing pooler should not re-trigger OnLive on metadata update")
 }
@@ -260,7 +261,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	// Sync to ensure all events (including filtered ones) have been processed
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 	assert.Equal(t, 1, poolerStore.Len(), "only the watched pooler should be in the store")
 	_, exists := poolerStore.GetRider(poolerKey("zone1", "watched"))
 	assert.True(t, exists)
@@ -353,7 +354,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 
 	// Entry remains cached so analyzers see it during the missing grace.
 	assert.Equal(t, 1, poolerStore.Len(), "NoNode must leave the entry visible during grace")
@@ -408,7 +409,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 
 	// Store entry must be evicted: SHUTDOWN means gone.
 	assert.Equal(t, 0, poolerStore.Len(), "SHUTDOWN must evict the orch store")
@@ -465,7 +466,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 	require.Equal(t, 0, poolerStore.Len(), "SHUTDOWN must evict the store")
 
 	// Pooler comes back: lifecycle transitions back to ACTIVE. The cache
@@ -521,7 +522,7 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 	// Give the watcher time to process the initial SHUTDOWN entry; it should
 	// reach a steady state with the store empty (cold-discovered SHUTDOWN
 	// poolers are tracked as tombstones in the cache, not as store entries).
-	require.NoError(t, poolerStore.Sync(ctx))
+	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 
 	assert.Equal(t, 0, poolerStore.Len(), "cold-discovered SHUTDOWN must not populate the orch store")
 	// No rider for the SHUTDOWN entry, so no stream handle was spawned —

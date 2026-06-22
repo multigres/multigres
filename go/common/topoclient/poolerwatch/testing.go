@@ -15,12 +15,28 @@
 package poolerwatch
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
+
+// SyncForTest blocks until every event already enqueued by the underlying
+// topology watch has been observed by this cache. Returns immediately if
+// the cache has no topology source.
+//
+// Test-only: SyncForTest is a barrier for tests that want deterministic
+// ordering between a topology mutation and a subsequent assertion. Taking
+// *testing.T enforces that production code can't reach it.
+func SyncForTest[T any](t *testing.T, cache *PoolerCache[T], ctx context.Context) error {
+	t.Helper()
+	if cache.topoSource == nil {
+		return nil
+	}
+	return cache.topoSource.sync(ctx)
+}
 
 // SeedForTest drives the cache through an upsert event without needing a
 // topology source. The *testing.T argument is required so production code
