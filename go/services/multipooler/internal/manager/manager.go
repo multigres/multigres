@@ -1655,9 +1655,16 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 // manager RPC/consensus unit tests, which drive Start() directly against a
 // strict mock DB, do not spin up background health queries (pg_is_in_recovery,
 // pg_settings, pg_stat_archiver) that would race with their query expectations.
+//
+// Idempotent: only the first call takes effect. A second call is a no-op so a
+// double wire-up cannot leak a duplicate poller goroutine (openLocked owns
+// relaunch from here on).
 func (pm *MultiPoolerManager) StartBackupHealth() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
+	if pm.backupHealthEnabled {
+		return
+	}
 	pm.backupHealthEnabled = true
 	pm.startBackupHealthPollerLocked()
 }
