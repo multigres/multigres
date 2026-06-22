@@ -198,6 +198,70 @@ Existing-reserved-conn paths (`GetReservedConn`) are not exposed: those conns
 are actively held and never sit idle in the regular pool, so PostgreSQL's idle
 timeout cannot have closed them between uses.
 
+**Logical-Replication Connections (a specialized reservation):**
+
+Logical replication (e.g. Realtime) opens a session-pinned backend through
+`NewLogicalReplicationConn`. It is a reserved connection — it draws from the
+reserved capacity budget, shares the per-user fair-share allocation and demand
+tracking, gets a unique ID in the `active` map, and frees its slot on `Release`
+exactly like any other reserved conn. It differs from a transactional reserved
+conn in four ways:
+
+- **Replication-mode socket.** `replication=database` is a startup-packet
+  parameter that cannot be set on a live backend, so the conn acquires a slot,
+  discards the pooled regular socket, and dials a fresh replication-mode socket
+  into the same slot. (A normal reserved conn reuses the pooled socket.)
+- **Exempt from the idleKiller.** Its inactivity timeout is `0`, so the 30s
+  reserved-conn killer never reaps it. Idle teardown is Postgres'
+  `wal_sender_timeout`'s job — the walsender ends the stream and the resulting
+  socket error tears the connection down here; a second pooler-side timer would
+  only race.
+- **Never pooled.** The socket is tainted at acquisition (`TaintOnRecycle`), so
+  `Recycle` always closes it rather than returning it to the idle list — a
+  replication-mode backend must never serve an ordinary query.
+- **Detachable socket.** The `StreamReplication` gRPC handler hands the raw,
+  authenticated socket to a protocol-blind byte tunnel via `client.Conn`'s
+  `DetachConn`. The tunnel then owns and closes the socket, while the pool still
+  accounts the slot until the deferred `Release` runs; `DetachConn` marks the
+  conn closed first so `Recycle` frees the slot exactly once and never
+  double-closes.
+
+The end-to-end lifecycle:
+
+<!-- markdownlint-disable MD013 -->
+
+```mermaid
+sequenceDiagram
+    participant GW as Gateway
+    participant H as StreamReplication handler
+    participant RP as ReservedPool
+    participant PG as Postgres (replication backend)
+
+    GW->>H: open stream + init{mode, user, scram_keys}
+    H->>H: require init, reject non-DATABASE mode
+    H->>RP: StartRequest (admit, reject if draining / NOT_SERVING)
+    H->>RP: NewLogicalReplicationConn(user, scram keys)
+    RP->>RP: Get() — acquire reserved slot (budget, fair-share, demand)
+    RP->>PG: dial replication=database (SCRAM passthrough)
+    Note over RP: TaintOnRecycle (never pooled)<br/>inactivityTimeout=0 (idleKiller-exempt)
+    RP-->>H: *reserved.Conn
+    H->>H: DetachConn() — take raw socket + buffered bytes, mark Conn closed
+    H-->>GW: Ready
+
+    Note over GW,PG: tunnel.Run — two goroutines copy opaque bytes verbatim
+    GW->>PG: upstream data — 'r' standby ack, CopyDone (backend.Write)
+    PG->>GW: downstream data — 'w' XLogData, 'k' keepalive, 'E' (stream.Send)
+    Note over H,PG: backpressure: slow Gateway blocks Send → pooler stops reading PG socket
+
+    Note over GW,PG: teardown — client disconnect / CopyDone / EOF / infra error
+    H->>PG: backend.Close() — session ends (temp slot drops, permanent active_pid clears)
+    H->>RP: conn.Release(ReleaseError)
+    RP->>RP: Taint + Recycle — free cap slot exactly once (no double-close), active--
+    H-->>GW: Error{diagnostic} — infra errors only (PG errors already flowed as data)
+```
+
+<!-- markdownlint-enable MD013 -->
+
 ## Dynamic Fair Share Allocation
 
 ### Problem
