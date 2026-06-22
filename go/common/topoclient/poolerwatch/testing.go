@@ -16,6 +16,7 @@ package poolerwatch
 
 import (
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -29,6 +30,18 @@ func SeedForTest[T any](t *testing.T, cache *PoolerCache[T], pooler *clustermeta
 	// Bypass Config.Filter — seeding is an explicit test intent that should
 	// not be gated by the cache's filter (which mirrors production targeting).
 	cache.upsert(pooler)
+}
+
+// SeedTombstoneForTest inserts a tombstone with the given ShutdownAt timestamp.
+// Production paths only create tombstones with c.config.now(); tests that need
+// to exercise age-based cleanup logic must be able to pin the timestamp to an
+// arbitrary point in the past. The *testing.T argument keeps this off the
+// production call graph.
+func SeedTombstoneForTest[T any](t *testing.T, cache *PoolerCache[T], id *clustermetadatapb.ID, shutdownAt time.Time) {
+	t.Helper()
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.addTombstoneLocked(topoclient.ComponentIDString(id), id, shutdownAt)
 }
 
 // DeleteForTest evicts an entry from the cache outright, regardless of the
