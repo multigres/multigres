@@ -118,9 +118,9 @@ type Entry[T any] struct {
 type Hooks[T any] struct {
 	// OnLive fires when a pooler enters the Live state — either first
 	// discovery (prevRider is the zero value of T) or recovery from
-	// Stopped/Vanished within the grace window (prevRider is whatever was
-	// attached when the entry departed Live). The returned value becomes
-	// the new rider; returning prevRider unchanged preserves it.
+	// Vanished within the grace window (prevRider is whatever was attached
+	// when the entry departed Live). The returned value becomes the new
+	// rider; returning prevRider unchanged preserves it.
 	OnLive func(pooler *clustermetadatapb.MultiPooler, prevRider T) T
 
 	// OnUpdate fires when the pooler's proto changes while the entry stays
@@ -152,9 +152,9 @@ type Config[T any] struct {
 	// (e.g., a configurable WatchTargets list). It must not block.
 	Filter func(*clustermetadatapb.MultiPooler) bool
 
-	// ShutdownGrace is how long an entry is retained after lifecycle
-	// transitions to LIFECYCLE_SHUTDOWN. Zero means OnDispose fires
-	// synchronously after OnGone (no waiting for a sweep).
+	// ShutdownGrace is how long a tombstone is retained after lifecycle
+	// transitions to LIFECYCLE_SHUTDOWN. Zero means the tombstone is
+	// removed at the next sweep with no extra retention window.
 	ShutdownGrace time.Duration
 
 	// VanishedGrace is how long an entry is retained after the topology
@@ -163,7 +163,7 @@ type Config[T any] struct {
 	VanishedGrace time.Duration
 
 	// SweepInterval is how often the background goroutine scans for entries
-	// whose grace deadline has passed and invokes OnDispose. Zero defaults
+	// whose grace deadline has passed and invokes OnGone. Zero defaults
 	// to 30s. Ignored if Start is not called (tests can call Sweep manually).
 	SweepInterval time.Duration
 
@@ -324,7 +324,7 @@ func (c *PoolerCache[T]) Sync(ctx context.Context) error {
 }
 
 // Shutdown stops the background sweeper and disposes every remaining entry.
-// After Shutdown returns, every rider has been passed through OnDispose,
+// After Shutdown returns, every rider has been passed through OnGone,
 // subsequent reads return zero/false, and apply* events are ignored.
 //
 // Safe to call multiple times and from multiple goroutines. Concurrent and
@@ -423,7 +423,8 @@ func (c *PoolerCache[T]) All() []Entry[T] {
 }
 
 // Len returns the number of entries currently tracked, including those
-// in Stopped or Vanished state awaiting disposal.
+// in Vanished state awaiting eviction. Tombstones (post-SHUTDOWN) are
+// not counted — they leave the entries map at OnGone time.
 func (c *PoolerCache[T]) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -672,19 +673,20 @@ func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermet
 //
 // Lifecycle transitions:
 //   - First sight, Live: OnLive(p, zero) fires; entry enters StateLive.
-//   - First sight, SHUTDOWN: silently ignored — orch's "SHUTDOWN = dead from
-//     my POV" stance means there's nothing to do.
+//   - First sight, SHUTDOWN: recorded as a tombstone so external cleanup can
+//     hard-delete; no OnLive (orch's "SHUTDOWN = dead from my POV" stance).
 //   - Live → Live (proto diff): OnUpdate fires.
-//   - Live → SHUTDOWN: OnGone(Shutdown) fires immediately; entry transitions
-//     to StateStopped (hidden from normal reads, retained ShutdownGrace for
-//     future cleanup queries). Grace=0 removes the entry on the same tick.
+//   - Live → SHUTDOWN: OnGone(Shutdown) fires immediately; the entry is
+//     removed from the read-visible map and a tombstone is retained for
+//     ShutdownGrace so external cleanup can find it.
 //   - Vanished → Live (recovery): OnUpdate fires (rider was preserved through
 //     grace; the pooler was never "gone" from caller's POV).
 //   - Vanished → SHUTDOWN: OnGone(Shutdown) fires (first time for this entry);
-//     transition to StateStopped.
-//   - Stopped → Live (restart-from-shutdown): OnLive(p, zero) fires fresh —
-//     the previous rider was already released through OnGone.
-//   - Stopped → SHUTDOWN: silent proto refresh; no hooks.
+//     entry removed, tombstone retained.
+//   - Tombstone → Live (restart-from-shutdown): OnLive(p, zero) fires fresh —
+//     the previous rider was already released through OnGone; the tombstone
+//     is dropped.
+//   - Tombstone → SHUTDOWN: tombstone timestamp refreshed; no hooks.
 func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.MultiPooler) {
 	if c.config.Filter != nil && !c.config.Filter(pooler) {
 		return
@@ -926,6 +928,10 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 // records have not yet been hard-deleted (or have not yet been observed as
 // deleted by this cache). Intended for an external cleanup loop that
 // removes the topology entries.
+//
+// The returned Tombstone.ID values share storage with the cache; callers
+// must treat them as read-only (the cleanup loop only uses them as lookup
+// keys, which is safe).
 func (c *PoolerCache[T]) Tombstones() []Tombstone {
 	c.mu.Lock()
 	defer c.mu.Unlock()

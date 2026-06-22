@@ -190,8 +190,10 @@ func (b *cellSyncBroadcaster) syncAll(ctx context.Context) error {
 		select {
 		case ch <- wg.Done:
 		case <-ctx.Done():
-			// Decrement remaining counters for chans we never sent to, so
-			// Wait() can complete even though we're returning early.
+			// Early return: the WaitGroup is local-scope and nobody is
+			// Wait()ing on it after this point. Any wg.Done already sent
+			// to a watcher's channel will be invoked on this abandoned
+			// WaitGroup — harmless no-ops.
 			return ctx.Err()
 		}
 	}
