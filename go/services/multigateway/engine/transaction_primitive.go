@@ -103,8 +103,10 @@ func (t *TransactionPrimitive) StreamExecute(
 	case ast.TRANS_STMT_ROLLBACK_TO:
 		return t.executeRollbackToSavepoint(ctx, exec, conn, state, callback)
 
+	case ast.TRANS_STMT_PREPARE:
+		return t.executePrepareTransaction(ctx, exec, conn, state, info, callback)
+
 	default:
-		// Other transaction statements (e.g., PREPARE TRANSACTION) pass through.
 		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info, callback)
 	}
 }
@@ -328,6 +330,94 @@ func (t *TransactionPrimitive) executeRollback(
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
+}
+
+// executePrepareTransaction handles PREPARE TRANSACTION as a transaction-ending
+// statement. PostgreSQL ends the current transaction even when PREPARE fails
+// during end-of-transaction checks (for example max_prepared_transactions=0 or
+// temporary-object usage). If the gateway treated that backend error like a
+// normal in-transaction statement failure, it would leave the client in failed
+// transaction state and keep the multipooler reservation marked as in a
+// transaction, causing every following statement to cascade with "current
+// transaction is aborted" despite the backend already being idle.
+func (t *TransactionPrimitive) executePrepareTransaction(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	info PlanExecInfo,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	state.PendingBeginQuery = ""
+
+	var preparedResult *sqltypes.Result
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info,
+		func(cbCtx context.Context, result *sqltypes.Result) error {
+			// Hold CommandComplete until the reservation cleanup below succeeds, so
+			// the client is not told PREPARE completed while the gateway still thinks
+			// it has an open transaction. PREPARE TRANSACTION produces only a final
+			// command tag; preserve any notices defensively.
+			preparedResult = result
+			return nil
+		})
+	if err != nil {
+		// Failed PREPARE behaves like a rollback of the transaction being
+		// prepared: transaction-local/gateway-tracked state reverts, pending
+		// LISTEN/UNLISTEN changes are discarded, and the connection is idle.
+		state.DiscardPendingListens()
+		state.RollbackTransaction()
+		t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
+		_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
+			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		return err
+	}
+
+	// Successful PREPARE ends the transaction without committing it yet; from the
+	// session's perspective the transaction block is over and the backend is idle.
+	// Keep committed session state, clear transaction-local state, and release the
+	// transaction reservation without sending a client-visible COMMIT tag.
+	state.CommitTransaction()
+	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
+	if err := t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT); err != nil {
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		return err
+	}
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
+
+	if preparedResult != nil {
+		return callback(ctx, preparedResult)
+	}
+	return nil
+}
+
+// cleanupPreparedTransactionReservation drops the multipooler's transaction
+// reservation after PREPARE TRANSACTION has already driven the backend to idle.
+// We intentionally reuse ConcludeTransaction with a silent callback so the
+// reserved.Conn bookkeeping (transaction reason, rollback snapshot, release vs
+// remaining temp/portal reasons) stays centralized. The COMMIT/ROLLBACK sent by
+// that cleanup runs against an idle backend and is used only to select whether
+// reserved.Conn keeps or restores its cached session-state snapshot.
+func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	conclusion multipoolerpb.TransactionConclusion,
+) error {
+	hasActiveTransaction := false
+	for _, ss := range state.ShardStates {
+		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
+			hasActiveTransaction = true
+			break
+		}
+	}
+	if !hasActiveTransaction {
+		return nil
+	}
+	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false,
+		func(context.Context, *sqltypes.Result) error { return nil })
 }
 
 // executeSavepoint handles SAVEPOINT by passing through to the backend, then

@@ -344,6 +344,67 @@ func TestTransactionPrimitive_Rollback_ConcludeTransactionError(t *testing.T) {
 	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")
 }
 
+func TestTransactionPrimitive_PrepareTransaction_SuccessEndsTransactionAndReleasesReservation(t *testing.T) {
+	mockExec := &txMockIExecute{
+		callbackResult: &sqltypes.Result{CommandTag: "PREPARE TRANSACTION"},
+	}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.BeginTransaction()
+	state.SetSessionVariable("datestyle", "German")
+
+	var callbackResult *sqltypes.Result
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, []string{"PREPARE TRANSACTION 'gid'"}, mockExec.streamExecuteSQL)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "PREPARE should release the transaction reservation")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, mockExec.concludeTransactionConclusion)
+	require.Empty(t, state.ShardStates, "transaction reservation should be cleared after PREPARE")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "PREPARE TRANSACTION", callbackResult.CommandTag)
+	v, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "German", v, "successful PREPARE keeps committed session SET state")
+	require.Equal(t, 0, state.SavepointDepth())
+}
+
+func TestTransactionPrimitive_PrepareTransaction_FailureRollsBackGatewayStateAndReleasesReservation(t *testing.T) {
+	prepareErr := errors.New("prepared transactions are disabled")
+	mockExec := &txMockIExecute{streamExecuteErr: prepareErr}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.BeginTransaction()
+	state.SetSessionVariable("datestyle", "German")
+
+	var callbackCalled bool
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
+		callbackCalled = true
+		return nil
+	})
+
+	require.ErrorIs(t, err, prepareErr)
+	require.False(t, callbackCalled, "failing PREPARE should surface only the backend error")
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus(), "failed PREPARE ends the transaction")
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "failed PREPARE should drop the transaction reservation")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
+	require.Empty(t, state.ShardStates, "transaction reservation should be cleared after failed PREPARE")
+	v, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "ISO, MDY", v, "failed PREPARE reverts transaction-local session SET state")
+	require.Equal(t, 0, state.SavepointDepth())
+}
+
 func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 	mockExec := &txMockIExecute{
 		callbackResult: &sqltypes.Result{CommandTag: "SAVEPOINT"},

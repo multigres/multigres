@@ -236,12 +236,15 @@ func (sc *ScatterConn) StreamExecute(
 		// existing reserved connection.
 		var reservationOpts *querypb.ReservationOptions
 
-		// For reserved connections with temp tables and a deferred BEGIN:
-		// set reservation options so the multipooler executes BEGIN on the
-		// reserved connection before the query.
-		if state.PendingBeginQuery != "" && protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+		// For any already-reserved backend and a deferred BEGIN, promote the
+		// reservation to a transaction before running the user's first statement.
+		// Temp-table reservations were the original case, but session advisory locks
+		// and holdable portals also pin a backend; once the client sends BEGIN, the
+		// transaction must start on that same reserved backend.
+		if state.PendingBeginQuery != "" && !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
-				"pending_begin", state.PendingBeginQuery)
+				"pending_begin", state.PendingBeginQuery,
+				"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
 			reservationOpts = &querypb.ReservationOptions{
 				Reasons:    protoutil.ReasonTransaction,
 				BeginQuery: state.PendingBeginQuery,

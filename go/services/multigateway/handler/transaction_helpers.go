@@ -208,9 +208,11 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.
 				_ = silentExecute(ast.NewRollbackStmt())
-			} else {
-				// Explicit transaction: enter aborted state.
-				// The client must issue ROLLBACK to recover.
+			} else if conn.TxnStatus() == protocol.TxnStatusInBlock {
+				// Explicit transaction: enter aborted state only if the failing
+				// statement left the transaction open. Transaction-ending statements
+				// such as failed PREPARE TRANSACTION can return an error after the
+				// backend has already gone idle; their primitive owns that transition.
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return execErr
