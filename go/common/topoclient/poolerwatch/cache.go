@@ -45,7 +45,7 @@ const (
 	StateLive State = iota
 	// StateMissingFromTopo — the pooler's topology entry has been deleted (NoNode)
 	// without a prior SHUTDOWN. The entry is retained, visible to reads,
-	// for Config.MissingFromTopoGrace before OnGone fires and it is removed.
+	// for Config.MissingGracePeriod before OnGone fires and it is removed.
 	StateMissingFromTopo
 )
 
@@ -67,9 +67,11 @@ const (
 	// GoneShutdown — the pooler's lifecycle was SHUTDOWN at the moment it was
 	// removed (immediately on transition with grace=0, or at grace expiry).
 	GoneShutdown GoneReason = iota
-	// GoneMissingFromTopo — the pooler's topology entry was deleted (NoNode) and the
-	// missing-from-topology grace period expired without recovery (or grace=0 took effect
-	// immediately).
+	// GoneMissingFromTopo — the pooler's topology entry was deleted (NoNode)
+	// and the missing-grace deadline elapsed without the entry recovering
+	// or the cache receiving fresh evidence of contact via
+	// LastReachedTimestamp. Equivalently, MissingGracePeriod=0 takes effect
+	// immediately at the NoNode event.
 	GoneMissingFromTopo
 	// GoneCacheShutdown — the cache itself was shut down while this entry was
 	// still being tracked. Lets callers tear down their riders symmetrically
@@ -105,11 +107,12 @@ type Entry[T any] struct {
 // observe events in topology order. Hooks may safely call back into the
 // cache's read methods. Slow hooks delay subsequent events for that pooler.
 //
-// MissingFromTopo (NoNode grace) is invisible at the hook level: no hook fires
-// when a Live entry enters grace, nor while it stays in grace. Hooks fire
-// only on Live-relevant transitions (OnLive, OnUpdate) and at the moment
-// the cache permanently lets the entry go (OnGone). Callers that want to
-// distinguish "currently in missing-from-topo grace" from "live" can read Entry.State.
+// The missing-from-topo grace window is invisible at the hook level: no
+// hook fires when a Live entry enters grace, nor while it stays in
+// grace. Hooks fire only on Live-relevant transitions (OnLive, OnUpdate)
+// and at the moment the cache permanently lets the entry go (OnGone).
+// Callers that want to distinguish "currently in the missing-from-topo
+// window" from "live" can read Entry.State.
 //
 // SHUTDOWN is different: OnGone fires immediately at the transition, the
 // rider is released, and the entry leaves the read-visible map. A "tombstone"
@@ -129,7 +132,7 @@ type Hooks[T any] struct {
 
 	// OnGone fires once, terminally, when the cache stops tracking the
 	// pooler — either lifecycle SHUTDOWN observed (subject to ShutdownGrace)
-	// or topology entry gone (subject to MissingFromTopoGrace). After return, the
+	// or topology entry gone (subject to MissingGracePeriod). After return, the
 	// entry is no longer in the cache.
 	OnGone func(pooler *clustermetadatapb.MultiPooler, rider T, reason GoneReason)
 }
@@ -157,10 +160,43 @@ type Config[T any] struct {
 	// removed at the next sweep with no extra retention window.
 	ShutdownGrace time.Duration
 
-	// MissingFromTopoGrace is how long an entry is retained after the topology
-	// record disappears (NoNode) without prior SHUTDOWN. Generous values
-	// protect against accidental etcd deletes.
-	MissingFromTopoGrace time.Duration
+	// MissingGracePeriod is how long an entry can stay in
+	// StateMissingFromTopo before the cache forgets about it. The grace
+	// is designed to survive two operational failure modes:
+	//
+	//   1. A pooler stops without gracefully marking itself SHUTDOWN in
+	//      etcd, and whatever component should have hard-deleted its
+	//      topology entry hasn't. The cache keeps the entry visible so
+	//      consumers can drain in-flight work and analyzers see it.
+	//   2. etcd contents are lost or trashed and an operator hasn't yet
+	//      restored them. The pooler process itself may be reachable the
+	//      whole time; we must NOT evict it just because etcd forgot it.
+	//
+	// Case 2 is the reason LastReachedTimestamp exists (see below): if
+	// the cache only used time-since-NoNode, a healthy pooler whose etcd
+	// record was lost would be silently evicted after the grace expired.
+	// With LastReachedTimestamp wired in, the effective deadline becomes
+	// "MissingGracePeriod after the last evidence the pooler was reached
+	// on the wire" — so an etcd outage alone won't drop a working pooler.
+	MissingGracePeriod time.Duration
+
+	// LastReachedTimestamp, if non-nil, returns the most recent time the
+	// rider was reached on the wire — i.e. the consumer got SOME response
+	// from the pooler. Successful responses count; protocol-level error
+	// responses also count (the pooler clearly exists). Connection
+	// failures and RPC timeouts do NOT count, since they're not evidence
+	// of a process at the other end.
+	//
+	// The cache consults this during sweep for entries in
+	// StateMissingFromTopo: the eviction deadline becomes
+	// max(disposeAfter, lastReached + MissingGracePeriod). A zero time
+	// is treated as "no positive evidence" — the deadline stays at the
+	// NoNode-anchored disposeAfter.
+	//
+	// Called once per StateMissingFromTopo entry per sweep, so it must
+	// be cheap and lock-light. Bumping is consumer-driven via this
+	// accessor; the cache does not subscribe to a stream.
+	LastReachedTimestamp func(rider T) time.Time
 
 	// SweepInterval is how often the background goroutine scans for entries
 	// whose grace deadline has passed and invokes OnGone. Zero defaults
@@ -570,7 +606,23 @@ func (c *PoolerCache[T]) sweep() {
 	}
 	var due []*internalEntry[T]
 	for _, e := range c.entries {
-		if e.state == StateMissingFromTopo && !now.Before(e.disposeAfter) {
+		if e.state != StateMissingFromTopo {
+			continue
+		}
+		// Deadline: max(NoNode-anchored disposeAfter, last-reached + grace).
+		// The second term slides forward as the consumer reports fresh
+		// contact, so an entry whose etcd record disappeared while the
+		// pooler kept responding doesn't get evicted on the original
+		// disposeAfter alone.
+		deadline := e.disposeAfter
+		if c.config.LastReachedTimestamp != nil {
+			if lastReached := c.config.LastReachedTimestamp(e.rider); !lastReached.IsZero() {
+				if extended := lastReached.Add(c.config.MissingGracePeriod); extended.After(deadline) {
+					deadline = extended
+				}
+			}
+		}
+		if !now.Before(deadline) {
 			due = append(due, e)
 		}
 	}
@@ -883,14 +935,14 @@ func (c *PoolerCache[T]) addTombstoneLocked(id topoclient.ComponentID, poolerID 
 //
 //   - If the pooler is currently a read-visible entry (Live or MissingFromTopo),
 //     it transitions to StateMissingFromTopo. The entry stays visible to reads
-//     for MissingFromTopoGrace; if the pooler returns, the rider is preserved.
-//     If grace expires (Sweep), OnGone(MissingFromTopo) fires. MissingFromTopoGrace=0
+//     for MissingGracePeriod; if the pooler returns, the rider is preserved.
+//     If grace expires (Sweep), OnGone(MissingFromTopo) fires. MissingGracePeriod=0
 //     fires OnGone immediately and removes the entry.
 //   - If the pooler is a tombstone (we observed its SHUTDOWN earlier), the
 //     deletion confirms cleanup happened: the tombstone is removed silently.
 //   - Unknown ID: no-op.
 //
-// deleteImmediate evicts an entry now, bypassing MissingFromTopoGrace. Test-only
+// deleteImmediate evicts an entry now, bypassing MissingGracePeriod. Test-only
 // (via DeleteForTest); applyDelete is the production path that honors
 // grace. Caller must not hold c.mu.
 func (c *PoolerCache[T]) deleteImmediate(id topoclient.ComponentID) {
@@ -931,11 +983,11 @@ func (c *PoolerCache[T]) applyDelete(id topoclient.ComponentID) {
 		case StateLive:
 			e.state = StateMissingFromTopo
 			e.lastChange = now
-			e.disposeAfter = now.Add(c.config.MissingFromTopoGrace)
+			e.disposeAfter = now.Add(c.config.MissingGracePeriod)
 			hooks := c.hooks
 			pooler := e.pooler
 			rider := e.rider
-			removeNow := c.config.MissingFromTopoGrace == 0
+			removeNow := c.config.MissingGracePeriod == 0
 			if removeNow {
 				delete(c.entries, e.id)
 				c.indexRemove(e)

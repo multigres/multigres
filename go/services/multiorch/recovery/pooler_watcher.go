@@ -31,9 +31,13 @@ const (
 	// shutdownGracePeriod is how long the cache retains a tombstone record of a
 	// SHUTDOWN pooler so future etcd-cleanup logic can find it.
 	shutdownGracePeriod = 4 * time.Hour
-	// missingFromTopoGracePeriod is how long an unexpectedly-deleted entry stays
-	// visible to reads, so accidental etcd deletes can self-heal.
-	missingFromTopoGracePeriod = 4 * time.Hour
+	// missingGracePeriod is how long the cache holds onto a pooler whose
+	// topology entry has disappeared (NoNode). The clock is slid forward
+	// by any fresh LastReached evidence, so an entry only evicts after the
+	// pooler is BOTH missing from etcd AND silent on the wire for this
+	// duration — protecting against accidental etcd deletes and against
+	// operator-driven etcd state loss.
+	missingGracePeriod = 4 * time.Hour
 )
 
 // newPoolerCache builds the orchestrator's pooler cache (without binding
@@ -54,11 +58,24 @@ func newPoolerCache(
 	}
 
 	return poolerwatch.New(ctx, poolerwatch.Config[*store.Pooler]{
-		Source:               topoStore,
-		Filter:               matchesAnyTarget,
-		ShutdownGrace:        shutdownGracePeriod,
-		MissingFromTopoGrace: missingFromTopoGracePeriod,
-		Logger:               logger,
+		Source:             topoStore,
+		Filter:             matchesAnyTarget,
+		ShutdownGrace:      shutdownGracePeriod,
+		MissingGracePeriod: missingGracePeriod,
+		// LastReachedTimestamp: today this returns h.LastSeen, which is
+		// bumped only on a successful ManagerHealthStream snapshot. That's
+		// strictly a subset of "reached on the wire" (it doesn't include
+		// stream errors received from the pooler). Broadening the bump
+		// sites in HealthStream to count error responses too is tracked
+		// as a follow-up — for now this is "last *successful* contact,"
+		// which is still strictly better than "time of NoNode."
+		LastReachedTimestamp: func(p *store.Pooler) time.Time {
+			if p == nil {
+				return time.Time{}
+			}
+			return p.Health().GetLastSeen().AsTime()
+		},
+		Logger: logger,
 	})
 }
 
@@ -103,7 +120,8 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 			case poolerwatch.GoneShutdown:
 				logger.InfoContext(ctx, "pooler entered SHUTDOWN lifecycle", "pooler_id", topoclient.ComponentIDString(p.Id))
 			case poolerwatch.GoneMissingFromTopo:
-				logger.WarnContext(ctx, "pooler topology entry deleted and grace period expired", "pooler_id", topoclient.ComponentIDString(p.Id))
+				logger.WarnContext(ctx, "pooler topology entry deleted and no longer reachable; grace expired",
+					"pooler_id", topoclient.ComponentIDString(p.Id))
 			case poolerwatch.GoneCacheShutdown:
 				logger.DebugContext(ctx, "pooler released because cache is shutting down", "pooler_id", topoclient.ComponentIDString(p.Id))
 			}

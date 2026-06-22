@@ -32,9 +32,9 @@ import (
 func NewTestCache(t *testing.T) *PoolerCache {
 	t.Helper()
 	cache := poolerwatch.New(t.Context(), poolerwatch.Config[*Pooler]{
-		ShutdownGrace:        time.Hour,
-		MissingFromTopoGrace: time.Hour,
-		Logger:               slog.Default(),
+		ShutdownGrace:      time.Hour,
+		MissingGracePeriod: time.Hour,
+		Logger:             slog.Default(),
 	})
 	cache.Start(poolerwatch.Hooks[*Pooler]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *Pooler) *Pooler {

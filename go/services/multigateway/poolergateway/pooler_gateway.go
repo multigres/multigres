@@ -121,6 +121,23 @@ type PoolerGatewayOpts struct {
 func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
 		Source: opts.Source,
+		// LastReachedTimestamp is a no-op under the gateway's current
+		// zero-grace config — entries are evicted at the NoNode moment —
+		// but wiring it now means raising the grace to a non-zero value
+		// later is a one-line config change. Today this returns the
+		// connection's LastResponse, which is bumped only on a successful
+		// health update; broadening to count error responses too is a
+		// follow-up shared with orch.
+		LastReachedTimestamp: func(c *poolerConnection) time.Time {
+			if c == nil {
+				return time.Time{}
+			}
+			h := c.Health()
+			if h == nil {
+				return time.Time{}
+			}
+			return h.LastResponse
+		},
 		Logger: opts.Logger,
 	})
 
@@ -148,7 +165,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
 	// rider: OnLive constructs the connection (and folds any topology
 	// self_leadership into the LB's leaders map), OnUpdate refreshes topology
-	// metadata, and OnGone closes it. ShutdownGrace/MissingFromTopoGrace are zero —
+	// metadata, and OnGone closes it. ShutdownGrace/MissingGracePeriod are zero —
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {

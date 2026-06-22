@@ -32,10 +32,12 @@ const shutdownEtcdCleanupAge = 24 * time.Hour
 // runBookkeeping performs periodic bookkeeping tasks.
 //
 // In the cache-driven design, in-memory eviction is owned by the cache:
-// SHUTDOWN triggers immediate removal (with a tombstone retained), and NoNode
-// triggers missing-from-topo grace removal. Bookkeeping handles the one task the cache
-// can't: hard-deleting topology entries for poolers that have been in
-// SHUTDOWN for long enough that no operator is reclaiming them.
+// SHUTDOWN triggers immediate removal (with a tombstone retained), and
+// NoNode opens the missing-grace window (eviction at grace expiry, with
+// the deadline slid by any fresh LastReached evidence). Bookkeeping
+// handles the one task the cache can't: hard-deleting topology entries
+// for poolers that have been in SHUTDOWN long enough that no operator
+// is reclaiming them.
 func (re *Engine) runBookkeeping() {
 	re.logger.Debug("running bookkeeping tasks")
 

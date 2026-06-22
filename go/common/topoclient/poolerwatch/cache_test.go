@@ -99,14 +99,14 @@ func silentLogger() *slog.Logger {
 // newTestCache builds a PoolerCache wired to a fake clock with the given
 // grace periods. The hookRecorder captures every hook invocation in a
 // human-readable form.
-func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, missingFromTopoGrace time.Duration) (*PoolerCache[*testRider], *hookRecorder) {
+func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, missingGracePeriod time.Duration) (*PoolerCache[*testRider], *hookRecorder) {
 	t.Helper()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		ShutdownGrace:        shutdownGrace,
-		MissingFromTopoGrace: missingFromTopoGrace,
-		Logger:               silentLogger(),
-		now:                  clk.Now,
+		ShutdownGrace:      shutdownGrace,
+		MissingGracePeriod: missingGracePeriod,
+		Logger:             silentLogger(),
+		now:                clk.Now,
 	}
 	cache := New(t.Context(), cfg)
 	cache.hooks = Hooks[*testRider]{
@@ -236,7 +236,7 @@ func TestCache_TombstonesExpireSilentlyOnSweep(t *testing.T) {
 }
 
 // TestCache_MissingFromTopoIsSilentUntilGrace verifies that NoNode does NOT fire
-// OnGone immediately. The entry stays visible to reads for MissingFromTopoGrace.
+// OnGone immediately. The entry stays visible to reads for MissingGracePeriod.
 func TestCache_MissingFromTopoIsSilentUntilGrace(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
@@ -248,7 +248,7 @@ func TestCache_MissingFromTopoIsSilentUntilGrace(t *testing.T) {
 	// No hook fires on topology removal; the entry remains visible (as MissingFromTopo).
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
 	entry, ok := c.Get(componentID("zone1", "p1"))
-	require.True(t, ok, "missing-from-topology pooler stays visible to reads during grace")
+	require.True(t, ok, "pooler missing from topology stays visible to reads during grace")
 	assert.Equal(t, StateMissingFromTopo, entry.State)
 
 	// Past grace, sweep fires OnGone(MissingFromTopo) and removes the entry.
@@ -335,7 +335,7 @@ func TestCache_DeleteOfTombstoneRemovesItSilently(t *testing.T) {
 	assert.Empty(t, c.Tombstones())
 }
 
-func TestCache_ZeroMissingFromTopoGraceFiresOnGoneInline(t *testing.T) {
+func TestCache_ZeroMissingGracePeriodFiresOnGoneInline(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, 0)
 	defer c.Shutdown()
@@ -393,10 +393,10 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 	clk := newFakeClock()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		ShutdownGrace:        time.Hour,
-		MissingFromTopoGrace: time.Hour,
-		Logger:               silentLogger(),
-		now:                  clk.Now,
+		ShutdownGrace:      time.Hour,
+		MissingGracePeriod: time.Hour,
+		Logger:             silentLogger(),
+		now:                clk.Now,
 	}
 	c := New(ctx, cfg)
 	c.hooks = Hooks[*testRider]{
@@ -446,10 +446,10 @@ func TestCache_ConcurrentShutdownAllBlockUntilDone(t *testing.T) {
 	disposeStart := make(chan struct{})
 	disposeRelease := make(chan struct{})
 	cfg := Config[*testRider]{
-		ShutdownGrace:        time.Hour,
-		MissingFromTopoGrace: time.Hour,
-		Logger:               silentLogger(),
-		now:                  clk.Now,
+		ShutdownGrace:      time.Hour,
+		MissingGracePeriod: time.Hour,
+		Logger:             silentLogger(),
+		now:                clk.Now,
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
@@ -492,10 +492,10 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 		Filter: func(p *clustermetadatapb.MultiPooler) bool {
 			return p.GetShardKey().GetDatabase() == "mydb"
 		},
-		ShutdownGrace:        time.Hour,
-		MissingFromTopoGrace: time.Hour,
-		Logger:               silentLogger(),
-		now:                  clk.Now,
+		ShutdownGrace:      time.Hour,
+		MissingGracePeriod: time.Hour,
+		Logger:             silentLogger(),
+		now:                clk.Now,
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
@@ -519,7 +519,7 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 // is the core contract that justifies topoWatch holding no pooler state.
 func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 	clk := newFakeClock()
-	c, rec := newTestCache(t, clk, time.Hour, 0 /* MissingFromTopoGrace=0 so eviction is immediate */)
+	c, rec := newTestCache(t, clk, time.Hour, 0 /* MissingGracePeriod=0 so eviction is immediate */)
 	defer c.Shutdown()
 
 	// Seed two poolers in zone1 and one in zone2 via the watcher dispatch path.
@@ -538,7 +538,7 @@ func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 		pool("zone1", "p3", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	})
 
-	// p2 missing-from-topology, p3 went live; p1 stayed (proto.Equal suppresses dup); zone2 untouched.
+	// p2 evicted (missing from topology with grace=0), p3 went live; p1 stayed (proto.Equal suppresses dup); zone2 untouched.
 	events := rec.snapshot()
 	assert.Contains(t, events, "gone-missing-from-topo:p2", "p2 must be evicted by reconcile")
 	assert.Contains(t, events, "live:p3", "p3 must be added by reconcile")
@@ -548,4 +548,161 @@ func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 	assert.True(t, p1Ok)
 	assert.True(t, p3Ok)
 	assert.True(t, q1Ok, "cell zone2 must be untouched by zone1 reconcile")
+}
+
+// --------------------------------------------------------------------------
+// LastReachedTimestamp / MissingGracePeriod: an entry whose topology record
+// disappears (NoNode) should NOT be evicted as long as the rider keeps
+// reporting fresh contact, because the operational risk we're guarding
+// against is "etcd contents lost; pooler still up and responding."
+// --------------------------------------------------------------------------
+
+// reachableRider is a testRider with a configurable lastReached timestamp,
+// used by the tests below to drive the LastReachedTimestamp predicate.
+type reachableRider struct {
+	testRider
+	lastReached time.Time
+}
+
+// newReachCache builds a cache like newTestCache but installs a non-nil
+// LastReachedTimestamp predicate that reads each rider's lastReached field.
+func newReachCache(t *testing.T, clk *fakeClock, missingGracePeriod time.Duration) (*PoolerCache[*reachableRider], *hookRecorder) {
+	t.Helper()
+	rec := &hookRecorder{}
+	cache := New(t.Context(), Config[*reachableRider]{
+		MissingGracePeriod: missingGracePeriod,
+		LastReachedTimestamp: func(r *reachableRider) time.Time {
+			if r == nil {
+				return time.Time{}
+			}
+			return r.lastReached
+		},
+		Logger: silentLogger(),
+		now:    clk.Now,
+	})
+	cache.hooks = Hooks[*reachableRider]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, prev *reachableRider) *reachableRider {
+			if prev != nil {
+				rec.record("resume:" + p.Id.Name)
+				return prev
+			}
+			rec.record("live:" + p.Id.Name)
+			return &reachableRider{testRider: testRider{id: riderCounter.Add(1)}}
+		},
+		OnGone: func(p *clustermetadatapb.MultiPooler, _ *reachableRider, r GoneReason) {
+			rec.record("gone-" + r.String() + ":" + p.Id.Name)
+		},
+	}
+	return cache, rec
+}
+
+// setLastReached writes the rider's lastReached field so the predicate
+// returns the given time on subsequent sweeps. Mirrors what production
+// would do via DoUpdate, but stays in-test by reaching through GetRider.
+func setLastReached(t *testing.T, c *PoolerCache[*reachableRider], id topoclient.ComponentID, when time.Time) {
+	t.Helper()
+	c.DoUpdate(id, func(r *reachableRider) *reachableRider {
+		if r == nil {
+			return nil
+		}
+		r.lastReached = when
+		return r
+	})
+}
+
+// TestCache_LastReachedSlidesDeadlineForward: an entry whose topology
+// record is gone but whose rider keeps reporting fresh contact must not
+// be evicted on the NoNode-anchored disposeAfter — the deadline should
+// slide to lastReached + grace.
+func TestCache_LastReachedSlidesDeadlineForward(t *testing.T) {
+	clk := newFakeClock()
+	c, rec := newReachCache(t, clk, time.Hour)
+	defer c.Shutdown()
+
+	id := componentID("zone1", "p1")
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	setLastReached(t, c, id, clk.Now())
+
+	// Topology record disappears. disposeAfter = now + 1h.
+	c.applyDelete(id)
+
+	// 30 minutes in: pooler is still being reached. Bump lastReached
+	// to "now" so the sliding deadline becomes t0+90m.
+	clk.Advance(30 * time.Minute)
+	setLastReached(t, c, id, clk.Now())
+
+	// Advance to t0+75m: past the original disposeAfter (t0+60m) but
+	// inside the slid deadline (t0+90m). Sweep must NOT evict.
+	clk.Advance(45 * time.Minute)
+	c.sweep()
+	assert.Equal(t, []string{"live:p1"}, rec.snapshot(), "fresh contact must defer eviction past disposeAfter")
+	_, stillThere := c.Get(id)
+	assert.True(t, stillThere, "entry must survive sweep while lastReached is fresh")
+
+	// Pooler stops being reached. Advance past the slid deadline of
+	// t0+90m (lastReached t0+30m + grace 60m). Sweep must now evict.
+	clk.Advance(30 * time.Minute)
+	c.sweep()
+	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot(),
+		"once lastReached is stale by more than grace, sweep must evict")
+}
+
+// TestCache_LastReachedZeroDoesNotSlideDeadline: a rider that has never
+// reported contact (zero timestamp) should not gain any extension —
+// the entry must evict at the original disposeAfter.
+func TestCache_LastReachedZeroDoesNotSlideDeadline(t *testing.T) {
+	clk := newFakeClock()
+	c, rec := newReachCache(t, clk, time.Hour)
+	defer c.Shutdown()
+
+	id := componentID("zone1", "p1")
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	// Deliberately do NOT set lastReached; rider's zero value stands.
+
+	c.applyDelete(id)
+	clk.Advance(time.Hour + time.Second)
+	c.sweep()
+
+	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot(),
+		"zero lastReached must fall back to the disposeAfter deadline")
+}
+
+// TestCache_LastReachedDoesNotApplyToLiveEntries: the predicate is only
+// consulted for StateMissingFromTopo entries. A Live entry whose
+// lastReached is stale must NOT be evicted.
+func TestCache_LastReachedDoesNotApplyToLiveEntries(t *testing.T) {
+	clk := newFakeClock()
+	c, rec := newReachCache(t, clk, time.Hour)
+	defer c.Shutdown()
+
+	id := componentID("zone1", "p1")
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	// Set lastReached to long ago — would force eviction if the predicate
+	// applied to Live entries.
+	setLastReached(t, c, id, clk.Now().Add(-100*time.Hour))
+
+	clk.Advance(2 * time.Hour)
+	c.sweep()
+	assert.Equal(t, []string{"live:p1"}, rec.snapshot(),
+		"Live entries are not subject to the lastReached deadline")
+}
+
+// TestCache_LastReachedNilPredicateMatchesOldBehavior: with no
+// LastReachedTimestamp configured the cache must behave exactly as it
+// did before — eviction strictly at NoNode + grace.
+func TestCache_LastReachedNilPredicateMatchesOldBehavior(t *testing.T) {
+	clk := newFakeClock()
+	// Use the original newTestCache helper (no LastReachedTimestamp).
+	c, rec := newTestCache(t, clk, time.Hour, time.Hour)
+	defer c.Shutdown()
+
+	id := componentID("zone1", "p1")
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyDelete(id)
+
+	// One hour exactly hits disposeAfter; sweep evicts on the original
+	// deadline because no predicate is configured.
+	clk.Advance(time.Hour + time.Second)
+	c.sweep()
+	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot())
 }
