@@ -25,6 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -325,5 +327,111 @@ func TestCellSyncBroadcaster_SyncAllDispatchesAllEvents(t *testing.T) {
 	case <-watchDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("watchAllPoolersWithRetry did not return after ctx cancel")
+	}
+}
+
+// TestParsePoolerWatchEntry covers the error/edge branches of
+// parsePoolerWatchEntry that don't get exercised by the memorytopo-driven
+// integration tests above — wrong path, NoNode-with-malformed-path,
+// non-NoNode error, nil contents, unmarshal failure, missing Id.
+func TestParsePoolerWatchEntry(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	poolerPath := topoclient.PoolersPath + "/zone1-p1/" + topoclient.PoolerFile
+
+	validProto, err := proto.Marshal(&clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		input    *topoclient.WatchDataRecursive
+		wantOk   bool
+		wantDel  bool
+		wantID   topoclient.ComponentID
+		wantName string
+	}{
+		{
+			name:   "wrong path is ignored",
+			input:  &topoclient.WatchDataRecursive{Path: "other/path"},
+			wantOk: false,
+		},
+		{
+			name: "NoNode on a real pooler path is a delete",
+			input: &topoclient.WatchDataRecursive{
+				Path:      poolerPath,
+				WatchData: topoclient.WatchData{Err: &topoclient.TopoError{Code: topoclient.NoNode}},
+			},
+			wantOk:  true,
+			wantDel: true,
+			wantID:  "zone1-p1",
+		},
+		{
+			name: "NoNode where the path doesn't carry a pooler ID returns not-ok",
+			input: &topoclient.WatchDataRecursive{
+				Path:      "other/" + topoclient.PoolerFile,
+				WatchData: topoclient.WatchData{Err: &topoclient.TopoError{Code: topoclient.NoNode}},
+			},
+			wantOk: false,
+		},
+		{
+			name: "non-NoNode error returns not-ok (logged and dropped)",
+			input: &topoclient.WatchDataRecursive{
+				Path:      poolerPath,
+				WatchData: topoclient.WatchData{Err: &topoclient.TopoError{Code: topoclient.Interrupted}},
+			},
+			wantOk: false,
+		},
+		{
+			name: "nil contents returns not-ok",
+			input: &topoclient.WatchDataRecursive{
+				Path:      poolerPath,
+				WatchData: topoclient.WatchData{Contents: nil},
+			},
+			wantOk: false,
+		},
+		{
+			name: "garbage contents returns not-ok",
+			input: &topoclient.WatchDataRecursive{
+				Path:      poolerPath,
+				WatchData: topoclient.WatchData{Contents: []byte("\xff\xff not a proto \x00")},
+			},
+			wantOk: false,
+		},
+		{
+			name: "proto without Id returns not-ok",
+			input: &topoclient.WatchDataRecursive{
+				Path: poolerPath,
+				WatchData: topoclient.WatchData{Contents: func() []byte {
+					b, _ := proto.Marshal(&clustermetadatapb.MultiPooler{Hostname: "noid"})
+					return b
+				}()},
+			},
+			wantOk: false,
+		},
+		{
+			name: "valid proto returns the pooler",
+			input: &topoclient.WatchDataRecursive{
+				Path:      poolerPath,
+				WatchData: topoclient.WatchData{Contents: validProto},
+			},
+			wantOk:   true,
+			wantName: "p1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, id, isDel, ok := parsePoolerWatchEntry(tc.input, logger)
+			assert.Equal(t, tc.wantOk, ok)
+			assert.Equal(t, tc.wantDel, isDel)
+			assert.Equal(t, tc.wantID, id)
+			if tc.wantName != "" {
+				require.NotNil(t, p)
+				assert.Equal(t, tc.wantName, p.Id.Name)
+			} else {
+				assert.Nil(t, p)
+			}
+		})
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -705,4 +706,136 @@ func TestCache_LastReachedNilPredicateMatchesOldBehavior(t *testing.T) {
 	clk.Advance(time.Hour + time.Second)
 	c.sweep()
 	assert.Equal(t, []string{"live:p1", "gone-missing-from-topo:p1"}, rec.snapshot())
+}
+
+// --------------------------------------------------------------------------
+// Stringer methods on State and GoneReason: tiny but worth pinning since
+// they appear in log lines and metric labels.
+// --------------------------------------------------------------------------
+
+func TestState_String(t *testing.T) {
+	assert.Equal(t, "live", StateLive.String())
+	assert.Equal(t, "missing-from-topo", StateMissingFromTopo.String())
+	assert.Equal(t, "unknown", State(99).String())
+}
+
+func TestGoneReason_String(t *testing.T) {
+	assert.Equal(t, "shutdown", GoneShutdown.String())
+	assert.Equal(t, "missing-from-topo", GoneMissingFromTopo.String())
+	assert.Equal(t, "cache-shutdown", GoneCacheShutdown.String())
+	assert.Equal(t, "unknown", GoneReason(99).String())
+}
+
+// --------------------------------------------------------------------------
+// End-to-end through Start: prior tests bypass Start by driving applyUpsert
+// directly. This one exercises the real Start path — sweeper goroutine,
+// topoSource subscription, Sync barrier, and the read-side methods Get,
+// GetRider, All, CellStatuses — against an in-memory topology. Doubles as
+// the cell-removal hook coverage (onCellRemoved fires when memorytopo's
+// DeleteCell is called).
+// --------------------------------------------------------------------------
+
+func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	rec := &hookRecorder{}
+	cache := New(ctx, Config[*testRider]{
+		Source:             ts,
+		ShutdownGrace:      time.Hour,
+		MissingGracePeriod: time.Hour,
+		Logger:             silentLogger(),
+	})
+	t.Cleanup(func() { cache.Shutdown() })
+
+	cache.Start(Hooks[*testRider]{
+		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+			rec.record("live:" + p.Id.Name)
+			return newRider()
+		},
+		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ *testRider) {
+			rec.record("update:" + curr.Id.Name)
+		},
+		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+			rec.record("gone-" + r.String() + ":" + p.Id.Name)
+		},
+	})
+
+	// Wait for the zone1 watcher goroutine to register with the broadcaster
+	// before issuing any Sync. Without this, an early Sync can return
+	// immediately because no per-cell sync channels are registered yet, and
+	// subsequent assertions race the watcher's initial snapshot.
+	require.Eventually(t, func() bool {
+		return cache.topoSource.broadcaster.cellCount() >= 1
+	}, 2*time.Second, 5*time.Millisecond, "zone1 watcher must register")
+
+	// Sync against an empty cell: should return cleanly with no events.
+	require.NoError(t, cache.Sync(ctx))
+	assert.Empty(t, rec.snapshot())
+	assert.Empty(t, cache.All())
+
+	// Create a pooler. After Sync, OnLive must have fired and the entry
+	// must be visible via Get / GetRider / All / CellStatuses.
+	p1 := &clustermetadatapb.MultiPooler{
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		Hostname: "p1.local",
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, p1))
+	require.NoError(t, cache.Sync(ctx))
+
+	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
+
+	id := topoclient.ComponentIDString(p1.Id)
+	rider, ok := cache.GetRider(id)
+	require.True(t, ok, "GetRider must surface a Live entry")
+	require.NotNil(t, rider)
+
+	all := cache.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, StateLive, all[0].State)
+
+	statuses := cache.CellStatuses()
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "zone1", statuses[0].Cell)
+	require.Len(t, statuses[0].Poolers, 1)
+	assert.Equal(t, "p1", statuses[0].Poolers[0].Id.Name)
+
+	// Add a second cell with its own pooler; Sync waits for the new
+	// per-cell watcher to drain its initial snapshot.
+	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
+	p2 := &clustermetadatapb.MultiPooler{
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone2", Name: "p2"},
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		Hostname: "p2.local",
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, p2))
+	// AddCell triggers async per-cell watcher registration; broadcaster.cellCount
+	// is the deterministic signal that the new watcher is ready to participate
+	// in Sync. Without this, Sync may run before zone2's watcher registers and
+	// the p2 event is missed.
+	require.Eventually(t, func() bool {
+		return cache.topoSource.broadcaster.cellCount() >= 2
+	}, 2*time.Second, 5*time.Millisecond)
+	require.NoError(t, cache.Sync(ctx))
+
+	// OnLive fired for both poolers; CellStatuses surfaces both cells.
+	require.Contains(t, rec.snapshot(), "live:p2")
+	statuses = cache.CellStatuses()
+	require.Len(t, statuses, 2)
+	cells := []string{statuses[0].Cell, statuses[1].Cell}
+	assert.Contains(t, cells, "zone1")
+	assert.Contains(t, cells, "zone2")
+
+	// Delete the cell — onCellRemoved fires and OnGone(GoneMissingFromTopo)
+	// is queued for the entries in that cell (sweeper would evict them after
+	// grace; we don't wait, just confirm the cell event arrived).
+	beforeCells := cache.topoSource.broadcaster.cellCount()
+	require.NoError(t, ts.DeleteCell(ctx, "zone2", true /*force*/))
+	require.Eventually(t, func() bool {
+		return cache.topoSource.broadcaster.cellCount() < beforeCells
+	}, 2*time.Second, 5*time.Millisecond, "onCellRemoved must deregister the zone2 watcher")
 }
