@@ -1782,6 +1782,7 @@ func (e *Executor) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	releaseAllPortals bool,
+	chain bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
@@ -1792,7 +1793,8 @@ func (e *Executor) ConcludeTransaction(
 	e.logger.DebugContext(ctx, "conclude transaction",
 		"user", user,
 		"reserved_conn_id", options.ReservedConnectionId,
-		"conclusion", conclusion.String())
+		"conclusion", conclusion.String(),
+		"chain", chain)
 
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
@@ -1809,14 +1811,24 @@ func (e *Executor) ConcludeTransaction(
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT:
 		commandTag = "COMMIT"
 		releaseReason = reserved.ReleaseCommit
-		if err := reservedConn.Commit(ctx); err != nil {
+		if chain {
+			if err := reservedConn.CommitAndChain(ctx); err != nil {
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return nil, nil, err
+			}
+		} else if err := reservedConn.Commit(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
 		commandTag = "ROLLBACK"
 		releaseReason = reserved.ReleaseRollback
-		if err := reservedConn.Rollback(ctx); err != nil {
+		if chain {
+			if err := reservedConn.RollbackAndChain(ctx); err != nil {
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return nil, nil, err
+			}
+		} else if err := reservedConn.Rollback(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, err
 		}

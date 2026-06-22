@@ -116,6 +116,7 @@ func (m *txMockIExecute) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	_ []string,
 	_ bool,
+	chain bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.concludeTransactionCount++
@@ -167,7 +168,7 @@ func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testin
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", false, "BEGIN", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -187,7 +188,7 @@ func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_START, "", "START TRANSACTION", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_START, "", false, "START TRANSACTION", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -208,7 +209,7 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -226,6 +227,73 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 // failed state, so any SET / RESET issued before the failure must revert.
 // Verify the gateway matches: COMMIT in TxnStatusFailed restores
 // SessionSettings from the BEGIN-level snapshot.
+func TestTransactionPrimitive_CommitAndChain_NoReservedConnectionsPreservesInheritedOptions(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	state := handler.NewMultiGatewayConnectionState()
+	state.PendingBeginQuery = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE DEFERRABLE"
+	state.ActiveTransactionBeginQuery = state.PendingBeginQuery
+	state.TxnStartTime = time.Now()
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	var callbackResult *sqltypes.Result
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", true, "COMMIT AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, 0, mockExec.concludeTransactionCount, "No backend call when no reserved connections")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "COMMIT", callbackResult.CommandTag)
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE DEFERRABLE", state.PendingBeginQuery)
+	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
+	require.False(t, state.TxnStartTime.IsZero(), "chained transaction should start a new timer")
+}
+
+func TestTransactionPrimitive_RollbackAndChain_NoReservedConnectionsPreservesInheritedOptions(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	state := handler.NewMultiGatewayConnectionState()
+	state.PendingBeginQuery = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ WRITE NOT DEFERRABLE"
+	state.ActiveTransactionBeginQuery = state.PendingBeginQuery
+	state.TxnStartTime = time.Now()
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	var callbackResult *sqltypes.Result
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", true, "ROLLBACK AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, 0, mockExec.concludeTransactionCount, "No backend call when no reserved connections")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ WRITE NOT DEFERRABLE", state.PendingBeginQuery)
+	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
+	require.False(t, state.TxnStartTime.IsZero(), "chained transaction should start a new timer")
+}
+
+func TestTransactionPrimitive_CommitAndChain_OutsideTransactionErrors(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTxTestConn()
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", true, "COMMIT AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "COMMIT AND CHAIN can only be used in transaction blocks")
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+}
+
 func TestTransactionPrimitive_Commit_FailedTxn_RevertsSessionSettings(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	state := handler.NewMultiGatewayConnectionState()
@@ -236,7 +304,7 @@ func TestTransactionPrimitive_Commit_FailedTxn_RevertsSessionSettings(t *testing
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusFailed)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -253,7 +321,7 @@ func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -273,7 +341,7 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", "COMMIT", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -293,7 +361,7 @@ func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", false, "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -312,7 +380,7 @@ func TestTransactionPrimitive_Rollback_WithReservedConnections(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", false, "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -332,7 +400,7 @@ func TestTransactionPrimitive_Rollback_ConcludeTransactionError(t *testing.T) {
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", "ROLLBACK", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", false, "ROLLBACK", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -355,7 +423,7 @@ func TestTransactionPrimitive_PrepareTransaction_SuccessEndsTransactionAndReleas
 	state.SetSessionVariable("datestyle", "German")
 
 	var callbackResult *sqltypes.Result
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
@@ -386,7 +454,7 @@ func TestTransactionPrimitive_PrepareTransaction_FailureRollsBackGatewayStateAnd
 	state.SetSessionVariable("datestyle", "German")
 
 	var callbackCalled bool
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		callbackCalled = true
 		return nil
@@ -413,7 +481,7 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_SAVEPOINT, "sp1", "SAVEPOINT sp1", "tg1", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_SAVEPOINT, "sp1", false, "SAVEPOINT sp1", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
@@ -424,7 +492,7 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 }
 
 func TestTransactionPrimitive_StringAndGetters(t *testing.T) {
-	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "my_tg", nil)
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", false, "BEGIN", "my_tg", nil)
 
 	require.Equal(t, "Transaction(BEGIN)", tp.String())
 	require.Equal(t, "my_tg", tp.GetTableGroup())

@@ -164,7 +164,7 @@ func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -502,7 +502,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -538,7 +538,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "COMMIT on destroyed connection must propagate error")
@@ -577,7 +577,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil

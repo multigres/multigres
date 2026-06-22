@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -52,6 +53,9 @@ type TransactionPrimitive struct {
 	// ROLLBACK TO statements. Empty for other kinds.
 	SavepointName string
 
+	// Chain is true for COMMIT AND CHAIN / ROLLBACK AND CHAIN.
+	Chain bool
+
 	// Query is the original Query string for this statement.
 	Query string
 
@@ -64,10 +68,11 @@ type TransactionPrimitive struct {
 }
 
 // NewTransactionPrimitive creates a new TransactionPrimitive.
-func NewTransactionPrimitive(kind ast.TransactionStmtKind, savepointName, sql, tableGroup string, metrics *TransactionMetrics) *TransactionPrimitive {
+func NewTransactionPrimitive(kind ast.TransactionStmtKind, savepointName string, chain bool, sql, tableGroup string, metrics *TransactionMetrics) *TransactionPrimitive {
 	return &TransactionPrimitive{
 		Kind:          kind,
 		SavepointName: savepointName,
+		Chain:         chain,
 		Query:         sql,
 		TableGroup:    tableGroup,
 		metrics:       metrics,
@@ -128,6 +133,7 @@ func (t *TransactionPrimitive) executeBegin(
 	// Store the original BEGIN query so the multipooler can replay it with
 	// the correct isolation level and access mode when creating the reserved connection.
 	state.PendingBeginQuery = t.Query
+	state.ActiveTransactionBeginQuery = t.Query
 
 	// Record transaction start time for duration tracking.
 	state.TxnStartTime = time.Now()
@@ -153,50 +159,54 @@ func (t *TransactionPrimitive) executeCommit(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Clear pending begin query — transaction is ending.
+	if t.Chain && !conn.IsInTransaction() {
+		return chainOutsideTransactionError("COMMIT")
+	}
+
+	chainBeginQuery := inheritedBeginQuery(state)
+
+	// Clear pending begin query — transaction is ending. COMMIT AND CHAIN may
+	// restore it below when the old transaction never reached a backend.
 	state.PendingBeginQuery = ""
 	// PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
-	// failed state, so SET / RESET issued before the failure must revert
-	// rather than persist, every open cursor (including WITH HOLD) is closed,
-	// and the wire-level command tag returned to the client is `ROLLBACK`
-	// rather than `COMMIT`. For a healthy COMMIT, drop the savepoint stack
-	// and clear SET LOCAL overrides — current values of non-LOCAL SETs
-	// become persistent session state.
+	// failed state, so SET / RESET issued before the failure must revert rather
+	// than persist, every open cursor (including WITH HOLD) is closed, and the
+	// wire-level command tag returned to the client is `ROLLBACK` rather than
+	// `COMMIT`. For a healthy COMMIT, drop the savepoint stack and clear SET
+	// LOCAL overrides — current values of non-LOCAL SETs become persistent
+	// session state.
 	implicitRollback := conn.TxnStatus() == protocol.TxnStatusFailed
-	// Capture the HOLD-cursor diff BEFORE state is mutated. PG closes
-	// cursors declared inside this transaction at the implicit ROLLBACK
-	// boundary; cursors declared before BEGIN (under autocommit) survive.
-	// HoldCursorsDeclaredInTxn reads the depth-0 frame's snapshot.
+	// Capture the HOLD-cursor diff BEFORE state is mutated. PG closes cursors
+	// declared inside the transaction at the implicit ROLLBACK boundary; cursors
+	// declared before BEGIN (under autocommit) survive.
 	var rollbackPortalReleases []string
 	if implicitRollback {
 		rollbackPortalReleases = state.HoldCursorsDeclaredInTxn()
-		// Restore HOLD-cursor tracking to the pre-BEGIN snapshot BEFORE
-		// RollbackTransaction tears the savepoint stack down — the
-		// snapshot lives on savepoints[0] and is gone once
-		// RollbackTransaction nils the stack. Cursors declared inside
-		// the failed transaction are dropped; cursors that pre-date
-		// BEGIN are kept (PG preserves them). The multipooler-side pin
-		// set is updated by ConcludeTransaction's ROLLBACK path below
-		// using rollbackPortalReleases.
 		state.RestoreOpenHoldCursorsToBeginSnapshot()
 		state.RollbackTransaction()
 	} else {
 		state.CommitTransaction()
 	}
 
-	// Record transaction metrics before clearing state. Outcome is bucketed
-	// by the wire-level command tag we'll send to the client, so an implicit
-	// ROLLBACK is reported as such (not as a successful commit).
+	// Record transaction metrics before starting the chained transaction's timer.
 	outcome := TxnOutcomeCommit
 	if implicitRollback {
 		outcome = TxnOutcomeRollback
 	}
 	t.recordTxnMetrics(ctx, conn, state, outcome)
 
+	if t.Chain {
+		state.BeginTransaction()
+		state.ActiveTransactionBeginQuery = chainBeginQuery
+		state.TxnStartTime = time.Now()
+	} else {
+		state.ActiveTransactionBeginQuery = ""
+	}
+
 	// Choose the conclusion + synthetic command tag based on whether PG will
 	// honour or rewrite this COMMIT. Implicit ROLLBACK uses the multipooler's
-	// ROLLBACK path so ReleaseAllPortals fires and any pinned HOLD cursors
-	// are unpinned alongside the txn reason.
+	// ROLLBACK path so ReleaseAllPortals fires and any pinned HOLD cursors are
+	// unpinned alongside the txn reason.
 	conclusion := multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT
 	commandTag := "COMMIT"
 	if implicitRollback {
@@ -204,29 +214,28 @@ func (t *TransactionPrimitive) executeCommit(
 		commandTag = "ROLLBACK"
 	}
 
-	// If no reserved connections, or if the reserved connections don't have
-	// an active transaction (e.g., temp-table-reserved session where BEGIN
-	// was deferred but never sent to PG), return synthetic result.
-	hasActiveTransaction := false
-	for _, ss := range state.ShardStates {
-		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
-			hasActiveTransaction = true
-			break
-		}
-	}
+	// If no reserved connections, or if the reserved connections don't have an
+	// active transaction (e.g., temp-table-reserved session where BEGIN was
+	// deferred but never sent to PG), return synthetic result. For AND CHAIN,
+	// keep the gateway in a transaction and preserve the inherited BEGIN query so
+	// the eventual backend transaction starts with the same characteristics.
+	hasActiveTransaction := hasTransactionReservation(state)
 	if len(state.ShardStates) == 0 || !hasActiveTransaction {
-		conn.SetTxnStatus(protocol.TxnStatusIdle)
-		// Pending LISTEN/UNLISTEN buffered inside a failed transaction
-		// must be discarded — PG's implicit ROLLBACK invalidates them.
-		// A healthy COMMIT promotes them as usual.
+		if t.Chain {
+			conn.SetTxnStatus(protocol.TxnStatusInBlock)
+			state.PendingBeginQuery = chainBeginQuery
+		} else {
+			conn.SetTxnStatus(protocol.TxnStatusIdle)
+		}
+		// Pending LISTEN/UNLISTEN buffered inside a failed transaction must be
+		// discarded — PG's implicit ROLLBACK invalidates them. A healthy COMMIT
+		// promotes them as usual.
 		if implicitRollback {
 			state.DiscardPendingListens()
 		} else {
 			syncPendingSubscriptions(conn, state)
 		}
-		return callback(ctx, &sqltypes.Result{
-			CommandTag: commandTag,
-		})
+		return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
 	}
 
 	// Wrap the callback to sync subscriptions after the backend confirms the
@@ -240,26 +249,49 @@ func (t *TransactionPrimitive) executeCommit(
 			return callback(cbCtx, result)
 		}
 	} else if implicitRollback {
-		// Implicit ROLLBACK invalidates any pending LISTEN/UNLISTEN — drop
-		// them silently so they don't leak into the next transaction.
+		// Implicit ROLLBACK invalidates any pending LISTEN/UNLISTEN — drop them
+		// silently so they don't leak into the next transaction.
 		state.DiscardPendingListens()
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
-	// ConcludeTransaction clears shard state entries where the connection was
-	// fully released (remainingReasons == 0) and keeps entries where the
-	// connection is still reserved for other reasons (e.g., temp tables).
-	// For implicit ROLLBACK, forward only the in-txn HOLD cursors so the
-	// multipooler preserves pins for cursors that pre-date BEGIN. Regular
-	// COMMIT path passes nothing — the multipooler ignores both fields for
-	// COMMIT anyway.
+	// With AND CHAIN, the multipooler executes COMMIT/ROLLBACK AND CHAIN and
+	// keeps the transaction reservation on the same backend; without it, the
+	// transaction reason is removed as before.
 	err := exec.ConcludeTransaction(ctx, conn, state, conclusion,
-		rollbackPortalReleases, false /* releaseAllPortals */, commitCallback)
+		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, commitCallback)
 
-	// Reset transaction state regardless of error.
-	conn.SetTxnStatus(protocol.TxnStatusIdle)
+	if t.Chain {
+		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	} else {
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+	}
 
 	return err
+}
+
+func chainOutsideTransactionError(command string) error {
+	return mterrors.NewPgError("ERROR", "25P01",
+		command+" AND CHAIN can only be used in transaction blocks", "")
+}
+
+func inheritedBeginQuery(state *handler.MultiGatewayConnectionState) string {
+	if state.ActiveTransactionBeginQuery != "" {
+		return state.ActiveTransactionBeginQuery
+	}
+	if state.PendingBeginQuery != "" {
+		return state.PendingBeginQuery
+	}
+	return "BEGIN"
+}
+
+func hasTransactionReservation(state *handler.MultiGatewayConnectionState) bool {
+	for _, ss := range state.ShardStates {
+		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // syncPendingSubscriptions applies buffered LISTEN/UNLISTEN changes via the
@@ -281,53 +313,66 @@ func (t *TransactionPrimitive) executeRollback(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Clear pending begin query — transaction is ending.
+	if t.Chain && !conn.IsInTransaction() {
+		return chainOutsideTransactionError("ROLLBACK")
+	}
+
+	chainBeginQuery := inheritedBeginQuery(state)
+
+	// Clear pending begin query — transaction is ending. ROLLBACK AND CHAIN may
+	// restore it below when the old transaction never reached a backend.
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
-	// Capture the HOLD-cursor diff before the snapshot stack collapses.
-	// PG closes cursors declared inside this transaction; cursors declared
-	// before BEGIN (autocommit) survive. Forward the in-txn list to the
-	// multipooler so it unpins exactly those names while preserving
-	// pre-existing pins.
+	// Capture the HOLD-cursor diff before the snapshot stack collapses. PG closes
+	// cursors declared inside this transaction; cursors declared before BEGIN
+	// (autocommit) survive. Forward the in-txn list to the multipooler so it
+	// unpins exactly those names while preserving pre-existing pins.
 	rollbackPortalReleases := state.HoldCursorsDeclaredInTxn()
-	// Restore the gateway's HOLD-cursor tracking to the pre-BEGIN snapshot.
 	state.RestoreOpenHoldCursorsToBeginSnapshot()
 	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
 	// snapshot so any SET / RESET issued in the transaction is reverted.
 	state.RollbackTransaction()
 
-	// Record transaction metrics before clearing state.
+	// Record transaction metrics before starting the chained transaction's timer.
 	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
 
-	// If no reserved connections, or if the reserved connections don't have
-	// an active transaction, return synthetic result.
-	hasActiveRbTransaction := false
-	for _, ss := range state.ShardStates {
-		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
-			hasActiveRbTransaction = true
-			break
-		}
+	if t.Chain {
+		state.BeginTransaction()
+		state.ActiveTransactionBeginQuery = chainBeginQuery
+		state.TxnStartTime = time.Now()
+	} else {
+		state.ActiveTransactionBeginQuery = ""
 	}
+
+	// If no reserved connections, or if the reserved connections don't have an
+	// active transaction, return synthetic result. For AND CHAIN, keep the gateway
+	// in a transaction and preserve the inherited BEGIN query so the eventual
+	// backend transaction starts with the same characteristics.
+	hasActiveRbTransaction := hasTransactionReservation(state)
 	if len(state.ShardStates) == 0 || !hasActiveRbTransaction {
-		conn.SetTxnStatus(protocol.TxnStatusIdle)
-		return callback(ctx, &sqltypes.Result{
-			CommandTag: "ROLLBACK",
-		})
+		if t.Chain {
+			conn.SetTxnStatus(protocol.TxnStatusInBlock)
+			state.PendingBeginQuery = chainBeginQuery
+		} else {
+			conn.SetTxnStatus(protocol.TxnStatusIdle)
+		}
+		return callback(ctx, &sqltypes.Result{CommandTag: "ROLLBACK"})
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
-	// ConcludeTransaction clears shard state entries where the connection was
-	// fully released (remainingReasons == 0) and keeps entries where the
-	// connection is still reserved for other reasons (e.g., temp tables).
-	// Forward the in-txn HOLD-cursor names so the multipooler preserves
-	// pre-BEGIN pins instead of dropping everything via ReleaseAllPortals.
+	// With AND CHAIN, the multipooler executes ROLLBACK AND CHAIN and keeps the
+	// transaction reservation on the same backend; without it, the transaction
+	// reason is removed as before.
 	err := exec.ConcludeTransaction(ctx, conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
-		rollbackPortalReleases, false /* releaseAllPortals */, callback)
+		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, callback)
 
-	// Reset transaction state regardless of error.
-	conn.SetTxnStatus(protocol.TxnStatusIdle)
+	if t.Chain {
+		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	} else {
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+	}
 
 	return err
 }
@@ -416,7 +461,7 @@ func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
 	if !hasActiveTransaction {
 		return nil
 	}
-	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false,
+	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false, false,
 		func(context.Context, *sqltypes.Result) error { return nil })
 }
 

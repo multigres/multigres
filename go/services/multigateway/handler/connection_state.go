@@ -91,6 +91,14 @@ type MultiGatewayConnectionState struct {
 	// so it genuinely belongs to connection state.
 	PendingBeginQuery string
 
+	// ActiveTransactionBeginQuery stores the BEGIN/START statement that describes
+	// the current transaction's characteristics. PendingBeginQuery is consumed when
+	// the first backend reservation starts the transaction; this copy survives that
+	// consumption so COMMIT/ROLLBACK AND CHAIN can start the next transaction with
+	// the same isolation/read-only/deferrable options even when no backend was ever
+	// reserved for the old transaction.
+	ActiveTransactionBeginQuery string
+
 	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
 	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
 	// on the backend without the pooler observing the exact reverted values, so
