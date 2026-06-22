@@ -149,10 +149,26 @@ type Config[T any] struct {
 	// Filter, if non-nil, restricts which poolers the cache tracks. It is
 	// called on every observed event; poolers returning false are dropped at
 	// the door. Deletions for unknown IDs are no-ops, so filtered-out
-	// poolers cost nothing extra.
+	// poolers cost nothing extra. Filter must not block.
 	//
-	// Filter is called once per event and may consult live external state
-	// (e.g., a configurable WatchTargets list). It must not block.
+	// IMPORTANT — Filter is one-way at the event boundary. The cache
+	// consults Filter only when an upsert event arrives (initial snapshot,
+	// reconnect resync, or topology change); existing entries are NOT
+	// re-evaluated when Filter's decision changes. Consequences:
+	//
+	//   - Filter that loosens (now returns true for a pooler it used to
+	//     reject) takes effect on the pooler's next event — typically
+	//     immediate via reconcileCell on the next watcher reconnect.
+	//   - Filter that tightens (now returns false for a pooler it used to
+	//     admit) does NOT evict the existing entry. The entry stays until
+	//     its topology record is deleted or its lifecycle transitions
+	//     to SHUTDOWN.
+	//
+	// Filters that read dynamic external state (e.g. a reloadable
+	// WatchTargets list) should be aware of this asymmetry. Callers that
+	// need filter-tightening to actually evict must either rebuild the
+	// cache or trigger an out-of-band sweep — neither is provided today;
+	// see the follow-up memory entry for the planned re-evaluation hook.
 	Filter func(*clustermetadatapb.MultiPooler) bool
 
 	// ShutdownGrace is how long a tombstone is retained after lifecycle
