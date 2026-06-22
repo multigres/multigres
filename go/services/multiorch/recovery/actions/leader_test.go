@@ -34,9 +34,9 @@ func TestPollLeaderHealth(t *testing.T) {
 	ctx := context.Background()
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
 
-	leaderState := &multiorchdatapb.PoolerHealthState{
+	leaderState := store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{Id: leaderID, Type: clustermetadatapb.PoolerType_PRIMARY},
-	}
+	}, nil)
 	// A status that names leaderID as the leader (self-claim under a real rule).
 	servingStatus := &clustermetadatapb.ConsensusStatus{
 		Id: leaderID,
@@ -58,7 +58,7 @@ func TestPollLeaderHealth(t *testing.T) {
 		got, err := pollLeaderHealth(ctx, fakeClient, store.ShardMembers{Leader: leaderState})
 
 		require.NoError(t, err)
-		assert.Equal(t, "primary", got.MultiPooler.Id.Name)
+		assert.Equal(t, "primary", got.Health().MultiPooler.Id.Name)
 	})
 
 	t.Run("errors when the leader still self-claims but its postgres is not ready", func(t *testing.T) {

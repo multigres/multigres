@@ -39,7 +39,7 @@ import (
 // PoolerHealthState pair that places the correct leader in the same shard.
 // The "correct" leader has the higher term and is recognized by IsLeader
 // (current_position.rule.leader_id == self.id).
-func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (staleLeaderID *clustermetadatapb.ID) {
+func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (staleLeaderID *clustermetadatapb.ID) {
 	t.Helper()
 	shardKey := &clustermetadatapb.ShardKey{
 		Database:   "testdb",
@@ -58,7 +58,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (st
 		Name:      "correct-leader",
 	}
 
-	poolerStore.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       staleLeaderID,
 			Hostname: "stale.example.com",
@@ -69,7 +69,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (st
 		Status: &multipoolermanagerdatapb.Status{
 			PostgresReady: true,
 		},
-	})
+	}, nil))
 
 	correctPosition := &clustermetadatapb.PoolerPosition{
 		Rule: &clustermetadatapb.ShardRule{
@@ -78,7 +78,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (st
 		},
 		Lsn: "0/1000",
 	}
-	poolerStore.Set("multipooler-cell1-correct-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       correctLeaderID,
 			Hostname: "correct.example.com",
@@ -91,7 +91,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerStore) (st
 			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
 			CurrentPosition: correctPosition,
 		},
-	})
+	}, nil))
 	return staleLeaderID
 }
 
@@ -127,7 +127,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
 
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
 
 	cfg := config.NewTestConfig()
@@ -165,7 +165,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	staleLeaderID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -178,13 +178,13 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 		Shard:      "0",
 	}
 	// Only the stale leader is in the store — no current leader exists.
-	poolerStore.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:       staleLeaderID,
 			ShardKey: shardKey,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		},
-	})
+	}, nil))
 
 	cfg := config.NewTestConfig()
 	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
@@ -216,25 +216,25 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 
 	// Stale leader: still self-claims term 5 and is the demote target.
-	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler:     &clustermetadatapb.MultiPooler{Id: staleID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
 		ConsensusStatus: selfLeaderRule(staleID, 5),
-	})
+	}, nil))
 	// New leader: has not published its own snapshot yet; only its address is known.
-	ps.Set("multipooler-cell1-new-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: newID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "new.example.com", PortMap: map[string]int32{"postgres": 5433},
 		},
-	})
+	}, nil))
 	// Replica replicating from the new leader at the higher term 6.
-	ps.Set("multipooler-cell1-replica", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler:     &clustermetadatapb.MultiPooler{Id: replicaID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
 		ConsensusStatus: replicaFollowingRule(replicaID, newID, 6),
-	})
+	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.Problem{
@@ -265,12 +265,12 @@ func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T
 	nodeID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
 
 	fakeClient := rpcclient.NewFakeClient()
-	ps := store.NewPoolerStore()
+	ps := store.NewTestCache(t)
 	// The node multiorch flagged as stale is actually the highest known leader.
-	ps.Set("multipooler-cell1-stale-leader", &multiorchdatapb.PoolerHealthState{
+	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		MultiPooler:     &clustermetadatapb.MultiPooler{Id: nodeID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
 		ConsensusStatus: selfLeaderRule(nodeID, 7),
-	})
+	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.Problem{

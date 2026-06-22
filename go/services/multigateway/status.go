@@ -20,10 +20,13 @@ package multigateway
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/web"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // PoolerStatus represents the status of a multipooler instance.
@@ -90,30 +93,38 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// collectCellStatuses joins the two sources behind the status page: discovery
-// supplies the full per-cell pooler list (including poolers the gateway is not
-// connected to), and the load balancer supplies each connected pooler's live
-// consensus leadership. They are merged on serialized pooler ID.
+// collectCellStatuses joins the two sources behind the status page: the
+// pooler cache supplies the full per-cell pooler list (including poolers the
+// gateway is not connected to), and the load balancer supplies each connected
+// pooler's live consensus leadership. They are merged on serialized pooler ID.
 func (mg *MultiGateway) collectCellStatuses() []CellStatus {
-	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
-	leadership := mg.poolerGateway.LeadershipByID()
-
+	cellStatuses := mg.poolerGateway.CellStatuses()
 	cells := make([]CellStatus, 0, len(cellStatuses))
 	for _, cs := range cellStatuses {
 		cellStatus := CellStatus{
 			Cell:        cs.Cell,
-			LastRefresh: cs.LastRefresh,
+			LastRefresh: cs.LastActivity,
 			Poolers:     make([]PoolerStatus, 0, len(cs.Poolers)),
 		}
 		for _, pooler := range cs.Poolers {
 			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
-				Name:       pooler.Name,
-				Database:   pooler.Database,
-				Leadership: leadership[pooler.ID],
-				Lifecycle:  pooler.Lifecycle,
+				Name:       pooler.Id.GetName(),
+				Database:   pooler.GetShardKey().GetDatabase(),
+				Leadership: mg.poolerGateway.LeadershipForID(topoclient.ComponentIDString(pooler.Id)),
+				Lifecycle:  lifecycleLabel(pooler.GetLifecycleStatus()),
 			})
 		}
 		cells = append(cells, cellStatus)
 	}
 	return cells
+}
+
+// lifecycleLabel renders a pooler's lifecycle status for display, e.g.
+// LIFECYCLE_SHUTDOWN -> "shutdown". A nil or unset status reads as "unknown".
+func lifecycleLabel(lc *clustermetadatapb.PoolerLifecycle) string {
+	status := lc.GetStatus()
+	if status == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_UNKNOWN {
+		return "unknown"
+	}
+	return strings.ToLower(strings.TrimPrefix(status.String(), "LIFECYCLE_"))
 }

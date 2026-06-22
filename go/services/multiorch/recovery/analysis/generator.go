@@ -24,7 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -48,12 +47,16 @@ const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
-type PoolersByShard map[string]map[string]map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState
+type PoolersByShard map[string]map[string]map[string]map[topoclient.ComponentID]*store.Pooler
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
 type AnalysisGenerator struct {
-	poolerStore    *store.PoolerStore
+	poolerStore    *store.PoolerCache
 	poolersByShard PoolersByShard
+	// tombstoneIDs is the set of pooler IDs the cache currently tracks as
+	// SHUTDOWN tombstones — riders evicted by OnGone but retained for cleanup.
+	// Surfaced to analyzers via ShardAnalysis.TombstoneIDs.
+	tombstoneIDs map[topoclient.ComponentID]struct{}
 	// policyLookup returns the bootstrap durability policy for a database name.
 	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
 	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
@@ -61,15 +64,23 @@ type AnalysisGenerator struct {
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
-// It eagerly builds the poolersByShard map from the current store state.
-// policyLookup is optional; pass nil if the bootstrap policy is unavailable.
-func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
+// It eagerly builds the poolersByShard map and tombstone set from the current
+// store state. policyLookup is optional; pass nil if the bootstrap policy
+// is unavailable.
+func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(database string) *clustermetadatapb.DurabilityPolicy) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore:  poolerStore,
 		policyLookup: policyLookup,
 		now:          time.Now,
 	}
 	g.poolersByShard = g.buildPoolersByShard()
+	if poolerStore != nil {
+		tombstones := poolerStore.Tombstones()
+		g.tombstoneIDs = make(map[topoclient.ComponentID]struct{}, len(tombstones))
+		for _, gh := range tombstones {
+			g.tombstoneIDs[topoclient.ComponentIDString(gh.ID)] = struct{}{}
+		}
+	}
 	return g
 }
 
@@ -77,7 +88,7 @@ func NewAnalysisGenerator(poolerStore *store.PoolerStore, policyLookup func(data
 func (g *AnalysisGenerator) GenerateShardAnalyses() []*ShardAnalysis {
 	type shardEntry struct {
 		key     *clustermetadatapb.ShardKey
-		poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState
+		poolers map[topoclient.ComponentID]*store.Pooler
 	}
 	byKey := make(map[string]*shardEntry)
 
@@ -108,8 +119,8 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.Sh
 }
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
-func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState) *ShardAnalysis {
-	sa := &ShardAnalysis{ShardKey: shardKey}
+func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*store.Pooler) *ShardAnalysis {
+	sa := &ShardAnalysis{ShardKey: shardKey, TombstoneIDs: g.tombstoneIDs}
 	for _, pooler := range poolers {
 		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
 	}
@@ -117,35 +128,32 @@ func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.Shard
 	return sa
 }
 
-// buildPoolersByShard creates a structured map by iterating the store once.
-// Since ProtoStore.Range() returns clones, we don't need explicit DeepCopy.
+// buildPoolersByShard creates a structured map by iterating the cache once.
 func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 	poolersByShard := make(PoolersByShard)
 
-	g.poolerStore.Range(func(poolerID topoclient.ComponentID, pooler *multiorchdatapb.PoolerHealthState) bool {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-			return true // skip nil entries
+	for _, entry := range g.poolerStore.All() {
+		pooler := entry.Rider
+		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+			continue
 		}
 
-		database := pooler.MultiPooler.GetShardKey().GetDatabase()
-		tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
-		shard := pooler.MultiPooler.GetShardKey().GetShard()
+		database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
+		tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
+		shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
 
-		// Initialize nested maps if needed
 		if poolersByShard[database] == nil {
-			poolersByShard[database] = make(map[string]map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database] = make(map[string]map[string]map[topoclient.ComponentID]*store.Pooler)
 		}
 		if poolersByShard[database][tableGroup] == nil {
-			poolersByShard[database][tableGroup] = make(map[string]map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database][tableGroup] = make(map[string]map[topoclient.ComponentID]*store.Pooler)
 		}
 		if poolersByShard[database][tableGroup][shard] == nil {
-			poolersByShard[database][tableGroup][shard] = make(map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState)
+			poolersByShard[database][tableGroup][shard] = make(map[topoclient.ComponentID]*store.Pooler)
 		}
 
-		// Store the pooler (already a clone from Range)
-		poolersByShard[database][tableGroup][shard][poolerID] = pooler
-		return true // continue
-	})
+		poolersByShard[database][tableGroup][shard][topoclient.ComponentIDString(pooler.Health().MultiPooler.Id)] = pooler
+	}
 
 	return poolersByShard
 }
@@ -154,18 +162,18 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 // Uses the cached poolersByShard for efficient lookup.
 func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID) ([]topoclient.ComponentID, error) {
 	// Get pooler from store to determine its shard
-	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	pooler, ok := g.poolerStore.GetRider(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
 
-	if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+	if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.GetShardKey().GetDatabase()
-	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
-	shard := pooler.MultiPooler.GetShardKey().GetShard()
+	database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
 
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
@@ -190,17 +198,17 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID
 // Migrate the test call sites to GenerateShardAnalysis(shardKey) — they already
 // know the shard key — and delete this poolerID→shardKey convenience wrapper.
 func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.ComponentID) (*ShardAnalysis, error) {
-	pooler, ok := g.poolerStore.Get(poolerIDStr)
+	pooler, ok := g.poolerStore.GetRider(poolerIDStr)
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
-	if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+	if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.MultiPooler.GetShardKey().GetDatabase()
-	tableGroup := pooler.MultiPooler.GetShardKey().GetTableGroup()
-	shard := pooler.MultiPooler.GetShardKey().GetShard()
+	database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
+	shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
 
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok || len(poolers) == 0 {
@@ -213,31 +221,31 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.Com
 
 // generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
 func (g *AnalysisGenerator) generateAnalysisForPooler(
-	pooler *multiorchdatapb.PoolerHealthState,
+	pooler *store.Pooler,
 	shardKey *clustermetadatapb.ShardKey,
 ) *PoolerAnalysis {
 	analysis := &PoolerAnalysis{
-		PoolerID:          pooler.MultiPooler.Id,
+		PoolerID:          pooler.Health().MultiPooler.Id,
 		ShardKey:          shardKey,
-		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.GetConsensusStatus()),
-		LastCheckValid:    pooler.IsLastCheckValid,
-		IsInitialized:     store.IsInitialized(pooler),
-		HasDataDirectory:  pooler.GetStatus().GetHasDataDirectory(),
-		CohortMembers:     pooler.GetStatus().GetCohortMembers(),
+		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()),
+		LastCheckValid:    pooler.Health().IsLastCheckValid,
+		IsInitialized:     pooler.IsInitialized(),
+		HasDataDirectory:  pooler.Health().GetStatus().GetHasDataDirectory(),
+		CohortMembers:     pooler.Health().GetStatus().GetCohortMembers(),
 		AnalyzedAt:        time.Now(),
 	}
 
 	// Compute staleness
-	analysis.IsStale = !pooler.IsUpToDate
+	analysis.IsStale = !pooler.Health().IsUpToDate
 
 	// Store consensus status.
-	analysis.ConsensusTerm = pooler.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	analysis.ConsensusStatus = pooler.GetConsensusStatus()
-	analysis.AvailabilityStatus = pooler.GetAvailabilityStatus()
+	analysis.ConsensusTerm = pooler.Health().GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
+	analysis.ConsensusStatus = pooler.Health().GetConsensusStatus()
+	analysis.AvailabilityStatus = pooler.Health().GetAvailabilityStatus()
 
 	// If this is a REPLICA, populate replica-specific fields
 	if !analysis.NamesSelfAsLeader {
-		if rs := pooler.GetStatus().GetReplicationStatus(); rs != nil {
+		if rs := pooler.Health().GetStatus().GetReplicationStatus(); rs != nil {
 			analysis.WalReplayNotPaused = !rs.GetIsWalReplayPaused()
 
 			// Extract primary connection info
@@ -252,12 +260,12 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 // poolerByID returns the pooler with the given ID, or nil if id is nil or no
 // pooler matches.
-func poolerByID(poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState, id *clustermetadatapb.ID) *multiorchdatapb.PoolerHealthState {
+func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermetadatapb.ID) *store.Pooler {
 	if id == nil {
 		return nil
 	}
 	for _, pooler := range poolers {
-		if proto.Equal(pooler.GetMultiPooler().GetId(), id) {
+		if proto.Equal(pooler.Health().GetMultiPooler().GetId(), id) {
 			return pooler
 		}
 	}
@@ -273,18 +281,18 @@ func poolerByID(poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealth
 // Returns true only if all replicas meet these criteria.
 // Returns false if there are no replicas or any replica is disconnected.
 func (g *AnalysisGenerator) allReplicasConnectedToLeader(
-	primary *multiorchdatapb.PoolerHealthState,
-	poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState,
+	primary *store.Pooler,
+	poolers map[topoclient.ComponentID]*store.Pooler,
 ) bool {
-	primaryIDStr := topoclient.ComponentIDString(primary.MultiPooler.Id)
-	primaryHost := primary.MultiPooler.Hostname
-	primaryPort := primary.MultiPooler.PortMap["postgres"]
+	primaryIDStr := topoclient.ComponentIDString(primary.Health().MultiPooler.Id)
+	primaryHost := primary.Health().MultiPooler.Hostname
+	primaryPort := primary.Health().MultiPooler.PortMap["postgres"]
 
 	replicaCount := 0
 	connectedCount := 0
 
 	for poolerID, pooler := range poolers {
-		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
 			continue
 		}
 
@@ -293,14 +301,14 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			continue
 		}
 
-		if commonconsensus.NamesSelfAsLeader(pooler.GetConsensusStatus()) {
+		if commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()) {
 			continue
 		}
 
 		// Skip poolers that have never reported health — we have no information
 		// about their replication state, so they must not influence the
 		// connected-count check used to suppress failover.
-		if pooler.StreamSnapshotsReceived == 0 {
+		if pooler.Health().StreamSnapshotsReceived == 0 {
 			continue
 		}
 
@@ -322,17 +330,17 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 // It verifies both that the connection is configured correctly and that the WAL receiver is
 // actively exchanging keepalives with the leader's postgres via pg_stat_wal_receiver.
 func (g *AnalysisGenerator) isFollowerConnectedToLeader(
-	replica *multiorchdatapb.PoolerHealthState,
+	replica *store.Pooler,
 	primaryHost string,
 	primaryPort int32,
 ) bool {
 	// Replica must be reachable
-	if !replica.IsLastCheckValid {
+	if !replica.Health().IsLastCheckValid {
 		return false
 	}
 
 	// Replica must have replication status
-	rs := replica.GetStatus().GetReplicationStatus()
+	rs := replica.Health().GetStatus().GetReplicationStatus()
 	if rs == nil {
 		return false
 	}
@@ -391,7 +399,7 @@ func (g *AnalysisGenerator) isFollowerConnectedToLeader(
 // computeShardLevelFields populates shard-level aggregates on sa after all per-pooler
 // analyses have been built. These fields describe the shard as a whole rather than
 // any individual pooler, so they are computed once here rather than per-pooler.
-func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[topoclient.ComponentID]*multiorchdatapb.PoolerHealthState) {
+func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers map[topoclient.ComponentID]*store.Pooler) {
 	// Bootstrap durability policy lookup.
 	if g.policyLookup != nil {
 		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
@@ -410,7 +418,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	// recorded cohort. Whether that leader is reachable is captured separately below.
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
 	for _, pooler := range poolers {
-		if cs := pooler.GetConsensusStatus(); cs != nil {
+		if cs := pooler.Health().GetConsensusStatus(); cs != nil {
 			statuses = append(statuses, cs)
 		}
 	}
@@ -419,27 +427,27 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	topologyPrimary := poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
 	sa.Leader = topologyPrimary
 	if topologyPrimary != nil {
-		sa.LeaderPoolerReachable = topologyPrimary.IsLastCheckValid
-		sa.LeaderPostgresReady = topologyPrimary.GetStatus().GetPostgresReady()
-		sa.LeaderPostgresRunning = topologyPrimary.GetStatus().GetPostgresRunning()
+		sa.LeaderPoolerReachable = topologyPrimary.Health().IsLastCheckValid
+		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
+		sa.LeaderPostgresRunning = topologyPrimary.Health().GetStatus().GetPostgresRunning()
 		// LeaderHasResigned: AvailabilityStatus and ConsensusTerm are populated from
 		// StatusResponse on every health stream snapshot, so LeaderNeedsReplacement
 		// correctly detects REQUESTING_DEMOTION signals without a separate RPC.
-		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary)
+		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary.Health())
 		// LeaderReachable requires the leader to actually be serving as a postgres
 		// primary (recovery-mode signal, not the topology label) and not have
 		// resigned, so LeaderIsDead can trigger even while a demoted node's postgres
 		// is still running.
-		sa.LeaderReachable = topologyPrimary.IsLastCheckValid &&
-			topologyPrimary.GetStatus().GetPostgresReady() &&
+		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
+			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
 			!sa.LeaderHasResigned
-		if topologyPrimary.LastPostgresReadyTime != nil {
-			sa.LeaderLastPostgresReadyTime = topologyPrimary.LastPostgresReadyTime.AsTime()
+		if topologyPrimary.Health().LastPostgresReadyTime != nil {
+			sa.LeaderLastPostgresReadyTime = topologyPrimary.Health().LastPostgresReadyTime.AsTime()
 		}
 
 		// Detect pg_promote transition: multipooler explicitly signals promotion is running.
-		if topologyPrimary.GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
-			sa.PromotingPrimaryID = topologyPrimary.MultiPooler.Id
+		if topologyPrimary.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
+			sa.PromotingPrimaryID = topologyPrimary.Health().MultiPooler.Id
 		}
 	}
 

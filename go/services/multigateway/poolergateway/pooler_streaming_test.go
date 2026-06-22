@@ -87,11 +87,11 @@ func (s *controllableHealthServer) StreamPoolerHealth(
 type streamingTestSetup struct {
 	server     *controllableHealthServer
 	grpcServer *grpc.Server
-	conn       *PoolerConnection
+	conn       *poolerConnection
 }
 
-// setupStreamingTest creates a controllable mock gRPC server and a PoolerConnection
-// connected to it. The PoolerConnection immediately starts its health streaming loop.
+// setupStreamingTest creates a controllable mock gRPC server and a poolerConnection
+// connected to it. The poolerConnection immediately starts its health streaming loop.
 func setupStreamingTest(t *testing.T, ctx context.Context) *streamingTestSetup {
 	t.Helper()
 	return setupStreamingTestWithCallback(t, ctx, nil)
@@ -102,7 +102,7 @@ func setupStreamingTest(t *testing.T, ctx context.Context) *streamingTestSetup {
 func setupStreamingTestWithCallback(
 	t *testing.T,
 	ctx context.Context,
-	onHealthUpdate func(*PoolerConnection),
+	onHealthUpdate func(*poolerConnection),
 ) *streamingTestSetup {
 	t.Helper()
 
@@ -142,10 +142,10 @@ func setupStreamingTestWithCallback(
 	}
 
 	logger := slog.Default()
-	conn, err := NewPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
+	conn, err := newPoolerConnection(ctx, pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), onHealthUpdate)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = conn.Close()
+		_ = conn.Shutdown()
 	})
 
 	return &streamingTestSetup{
@@ -186,7 +186,7 @@ func makeHealthResponse(
 }
 
 // TestPoolerConnection_StreamHealth_InitialState verifies that when a health
-// stream opens and receives a SERVING response, the PoolerConnection's health
+// stream opens and receives a SERVING response, the poolerConnection's health
 // transitions from NOT_SERVING (uninitialized) to SERVING.
 func TestPoolerConnection_StreamHealth_InitialState(t *testing.T) {
 	setup := setupStreamingTest(t, t.Context())
@@ -195,7 +195,7 @@ func TestPoolerConnection_StreamHealth_InitialState(t *testing.T) {
 	// Before sending any response, health should be NOT_SERVING (uninitialized).
 	health := setup.conn.Health()
 	require.NotNil(t, health)
-	assert.False(t, health.IsServing(), "should not be serving before first response")
+	assert.False(t, health.isServing(), "should not be serving before first response")
 	assert.ErrorIs(t, health.LastError, errPoolerUninitialized)
 
 	// Send a SERVING response.
@@ -203,7 +203,7 @@ func TestPoolerConnection_StreamHealth_InitialState(t *testing.T) {
 
 	// Wait for health to become serving.
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond, "health should become serving after response")
 
 	health = setup.conn.Health()
@@ -221,13 +221,13 @@ func TestPoolerConnection_StreamHealth_StateTransitions(t *testing.T) {
 	// Transition 1: NOT_SERVING (initial) -> SERVING
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Transition 2: SERVING -> NOT_SERVING
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 	require.Eventually(t, func() bool {
-		return !setup.conn.Health().IsServing()
+		return !setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		setup.conn.Health().ServingStatus)
@@ -235,7 +235,7 @@ func TestPoolerConnection_StreamHealth_StateTransitions(t *testing.T) {
 	// Transition 3: NOT_SERVING -> SERVING again
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
@@ -252,14 +252,14 @@ func TestPoolerConnection_StreamHealth_StalenessTimeout(t *testing.T) {
 	setup.server.responseCh <- resp
 
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Now stop sending responses. The staleness timer should fire.
 	// After timeout, health should become NOT_SERVING with an error.
 	require.Eventually(t, func() bool {
 		h := setup.conn.Health()
-		return !h.IsServing() && h.LastError != nil
+		return !h.isServing() && h.LastError != nil
 	}, 5*time.Second, 50*time.Millisecond,
 		"health should become not-serving after staleness timeout")
 
@@ -277,7 +277,7 @@ func TestPoolerConnection_StreamHealth_RetryOnError(t *testing.T) {
 	// Send initial SERVING response.
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Inject a stream error. This causes the server handler to return an error,
@@ -287,7 +287,7 @@ func TestPoolerConnection_StreamHealth_RetryOnError(t *testing.T) {
 	// Health should become not-serving after the stream error.
 	require.Eventually(t, func() bool {
 		h := setup.conn.Health()
-		return !h.IsServing() && h.LastError != nil
+		return !h.isServing() && h.LastError != nil
 	}, 5*time.Second, 50*time.Millisecond,
 		"health should become not-serving after stream error")
 
@@ -297,7 +297,7 @@ func TestPoolerConnection_StreamHealth_RetryOnError(t *testing.T) {
 	// Send SERVING on the new stream to recover.
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 10*time.Second, 50*time.Millisecond,
 		"health should recover after retry")
 }
@@ -313,27 +313,32 @@ func TestPoolerConnection_StreamHealth_ContextCancellation(t *testing.T) {
 	// Send an initial response to establish the stream.
 	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// Cancel the context. This should cause checkConn to exit.
+	// Cancel the context. checkConn must exit; we wait deterministically on
+	// the loop's done channel rather than guessing with a sleep.
 	cancel()
-
-	// Give the goroutine time to exit. We verify it doesn't open a new stream
-	// (no retry after context cancellation).
 	select {
-	case <-setup.server.streamOpened:
-		// It's OK if a stream open was already buffered before cancel took effect.
-		// But no further opens should happen.
-		time.Sleep(200 * time.Millisecond)
+	case <-setup.conn.checkConnDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("checkConn did not exit after context cancellation")
+	}
+
+	// Drain any already-buffered streamOpened signals from before the cancel
+	// landed, then assert no further opens happen — the loop is gone.
+	for {
 		select {
 		case <-setup.server.streamOpened:
-			t.Fatal("stream should not be opened after context cancellation")
+			continue
 		default:
-			// Good - no more stream opens.
 		}
-	case <-time.After(1 * time.Second):
-		// Good - no stream opened after cancel.
+		break
+	}
+	select {
+	case <-setup.server.streamOpened:
+		t.Fatal("stream should not be opened after context cancellation")
+	default:
 	}
 }
 
@@ -342,9 +347,9 @@ func TestPoolerConnection_StreamHealth_ContextCancellation(t *testing.T) {
 func TestPoolerConnection_StreamHealth_Callback(t *testing.T) {
 	var callbackCount atomic.Int32
 	var mu sync.Mutex
-	var lastCallbackConn *PoolerConnection
+	var lastCallbackConn *poolerConnection
 
-	callback := func(pc *PoolerConnection) {
+	callback := func(pc *poolerConnection) {
 		callbackCount.Add(1)
 		mu.Lock()
 		lastCallbackConn = pc
@@ -363,7 +368,7 @@ func TestPoolerConnection_StreamHealth_Callback(t *testing.T) {
 		"callback should be invoked on health update")
 
 	mu.Lock()
-	assert.Equal(t, setup.conn, lastCallbackConn, "callback should receive the PoolerConnection")
+	assert.Equal(t, setup.conn, lastCallbackConn, "callback should receive the poolerConnection")
 	mu.Unlock()
 
 	// Send another state change and verify callback fires again.
@@ -395,7 +400,7 @@ func TestPoolerConnection_StreamHealth_LeaderObservation(t *testing.T) {
 	setup.server.responseCh <- resp
 
 	require.Eventually(t, func() bool {
-		return setup.conn.Health().IsServing()
+		return setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	health := setup.conn.Health()

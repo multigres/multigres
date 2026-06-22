@@ -1,10 +1,10 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,320 +16,117 @@ package recovery
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 )
 
-func TestForgetLongUnseenInstances_BrokenEntries(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
-
-	// Add broken entries
-	engine.poolerStore.Set("broken-nil-info", nil)
-	engine.poolerStore.Set("broken-nil-multipooler", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: nil,
-	})
-	engine.poolerStore.Set("broken-nil-id", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: nil,
-		},
-	})
-
-	require.Equal(t, 3, engine.poolerStore.Len())
-
-	// Run forget
-	engine.forgetLongUnseenInstances()
-
-	// All broken entries should be removed
-	require.Equal(t, 0, engine.poolerStore.Len())
+// newBookkeepingTestEngine constructs a recovery engine wired against a
+// memorytopo, without calling Start (so no watch goroutines run). Tests
+// poke the engine's poolerCache directly via SeedTombstoneForTest and
+// invoke runBookkeeping / cleanupOldShutdownEntries inline.
+func newBookkeepingTestEngine(t *testing.T) *Engine {
+	t.Helper()
+	ts := newTestTopoStore()
+	t.Cleanup(func() { _ = ts.Close() })
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Hour),
+		config.WithHealthCheckWorkers(0),
+	)
+	re := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "db"}},
+		&rpcclient.FakeClient{},
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
+	)
+	return re
 }
 
-func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
-
-	now := time.Now()
-	threshold := 4 * time.Hour
-
-	// Add pooler that was never successfully health checked, discovered > 4 hours ago
-	oldPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "old-pooler",
-			},
-			ShardKey: &clustermetadata.ShardKey{
-				Database:   "db1",
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      "-",
-			},
+// registerPooler creates a topology entry the bookkeeping cleanup can later
+// delete. Returns the created pooler so callers can derive its ID.
+func registerPooler(t *testing.T, re *Engine, cell, name string) *clustermetadatapb.MultiPooler {
+	t.Helper()
+	p := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER, Cell: cell, Name: name,
 		},
-		LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago
-		LastSeen:           nil,                                              // nil = never seen
+		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		Hostname: name + ".local",
 	}
-	engine.poolerStore.Set("zone1/old-pooler", oldPooler)
-
-	// Add pooler that was never health checked, but discovered recently
-	recentPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "recent-pooler",
-			},
-			ShardKey: &clustermetadata.ShardKey{
-				Database:   "db1",
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      "-",
-			},
-		},
-		LastCheckAttempted: timestamppb.New(now.Add(-time.Hour)), // Only 1 hour ago
-		LastSeen:           nil,                                  // nil = never seen
-	}
-	engine.poolerStore.Set("zone1/recent-pooler", recentPooler)
-
-	// Add pooler with no attempts yet (should be skipped)
-	noAttempts := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "no-attempts",
-			},
-			ShardKey: &clustermetadata.ShardKey{
-				Database:   "db1",
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      "-",
-			},
-		},
-		LastCheckAttempted: nil, // No attempts yet
-		LastSeen:           nil, // Never seen
-	}
-	engine.poolerStore.Set("zone1/no-attempts", noAttempts)
-
-	require.Equal(t, 3, engine.poolerStore.Len())
-
-	// Run forget
-	engine.forgetLongUnseenInstances()
-
-	// Only the old pooler should be forgotten
-	require.Equal(t, 2, engine.poolerStore.Len())
-
-	// Verify the right ones remain
-	_, ok := engine.poolerStore.Get("zone1/old-pooler")
-	require.False(t, ok, "old pooler should be forgotten")
-
-	_, ok = engine.poolerStore.Get("zone1/recent-pooler")
-	require.True(t, ok, "recent pooler should remain")
-
-	_, ok = engine.poolerStore.Get("zone1/no-attempts")
-	require.True(t, ok, "no-attempts pooler should remain")
+	require.NoError(t, re.ts.CreateMultiPooler(context.Background(), p))
+	return p
 }
 
-func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
+func TestCleanupOldShutdownEntries_OldTombstoneRemoved(t *testing.T) {
+	re := newBookkeepingTestEngine(t)
 
-	now := time.Now()
-	threshold := 4 * time.Hour
+	p := registerPooler(t, re, "zone1", "old")
+	// SHUTDOWN tombstone whose age exceeds shutdownEtcdCleanupAge by a wide
+	// margin — exactly the case bookkeeping was built to clean up.
+	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, p.Id,
+		time.Now().Add(-shutdownEtcdCleanupAge-time.Hour))
 
-	// Add pooler that was healthy but not seen in > 4 hours
-	oldHealthyPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "old-healthy",
-			},
-			ShardKey: &clustermetadata.ShardKey{
-				Database:   "db1",
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      "-",
-			},
-		},
-		LastSeen:            timestamppb.New(now.Add(-threshold - time.Hour)), // > 4 hours ago
-		LastCheckAttempted:  timestamppb.New(now.Add(-threshold - time.Hour)),
-		LastCheckSuccessful: timestamppb.New(now.Add(-threshold - time.Hour)),
-		IsUpToDate:          true,
-	}
-	engine.poolerStore.Set("zone1/old-healthy", oldHealthyPooler)
+	// Sanity: the pooler is in topo before cleanup.
+	_, err := re.ts.GetMultiPooler(context.Background(), p.Id)
+	require.NoError(t, err, "pooler should exist in topology before cleanup")
 
-	// Add pooler that was healthy and seen recently
-	recentHealthyPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "recent-healthy",
-			},
-			ShardKey: &clustermetadata.ShardKey{
-				Database:   "db1",
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      "-",
-			},
-		},
-		LastSeen:            timestamppb.New(now.Add(-time.Hour)), // Only 1 hour ago
-		LastCheckAttempted:  timestamppb.New(now.Add(-time.Hour)),
-		LastCheckSuccessful: timestamppb.New(now.Add(-time.Hour)),
-		IsUpToDate:          true,
-	}
-	engine.poolerStore.Set("zone1/recent-healthy", recentHealthyPooler)
+	re.cleanupOldShutdownEntries()
 
-	require.Equal(t, 2, engine.poolerStore.Len())
-
-	// Run forget
-	engine.forgetLongUnseenInstances()
-
-	// Only the old healthy pooler should be forgotten
-	require.Equal(t, 1, engine.poolerStore.Len())
-
-	// Verify the right ones remain
-	_, ok := engine.poolerStore.Get("zone1/old-healthy")
-	require.False(t, ok, "old healthy pooler should be forgotten")
-
-	_, ok = engine.poolerStore.Get("zone1/recent-healthy")
-	require.True(t, ok, "recent healthy pooler should remain")
+	_, err = re.ts.GetMultiPooler(context.Background(), p.Id)
+	require.Error(t, err, "topology entry should have been hard-deleted")
 }
 
-func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
+func TestCleanupOldShutdownEntries_YoungTombstoneRetained(t *testing.T) {
+	re := newBookkeepingTestEngine(t)
 
-	now := time.Now()
-	threshold := 4 * time.Hour
+	p := registerPooler(t, re, "zone1", "young")
+	// Tombstone created well within the cleanup-age window — bookkeeping must
+	// leave it alone so a recently-shutdown pooler is not prematurely purged.
+	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, p.Id, time.Now())
 
-	// Add various poolers covering all cases
-	cases := map[string]*multiorchdatapb.PoolerHealthState{
-		"broken": nil,
-		"never-seen-old": {
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "never-seen-old",
-				},
-			},
-			LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)),
-			LastSeen:           nil,
-		},
-		"never-seen-recent": {
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "never-seen-recent",
-				},
-			},
-			LastCheckAttempted: timestamppb.New(now.Add(-time.Hour)),
-			LastSeen:           nil,
-		},
-		"long-unseen": {
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "long-unseen",
-				},
-			},
-			LastSeen: timestamppb.New(now.Add(-threshold - time.Hour)),
-		},
-		"healthy": {
-			MultiPooler: &clustermetadata.MultiPooler{
-				Id: &clustermetadata.ID{
-					Component: clustermetadata.ID_MULTIPOOLER,
-					Cell:      "zone1",
-					Name:      "healthy",
-				},
-			},
-			LastSeen: timestamppb.New(now.Add(-time.Minute)),
-		},
-	}
+	re.cleanupOldShutdownEntries()
 
-	for key, info := range cases {
-		engine.poolerStore.Set(topoclient.ComponentID(key), info)
-	}
-
-	require.Equal(t, 5, engine.poolerStore.Len())
-
-	// Run forget
-	engine.forgetLongUnseenInstances()
-
-	// Should keep: never-seen-recent, healthy (2 total)
-	// Should forget: broken, never-seen-old, long-unseen (3 total)
-	require.Equal(t, 2, engine.poolerStore.Len())
-
-	// Verify
-	_, ok := engine.poolerStore.Get("broken")
-	require.False(t, ok)
-
-	_, ok = engine.poolerStore.Get("never-seen-old")
-	require.False(t, ok)
-
-	_, ok = engine.poolerStore.Get("long-unseen")
-	require.False(t, ok)
-
-	_, ok = engine.poolerStore.Get("never-seen-recent")
-	require.True(t, ok)
-
-	_, ok = engine.poolerStore.Get("healthy")
-	require.True(t, ok)
+	_, err := re.ts.GetMultiPooler(context.Background(), p.Id)
+	require.NoError(t, err, "young tombstone must not trigger topology deletion")
 }
 
-func TestForgetLongUnseenInstances_EmptyStore(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
+func TestCleanupOldShutdownEntries_MixedTombstones(t *testing.T) {
+	// Two tombstones, only the older one is past the cleanup threshold.
+	// Confirms bookkeeping cleans the old one without sweeping the young one.
+	re := newBookkeepingTestEngine(t)
 
-	// Run forget on empty store (should not panic)
-	engine.forgetLongUnseenInstances()
+	old := registerPooler(t, re, "zone1", "old")
+	young := registerPooler(t, re, "zone1", "young")
 
-	require.Equal(t, 0, engine.poolerStore.Len())
+	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, old.Id,
+		time.Now().Add(-shutdownEtcdCleanupAge-time.Minute))
+	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, young.Id, time.Now())
+
+	re.cleanupOldShutdownEntries()
+
+	_, err := re.ts.GetMultiPooler(context.Background(), old.Id)
+	assert.Error(t, err, "old tombstone's topology entry must be deleted")
+	_, err = re.ts.GetMultiPooler(context.Background(), young.Id)
+	assert.NoError(t, err, "young tombstone's topology entry must remain")
 }
 
-func TestRunBookkeeping(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
-
-	now := time.Now()
-	threshold := 4 * time.Hour
-
-	// Add an old pooler that should be forgotten
-	oldPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
-			Id: &clustermetadata.ID{
-				Component: clustermetadata.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "old",
-			},
-		},
-		LastCheckAttempted: timestamppb.New(now.Add(-threshold - time.Hour)),
-		LastSeen:           nil,
-	}
-	engine.poolerStore.Set("zone1/old", oldPooler)
-
-	require.Equal(t, 1, engine.poolerStore.Len())
-
-	// Run bookkeeping
-	engine.runBookkeeping()
-
-	// Old pooler should be forgotten (reloadConfigs runs in goroutine, so use Eventually)
-	require.Eventually(t, func() bool {
-		return engine.poolerStore.Len() == 0
-	}, 1*time.Second, 10*time.Millisecond, "old pooler should be forgotten")
-}
-
-func TestAudit(t *testing.T) {
-	ctx := context.Background()
-	engine := newTestEngine(ctx, t)
-
-	// Just verify audit doesn't panic (output is logged)
-	engine.audit("test-type", "pooler-1", &clustermetadata.ShardKey{Database: "db1", TableGroup: "default", Shard: "-"}, "test message")
+func TestCleanupOldShutdownEntries_NoTombstones(t *testing.T) {
+	// No tombstones in the cache — bookkeeping must be a no-op (no panics, no
+	// RPCs). Important because a healthy cluster routinely has nothing to
+	// clean up on most ticks.
+	re := newBookkeepingTestEngine(t)
+	re.cleanupOldShutdownEntries()
 }

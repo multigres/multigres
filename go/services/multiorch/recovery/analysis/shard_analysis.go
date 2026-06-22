@@ -19,9 +19,10 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ShardAnalysis groups all per-pooler analyses for a single shard.
@@ -29,6 +30,16 @@ import (
 type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 	Analyses []*PoolerAnalysis
+
+	// TombstoneIDs is the set of pooler IDs the cache has marked as SHUTDOWN
+	// tombstones cluster-wide. Analyzers consult it to detect cohort members
+	// that have explicitly drained (and therefore had their riders evicted
+	// from the live cache, so they don't appear in Analyses) versus poolers
+	// that are merely missing from the cache for transient reasons. Cohort
+	// scope is enforced naturally: cohort membership is per-shard, so a
+	// missing cohort member found here is necessarily a shutdown of THIS
+	// shard's pooler.
+	TombstoneIDs map[topoclient.ComponentID]struct{}
 
 	// HighestShardRule is the highest known consensus rule across all poolers in
 	// the shard (commonconsensus.HighestKnownRule), or nil if no leader is known.
@@ -44,7 +55,7 @@ type ShardAnalysis struct {
 	// that need the leader's host/port (e.g. ReplicaNotReplicating) gate on Leader
 	// being non-nil rather than on reachability — an unreachable-but-known leader
 	// is still the official term leader.
-	Leader *multiorchdatapb.PoolerHealthState
+	Leader *store.Pooler
 
 	// NumInitialized is the count of reachable, initialized poolers in this shard.
 	// Pre-computed by the generator for use in analyzers.

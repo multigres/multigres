@@ -65,9 +65,9 @@ type MultiGateway struct {
 	pgTLSKeyFile viperutil.Value[string]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
-	// poolerDiscovery handles discovery of multipoolers across all cells
-	poolerDiscovery *GlobalPoolerDiscovery
-	// poolerGateway manages connections to poolers
+	// poolerGateway manages connections to poolers and owns the lifecycle
+	// of the underlying pooler cache (topology watch + per-pooler health
+	// streams + per-pooler connection riders).
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -332,10 +332,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
-	// Start pooler discovery (watches all cells)
-	mg.poolerDiscovery = NewGlobalPoolerDiscovery(mg.shutdownCtx, mg.ts, mg.cell.Get(), logger)
-	mg.poolerDiscovery.Start()
-	logger.InfoContext(ctx, "Global pooler discovery started", "local_cell", mg.cell.Get())
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
+	}
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+		logger.InfoContext(ctx, "Failover buffering enabled")
+	}
 
 	// Build transport credentials for multipooler gRPC connections.
 	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
@@ -343,39 +346,17 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
-	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
-	lowLagMs := mg.pgReplicaLowLagMs.Get()
-	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
-	if lowLagMs > 0 || highToleranceMs > 0 {
-		loadBalancer.SetReplicationLagThresholds(
-			time.Duration(lowLagMs)*time.Millisecond,
-			time.Duration(highToleranceMs)*time.Millisecond,
-		)
-	}
-	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
-	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
-
-	// Create failover buffer if enabled.
-	if err := mg.bufferConfig.Validate(); err != nil {
-		return fmt.Errorf("buffer config: %w", err)
-	}
-	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
-		// Stop buffering when the streaming health check detects a new primary.
-		// This is a direct signal from the pooler's health stream — more reliable
-		// and lower latency than topology-based propagation via etcd.
-		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		})
-		logger.InfoContext(ctx, "Failover buffering enabled")
-	}
-
-	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
+	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
+		Ctx:           mg.shutdownCtx,
+		Source:        mg.ts,
+		LocalCell:     mg.cell.Get(),
+		Logger:        logger,
+		DialOpt:       poolerTransportCreds,
+		Buffer:        mg.buffer,
+		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+	})
+	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
@@ -491,7 +472,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
 		func() multipoolerpb.MultiPoolerServiceClient {
-			conn, err := loadBalancer.GetConnection(&querypb.Target{
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
 				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -544,6 +525,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
 		}
 		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
+		lowLagMs := mg.pgReplicaLowLagMs.Get()
+		highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
 		if lowLagMs > 0 || highToleranceMs > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
 				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
@@ -625,7 +608,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if len(mg.serverStatus.InitError) > 0 {
 			return errors.New(mg.serverStatus.InitError)
 		}
-		if mg.poolerDiscovery.PoolerCount() == 0 {
+		if mg.poolerGateway.PoolerCount() == 0 {
 			return errors.New("no poolers discovered")
 		}
 		return nil
@@ -692,19 +675,14 @@ func (mg *MultiGateway) Shutdown() {
 		mg.buffer.Shutdown()
 	}
 
-	// Close pooler gateway connections
+	// Close pooler gateway: shuts down the cache, which in turn closes
+	// per-pooler connections and cancels per-pooler health-stream goroutines.
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
 			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Pooler gateway closed")
 		}
-	}
-
-	// Stop pooler discovery
-	if mg.poolerDiscovery != nil {
-		mg.poolerDiscovery.Stop()
-		mg.senv.GetLogger().Info("Pooler discovery stopped")
 	}
 
 	mg.tr.Unregister()

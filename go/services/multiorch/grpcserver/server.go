@@ -195,19 +195,17 @@ func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequ
 
 	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))
 	for _, p := range poolers {
-		if p == nil || p.MultiPooler == nil {
-			continue
-		}
+		h := p.Health()
 
 		// Get pooler type string
-		poolerType := p.GetStatus().GetPoolerType().String()
+		poolerType := h.GetStatus().GetPoolerType().String()
 
 		healthList = append(healthList, &multiorchpb.PoolerHealth{
-			PoolerId:      p.MultiPooler.Id,
-			Reachable:     p.IsLastCheckValid,
-			PostgresReady: p.GetStatus().GetPostgresReady(),
+			PoolerId:      h.MultiPooler.Id,
+			Reachable:     h.IsLastCheckValid,
+			PostgresReady: h.GetStatus().GetPostgresReady(),
 			PoolerType:    poolerType,
-			LastCheck:     p.LastCheckAttempted,
+			LastCheck:     h.LastCheckAttempted,
 		})
 	}
 
