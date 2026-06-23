@@ -409,7 +409,6 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.LastCheckSuccessful = now
 			h.LastSeen = now
-			h.IsUpToDate = true
 			h.IsLastCheckValid = true
 			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 			if snapshot.Status.AvailabilityStatus != nil {

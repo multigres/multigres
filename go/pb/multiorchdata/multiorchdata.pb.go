@@ -53,7 +53,6 @@ type PoolerHealthState struct {
 	// serving_status, hostname, port_map.
 	MultiPooler *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=multi_pooler,json=multiPooler,proto3" json:"multi_pooler,omitempty"`
 	// Computed fields (cached by multiorch)
-	IsUpToDate       bool `protobuf:"varint,2,opt,name=is_up_to_date,json=isUpToDate,proto3" json:"is_up_to_date,omitempty"`
 	IsLastCheckValid bool `protobuf:"varint,3,opt,name=is_last_check_valid,json=isLastCheckValid,proto3" json:"is_last_check_valid,omitempty"`
 	// Timestamps for staleness detection
 	LastCheckAttempted  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_check_attempted,json=lastCheckAttempted,proto3" json:"last_check_attempted,omitempty"`
@@ -123,13 +122,6 @@ func (x *PoolerHealthState) GetMultiPooler() *clustermetadata.MultiPooler {
 		return x.MultiPooler
 	}
 	return nil
-}
-
-func (x *PoolerHealthState) GetIsUpToDate() bool {
-	if x != nil {
-		return x.IsUpToDate
-	}
-	return false
 }
 
 func (x *PoolerHealthState) GetIsLastCheckValid() bool {
@@ -220,11 +212,9 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xe7\b\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x8d\a\n" +
 	"\x11PoolerHealthState\x12?\n" +
-	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12!\n" +
-	"\ris_up_to_date\x18\x02 \x01(\bR\n" +
-	"isUpToDate\x12-\n" +
+	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12-\n" +
 	"\x13is_last_check_valid\x18\x03 \x01(\bR\x10isLastCheckValid\x12L\n" +
 	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
 	"\x15last_check_successful\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x13lastCheckSuccessful\x127\n" +
@@ -236,9 +226,7 @@ const file_multiorchdata_proto_rawDesc = "" +
 	"\x16stream_connected_since\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x14streamConnectedSince\x126\n" +
 	"\x06status\x18\x16 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\x12:\n" +
 	"\x19stream_snapshots_received\x18\x17 \x01(\x03R\x17streamSnapshotsReceived\x12H\n" +
-	"\x12pooler_captured_at\x18\x18 \x01(\v2\x1a.google.protobuf.TimestampR\x10poolerCapturedAtJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"J\x04\b\n" +
-	"\x10\vJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eR\vpooler_typeR\x0eprimary_statusR\x12replication_statusR\x11is_postgres_readyR\x0eis_initializedR\x12has_data_directoryR\x0ecohort_membersR\x13is_postgres_runningB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x12pooler_captured_at\x18\x18 \x01(\v2\x1a.google.protobuf.TimestampR\x10poolerCapturedAtB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once

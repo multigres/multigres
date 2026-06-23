@@ -158,7 +158,6 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "snapshot should be applied")
 
 	updated, _ := poolerStore.GetRider(key)
-	require.True(t, updated.Health().IsUpToDate)
 	require.NotNil(t, updated.Health().LastSeen)
 	require.NotNil(t, updated.Health().LastCheckSuccessful)
 	require.Equal(t, testSnapshotCapturedAt.AsTime(), updated.Health().GetPoolerCapturedAt().AsTime(),
@@ -389,7 +388,6 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 		"watcher's topology update should not be overwritten by snapshot")
 	// Health fields from the snapshot should still be applied.
 	require.True(t, rh.IsLastCheckValid)
-	require.True(t, rh.IsUpToDate)
 }
 
 // TestHealthStream_DeletedDuringStream tests that a pooler deleted from the store while a

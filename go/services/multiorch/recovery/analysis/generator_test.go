@@ -75,7 +75,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
@@ -135,7 +134,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			Hostname: "primary.example.com",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
@@ -161,7 +159,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -185,7 +182,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -242,7 +238,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
@@ -264,7 +259,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -313,7 +307,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -336,7 +329,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -824,7 +816,6 @@ func TestIsInStandbyList(t *testing.T) {
 					Type: clustermetadatapb.PoolerType_PRIMARY,
 				},
 				IsLastCheckValid: true,
-				IsUpToDate:       true,
 				LastSeen:         timestamppb.Now(),
 				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 					Id: primaryID,
@@ -1699,7 +1690,6 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: primaryID,
@@ -1736,7 +1726,6 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -1759,7 +1748,6 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -2002,7 +1990,6 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 				Hostname: "localhost",
 			},
 			IsLastCheckValid: p.reachable,
-			IsUpToDate:       true,
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             id,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: p.consensusTerm},

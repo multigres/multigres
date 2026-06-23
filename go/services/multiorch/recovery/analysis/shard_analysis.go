@@ -151,7 +151,6 @@ type PoolerAnalysis struct {
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool
-	IsStale          bool
 	IsInitialized    bool // Whether this pooler is fully initialized and ready to join the cohort
 	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
 	// CohortMembers are the strongly-typed IDs from the most recent

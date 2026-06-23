@@ -100,7 +100,6 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 			return store.NewPooler(
 				&multiorchdatapb.PoolerHealthState{
 					MultiPooler: p,
-					IsUpToDate:  false,
 				},
 				factory.New(cache, topoclient.ComponentIDString(p.Id)),
 			)
