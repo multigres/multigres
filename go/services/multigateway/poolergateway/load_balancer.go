@@ -257,10 +257,7 @@ func (lb *loadBalancer) mergeTopologyLeader(pooler *clustermetadatapb.MultiPoole
 // returning, so callers can freely invoke summary methods without nesting
 // locks.
 func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shardSummary {
-	key := shardKey{
-		tableGroup: p.GetShardKey().GetTableGroup(),
-		shard:      p.GetShardKey().GetShard(),
-	}
+	key := shardKeyOf(p.GetShardKey())
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	summary, ok := lb.shards[key]
@@ -291,10 +288,7 @@ func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPoo
 	if lb.onLeaderServing == nil || conn == nil {
 		return
 	}
-	key := shardKey{
-		tableGroup: pooler.GetShardKey().GetTableGroup(),
-		shard:      pooler.GetShardKey().GetShard(),
-	}
+	key := shardKeyOf(pooler.GetShardKey())
 	lb.mu.Lock()
 	summary := lb.shards[key]
 	lb.mu.Unlock()
@@ -675,10 +669,7 @@ func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 		return leadershipFollower
 	}
 	info := conn.PoolerInfo()
-	key := shardKey{
-		tableGroup: info.GetShardKey().GetTableGroup(),
-		shard:      info.GetShardKey().GetShard(),
-	}
+	key := shardKeyOf(info.GetShardKey())
 
 	lb.mu.Lock()
 	summary := lb.shards[key]
@@ -728,7 +719,7 @@ func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.MultiPooler) {
 	if len(lb.cache.GetByShard(sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())) > 0 {
 		return
 	}
-	key := shardKey{tableGroup: sk.GetTableGroup(), shard: sk.GetShard()}
+	key := shardKeyOf(sk)
 
 	lb.mu.Lock()
 	delete(lb.shards, key)

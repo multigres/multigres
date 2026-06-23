@@ -114,16 +114,17 @@ func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPoole
 // setLeaderForTest installs a LeaderObservation directly into the LB's
 // per-shard leader map. Used by tests that need to model a peer observation
 // without wiring a second connection.
-func setLeaderForTest(t *testing.T, lb *loadBalancer, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
+func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
 	t.Helper()
+	sk := &clustermetadatapb.ShardKey{
+		Database:   database,
+		TableGroup: tableGroup,
+		Shard:      shard,
+	}
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	key := shardKey{tableGroup: tableGroup, shard: shard}
-	lb.shards[key] = &shardSummary{
-		shardKey: &clustermetadatapb.ShardKey{
-			TableGroup: tableGroup,
-			Shard:      shard,
-		},
+	lb.shards[shardKeyOf(sk)] = &shardSummary{
+		shardKey:  sk,
 		leaderObs: obs,
 	}
 }
