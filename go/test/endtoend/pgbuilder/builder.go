@@ -285,6 +285,11 @@ type ExtensionBuildSpec struct {
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx"; it must
 	// match the crate's pinned pgrx dependency. Ignored for pgxs.
 	PgrxVersion string
+	// PgrxFeatures are additional cargo features to pass to cargo-pgrx for
+	// BuildSystem=="pgrx". The builder always adds the PostgreSQL-major feature
+	// (pg17); these opt into extension-specific optional modules (wrappers:
+	// helloworld_fdw) without enabling the crate's defaults.
+	PgrxFeatures []string
 	// PkgConfigDeps names pkg-config packages (e.g. "libsodium") whose header and
 	// library directories the PGXS build needs but which live outside the
 	// compiler's default search path on some hosts (Homebrew on macOS). The
@@ -515,7 +520,8 @@ func (b *Builder) installPostGISExtension(t *testing.T, ctx context.Context, spe
 // @CARGO_VERSION@, so the files must be produced by cargo-pgrx, not copied).
 func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
 	// pgrx selects the target server with a per-major-version feature/flag.
-	feature := "pg" + PgMajorVersion()
+	features := append([]string{"pg" + PgMajorVersion()}, spec.PgrxFeatures...)
+	featureList := strings.Join(features, ",")
 
 	if err := b.ensureCargoPgrx(t, ctx, spec.PgrxVersion); err != nil {
 		return err
@@ -524,23 +530,24 @@ func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec E
 	// Register our from-source PostgreSQL with pgrx. Passing the pg_config path
 	// (rather than "download") makes init adopt the existing install instead of
 	// fetching and building its own, so it is fast and uses the exact server ABI.
-	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", feature, pgConfig)
-	initCmd := executil.Command(ctx, "cargo", "pgrx", "init", "--"+feature, pgConfig)
+	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", features[0], pgConfig)
+	initCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "init", "--"+features[0], pgConfig))
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
 		return fmt.Errorf("cargo pgrx init %s failed: %w", spec.Name, err)
 	}
 
-	// Build and install. --no-default-features --features <pgNN> overrides the
-	// crate's default (often the latest major) so it builds against our server;
+	// Build and install. --no-default-features plus --features <pgNN>[,<extra>]
+	// overrides the crate's default (often the latest major) so it builds against
+	// our server while still allowing specs to opt into extension-specific modules;
 	// --pg-config installs into that server's pkglibdir/sharedir.
-	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, feature, pgConfig)
-	installCmd := executil.Command(ctx, "cargo", "pgrx", "install",
+	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, featureList, pgConfig)
+	installCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "install",
 		"--release",
 		"--no-default-features",
-		"--features", feature,
-		"--pg-config", pgConfig).SetDir(buildDir)
+		"--features", featureList,
+		"--pg-config", pgConfig)).SetDir(buildDir)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
@@ -563,13 +570,26 @@ func (b *Builder) ensureCargoPgrx(t *testing.T, ctx context.Context, version str
 		return nil
 	}
 	t.Logf("Installing cargo-pgrx %s (compiles the CLI, may take several minutes)...", version)
-	cmd := executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked")
+	cmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("cargo install cargo-pgrx %s failed: %w", version, err)
 	}
 	return nil
+}
+
+// withCargoNetworkRetries makes cargo's registry/client behavior less flaky on
+// GitHub-hosted runners. The wrappers build failed in CI while cargo-pgrx was
+// running `cargo metadata`, with crates.io returning an HTTP/2 framing error;
+// disabling multiplexing forces cargo/libcurl onto the more reliable HTTP/1.1
+// path, and retries/timeout cover transient index and crate downloads.
+func withCargoNetworkRetries(cmd *executil.Cmd) *executil.Cmd {
+	return cmd.AddEnv(
+		"CARGO_HTTP_MULTIPLEXING=false",
+		"CARGO_NET_RETRY=10",
+		"CARGO_HTTP_TIMEOUT=120",
+	)
 }
 
 // Cleanup removes per-invocation build and install artifacts but leaves the

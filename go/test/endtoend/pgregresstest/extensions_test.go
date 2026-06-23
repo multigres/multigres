@@ -91,6 +91,31 @@ func TestExternalBuildOnlySmokeSelection(t *testing.T) {
 	assert.NotContains(t, coveredNames, "pgaudit")
 }
 
+// TestWrappersBuildOnlySmokeSelection verifies wrappers is selected for the
+// build/load smoke path with its extra pgrx feature and not counted as covered.
+func TestWrappersBuildOnlySmokeSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "wrappers")
+
+	modules := ExternalModules()
+	require.Len(t, modules, 1)
+	assert.Equal(t, "wrappers", modules[0].Name)
+	assert.Equal(t, HarnessSmoke, modules[0].Harness)
+	assert.Equal(t, "pgrx", modules[0].BuildSystem)
+	assert.Equal(t, "wrappers", modules[0].BuildSubdir)
+	assert.Equal(t, []string{"helloworld_fdw"}, modules[0].PgrxFeatures)
+	assert.Equal(t, []ExtensionInstall{{Name: "wrappers"}}, modules[0].PreCreateExtensions)
+
+	build := ExternalBuildList()
+	require.Len(t, build, 1)
+	assert.Equal(t, "wrappers", build[0].Name)
+
+	var coveredNames []string
+	for _, spec := range CoveredExternalExtensions() {
+		coveredNames = append(coveredNames, spec.Name)
+	}
+	assert.NotContains(t, coveredNames, "wrappers")
+}
+
 // TestExternalPartialSelection verifies partial extensions are runnable and
 // buildable, while staying out of the fully-covered upstream-suite list.
 func TestExternalPartialSelection(t *testing.T) {
@@ -136,9 +161,32 @@ func TestExternalPreloadLibraries_MergesSelection(t *testing.T) {
 	t.Setenv("PGEXTERNAL_TESTS", "pgaudit")
 	assert.Equal(t, []string{"pgaudit"}, ExternalPreloadLibraries())
 
+	t.Setenv("PGEXTERNAL_TESTS", "pg_net supabase_vault")
+	assert.Equal(t, []string{"pg_net", "supabase_vault"}, ExternalPreloadLibraries())
+
 	t.Setenv("PGEXTERNAL_TESTS", "vector")
 	assert.Empty(t, ExternalPreloadLibraries(),
 		"a selection with no preload needs must generate no snippet")
+}
+
+func TestExternalVaultGetKeyConfigSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "supabase_vault")
+
+	path := generatedVaultGetKeyConfPath()
+	require.NotEmpty(t, path)
+
+	conf, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(conf), "vault.getkey_script = '")
+
+	script := filepath.Join(filepath.Dir(path), "vault_getkey.sh")
+	info, err := os.Stat(script)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+
+	body, err := os.ReadFile(script)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f")
 }
 
 func TestExtensionCoverageMarkdown_BuildOnlySmokeResult(t *testing.T) {
