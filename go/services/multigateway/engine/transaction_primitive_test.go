@@ -126,8 +126,11 @@ func (m *txMockIExecute) ConcludeTransaction(
 		state.ClearAllReservedConnections()
 		return m.concludeTransactionErr
 	}
-	// Simulate successful conclude: clear all shard states (remainingReasons == 0)
-	state.ClearAllReservedConnections()
+	// Simulate successful conclude. AND CHAIN keeps the backend transaction
+	// reservation; ordinary COMMIT/ROLLBACK releases it.
+	if !chain {
+		state.ClearAllReservedConnections()
+	}
 	var commandTag string
 	if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT {
 		commandTag = "COMMIT"
@@ -277,6 +280,70 @@ func TestTransactionPrimitive_RollbackAndChain_NoReservedConnectionsPreservesInh
 	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ WRITE NOT DEFERRABLE", state.PendingBeginQuery)
 	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
 	require.False(t, state.TxnStartTime.IsZero(), "chained transaction should start a new timer")
+}
+
+func TestTransactionPrimitive_CommitAndChain_WithReservedConnectionKeepsBackendChained(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.ActiveTransactionBeginQuery = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY DEFERRABLE"
+	state.TxnStartTime = time.Now()
+	var callbackResult *sqltypes.Result
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", true, "COMMIT AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, 1, mockExec.concludeTransactionCount)
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "COMMIT", callbackResult.CommandTag)
+	require.NotEmpty(t, state.ShardStates, "successful AND CHAIN keeps the reserved backend transaction")
+	require.Empty(t, state.PendingBeginQuery, "backend already executed COMMIT AND CHAIN")
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY DEFERRABLE", state.ActiveTransactionBeginQuery)
+}
+
+func TestTransactionPrimitive_CommitAndChain_ConcludeErrorRestoresPendingBegin(t *testing.T) {
+	mockExec := &txMockIExecute{concludeTransactionErr: errors.New("commit failed")}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.ActiveTransactionBeginQuery = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE"
+	state.TxnStartTime = time.Now()
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", true, "COMMIT AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "commit failed")
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Empty(t, state.ShardStates, "failed conclude clears the lost backend reservation")
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE", state.PendingBeginQuery)
+	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
+}
+
+func TestTransactionPrimitive_RollbackAndChain_ConcludeErrorRestoresPendingBegin(t *testing.T) {
+	mockExec := &txMockIExecute{concludeTransactionErr: errors.New("rollback failed")}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.ActiveTransactionBeginQuery = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE NOT DEFERRABLE"
+	state.TxnStartTime = time.Now()
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", true, "ROLLBACK AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rollback failed")
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Empty(t, state.ShardStates, "failed conclude clears the lost backend reservation")
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE NOT DEFERRABLE", state.PendingBeginQuery)
+	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
 }
 
 func TestTransactionPrimitive_CommitAndChain_OutsideTransactionErrors(t *testing.T) {

@@ -263,6 +263,16 @@ func (t *TransactionPrimitive) executeCommit(
 
 	if t.Chain {
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+		// If the chained backend reservation was lost (RPC failure, destroyed
+		// connection, or rollback recovery), the gateway still owes the client a
+		// chained transaction. Preserve the inherited BEGIN query so the next
+		// statement creates a replacement backend transaction with the same
+		// isolation/read-only/deferrable characteristics. When the backend stayed
+		// reserved, it already executed COMMIT/ROLLBACK AND CHAIN, so no deferred
+		// BEGIN is needed.
+		if !hasTransactionReservation(state) {
+			state.PendingBeginQuery = chainBeginQuery
+		}
 	} else {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 	}
@@ -370,6 +380,16 @@ func (t *TransactionPrimitive) executeRollback(
 
 	if t.Chain {
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+		// If the chained backend reservation was lost (RPC failure, destroyed
+		// connection, or rollback recovery), the gateway still owes the client a
+		// chained transaction. Preserve the inherited BEGIN query so the next
+		// statement creates a replacement backend transaction with the same
+		// isolation/read-only/deferrable characteristics. When the backend stayed
+		// reserved, it already executed COMMIT/ROLLBACK AND CHAIN, so no deferred
+		// BEGIN is needed.
+		if !hasTransactionReservation(state) {
+			state.PendingBeginQuery = chainBeginQuery
+		}
 	} else {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 	}
