@@ -156,7 +156,7 @@ type loadBalancer struct {
 
 	// onPrimaryServing is called when a new primary is detected via health stream.
 	// Used to stop failover buffering for the shard. May be nil.
-	onPrimaryServing func(tableGroup, shard string)
+	onPrimaryServing func(*clustermetadatapb.ShardKey)
 
 	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
 	grpcDialOpt grpc.DialOption
@@ -194,8 +194,10 @@ type loadBalancerOpts struct {
 	HighTolerance time.Duration
 
 	// OnPrimaryServing fires when a new primary is observed serving on its
-	// health stream; used to drain the failover buffer. Optional.
-	OnPrimaryServing func(tableGroup, shard string)
+	// health stream; used to drain the failover buffer. Optional. The
+	// ShardKey carries database + tableGroup + shard so the buffer can
+	// scope failover state correctly across databases.
+	OnPrimaryServing func(*clustermetadatapb.ShardKey)
 
 	// Cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Callers construct the cache without hooks, pass it here, then
@@ -316,7 +318,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	// role transition (poolerType=PRIMARY) and servingStatus=SERVING in a
 	// single locked update, so by the time we see SERVING from the named
 	// leader, the role transition has finished.
-	lb.onPrimaryServing(summary.shardKey.GetTableGroup(), summary.shardKey.GetShard())
+	lb.onPrimaryServing(summary.shardKey)
 }
 
 // getConnection returns a poolerConnection matching the target specification.
@@ -379,19 +381,20 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 	// INCONSISTENT (or unspecified): collect every connection eligible to
 	// serve reads in this shard. A pooler that believes itself the leader
 	// — the current leader or a stale leader — is excluded; see
-	// matchesReplicaTarget. When the target's shard is non-empty we use
-	// GetByShard for an index lookup; when it's empty we honor the
-	// "any shard" semantic from the proto by scanning All() and letting
-	// matchesReplicaTarget filter on tablegroup alone.
+	// matchesReplicaTarget.
+	//
+	// We scan cache.All() rather than calling GetByShard because gateway
+	// callers still send empty-shard targets for unsharded routing, and a
+	// hash lookup would miss them. matchesReplicaTarget filters by the full
+	// (database, tableGroup, shard) tuple — database is required to keep
+	// shards in different databases from colliding when they share a
+	// (tableGroup, shard) name.
+	//
+	// TODO: switch to cache.GetByShard once gateway routing populates
+	// Target.ShardKey.Shard for every request.
 	var candidates []*poolerConnection
 	if lb.cache != nil {
-		var entries []poolerwatch.Entry[*poolerConnection]
-		if sk.GetShard() == "" {
-			entries = lb.cache.All()
-		} else {
-			entries = lb.cache.GetByShard(sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
-		}
-		for _, entry := range entries {
+		for _, entry := range lb.cache.All() {
 			conn := entry.Rider
 			if conn == nil {
 				continue
@@ -591,21 +594,24 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	}
 }
 
-// matchesShardTarget checks if a connection matches the tablegroup and shard,
-// regardless of pooler type.
+// matchesShardTarget checks if a connection matches the target's
+// (database, tableGroup, shard), regardless of pooler type. Database and
+// tableGroup must match exactly. An empty target Shard matches any shard
+// within the matched (database, tableGroup) — the unsharded-routing
+// fallback used while the gateway does not yet populate shard.
 func matchesShardTarget(conn *poolerConnection, target *query.Target) bool {
-	poolerInfo := conn.PoolerInfo()
+	poolerKey := conn.PoolerInfo().GetShardKey()
+	targetKey := target.GetShardKey()
 
-	// Check tablegroup match
-	if target.GetShardKey().GetTableGroup() != poolerInfo.GetShardKey().GetTableGroup() {
+	if targetKey.GetDatabase() != poolerKey.GetDatabase() {
 		return false
 	}
-
-	// Check shard match (empty target shard matches any)
-	if target.GetShardKey().GetShard() != "" && target.GetShardKey().GetShard() != poolerInfo.GetShardKey().GetShard() {
+	if targetKey.GetTableGroup() != poolerKey.GetTableGroup() {
 		return false
 	}
-
+	if targetKey.GetShard() != "" && targetKey.GetShard() != poolerKey.GetShard() {
+		return false
+	}
 	return true
 }
 

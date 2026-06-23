@@ -150,14 +150,9 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Logger: opts.Logger,
 	})
 
-	var onPrimaryServing func(tableGroup, shard string)
+	var onPrimaryServing func(*clustermetadatapb.ShardKey)
 	if opts.Buffer != nil {
-		onPrimaryServing = func(tableGroup, shard string) {
-			opts.Buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		}
+		onPrimaryServing = opts.Buffer.StopBuffering
 	}
 
 	lb := newLoadBalancer(loadBalancerOpts{
@@ -253,10 +248,9 @@ func (pg *PoolerGateway) withBuffering(
 	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
-	sk := &clustermetadatapb.ShardKey{
-		TableGroup: target.GetShardKey().GetTableGroup(),
-		Shard:      target.GetShardKey().GetShard(),
-	}
+	// Buffer operations are keyed on the target's full ShardKey
+	// (database + tableGroup + shard) — no need to copy field-by-field.
+	sk := target.GetShardKey()
 
 	var err error
 	for range constants.MaxBufferingRetries + 1 {
@@ -534,7 +528,8 @@ var _ Gateway = (*PoolerGateway)(nil)
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	target := &query.Target{
 		ShardKey: &clustermetadatapb.ShardKey{
-			TableGroup: "default", // TODO: Make configurable or discover from database
+			Database:   req.GetDatabase(),
+			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
 			Shard:      constants.DefaultShard,
 		},
 		Mode: query.Mode_MODE_WRITABLE,

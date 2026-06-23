@@ -474,6 +474,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		func() multipoolerpb.MultiPoolerServiceClient {
 			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
 				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   constants.DefaultPostgresDatabase,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,
 				},
