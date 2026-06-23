@@ -281,7 +281,8 @@ func TestBackup_ForcePrimary(t *testing.T) {
 	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
-	// Create both a primary and replica pooler
+	// Create a leader (self_leadership set) and a follower (self_leadership nil).
+	// findPoolerForBackup selects on self_leadership, not on the topology Type.
 	primaryPooler := &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -295,6 +296,10 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			TableGroup: "default",
 		},
 		Type: clustermetadatapb.PoolerType_PRIMARY,
+		SelfLeadership: &clustermetadatapb.LeaderObservation{
+			LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-pooler"},
+			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		},
 	}
 	replicaPooler := &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -385,6 +390,10 @@ func TestBackup_ForcePrimary(t *testing.T) {
 				TableGroup: "default",
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
+			SelfLeadership: &clustermetadatapb.LeaderObservation{
+				LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "primary-only"},
+				LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, primaryOnly))
 
@@ -397,7 +406,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 
 		_, err := server.Backup(ctx, req)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "replica pooler not found")
+		require.Contains(t, err.Error(), "follower pooler not found")
 	})
 }
 

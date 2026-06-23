@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/backup"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -103,22 +104,28 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 	return nil
 }
 
-// findPoolerForBackup finds a pooler for backup operations.
-// If forcePrimary is true, finds a PRIMARY pooler; otherwise finds a REPLICA.
-func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forcePrimary bool) (*clustermetadatapb.MultiPooler, error) {
-	targetType := clustermetadatapb.PoolerType_REPLICA
-	if forcePrimary {
-		targetType = clustermetadatapb.PoolerType_PRIMARY
-	}
-
-	// Get all cells
+// findPoolerForBackup finds a pooler for backup operations. forceLeader=true
+// returns the consensus leader (highest-rule self_leadership wins if more than
+// one pooler self-claims, which can happen briefly during a rule change);
+// forceLeader=false returns a follower (any pooler with no self_leadership).
+//
+// Leader identity is read from each pooler's self_leadership topology field,
+// never from the MultiPooler.Type label — the topology Type can lag the true
+// consensus state (e.g. a demoted-then-restarted pooler that re-asserts
+// Type=PRIMARY), and a backup taken from a stale leader on a divergent
+// timeline would be unrestorable.
+func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.MultiPooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
 	}
 
-	// Search across all cells for a pooler of the target type
+	// Collect every pooler in the (database, tableGroup) so leader selection
+	// can pick the highest-rule self_leadership across cells (a leader can be
+	// in any cell, and during a rule change two poolers may briefly both
+	// self-claim).
 	// TODO: Pick the replica with the least replica lag, as measured by the heartbeat service
+	var poolers []*clustermetadatapb.MultiPooler
 	for _, cellName := range allCells {
 		opts := &topoclient.GetMultiPoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
@@ -133,20 +140,36 @@ func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, ta
 			s.logger.DebugContext(ctx, "Failed to get poolers for cell", "cell", cellName, "error", err)
 			continue
 		}
-
-		// Find a pooler of the target type
 		for _, info := range poolerInfos {
-			if info.MultiPooler.Type == targetType {
-				return info.MultiPooler, nil
-			}
+			poolers = append(poolers, info.MultiPooler)
 		}
 	}
 
-	typeStr := "replica"
-	if forcePrimary {
-		typeStr = "primary"
+	if forceLeader {
+		var bestLeader *clustermetadatapb.MultiPooler
+		var bestObs *clustermetadatapb.LeaderObservation
+		for _, p := range poolers {
+			obs := p.GetSelfLeadership()
+			if obs == nil {
+				continue
+			}
+			if commonconsensus.MostAuthoritativeObservation(bestObs, obs) == obs {
+				bestLeader = p
+				bestObs = obs
+			}
+		}
+		if bestLeader != nil {
+			return bestLeader, nil
+		}
+		return nil, fmt.Errorf("leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 	}
-	return nil, fmt.Errorf("%s pooler not found for database=%s, table_group=%s, shard=%s", typeStr, database, tableGroup, shard)
+
+	for _, p := range poolers {
+		if p.GetSelfLeadership() == nil {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
 }
 
 // RestoreFromBackup starts an async restore of a specific shard from a backup

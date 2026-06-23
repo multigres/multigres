@@ -224,7 +224,7 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 		Where(
 			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
-				m.File().PkgPath.Matches(`services/(multigateway|multiorch)`) &&
+				m.File().PkgPath.Matches(`services/(multigateway|multiorch|multiadmin)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
 }
