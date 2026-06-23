@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // LeaderIsDeadAnalyzer detects when a leader exists in the shard but is unhealthy/unreachable.
@@ -59,6 +60,90 @@ func (a *LeaderIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
+// replicasStreamingFromLeader reports whether every follower we currently have
+// fresh evidence for is actively streaming from the leader's postgres. It is the
+// suppress-side evidence for failover: if all observable followers are streaming
+// with fresh WAL heartbeats, the leader's postgres is alive even when its own
+// pooler is unreachable.
+//
+// Followers we have never heard from, or whose snapshot is stale, are ignored —
+// absence of evidence is not evidence of disconnection — so the decision rests
+// only on followers we currently have data for. Returns false when there are no
+// such followers, so failover is not suppressed on missing data.
+func replicasStreamingFromLeader(sa *ShardAnalysis) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	primaryHost := sa.Leader.Health().GetMultiPooler().GetHostname()
+	primaryPort := sa.Leader.Health().GetMultiPooler().GetPortMap()["postgres"]
+	leaderKey := topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId())
+
+	replicaCount := 0
+	connectedCount := 0
+	for _, pa := range sa.Analyses {
+		if pa.Rider == nil {
+			continue
+		}
+		// Skip the leader itself and any node that self-claims leadership.
+		if topoclient.ComponentIDString(pa.PoolerID) == leaderKey || pa.NamesSelfAsLeader {
+			continue
+		}
+		// Ignore followers with no fresh observation (never reported, or a stale
+		// snapshot). A snapshot we haven't refreshed recently is absence of
+		// evidence, so it neither vouches for a live connection nor counts as
+		// disconnected — the decision rests on followers we currently see.
+		if !observationFresh(pa.Rider, sa.Now, sa.Policy.FollowerStreamFreshness) {
+			continue
+		}
+		replicaCount++
+		if followerStreamingFromLeader(sa, pa.Rider, primaryHost, primaryPort) {
+			connectedCount++
+		}
+	}
+	return replicaCount > 0 && connectedCount == replicaCount
+}
+
+// followerStreamingFromLeader reports whether a single follower is actively
+// streaming from the leader's postgres: its primary_conninfo targets the leader,
+// it has received WAL, the WAL receiver is in streaming state, and keepalives are
+// fresh (within wal_receiver_status_interval × multiplier, falling back to the
+// default threshold, and never older than wal_receiver_timeout).
+func followerStreamingFromLeader(sa *ShardAnalysis, replica *store.Pooler, primaryHost string, primaryPort int32) bool {
+	rs := replica.Health().GetStatus().GetReplicationStatus()
+	if rs == nil {
+		return false
+	}
+	connInfo := rs.PrimaryConnInfo
+	if connInfo == nil || connInfo.Host == "" {
+		return false
+	}
+	// Wrong primary indicates a deeper problem (misconfig/split-brain); return
+	// false to avoid letting it vouch for the current leader.
+	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
+		return false
+	}
+	if rs.LastReceiveLsn == "" {
+		return false
+	}
+	if rs.WalReceiverStatus != "streaming" {
+		return false
+	}
+	if ts := rs.LastMsgReceiveTime; ts != nil {
+		threshold := defaultReplicationHeartbeatStalenessThreshold
+		delay := sa.Now.Sub(ts.AsTime())
+		if d := rs.WalReceiverTimeout; d != nil && delay > d.AsDuration() {
+			return false
+		}
+		if d := rs.WalReceiverStatusInterval; d != nil && d.AsDuration() > 0 {
+			threshold = replicationHeartbeatStalenessMultiplier * d.AsDuration()
+		}
+		if delay > threshold {
+			return false
+		}
+	}
+	return true
+}
+
 // leaderObservedLive reports whether the orchestrator holds a recent, valid
 // observation of the leader's pooler — the freshness-aware liveness basis for
 // failover detection (Q1). It deliberately keys off observation age
@@ -70,8 +155,7 @@ func leaderObservedLive(sa *ShardAnalysis) bool {
 	if sa.Leader == nil {
 		return false
 	}
-	return sa.Leader.Health().IsLastCheckValid &&
-		observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderLivenessFreshness)
+	return observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderLivenessFreshness)
 }
 
 func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
@@ -141,7 +225,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	// yet). Suppressing would delay failover by up to the TCP keepalive
 	// interval (~30s).
 
-	if sa.ReplicasConnectedToLeader {
+	if replicasStreamingFromLeader(sa) {
 		// Reaching here means every replica is actively streaming from the leader's
 		// postgres with fresh WAL heartbeats (isFollowerConnectedToLeader verifies
 		// LastMsgReceiveTime against the receiver timeout), which is direct proof the

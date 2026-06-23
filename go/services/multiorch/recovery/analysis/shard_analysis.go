@@ -86,11 +86,6 @@ type ShardAnalysis struct {
 	// LeaderIsDeadAnalyzer to avoid false positives when no postgres standby can observe the leader.
 	HasInitializedReplica bool
 
-	// ReplicasConnectedToLeader is true only if ALL postgres standbys in the shard are still
-	// connected to the leader's Postgres via WAL streaming (pg_stat_wal_receiver). Used to avoid
-	// failover when only the leader pooler process is down but Postgres is still running.
-	ReplicasConnectedToLeader bool
-
 	// LeaderPostgresReady is true if the topology leader's Postgres is accepting connections
 	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable
 	// but Postgres may not yet be ready (e.g. still starting up).
@@ -149,6 +144,13 @@ type PoolerAnalysis struct {
 	// Identity
 	PoolerID *clustermetadatapb.ID
 	ShardKey *clustermetadatapb.ShardKey
+
+	// Rider is the cache rider this analysis was derived from. Analyzers that
+	// need raw health fields not surfaced as digested PoolerAnalysis fields
+	// (e.g. detailed replication status for the streaming-from-leader check)
+	// reach them through here, so those judgments can live in the analyzer
+	// rather than being pre-computed into opaque generator verdicts.
+	Rider *store.Pooler
 
 	// Pooler properties
 	NamesSelfAsLeader bool

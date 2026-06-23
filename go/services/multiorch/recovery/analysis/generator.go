@@ -235,6 +235,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	shardKey *clustermetadatapb.ShardKey,
 ) *PoolerAnalysis {
 	analysis := &PoolerAnalysis{
+		Rider:             pooler,
 		PoolerID:          pooler.Health().MultiPooler.Id,
 		ShardKey:          shardKey,
 		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()),
@@ -279,151 +280,20 @@ func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermet
 	return nil
 }
 
-// allReplicasConnectedToLeader checks if ALL postgres standbys in the shard are connected to the leader's postgres.
-// A replica is considered connected if:
-// 1. Its health check is valid (IsLastCheckValid)
-// 2. It has PrimaryConnInfo configured pointing to the leader's postgres
-// 3. It has received WAL (LastReceiveLsn is not empty)
+// observationFresh reports whether the pooler's most recent successful health
+// snapshot is recent enough (within maxAge, measured against now on the
+// orchestrator clock) to be trusted as a live observation.
 //
-// Returns true only if all replicas meet these criteria.
-// Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allReplicasConnectedToLeader(
-	primary *store.Pooler,
-	poolers map[topoclient.ComponentID]*store.Pooler,
-) bool {
-	primaryIDStr := topoclient.ComponentIDString(primary.Health().MultiPooler.Id)
-	primaryHost := primary.Health().MultiPooler.Hostname
-	primaryPort := primary.Health().MultiPooler.PortMap["postgres"]
-
-	replicaCount := 0
-	connectedCount := 0
-
-	for poolerID, pooler := range poolers {
-		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
-			continue
-		}
-
-		// Skip the leader itself
-		if poolerID == primaryIDStr {
-			continue
-		}
-
-		if commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()) {
-			continue
-		}
-
-		// Skip poolers that have never reported health — we have no information
-		// about their replication state, so they must not influence the
-		// connected-count check used to suppress failover.
-		if pooler.Health().StreamSnapshotsReceived == 0 {
-			continue
-		}
-
-		// Skip poolers whose last observation is stale: a snapshot we haven't
-		// refreshed recently is absence of evidence, not evidence of
-		// disconnection, so it must neither vouch for a live connection nor (by
-		// being counted as disconnected) force failover on missing data. Ignore
-		// it and let the followers we do have fresh data for decide. Same
-		// directionality as the never-reported skip above.
-		if !observationFresh(pooler, g.now(), g.availability.FollowerStreamFreshness) {
-			continue
-		}
-
-		replicaCount++
-
-		// Check if replica is connected to the leader's postgres
-		if !g.isFollowerConnectedToLeader(pooler, primaryHost, primaryPort) {
-			continue
-		}
-
-		connectedCount++
-	}
-
-	// All replicas must be connected (and there must be at least one replica)
-	return replicaCount > 0 && connectedCount == replicaCount
-}
-
-// isFollowerConnectedToLeader checks if a single replica is actively connected to the leader's postgres.
-// It verifies both that the connection is configured correctly and that the WAL receiver is
-// actively exchanging keepalives with the leader's postgres via pg_stat_wal_receiver.
-func (g *AnalysisGenerator) isFollowerConnectedToLeader(
-	replica *store.Pooler,
-	primaryHost string,
-	primaryPort int32,
-) bool {
-	// Replica must be reachable
-	if !replica.Health().IsLastCheckValid {
-		return false
-	}
-
-	// Replica must have replication status
-	rs := replica.Health().GetStatus().GetReplicationStatus()
-	if rs == nil {
-		return false
-	}
-
-	// Replica must have PrimaryConnInfo pointing to the primary
-	connInfo := rs.PrimaryConnInfo
-	if connInfo == nil || connInfo.Host == "" {
-		return false
-	}
-
-	// Verify the replica is pointing to the correct primary. Note: if this is
-	// not the case, there is a more fundamental problem (e.g., misconfiguration
-	// or split-brain). This is not correctly indicated by a simple "false"
-	// return value, but we still want to return false here to avoid falsely
-	// triggering failover analyzers that rely on this method.
-	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
-		return false
-	}
-
-	// Replica must have received WAL (indicates connection was established)
-	if rs.LastReceiveLsn == "" {
-		return false
-	}
-
-	// WAL receiver must be in streaming state
-	if rs.WalReceiverStatus != "streaming" {
-		return false
-	}
-
-	// If last_msg_receive_time is available, verify the leader's postgres is still
-	// sending keepalives. The threshold is
-	// replicationHeartbeatStalenessMultiplier × wal_receiver_status_interval,
-	// falling back to defaultReplicationHeartbeatStalenessThreshold when the
-	// interval is unknown.
-	//
-	// If the last heartbeat is older than WAL receiver timeout, the connection
-	// is effectively dead even if the replica hasn't noticed yet, so we check
-	// that as well.
-	if ts := rs.LastMsgReceiveTime; ts != nil {
-		threshold := defaultReplicationHeartbeatStalenessThreshold
-		delay := g.now().Sub(ts.AsTime())
-		if d := rs.WalReceiverTimeout; d != nil && delay > d.AsDuration() {
-			return false
-		}
-		if d := rs.WalReceiverStatusInterval; d != nil && d.AsDuration() > 0 {
-			threshold = replicationHeartbeatStalenessMultiplier * d.AsDuration()
-		}
-		if delay > threshold {
-			return false
-		}
-	}
-
-	return true
-}
-
-// observationFresh reports whether the pooler's most recent health snapshot is
-// recent enough (within maxAge, measured against now on the orchestrator clock)
-// to be trusted as a live observation. A pooler that has never recorded a
-// snapshot time is not judged stale here — callers gate that case on
-// IsLastCheckValid; only a recorded-but-old observation is treated as stale.
-// This keeps liveness tied to observation age rather than to whether a
-// particular stream is currently connected.
+// A pooler that has never recorded a snapshot is NOT fresh: with no observation
+// we have no evidence it is alive. Because LastSeen advances only on a
+// successful snapshot (never on a disconnect), freshness alone captures
+// "recently, successfully observed" — so callers need not separately consult a
+// connection flag or a snapshot counter, and a brief stream interruption does
+// not flip liveness until the observation genuinely ages out.
 func observationFresh(p *store.Pooler, now time.Time, maxAge time.Duration) bool {
 	age, ok := p.ObservationAge(now)
 	if !ok {
-		return true
+		return false
 	}
 	return age <= maxAge
 }
@@ -490,13 +360,5 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 			sa.HasInitializedReplica = true
 			break
 		}
-	}
-
-	// Determine if all followers are still connected to the leader's postgres.
-	// Use the highest-term discovered leader (which may be unreachable) so we can detect the
-	// "pooler down but postgres still running" scenario that ReplicasConnectedToLeader
-	// is designed to catch.
-	if topologyPrimary != nil {
-		sa.ReplicasConnectedToLeader = g.allReplicasConnectedToLeader(topologyPrimary, poolers)
 	}
 }
