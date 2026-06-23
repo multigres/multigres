@@ -86,7 +86,6 @@ type SetupConfig struct {
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
-	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
 	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
@@ -302,19 +301,6 @@ func WithMetricsExport() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMetricsExport = true
-	}
-}
-
-// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
-// the setup. Tags each PostgreSQL backend's application_name with
-// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
-// virtual PID back to its real backend PID via pg_stat_activity. Required by
-// the pgregress isolation harness shim and harmless elsewhere, but kept
-// opt-in so tests that probe application_name as a generic GUC aren't
-// accidentally shadowed.
-func WithVpidStamping() SetupOption {
-	return func(c *SetupConfig) {
-		c.EnableVpidStamping = true
 	}
 }
 
@@ -640,7 +626,6 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
 		inst.Pgctld.PgInitdbArgs = config.PgInitdbArgs
 		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, config.PgInitdbExtraConfFiles...)
-		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",

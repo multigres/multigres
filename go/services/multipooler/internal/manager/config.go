@@ -28,12 +28,14 @@ type Config struct {
 	PgctldAddr          string                  // Address of pgctld gRPC service
 	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
+
+	// BackendVpidTrackingEnabled controls active gateway-vpid/backend-pid
+	// tracking in multigres.backend_vpid. Nil means enabled (the default); false
+	// is an emergency opt-out.
+	BackendVpidTrackingEnabled *bool
+
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 	PgBackRestCertFile string // TLS client certificate file path
 	PgBackRestKeyFile  string // TLS client key file path
 	PgBackRestCAFile   string // TLS CA certificate file path
-
-	// VpidStampEnabled toggles stamping of multigres_vpid:<id> on PostgreSQL
-	// backends (and the matching application_name filter on pool settings).
-	VpidStampEnabled bool
 }

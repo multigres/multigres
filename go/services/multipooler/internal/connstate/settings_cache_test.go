@@ -325,3 +325,27 @@ func BenchmarkSettingsPointerEquality(b *testing.B) {
 		_ = s == cache.GetOrCreate(vars)
 	}
 }
+
+func TestSettingsNeedsReapplyOnReuse(t *testing.T) {
+	cases := []struct {
+		name string
+		vars map[string]string
+		want bool
+	}{
+		{"nil settings", nil, false},
+		{"plain GUCs", map[string]string{"timezone": "UTC", "search_path": "public"}, false},
+		{"role", map[string]string{"role": "regress_user"}, true},
+		{"session_authorization", map[string]string{"session_authorization": "regress_user"}, true},
+		{"mixed case key", map[string]string{"ROLE": "regress_user"}, true},
+		{"role among others", map[string]string{"timezone": "UTC", "role": "r"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var s *Settings
+			if tc.vars != nil {
+				s = NewSettings(tc.vars, 1)
+			}
+			assert.Equal(t, tc.want, s.NeedsReapplyOnReuse())
+		})
+	}
+}
