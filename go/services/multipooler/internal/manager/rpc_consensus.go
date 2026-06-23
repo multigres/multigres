@@ -604,16 +604,22 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   pm.serviceID,
-		LeaderTerm: revokedBelowTerm,
-	})
 	// IMPORTANT: updateTopologyAfterPromotion must only be called after UpdateRule
 	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
 	// UpdateRule is the durability gate: it waits for sync-standby acknowledgment.
 	if err := pm.updateTopologyAfterPromotion(ctx, state, proposedRule); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after promote", "error", err)
 	}
+	// UpdateLeaderObservation broadcasts (leader = self). Issue it AFTER
+	// updateTopologyAfterPromotion's SetState(PRIMARY, SERVING) so the
+	// broadcast that names this pooler as leader is also the first that
+	// reports PRIMARY+SERVING — keeping the gateway's buffer-drain check
+	// (serving && broadcast-names-self) from firing before the queryServer
+	// has finished transitioning to PRIMARY.
+	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
+		LeaderID:   pm.serviceID,
+		LeaderTerm: revokedBelowTerm,
+	})
 
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
