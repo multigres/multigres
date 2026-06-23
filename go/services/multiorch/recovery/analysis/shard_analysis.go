@@ -156,25 +156,19 @@ type PoolerAnalysis struct {
 	NamesSelfAsLeader bool
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
-	LastCheckValid   bool
-	IsInitialized    bool // Whether this pooler is fully initialized and ready to join the cohort
-	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
+	LastCheckValid bool
+	IsInitialized  bool // Whether this pooler is fully initialized and ready to join the cohort
 	// CohortMembers are the strongly-typed IDs from the most recent
 	// multigres.leadership_history record. Nil or empty both indicate no cohort
 	// has been established. When IsInitialized=true, an empty list means the
 	// 0-member bootstrap record is present — Phase 2 is needed.
 	CohortMembers []*clustermetadatapb.ID
-	AnalyzedAt    time.Time
 
 	// Replica-specific fields. WalReplayNotPaused is true when the standby's WAL
 	// replay is not paused. The zero value (false) means "not running", so an
 	// unpopulated analysis errs toward repair rather than assuming health.
 	WalReplayNotPaused  bool
 	PrimaryConnInfoHost string
-
-	// This is no longer needed and can be derived from ConsensusStatus, but is
-	// left here for now.
-	ConsensusTerm int64 // This node's consensus term (from health check)
 
 	// ConsensusStatus from the pooler's most recent StatusResponse snapshot.
 	// Used to derive the primary term via commonconsensus.PrimaryTerm(ConsensusStatus).

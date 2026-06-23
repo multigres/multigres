@@ -241,13 +241,10 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()),
 		LastCheckValid:    pooler.Health().IsLastCheckValid,
 		IsInitialized:     pooler.IsInitialized(),
-		HasDataDirectory:  pooler.Health().GetStatus().GetHasDataDirectory(),
 		CohortMembers:     pooler.Health().GetStatus().GetCohortMembers(),
-		AnalyzedAt:        time.Now(),
 	}
 
 	// Store consensus status.
-	analysis.ConsensusTerm = pooler.Health().GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
 	analysis.ConsensusStatus = pooler.Health().GetConsensusStatus()
 	analysis.AvailabilityStatus = pooler.Health().GetAvailabilityStatus()
 

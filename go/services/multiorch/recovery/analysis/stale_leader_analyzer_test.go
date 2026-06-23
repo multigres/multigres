@@ -54,7 +54,6 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			IsInitialized:     true,
 			LastCheckValid:    true,
 			ConsensusStatus:   primaryRuleStatus(staleID, 5),
-			ConsensusTerm:     10,
 		}
 		sa := &ShardAnalysis{
 			ShardKey: stalePA.ShardKey,
@@ -88,14 +87,12 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			NamesSelfAsLeader: true,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(newID, 6),
-			ConsensusTerm:     11,
 		}
 		stalePA := &PoolerAnalysis{
 			PoolerID:        staleID,
 			ShardKey:        newPA.ShardKey,
 			LastCheckValid:  true,
 			ConsensusStatus: primaryRuleStatus(staleID, 5),
-			ConsensusTerm:   10,
 		}
 		sa := &ShardAnalysis{
 			ShardKey: newPA.ShardKey,
@@ -145,7 +142,6 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			NamesSelfAsLeader: true,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(primaryID, 5),
-			ConsensusTerm:     10,
 		}
 		sa := &ShardAnalysis{
 			ShardKey: pa.ShardKey,
@@ -183,7 +179,6 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			NamesSelfAsLeader: true,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(newID, 6),
-			ConsensusTerm:     11,
 		}
 		stale1PA := &PoolerAnalysis{
 			PoolerID:        stale1ID,
