@@ -33,13 +33,13 @@ import (
 // re-merges; OnGone closes the connection. The cache uses no topology
 // Source, so it is driven by SeedForTest / DeleteForTest in tests.
 func newTestLB(t *testing.T, localCell string) *loadBalancer {
-	return newTestLBWithPrimaryServing(t, localCell, nil)
+	return newTestLBWithLeaderServing(t, localCell, nil)
 }
 
-// newTestLBWithPrimaryServing is the variant of newTestLB used by tests that
-// need to observe the OnPrimaryServing callback (the buffer-drain trigger).
+// newTestLBWithLeaderServing is the variant of newTestLB used by tests that
+// need to observe the OnLeaderServing callback (the buffer-drain trigger).
 // Pass nil to behave exactly like newTestLB.
-func newTestLBWithPrimaryServing(t *testing.T, localCell string, onPrimaryServing func(*clustermetadatapb.ShardKey)) *loadBalancer {
+func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing func(*clustermetadatapb.ShardKey)) *loadBalancer {
 	t.Helper()
 	logger := slog.Default()
 	ctx := t.Context()
@@ -48,12 +48,12 @@ func newTestLBWithPrimaryServing(t *testing.T, localCell string, onPrimaryServin
 		Logger: logger,
 	})
 	lb := newLoadBalancer(loadBalancerOpts{
-		Ctx:              ctx,
-		LocalCell:        localCell,
-		Logger:           logger,
-		DialOpt:          dialOpt,
-		Cache:            cache,
-		OnPrimaryServing: onPrimaryServing,
+		Ctx:             ctx,
+		LocalCell:       localCell,
+		Logger:          logger,
+		DialOpt:         dialOpt,
+		Cache:           cache,
+		OnLeaderServing: onLeaderServing,
 	})
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {

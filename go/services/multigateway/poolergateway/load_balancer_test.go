@@ -739,17 +739,17 @@ func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	lb.mu.Unlock()
 }
 
-// TestLoadBalancer_OnPrimaryServingRequiresSelfNamedLeader is the regression
+// TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader is the regression
 // guard for the buffer-drain race: a pooler can be SERVING (as a REPLICA)
 // while consensus has just named it the new leader. Until the pooler's own
 // broadcast names itself as leader, draining the failover buffer toward it
 // would route writes to a queryServer that still rejects WRITABLE traffic
-// with MTF01. We must only call OnPrimaryServing once the pooler's most
+// with MTF01. We must only call OnLeaderServing once the pooler's most
 // recent health snapshot self-identifies as leader — the gateway-side
 // replacement for the dropped Target.PoolerType == PRIMARY check.
-func TestLoadBalancer_OnPrimaryServingRequiresSelfNamedLeader(t *testing.T) {
+func TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader(t *testing.T) {
 	var calls []*clustermetadatapb.ShardKey
-	lb := newTestLBWithPrimaryServing(t, "zone1", func(sk *clustermetadatapb.ShardKey) {
+	lb := newTestLBWithLeaderServing(t, "zone1", func(sk *clustermetadatapb.ShardKey) {
 		calls = append(calls, sk)
 	})
 
@@ -772,14 +772,14 @@ func TestLoadBalancer_OnPrimaryServingRequiresSelfNamedLeader(t *testing.T) {
 		clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: oldLeaderID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
 	assert.Empty(t, calls,
-		"OnPrimaryServing must not fire while the pooler's broadcast names a different leader")
+		"OnLeaderServing must not fire while the pooler's broadcast names a different leader")
 
 	// Second broadcast: pooler now names itself in the broadcast. This is
 	// the post-OnStateChange snapshot. Drain the buffer.
 	simulateHealthUpdate(connLeader,
 		clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
-	require.Len(t, calls, 1, "OnPrimaryServing must fire once the pooler self-identifies as leader")
+	require.Len(t, calls, 1, "OnLeaderServing must fire once the pooler self-identifies as leader")
 	assert.Equal(t, constants.DefaultTableGroup, calls[0].GetTableGroup())
 	assert.Equal(t, "0", calls[0].GetShard())
 }

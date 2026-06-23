@@ -155,9 +155,10 @@ type loadBalancer struct {
 	// cache.Start with hooks that close over the LB.
 	cache *poolerwatch.PoolerCache[*poolerConnection]
 
-	// onPrimaryServing is called when a new primary is detected via health stream.
-	// Used to stop failover buffering for the shard. May be nil.
-	onPrimaryServing func(*clustermetadatapb.ShardKey)
+	// onLeaderServing is called when a new consensus leader is observed
+	// serving via its health stream. Used to stop failover buffering for
+	// the shard. May be nil.
+	onLeaderServing func(*clustermetadatapb.ShardKey)
 
 	// grpcDialOpt configures transport credentials (TLS or insecure) for pooler connections.
 	grpcDialOpt grpc.DialOption
@@ -194,11 +195,11 @@ type loadBalancerOpts struct {
 	// this are never selected. Zero means no upper bound.
 	HighTolerance time.Duration
 
-	// OnPrimaryServing fires when a new primary is observed serving on its
-	// health stream; used to drain the failover buffer. Optional. The
-	// ShardKey carries database + tableGroup + shard so the buffer can
-	// scope failover state correctly across databases.
-	OnPrimaryServing func(*clustermetadatapb.ShardKey)
+	// OnLeaderServing fires when a new consensus leader is observed
+	// serving on its health stream; used to drain the failover buffer.
+	// Optional. The ShardKey carries database + tableGroup + shard so the
+	// buffer can scope failover state correctly across databases.
+	OnLeaderServing func(*clustermetadatapb.ShardKey)
 
 	// Cache is the pooler cache that owns the per-pooler *poolerConnection
 	// riders. Callers construct the cache without hooks, pass it here, then
@@ -216,7 +217,7 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 		ctx:                           opts.Ctx,
 		shards:                        make(map[shardKey]*shardSummary),
 		grpcDialOpt:                   opts.DialOpt,
-		onPrimaryServing:              opts.OnPrimaryServing,
+		onLeaderServing:               opts.OnLeaderServing,
 		lowReplicationLagNs:           opts.LowLag.Nanoseconds(),
 		highReplicationLagToleranceNs: opts.HighTolerance.Nanoseconds(),
 		cache:                         opts.Cache,
@@ -270,7 +271,7 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shar
 	return summary
 }
 
-// notifyIfLeaderServing calls onPrimaryServing if conn is the known leader of
+// notifyIfLeaderServing calls onLeaderServing if conn is the known leader of
 // its shard and is both SERVING and self-reporting PoolerType_PRIMARY on its
 // health stream. StopBuffering is idempotent, so calling this on every
 // lifecycle / health update is safe and ensures buffering stops promptly once
@@ -286,7 +287,7 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shar
 // onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
 // not be called while holding lb.mu.
 func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *poolerConnection) {
-	if lb.onPrimaryServing == nil || conn == nil {
+	if lb.onLeaderServing == nil || conn == nil {
 		return
 	}
 	key := shardKey{
@@ -304,7 +305,7 @@ func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPoo
 // shard summary has been created yet (no leader observed); callers obtain it
 // from lb.shards or via shardSummary().
 func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *poolerConnection) {
-	if lb.onPrimaryServing == nil || summary == nil {
+	if lb.onLeaderServing == nil || summary == nil {
 		return
 	}
 	leader := summary.leader()
@@ -321,7 +322,7 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if !proto.Equal(health.LeaderObservation.GetLeaderId(), connID) {
 		return
 	}
-	lb.onPrimaryServing(summary.shardKey)
+	lb.onLeaderServing(summary.shardKey)
 }
 
 // getConnection returns a poolerConnection matching the target specification.

@@ -116,8 +116,8 @@ type PoolerGatewayOpts struct {
 	// DialOpt configures transport credentials for pooler gRPC connections.
 	// Required.
 	DialOpt grpc.DialOption
-	// Buffer is the failover buffer. When non-nil, OnPrimaryServing drains
-	// it when a new primary reports SERVING. Optional.
+	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
+	// it when a new consensus leader reports SERVING. Optional.
 	Buffer *buffer.Buffer
 	// LowLag is the preferred replication-lag threshold for replicas.
 	LowLag time.Duration
@@ -150,20 +150,20 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Logger: opts.Logger,
 	})
 
-	var onPrimaryServing func(*clustermetadatapb.ShardKey)
+	var onLeaderServing func(*clustermetadatapb.ShardKey)
 	if opts.Buffer != nil {
-		onPrimaryServing = opts.Buffer.StopBuffering
+		onLeaderServing = opts.Buffer.StopBuffering
 	}
 
 	lb := newLoadBalancer(loadBalancerOpts{
-		Ctx:              opts.Ctx,
-		LocalCell:        opts.LocalCell,
-		Logger:           opts.Logger,
-		DialOpt:          opts.DialOpt,
-		LowLag:           opts.LowLag,
-		HighTolerance:    opts.HighTolerance,
-		OnPrimaryServing: onPrimaryServing,
-		Cache:            cache,
+		Ctx:             opts.Ctx,
+		LocalCell:       opts.LocalCell,
+		Logger:          opts.Logger,
+		DialOpt:         opts.DialOpt,
+		LowLag:          opts.LowLag,
+		HighTolerance:   opts.HighTolerance,
+		OnLeaderServing: onLeaderServing,
+		Cache:           cache,
 	})
 
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
