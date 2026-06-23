@@ -497,10 +497,6 @@ message StreamPoolerHealthRequest {
 // multipooler atomically transitions serving_status only after the role
 // transition is complete (see QueryPoolerServer.OnStateChange).
 message StreamPoolerHealthResponse {
-  // Reserved: target was field 1. Removed; see message-level comment above.
-  reserved 1;
-  reserved "target";
-
   // pooler_id identifies this multipooler instance.
   clustermetadata.ID pooler_id = 2;
 

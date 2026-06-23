@@ -47,11 +47,10 @@ type poolerHealth struct {
 	// PoolerID identifies the multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
-	// ServingStatus is the serving state reported by the pooler. The
-	// multipooler publishes SERVING only after a role transition is fully
-	// complete (poolerType and servingStatus update atomically; see
-	// QueryPoolerServer.OnStateChange) — so SERVING from the named leader
-	// is on its own sufficient as a buffer-drain trigger.
+	// ServingStatus is the serving state reported by the pooler. Buffer
+	// drain (notifyIfLeaderServing) requires both SERVING and the
+	// broadcast's LeaderObservation naming this pooler — see that function
+	// for the race the dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
 	// LeaderObservation contains the pooler's view of who the consensus leader

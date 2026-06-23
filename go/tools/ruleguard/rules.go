@@ -229,6 +229,34 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
 }
 
+// disallowPoolerTypeEnumInGateway forbids mentions of the clustermetadata.PoolerType
+// enum constants in gateway production code. PoolerType is a topology role label
+// that conflates classification (PRIMARY/REPLICA) with routing intent; the gateway
+// should express intent through query.Mode (WRITABLE / CONSISTENT / INCONSISTENT)
+// and identity through consensus state (self_leadership / LeaderObservation).
+//
+// Sibling to disallowMultiPoolerTypeForRouting, which forbids reading a discovered
+// MultiPooler's .Type field. This rule additionally bans bare references to the
+// enum constants themselves — e.g. comparing health.poolerType to PRIMARY — so
+// the enum is fully banished from gateway routing decisions, not just topology
+// reads.
+//
+// Test files are excluded; constructing test MultiPooler fixtures with a Type is
+// fine.
+func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+
+	m.Match(
+		`clustermetadata.PoolerType_UNKNOWN`,
+		`clustermetadata.PoolerType_PRIMARY`,
+		`clustermetadata.PoolerType_REPLICA`,
+		`clustermetadata.PoolerType_DRAINED`,
+	).Where(
+		m.File().PkgPath.Matches(`services/multigateway`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (LeaderObservation / self_leadership) for identity")
+}
+
 // disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's
 // replication primary — both the generated GetReplicationPrimary() getter and the
 // raw .ReplicationPrimary field. proto3 cannot tell an unset ReplicationPrimary

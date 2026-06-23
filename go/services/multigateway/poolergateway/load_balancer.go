@@ -272,16 +272,17 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shar
 }
 
 // notifyIfLeaderServing calls onLeaderServing if conn is the known leader of
-// its shard and is both SERVING and self-reporting PoolerType_PRIMARY on its
-// health stream. StopBuffering is idempotent, so calling this on every
-// lifecycle / health update is safe and ensures buffering stops promptly once
-// the leader is ready.
+// its shard, is SERVING on its health stream, AND the most recent broadcast
+// names this pooler itself as leader. StopBuffering is idempotent, so calling
+// this on every lifecycle / health update is safe and ensures buffering stops
+// promptly once the leader is ready.
 //
-// The PoolerType_PRIMARY check is critical: a LeaderObservation can arrive
-// before the named pooler has finished transitioning its query server to
-// PRIMARY/SERVING (e.g. during Promote, UpdateLeaderObservation fires before
-// changeTypeLocked). Draining buffered requests too early would send them to
-// a pooler that still rejects PRIMARY traffic.
+// The self-named-leader check is the buffer-drain race guard: a
+// LeaderObservation can arrive (via etcd self_leadership or via another
+// pooler's health stream) before the named pooler has itself acknowledged
+// being leader. Until this pooler's own broadcast names itself as leader,
+// draining the buffer toward it would route writes to a queryServer that
+// still rejects WRITABLE traffic with MTF01.
 //
 // Called by the cache OnLive/OnUpdate hooks and internally by
 // onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
