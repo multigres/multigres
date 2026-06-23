@@ -32,13 +32,14 @@ import (
 // pgsql-http's shipped suite is built to run against a LOCAL httpbin instance:
 // its first statements are `SET http.server_host = 'http://localhost:9080'`
 // and a probe that falls back to live httpbin.org only when nothing answers
-// locally (upstream CI provisions a local httpbin the same way). Serving the
-// handful of httpbin endpoints the suite uses in-process keeps that portion
-// local — no live httpbin.org fallback — while the extension's full client
-// stack (libcurl inside the postgres backend, reached through multigateway) is
-// exercised for real.
+// locally (upstream CI provisions a local httpbin the same way). pg_net's
+// in-repo SQL suite also points its background worker at this server. Serving
+// the handful of httpbin endpoints the suites use in-process keeps that portion
+// local — no live httpbin.org fallback — while each extension's HTTP client stack
+// (libcurl inside postgres, reached through multigateway) is exercised for real.
 //
-//   - httpbinPort (9080) is fixed by the suite's own SET statement.
+//   - httpbinPort (9080) is fixed by pgsql-http's own SET statement and shared by
+//     pg_net's LocalTestDir suite.
 //
 // Responses mirror the httpbin response shapes the suite's assertions extract:
 // args/form/data/method/url echo for /anything and /get, query→header echo for

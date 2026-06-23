@@ -101,7 +101,7 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pg_cron", KindExternal, StatusCovered, "Citus pg_cron; built as a PGXS module from externalSpecs; needs shared_preload_libraries (see testdata/pg17/external/pg_cron.conf)"},
 	{"pg_graphql", KindExternal, StatusCovered, "Supabase pg_graphql; Rust/pgrx crate built with cargo-pgrx; loads test/fixtures.sql before its pg_regress suite"},
 	{"pg_jsonschema", KindExternal, StatusCovered, "Rust/pgrx JSON Schema validator; ships no SQL suite (upstream tests are pgrx #[pg_test] functions in a private embedded server), so the harness carries a faithful SQL translation of that corpus in-repo (LocalTestDir) and runs it through multigateway"},
-	{"pg_net", KindExternal, StatusExternal, "background worker"},
+	{"pg_net", KindExternal, StatusCovered, "Supabase async HTTP worker; needs libcurl and shared_preload_libraries=pg_net. Upstream ships pytest fixtures, so the harness carries a deterministic SQL suite (LocalTestDir) against the local httpbin-compatible server on :9080"},
 	{"pg_partman", KindExternal, StatusCovered, "pgTAP suite run via psql (not pg_regress); needs pgtap + max_locks_per_transaction>=128 (see testdata/pg17/external/pg_partman.conf). Runs the transaction-wrapped tests only (top-level + test_pg17plus/ + test_no_search_path/); autocommit/procedure subfolders can't run through a transaction pooler — see runExternalPgTAP. Also pgmq's build dependency (pgmq.create_partitioned → create_parent)."},
 	{"pg_prewarm", KindContrib, StatusCovered, ""},
 	{"pg_stat_statements", KindContrib, StatusUnsupported, "NO_INSTALLCHECK; records query text the gateway rewrites"},
@@ -121,11 +121,11 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"postgis_sfcgal", KindExternal, StatusCovered, "PostGIS SFCGAL component; covered by the PostGIS regress runner when SFCGAL support is built"},
 	{"postgis_topology", KindExternal, StatusCovered, "PostGIS topology component; covered by the PostGIS regress runner"},
 	{"postgres_fdw", KindContrib, StatusUnsupported, "pooler blocks CREATE SERVER / outbound connections"},
-	{"supabase_vault", KindExternal, StatusExternal, ""},
+	{"supabase_vault", KindExternal, StatusCovered, "Supabase Vault; PGXS module using libsodium. The harness preloads supabase_vault with a generated test getkey script and runs an in-repo SQL suite because the pinned tag's default_version needs an explicit 0.3.0 install then UPDATE to 0.3.1"},
 	{"unaccent", KindContrib, StatusCovered, ""},
 	{"uuid-ossp", KindContrib, StatusCovered, "needs --with-uuid"},
 	{"vector", KindExternal, StatusCovered, "pgvector; built as a PGXS module from externalSpecs"},
-	{"wrappers", KindExternal, StatusExternal, "Rust"},
+	{"wrappers", KindExternal, StatusBuildOnly, "Supabase Wrappers; Rust/pgrx build with the lightweight helloworld_fdw feature, smoke-loaded with CREATE EXTENSION. Full FDW usability still needs a guarded policy for CREATE FOREIGN DATA WRAPPER / CREATE SERVER, which the gateway blocks by default"},
 }
 
 // contribRegressTests holds the explicit pg_regress test list for covered
@@ -339,13 +339,19 @@ type ExternalExtension struct {
 	// BuildSystem selects the build toolchain: "" (or "pgxs") builds a PGXS
 	// module with make; "pgrx" builds a Rust crate with cargo-pgrx; "postgis"
 	// builds PostGIS's autotools tree. pgvector, pg_cron, and pgmq are PGXS;
-	// pg_graphql is pgrx.
+	// pg_graphql and wrappers are pgrx.
 	BuildSystem string
 
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx". It must
 	// equal the crate's pinned pgrx dependency (pg_graphql 1.6.1 → pgrx 0.16.1),
 	// or cargo-pgrx refuses to build. Empty (and ignored) for PGXS extensions.
 	PgrxVersion string
+
+	// PgrxFeatures are additional cargo features to enable for BuildSystem=="pgrx",
+	// beyond the PostgreSQL-major feature (pg17) the builder always adds. Wrappers
+	// uses this to build a lightweight FDW feature without pulling in every
+	// optional backend client.
+	PgrxFeatures []string
 
 	// ConfigureArgs are extra configure arguments for BuildSystem=="postgis".
 	// The builder always supplies --with-pgconfig for the from-source server.
@@ -380,9 +386,16 @@ type ExternalExtension struct {
 	// pgsql-http's suite is designed to run against a local httpbin on exactly
 	// that port (its first statement is SET http.server_host =
 	// 'http://localhost:9080', falling back to live httpbin.org only when nothing
-	// answers locally — a fallback the harness must never exercise in CI). See
-	// httpbin.go.
+	// answers locally — a fallback the harness must never exercise in CI). pg_net's
+	// in-repo SQL suite also uses this local server for deterministic async HTTP
+	// worker coverage. See httpbin.go.
 	NeedsHTTPBin bool
+
+	// NeedsVaultKey, when true, has the harness generate an executable getkey
+	// script and a postgresql.conf snippet pointing vault.getkey_script at it.
+	// supabase_vault needs this when preloaded: its _PG_init reads a 64-hex-byte
+	// root key before any SQL can exercise encryption/decryption.
+	NeedsVaultKey bool
 
 	// LocalTestDir, when non-empty, names a directory under
 	// testdata/pg<major>/external/ holding an in-repo sql/ + expected/ suite
@@ -592,6 +605,20 @@ var externalSpecs = map[string]ExternalExtension{
 		BuildSystem: "pgrx", PgrxVersion: "0.16.1",
 		LocalTestDir: "pg_jsonschema",
 	},
+	// pg_net is a PGXS module plus a background worker. It must be preloaded so
+	// the worker is registered at server start; the local SQL suite CREATEs the
+	// extension through multigateway, queues an async request, commits via
+	// autocommit, and then waits for the worker to store the response. Upstream's
+	// pytest suite requires bespoke web servers and ALTER SYSTEM cases; the
+	// in-repo suite keeps the compatibility signal deterministic while exercising
+	// the real libcurl worker against the existing httpbin-compatible server.
+	"pg_net": {
+		Name: "pg_net", Repo: "https://github.com/supabase/pg_net", Tag: "v0.9.3",
+		PreloadLibraries: []string{"pg_net"},
+		PkgConfigDeps:    []string{"libcurl"},
+		NeedsHTTPBin:     true,
+		LocalTestDir:     "pg_net",
+	},
 	"index_advisor": {
 		Name: "index_advisor", Repo: "https://github.com/supabase/index_advisor", Tag: "v0.2.0",
 		// Standard PGXS test layout (test/sql + test/expected, REGRESS_OPTS
@@ -699,6 +726,33 @@ var externalSpecs = map[string]ExternalExtension{
 		// inside a plpgsql function — the gateway only sees the SELECT, so the
 		// top-level unlogged-table rejection does not fire and it succeeds.)
 		DependsOn: []string{"pg_partman"},
+	},
+	// supabase_vault embeds the pgsodium-derived crypto routines it needs, so it
+	// only needs libsodium at build time. Runtime encryption requires the library
+	// to be preloaded with a getkey script; NeedsVaultKey generates a deterministic
+	// test-only key source and LocalTestDir carries a SQL suite that installs the
+	// pinned tag via VERSION '0.3.0' then UPDATEs to 0.3.1 (the tag ships no
+	// supabase_vault--0.3.1.sql base script).
+	"supabase_vault": {
+		Name: "supabase_vault", Repo: "https://github.com/supabase/vault", Tag: "v0.3.1",
+		PreloadLibraries: []string{"supabase_vault"},
+		PkgConfigDeps:    []string{"libsodium"},
+		NeedsVaultKey:    true,
+		LocalTestDir:     "supabase_vault",
+	},
+	// Wrappers is a pgrx workspace. Build only the demo helloworld_fdw feature so
+	// the extension itself is installable without pulling native clients for every
+	// supported remote service. The gateway still blocks CREATE FOREIGN DATA
+	// WRAPPER / CREATE SERVER by default, so this is a build/load smoke check until
+	// a narrow wrappers allowlist policy exists.
+	"wrappers": {
+		Name: "wrappers", Repo: "https://github.com/supabase/wrappers", Tag: "v0.6.2",
+		BuildSubdir:         "wrappers",
+		BuildSystem:         "pgrx",
+		PgrxVersion:         "0.16.1",
+		PgrxFeatures:        []string{"helloworld_fdw"},
+		Harness:             HarnessSmoke,
+		PreCreateExtensions: []ExtensionInstall{{Name: "wrappers"}},
 	},
 }
 

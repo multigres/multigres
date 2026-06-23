@@ -289,7 +289,8 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	// testdata/pg<major>/external/<LocalTestDir> (pg_jsonschema: a faithful SQL
 	// translation of its pgrx #[pg_test] corpus). It replaces the checkout's
 	// fixtures entirely; the checkout is still what got built and installed.
-	if ext.LocalTestDir != "" {
+	usingLocalTestDir := ext.LocalTestDir != ""
+	if usingLocalTestDir {
 		testDir = filepath.Join(filepath.Dir(PatchesDir()), "external", ext.LocalTestDir)
 	}
 
@@ -348,6 +349,19 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	}
 
 	outputDir := cloneDir
+	if usingLocalTestDir {
+		// Keep generated pg_regress inputs/results out of the checkout for in-repo
+		// replacement suites. Some extensions (pg_net) ship sql/<name>.sql in the
+		// clone root; using that root as --outputdir can make pg_regress execute the
+		// upstream extension install script instead of the local compatibility test.
+		outputDir = filepath.Join(pb.BuildDir, "external-regress-output", ext.Name)
+		if err := os.RemoveAll(outputDir); err != nil {
+			return nil, fmt.Errorf("external/%s: remove pg_regress output dir: %w", ext.Name, err)
+		}
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			return nil, fmt.Errorf("external/%s: create pg_regress output dir: %w", ext.Name, err)
+		}
+	}
 
 	t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
 	pgRegress := filepath.Join(pb.BuildDir, "src", "test", "regress", "pg_regress")
