@@ -435,16 +435,27 @@ func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.Poo
 		return remedialActionNone
 	}
 
-	// Above we were comparing Postgres state vs consensus role. Here we compare the
-	// StateManager's effective state against what we've observed and reconcile any
-	// drift. This recovers from, e.g., an RPC that timed out and failed to start or
-	// stop heartbeat writes, and also picks up a physical primary-ness change that
-	// did not trigger a role action (postgres entering/leaving recovery while the
-	// role is unchanged — the resign window, or recovery clearing again).
-	// For example, if we're a resigned primary in recovery mode we need to make sure
-	// state reflects being in recovery mode so the heartbeat writer doesn't cause
-	// log spam attempting failed writes.
-	if pm.getPoolerType() != intended || state.isPrimary != lastAppliedPrimary {
+	// Here we reconcile the StateManager's effective state against what we've
+	// observed and fix any drift:
+	//   - role drift (e.g. an RPC that timed out before republishing the label);
+	//   - physical primary-ness drift that did not trigger a role action (postgres
+	//     entering/leaving recovery while the role is unchanged — the resign window,
+	//     or recovery clearing again), so the heartbeat writer doesn't spam failed
+	//     writes against a standby;
+	//   - serving disabled: serving is turned off explicitly for a drain (shutdown,
+	//     pause, demotion) and re-enabled explicitly here. A running, role-aligned
+	//     node that is NOT_SERVING with no reason to stay drained — e.g. a demotion
+	//     that errored before completing — is brought back to SERVING by the monitor
+	//     loop rather than as a side effect of some other operation. In-progress
+	//     drains hold the action lock (the monitor can't fight them) and a resigned
+	//     leader is handled by the branch above.
+	//
+	// TODO: once serving can be disabled by configuration (a persistent operator
+	// choice) rather than only transiently for a transition, distinguish that here
+	// so the monitor does not re-enable a deliberately-disabled pooler.
+	if pm.getPoolerType() != intended ||
+		state.isPrimary != lastAppliedPrimary ||
+		pm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_NOT_SERVING {
 		return remedialActionReconcileState
 	}
 
@@ -575,22 +586,27 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err)
 			return
 		}
-		// Apply the rule-derived role immediately (SetState transitions serving
-		// state and republishes the label) so the gateway and stale-leader analyzer
-		// stop treating us as a primary, rather than waiting a monitor cycle for
-		// ReconcileRole. The rule named another leader (that is why we demoted), so
-		// this resolves to REPLICA.
+		// Republish the role label immediately so the gateway and stale-leader
+		// analyzer stop treating us as a primary, rather than waiting a monitor
+		// cycle for reconcileState. Only the role changes here — the rule named
+		// another leader (that is why we demoted), so this resolves to REPLICA (nil
+		// self-leadership). Serving status and physical primary-ness are left to the
+		// next tick's reconcileState, which fires on the primary drift caused by
+		// restarting as a standby.
 		_, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
-		if err := pm.stateManager.SetState(ctx, obs, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+			s.SelfLeadership = obs
+		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err)
 		}
 
 	case remedialActionReconcileState:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		// The StateManager's effective state has drifted (role and/or physical
-		// primary-ness). Reconcile both in one Mutate: the leadership obs sets the
-		// derived role, and the observed isPrimary syncs the writable state that
-		// gates the heartbeat writer / LISTEN.
+		// The StateManager's effective state has drifted (role, physical
+		// primary-ness, and/or serving disabled). Reconcile all three in one Mutate:
+		// the leadership obs sets the derived role, the observed isPrimary syncs the
+		// writable state that gates the heartbeat writer / LISTEN, and serving is
+		// (re)enabled — a running, role-aligned node serves unless it is mid-drain.
 		intended, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling state from rule",
 			"intended_role", intended.String(), "postgres_primary", state.isPrimary)

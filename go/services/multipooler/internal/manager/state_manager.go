@@ -227,19 +227,6 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	return nil
 }
 
-// SetState transitions the consensus role and serving status, leaving the
-// physical primary state as the monitor last observed it. Thin wrapper over
-// Mutate for the common role/serving transition.
-//
-// selfLeadership is the observation that names this pooler as leader (so the
-// derived PoolerType is PRIMARY); pass nil for a follower.
-func (ssm *StateManager) SetState(ctx context.Context, selfLeadership *clustermetadatapb.LeaderObservation, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	return ssm.Mutate(ctx, func(s *servingStateMutation) {
-		s.SelfLeadership = selfLeadership
-		s.ServingStatus = servingStatus
-	})
-}
-
 // isPostgresPrimary returns the physical recovery state last applied to
 // components. The monitor compares its fresh observation against this (lock-free)
 // to decide whether a sync under the action lock is needed.

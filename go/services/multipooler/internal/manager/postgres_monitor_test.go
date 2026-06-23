@@ -453,18 +453,19 @@ func TestDetermineRemedialAction(t *testing.T) {
 // after a resign.
 func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
-	newAlignedPrimaryManager := func() *MultiPoolerManager {
+	newAlignedPrimaryManager := func(serving clustermetadatapb.PoolerServingStatus) *MultiPoolerManager {
 		pm := &MultiPoolerManager{
 			serviceID: selfID,
 			record: newRecordFromProto(&clustermetadatapb.MultiPooler{
 				Id:             selfID,
 				Type:           clustermetadatapb.PoolerType_PRIMARY,
 				SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: selfID},
+				ServingStatus:  serving,
 			}),
 		}
 		pm.consensusState = consensus.NewConsensusState("", selfID)
 		// Rule names self, so intendedRole is PRIMARY and the record already agrees:
-		// no role drift, isolating the physical-primary-drift decision.
+		// no role drift, isolating the physical-primary / serving decisions.
 		pm.rules = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
 			Rule: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -476,15 +477,23 @@ func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
 
 	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true}
 
-	t.Run("drift reconciles", func(t *testing.T) {
-		pm := newAlignedPrimaryManager()
+	t.Run("primary drift reconciles", func(t *testing.T) {
+		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
 		// Components last saw a standby (false) but postgres is now a primary (true).
 		got := pm.determineRemedialAction(t.Context(), runningPrimary, false /* lastAppliedPrimary */)
 		require.Equal(t, remedialActionReconcileState, got)
 	})
 
+	t.Run("serving disabled reconciles", func(t *testing.T) {
+		// Role and primary aligned, but serving was left NOT_SERVING (e.g. a
+		// demotion that errored before completing). The monitor re-enables it.
+		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
+		require.Equal(t, remedialActionReconcileState, got)
+	})
+
 	t.Run("no drift is a no-op", func(t *testing.T) {
-		pm := newAlignedPrimaryManager()
+		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
 		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
 		require.Equal(t, remedialActionNone, got)
 	})

@@ -502,11 +502,14 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 	}
 
 	// Start health heartbeat goroutine and transition to the target status.
-	// SetState notifies all components (query service, heartbeat, health
-	// streamer) and Mutates the record. The publisher (if running, started
-	// by StartTopoRegistration) picks it up and writes to etcd.
+	// Mutate notifies all components (query service, heartbeat, health streamer)
+	// and Mutates the record. The publisher (if running, started by
+	// StartTopoRegistration) picks it up and writes to etcd. Only the serving
+	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
-	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), targetServingStatus); err != nil {
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = targetServingStatus
+	}); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
 }
@@ -596,7 +599,9 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 	// running) picks up the Mutate and writes NOT_SERVING to etcd —
 	// pausing the manager intentionally still reflects in topology so
 	// callers see the pooler is not serving queries.
-	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
 	}
 
@@ -1181,7 +1186,9 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 	// Use the serving state manager to transition components.
 	// This updates query service, heartbeat, and the pooler record. Mutate
 	// inside StateManager schedules an async publish to topology.
-	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	}); err != nil {
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
