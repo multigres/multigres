@@ -31,6 +31,15 @@ type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 	Analyses []*PoolerAnalysis
 
+	// Now is the evaluation timestamp (orchestrator clock) captured when this
+	// analysis was generated. Analyzers use it — together with Policy — to judge
+	// observation freshness explicitly, rather than reading pre-baked liveness
+	// verdicts from the generator.
+	Now time.Time
+
+	// Policy carries the availability thresholds in effect for this evaluation.
+	Policy AvailabilityPolicy
+
 	// TombstoneIDs is the set of pooler IDs the cache has marked as SHUTDOWN
 	// tombstones cluster-wide. Analyzers consult it to detect cohort members
 	// that have explicitly drained (and therefore had their riders evicted
@@ -70,11 +79,6 @@ type ShardAnalysis struct {
 	// LeaderReachable is true if the topology leader's pooler is reachable AND
 	// its Postgres is running. False when TopologyLeaderID is nil.
 	LeaderReachable bool
-
-	// LeaderPoolerReachable is true if the topology leader's pooler health check
-	// succeeded, independently of whether Postgres is running.
-	// False when TopologyLeaderID is nil.
-	LeaderPoolerReachable bool
 
 	// HasInitializedReplica is true if at least one non-leader, reachable, initialized pooler exists
 	// in the shard. This is a postgres-layer check (is there a standby that has joined the cluster?),

@@ -21,10 +21,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
@@ -53,13 +55,20 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	// deadLeaderShardAnalysis builds a ShardAnalysis that has a dead leader and an
-	// initialized replica — the base case for LeaderIsDead detection.
+	// initialized replica — the base case for LeaderIsDead detection. The leader
+	// rider starts not-valid (no live observation); use setLeaderLive to mark it
+	// observed-live in subtests that need a reachable leader.
 	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
 		sa := &ShardAnalysis{
 			ShardKey:              shardKey,
 			HighestShardRule:      &clustermetadatapb.ShardRule{LeaderId: leaderID},
-			LeaderReachable:       false,
 			HasInitializedReplica: true,
+			Now:                   time.Now(),
+			Policy:                DefaultAvailabilityPolicy(),
+			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
+				MultiPooler:      &clustermetadatapb.MultiPooler{Id: leaderID, ShardKey: shardKey},
+				IsLastCheckValid: false,
+			}, nil),
 			Analyses: []*PoolerAnalysis{
 				{
 					PoolerID:          &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
@@ -73,6 +82,19 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 			o(sa)
 		}
 		return sa
+	}
+
+	// setLeaderLive marks the leader rider as observed-live (recent, valid
+	// snapshot) or not, replacing the old pre-baked LeaderPoolerReachable verdict.
+	setLeaderLive := func(sa *ShardAnalysis, live bool) {
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.IsLastCheckValid = live
+			if live {
+				h.LastSeen = timestamppb.New(sa.Now)
+			} else {
+				h.LastSeen = nil
+			}
+		})
 	}
 
 	t.Run("detects dead leader (leader exists in topology but unreachable)", func(t *testing.T) {
@@ -91,7 +113,8 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores healthy leader (reachable)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderReachable = true
+			setLeaderLive(sa, true)
+			sa.LeaderPostgresReady = true
 		})
 
 		problems, err := analyzer.Analyze(sa)
@@ -121,7 +144,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when leader pooler down but all replicas still connected to postgres", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false
+			setLeaderLive(sa, false)
 			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second) // Responded recently
 		})
@@ -133,7 +156,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("triggers failover when leader pooler up but postgres down", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true // Pooler is up
+			setLeaderLive(sa, true) // Pooler is up
 			// LeaderReachable remains false (postgres down)
 		})
 
@@ -146,7 +169,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false
+			setLeaderLive(sa, false)
 			sa.ReplicasConnectedToLeader = false
 		})
 
@@ -163,7 +186,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when leader pooler down but replicas connected (postgres still running, recent timestamp)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false                                  // Pooler is down
+			setLeaderLive(sa, false)                                          // Pooler is down
 			sa.LeaderPostgresReady = false                                    // Unknown since pooler is down
 			sa.ReplicasConnectedToLeader = true                               // But replicas are still connected to postgres
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-5 * time.Second) // Responded recently (within 30s default threshold)
@@ -176,7 +199,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when pooler up, postgres starting (replicas connected, recent timestamp)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true     // Pooler is up
+			setLeaderLive(sa, true)             // Pooler is up
 			sa.LeaderPostgresReady = false      // Postgres not yet accepting connections
 			sa.LeaderPostgresRunning = true     // But process exists (starting up or SIGSTOP'd)
 			sa.ReplicasConnectedToLeader = true // Replicas still connected via streaming replication
@@ -190,7 +213,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("triggers failover when pooler up but postgres process dead (SIGKILL), replicas still connected", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true     // Pooler is up and reachable
+			setLeaderLive(sa, true)             // Pooler is up and reachable
 			sa.LeaderPostgresReady = false      // Postgres not accepting connections
 			sa.LeaderPostgresRunning = false    // Process is dead (SIGKILL)
 			sa.ReplicasConnectedToLeader = true // Replicas still appear connected (TCP keepalive not yet fired)
@@ -210,7 +233,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		// then allow failover once the response threshold lapses so a wedged postgres
 		// cannot block failover forever.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true
+			setLeaderLive(sa, true)
 			sa.LeaderPostgresRunning = true                                    // process exists
 			sa.LeaderPostgresReady = false                                     // but wedged (pg_isready fails)
 			sa.ReplicasConnectedToLeader = true                                // replicas still appear connected
@@ -229,7 +252,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		// replicas being connected (ReplicasConnectedToLeader requires fresh WAL
 		// heartbeats) is itself proof the leader's postgres is alive.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false
+			setLeaderLive(sa, false)
 			sa.LeaderPostgresReady = false
 			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Now().Add(-60 * time.Second) // Older than 30s default threshold
@@ -246,7 +269,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		// Leader identity is recovered from the replicas' consensus rules, and their
 		// fresh streaming proves postgres is alive, so failover must be suppressed.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false
+			setLeaderLive(sa, false)
 			sa.LeaderPostgresReady = false
 			sa.ReplicasConnectedToLeader = true
 			sa.LeaderLastPostgresReadyTime = time.Time{} // Zero: postgres never directly seen healthy
@@ -259,7 +282,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("suppresses LeaderIsDead while pg_promote() is running", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true  // stream is live
+			setLeaderLive(sa, true)          // stream is live
 			sa.LeaderPostgresRunning = true  // process is running
 			sa.LeaderPostgresReady = false   // not yet accepting connections (promoting)
 			sa.PromotingPrimaryID = leaderID // multipooler flagged promotion in progress
@@ -272,7 +295,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("does not suppress LeaderIsDead when postgres crashes during promotion", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = true  // stream still alive (multipooler survived)
+			setLeaderLive(sa, true)          // stream still alive (multipooler survived)
 			sa.LeaderPostgresRunning = false // postgres process died during promotion
 			sa.LeaderPostgresReady = false
 			sa.PromotingPrimaryID = leaderID // flag still set before cleared
@@ -286,7 +309,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("does not suppress LeaderIsDead when multipooler unreachable during promotion", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.LeaderPoolerReachable = false // stream disconnected (stale flag)
+			setLeaderLive(sa, false) // stream disconnected (stale flag)
 			sa.LeaderPostgresRunning = true
 			sa.LeaderPostgresReady = false
 			sa.PromotingPrimaryID = leaderID // stale flag from last snapshot

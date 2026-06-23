@@ -61,6 +61,10 @@ type AnalysisGenerator struct {
 	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
 	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
 	now          func() time.Time
+	// availability holds the freshness thresholds (and, over time, other
+	// decision knobs) used when judging pooler liveness. Defaults to
+	// DefaultAvailabilityPolicy; tests may override.
+	availability AvailabilityPolicy
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
@@ -72,6 +76,7 @@ func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(data
 		poolerStore:  poolerStore,
 		policyLookup: policyLookup,
 		now:          time.Now,
+		availability: DefaultAvailabilityPolicy(),
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	if poolerStore != nil {
@@ -120,7 +125,12 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.Sh
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
 func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*store.Pooler) *ShardAnalysis {
-	sa := &ShardAnalysis{ShardKey: shardKey, TombstoneIDs: g.tombstoneIDs}
+	sa := &ShardAnalysis{
+		ShardKey:     shardKey,
+		TombstoneIDs: g.tombstoneIDs,
+		Now:          g.now(),
+		Policy:       g.availability,
+	}
 	for _, pooler := range poolers {
 		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
 	}
@@ -309,6 +319,16 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			continue
 		}
 
+		// Skip poolers whose last observation is stale: a snapshot we haven't
+		// refreshed recently is absence of evidence, not evidence of
+		// disconnection, so it must neither vouch for a live connection nor (by
+		// being counted as disconnected) force failover on missing data. Ignore
+		// it and let the followers we do have fresh data for decide. Same
+		// directionality as the never-reported skip above.
+		if !observationFresh(pooler, g.now(), g.availability.FollowerStreamFreshness) {
+			continue
+		}
+
 		replicaCount++
 
 		// Check if replica is connected to the leader's postgres
@@ -393,6 +413,21 @@ func (g *AnalysisGenerator) isFollowerConnectedToLeader(
 	return true
 }
 
+// observationFresh reports whether the pooler's most recent health snapshot is
+// recent enough (within maxAge, measured against now on the orchestrator clock)
+// to be trusted as a live observation. A pooler that has never recorded a
+// snapshot time is not judged stale here — callers gate that case on
+// IsLastCheckValid; only a recorded-but-old observation is treated as stale.
+// This keeps liveness tied to observation age rather than to whether a
+// particular stream is currently connected.
+func observationFresh(p *store.Pooler, now time.Time, maxAge time.Duration) bool {
+	age, ok := p.ObservationAge(now)
+	if !ok {
+		return true
+	}
+	return age <= maxAge
+}
+
 // computeShardLevelFields populates shard-level aggregates on sa after all per-pooler
 // analyses have been built. These fields describe the shard as a whole rather than
 // any individual pooler, so they are computed once here rather than per-pooler.
@@ -424,17 +459,18 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	topologyPrimary := poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
 	sa.Leader = topologyPrimary
 	if topologyPrimary != nil {
-		sa.LeaderPoolerReachable = topologyPrimary.Health().IsLastCheckValid
 		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
 		sa.LeaderPostgresRunning = topologyPrimary.Health().GetStatus().GetPostgresRunning()
 		// LeaderHasResigned: AvailabilityStatus and ConsensusTerm are populated from
 		// StatusResponse on every health stream snapshot, so LeaderNeedsReplacement
 		// correctly detects REQUESTING_DEMOTION signals without a separate RPC.
 		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary.Health())
-		// LeaderReachable requires the leader to actually be serving as a postgres
-		// primary (recovery-mode signal, not the topology label) and not have
-		// resigned, so LeaderIsDead can trigger even while a demoted node's postgres
-		// is still running.
+		// LeaderReachable is the leader-led-change gate (Q3), used by the cohort
+		// and replication-repair analyzers: the leader's pooler check is valid,
+		// its postgres is serving, and it has not resigned. Liveness for failover
+		// *detection* (Q1) is a different, freshness-aware question judged inside
+		// LeaderIsDeadAnalyzer from the leader rider + sa.Now + sa.Policy, not from
+		// this field.
 		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
 			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
 			!sa.LeaderHasResigned

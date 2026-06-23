@@ -59,6 +59,21 @@ func (a *LeaderIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
+// leaderObservedLive reports whether the orchestrator holds a recent, valid
+// observation of the leader's pooler — the freshness-aware liveness basis for
+// failover detection (Q1). It deliberately keys off observation age
+// (sa.Now vs the leader's last snapshot, bounded by
+// sa.Policy.LeaderLivenessFreshness) rather than whether a particular health
+// stream is currently connected, so a brief stream interruption does not read
+// as a dead leader while a genuinely stalled stream does.
+func leaderObservedLive(sa *ShardAnalysis) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	return sa.Leader.Health().IsLastCheckValid &&
+		observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderLivenessFreshness)
+}
+
 func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
@@ -69,8 +84,15 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
-	// Leader is fully reachable — no problem.
-	if sa.LeaderReachable {
+	// Q1 liveness: do we hold a recent, valid observation of the leader? This is
+	// judged here (not read from a pre-baked generator verdict) and is
+	// freshness-aware via leaderObservedLive, so a brief health-stream
+	// interruption does not by itself read as a dead leader.
+	leaderLive := leaderObservedLive(sa)
+
+	// Leader is recently observed, serving as a postgres primary, and has not
+	// resigned — no problem.
+	if leaderLive && sa.LeaderPostgresReady && !sa.LeaderHasResigned {
 		return nil, nil
 	}
 
@@ -83,11 +105,11 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	// Suppress failover during a known pg_promote() window. The multipooler explicitly
 	// signals promotion is in progress via PromotingPrimaryID. The conditions:
 	//   - PromotingPrimaryID != nil: multipooler has flagged pg_promote() is running
-	//   - LeaderPoolerReachable: stream is live, so the flag is current (not stale)
+	//   - leaderLive: we hold a recent, valid observation, so the flag is current (not stale)
 	//   - LeaderPostgresRunning: postgres process is still alive
 	// If postgres crashes during promotion, LeaderPostgresRunning=false and we fall through.
-	// If the multipooler crashes, LeaderPoolerReachable=false and we fall through.
-	if sa.PromotingPrimaryID != nil && sa.LeaderPoolerReachable && sa.LeaderPostgresRunning {
+	// If the multipooler crashes or its observation ages out, leaderLive=false and we fall through.
+	if sa.PromotingPrimaryID != nil && leaderLive && sa.LeaderPostgresRunning {
 		a.factory.Logger().Info("primary promotion in progress, suppressing LeaderIsDead",
 			"shard_key", sa.ShardKey.String(),
 			"promoting_primary", topoclient.ComponentIDString(sa.PromotingPrimaryID))
@@ -131,7 +153,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		// a dead pooler reports nothing, so LeaderPostgresReady/LastPostgresReadyTime
 		// are unavailable — but the replicas' fresh streaming proves it is alive, so
 		// suppress failover.
-		if !sa.LeaderPoolerReachable {
+		if !leaderLive {
 			a.factory.Logger().Warn("leader pooler unreachable but replicas still streaming from its postgres, suppressing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),

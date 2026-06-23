@@ -555,7 +555,6 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		assert.NotNil(t, sa.HighestShardRule.GetLeaderId(), "demoted primary should still be tracked (primary term > 0)")
 		assert.Equal(t, "primary", sa.HighestShardRule.GetLeaderId().Name)
 		assert.False(t, sa.LeaderReachable, "demoted primary reporting REPLICA should not be LeaderReachable")
-		assert.True(t, sa.LeaderPoolerReachable)
 	})
 
 	t.Run("topology type REPLICA, PoolerType REPLICA, primary term > 0 via ConsensusStatus (stale etcd)", func(t *testing.T) {
@@ -602,7 +601,6 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 		assert.NotNil(t, sa.HighestShardRule.GetLeaderId(), "stale-topology former primary should be found via ConsensusStatus")
 		assert.Equal(t, "former-primary", sa.HighestShardRule.GetLeaderId().Name)
 		assert.False(t, sa.LeaderReachable, "demoted primary reporting REPLICA should not be LeaderReachable")
-		assert.True(t, sa.LeaderPoolerReachable)
 	})
 }
 
@@ -654,7 +652,6 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 	assert.Equal(t, "absent-leader", sa.HighestShardRule.GetLeaderId().Name)
 	assert.Nil(t, sa.Leader, "no health state exists for the named leader")
 	assert.False(t, sa.LeaderReachable, "a leader with no health cannot be reachable")
-	assert.False(t, sa.LeaderPoolerReachable)
 }
 
 // TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule is a regression
@@ -898,7 +895,6 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.True(t, sa.LeaderPoolerReachable)
 		assert.True(t, sa.LeaderPostgresReady)
 		assert.True(t, sa.LeaderReachable)
 		assert.WithinDuration(t, respondedAt, sa.LeaderLastPostgresReadyTime, time.Second,
@@ -955,7 +951,6 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		sa, err := gen.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 		require.NoError(t, err)
 
-		assert.False(t, sa.LeaderPoolerReachable)
 		assert.False(t, sa.LeaderPostgresReady)
 		assert.False(t, sa.LeaderReachable)
 	})
@@ -1941,7 +1936,6 @@ func TestDetectOtherPrimary(t *testing.T) {
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-2", name)
 		assert.Equal(t, int64(6), term)
-		assert.False(t, sa.LeaderPoolerReachable, "the highest-rule leader is unreachable")
 	})
 }
 
