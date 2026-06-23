@@ -41,6 +41,7 @@ type recordingPrimitive struct {
 func (r *recordingPrimitive) StreamExecute(
 	context.Context, IExecute, *server.Conn,
 	*handler.MultiGatewayConnectionState, []*ast.A_Const,
+	PlanExecInfo,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.streamCalls++
@@ -51,6 +52,7 @@ func (r *recordingPrimitive) PortalStreamExecute(
 	context.Context, IExecute, *server.Conn,
 	*handler.MultiGatewayConnectionState,
 	*preparedstatement.PortalInfo, int32, bool,
+	PlanExecInfo,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.portalCalls++
@@ -75,7 +77,7 @@ func TestSequence_PortalStreamExecute_DispatchesPerChild(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	state := handler.NewMultiGatewayConnectionState()
 
-	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, nil)
+	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.NoError(t, err)
 
 	for i, p := range []*recordingPrimitive{a, b, c} {
@@ -97,7 +99,7 @@ func TestSequence_PortalStreamExecute_StopsOnError(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	state := handler.NewMultiGatewayConnectionState()
 
-	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, nil)
+	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, failure)
 	assert.Contains(t, err.Error(), "primitive 1 (recordingPrimitive)")

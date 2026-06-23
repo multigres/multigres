@@ -182,8 +182,8 @@ func parseConfigLine(line string) (string, string) {
 	if line == "" || strings.HasPrefix(line, "#") {
 		return "", ""
 	}
-	if i := strings.Index(line, "="); i >= 0 {
-		return strings.TrimSpace(line[:i]), stripQuotes(strings.TrimSpace(line[i+1:]))
+	if before, after, ok := strings.Cut(line, "="); ok {
+		return strings.TrimSpace(before), stripQuotes(strings.TrimSpace(after))
 	}
 	parts := strings.Fields(line)
 	if len(parts) < 2 {

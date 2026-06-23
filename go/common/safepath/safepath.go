@@ -63,7 +63,7 @@ func EncodePathComponent(s string) string {
 			// URL encode: convert rune to UTF-8 bytes, then hex encode each byte
 			utf8Bytes := []byte(string(r))
 			for _, b := range utf8Bytes {
-				result.WriteString(fmt.Sprintf("%%%02X", b))
+				fmt.Fprintf(&result, "%%%02X", b)
 			}
 		}
 		i++

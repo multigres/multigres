@@ -987,7 +987,7 @@ func (t *TypeName) SqlString() string {
 				if intBound.IVal == -1 {
 					boundsBuilder.WriteString("[]")
 				} else {
-					boundsBuilder.WriteString(fmt.Sprintf("[%d]", intBound.IVal))
+					fmt.Fprintf(&boundsBuilder, "[%d]", intBound.IVal)
 				}
 			}
 		}

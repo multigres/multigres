@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 }
 
 func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore()}
+	factory := &RecoveryActionFactory{poolerStore: store.NewTestCache(t)}
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}

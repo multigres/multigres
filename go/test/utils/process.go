@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -75,10 +76,11 @@ func BaseTestEnv() []string {
 // on the returned Cmd before calling Start().
 func CommandWithOrphanProtection(monitorCtx context.Context, name string, args ...string) *executil.Cmd {
 	allArgs := append([]string{name}, args...)
-	cmd := executil.Command(context.Background(), "run_in_test.sh", allArgs...)
+	backgroundCtx := ctxutil.Detach(monitorCtx)
+	cmd := executil.Command(backgroundCtx, "run_in_test.sh", allArgs...)
 	go func() {
 		<-monitorCtx.Done()
-		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stopCtx, cancel := context.WithTimeout(backgroundCtx, 5*time.Second)
 		_, _ = cmd.Stop(stopCtx)
 		cancel()
 	}()

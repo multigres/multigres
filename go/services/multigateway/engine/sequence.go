@@ -58,10 +58,16 @@ func (s *Sequence) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// info is forwarded to every child; only the routing child (the trailing
+	// Route) forwards it onward to IExecute. The auxiliary children (silent
+	// ApplySessionState / ResolveTrackSetConfig set_config steps) ignore it and
+	// issue their own backend calls with the zero value, so the plan's
+	// reservation directives apply exactly once, on the query that warrants them.
 	for i, p := range s.Primitives {
-		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, callback); err != nil {
+		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, info, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}
@@ -82,10 +88,11 @@ func (s *Sequence) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	for i, p := range s.Primitives {
-		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback); err != nil {
+		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, info, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}

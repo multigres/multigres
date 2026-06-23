@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -35,7 +36,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 	rpcClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "zone1", Name: "test-coord"}
 	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
@@ -222,5 +223,135 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, types.CheckName("CohortMismatch"), analyzer.Name())
 		assert.Equal(t, types.ProblemPoolerNotInCohort, analyzer.ProblemCode())
 		require.NotNil(t, analyzer.RecoveryAction())
+	})
+
+	// Below: explicit tier tests for the missing-from-cache REMOVE paths.
+	// These were added after CohortMismatchAnalyzer learned to drive REMOVE
+	// for cohort members the cache no longer tracks (tombstones from
+	// LIFECYCLE_SHUTDOWN, and untombstoned absences). They cover the
+	// confidence tiers the analyzer applies before proposing a problem.
+
+	// missingMemberShard builds a ShardAnalysis where the cohort lists every
+	// id in cohortIDs, but only the analyses argument actually shows up in
+	// Analyses — i.e. ids in cohortIDs but absent from analyses are
+	// "missing from the cache" from the analyzer's perspective. tombstones,
+	// if any, are recorded as cache tombstones so the analyzer can tell the
+	// difference between "known SHUTDOWN" and "merely missing."
+	missingMemberShard := func(
+		policy *clustermetadatapb.DurabilityPolicy,
+		cohortIDs []*clustermetadatapb.ID,
+		tombstones []*clustermetadatapb.ID,
+		analyses ...*PoolerAnalysis,
+	) *ShardAnalysis {
+		full := append([]*PoolerAnalysis{leaderPA}, analyses...)
+		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
+		for _, id := range tombstones {
+			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
+		}
+		return &ShardAnalysis{
+			ShardKey: shardKey,
+			HighestShardRule: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:         primaryID,
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: policy,
+			},
+			LeaderReachable:     true,
+			LeaderPostgresReady: true,
+			Analyses:            full,
+			TombstoneIDs:        tombSet,
+		}
+	}
+
+	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
+		return &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: n,
+		}
+	}
+
+	t.Run("tombstoned cohort member triggers unconditional REMOVE", func(t *testing.T) {
+		// Cohort = {primary, replicaA, replicaB}. replicaA is a tombstone
+		// (LIFECYCLE_SHUTDOWN observed). Even though the durability policy
+		// is tight (N=2 over a 3-member cohort, so a single safety-gated
+		// removal would be unsafe), tombstones bypass the safety check
+		// because they're already not contributing to the policy.
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB},
+			[]*clustermetadatapb.ID{replicaA}, // tombstone
+			// Analyses contains only the leader; replicaA and replicaB are
+			// both absent from sa.Analyses.
+		)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1, "exactly one REMOVE per cycle")
+		assert.Equal(t, types.ProblemCohortMemberIneligible, problems[0].Code)
+		assert.Equal(t, replicaA.Name, problems[0].PoolerID.Name,
+			"the tombstone — not the merely-missing replicaB — is the chosen target")
+	})
+
+	t.Run("missing-no-tombstone REMOVE proceeds when safety check passes", func(t *testing.T) {
+		// 5-member cohort under N=2: removing one missing-but-not-tombstoned
+		// member and simulating leader failure still leaves 3 of 4 recruitable
+		// → IsCohortMemberRemovalSafe returns true.
+		extraReplica1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-c"}
+		extraReplica2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-d"}
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB, extraReplica1, extraReplica2},
+			nil, // no tombstones — replicaA is just missing
+			// replicaB, extraReplica1, extraReplica2 present as healthy cohort members
+			healthyReplicaPA(replicaB, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica1, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica2, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+		)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		// Exactly one REMOVE for replicaA. (No ADDs because every visible
+		// non-leader is already in cohort.)
+		require.Len(t, problems, 1)
+		assert.Equal(t, types.ProblemCohortMemberIneligible, problems[0].Code)
+		assert.Equal(t, replicaA.Name, problems[0].PoolerID.Name)
+	})
+
+	t.Run("missing-no-tombstone REMOVE is blocked when safety check fails", func(t *testing.T) {
+		// 3-member cohort under N=2: removing the missing member and losing
+		// the leader leaves only 1 recruitable → IsCohortMemberRemovalSafe
+		// returns false. The analyzer must NOT propose a REMOVE — this is
+		// the entire point of the safety gate.
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB},
+			nil, // no tombstones
+			healthyReplicaPA(replicaB, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+		)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems,
+			"unsafe missing-no-tombstone removal must be suppressed")
+	})
+
+	t.Run("tombstone is preferred over a competing missing-no-tombstone candidate", func(t *testing.T) {
+		// Two removal candidates in the same cycle: replicaA (tombstone) and
+		// replicaB (missing-no-tombstone). The cap of one REMOVE per cycle
+		// is documented behavior; tombstones outrank because they're
+		// higher-confidence "this pooler is gone."
+		extraReplica1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-c"}
+		extraReplica2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-d"}
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB, extraReplica1, extraReplica2},
+			[]*clustermetadatapb.ID{replicaA}, // replicaA is a tombstone
+			// replicaB is also missing (no analysis), but isn't a tombstone.
+			// extraReplica1/2 are healthy cohort members.
+			healthyReplicaPA(extraReplica1, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica2, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+		)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		assert.Equal(t, replicaA.Name, problems[0].PoolerID.Name,
+			"tombstoned member must be chosen over a merely-missing one")
 	})
 }

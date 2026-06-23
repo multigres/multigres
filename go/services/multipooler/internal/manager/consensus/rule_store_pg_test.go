@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -288,7 +287,7 @@ func startSharedPostgres(t *testing.T) (*pgPostgresFixture, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	rs := NewRuleStore(logger, qs, noopSyncStandbyManager{})
 	if err := rs.CreateRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()); err != nil {
 		_ = exec.Command("pg_ctl", "stop", "-D", pgDataDir, "-m", "fast").Run()
@@ -309,7 +308,7 @@ func newTestRuleStore(ctx context.Context, t *testing.T) (*ruleStore, *client.Co
 	t.Helper()
 	conn, err := pgTestFixture.newClientConn(ctx)
 	require.NoError(t, err)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	rs := NewRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
 	return rs, conn
 }
@@ -326,7 +325,7 @@ func resetRuleStoreTables(ctx context.Context, t *testing.T) {
 	_, err = qs.conn.Query(ctx, "DROP TABLE multigres.current_rule, multigres.rule_history")
 	require.NoError(t, err)
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	rs := NewRuleStore(logger, qs, noopSyncStandbyManager{})
 	require.NoError(t, rs.CreateRuleTables(ctx, testBootstrapPolicy(), testBootstrapID()))
 }
@@ -712,7 +711,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 			}
 			defer conn.Close()
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			logger := slog.New(slog.DiscardHandler)
 			rs := NewRuleStore(logger, &connQueryService{conn: conn}, noopSyncStandbyManager{})
 			_, errs[idx] = rs.UpdateRule(gCtx,
 				NewRuleUpdate(1, coordinatorID, "config_change",
@@ -933,7 +932,7 @@ func newTestRuleStoreWithRealSSM(t *testing.T, localID *clustermetadatapb.ID) (*
 	require.NoError(t, err)
 	t.Cleanup(func() { ssmConn.Close() })
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	ssm := NewSyncStandbyManager(logger, &connQueryService{conn: ssmConn}, localID)
 	rs := NewRuleStore(logger, &connQueryService{conn: rsConn}, ssm)
 	return rs, ssm
@@ -1074,7 +1073,7 @@ func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	require.NoError(t, err)
 	_, err = corruptQS.Query(t.Context(), "ALTER SYSTEM SET synchronous_commit = 'local'")
 	require.NoError(t, err)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	require.NoError(t, ReloadPostgresConfig(t.Context(), logger, corruptQS))
 
 	// HasInconsistentGUC queries postgres and detects the drift.
@@ -1206,7 +1205,7 @@ func newTestRuleStoreWithFailingSSM(t *testing.T, setPolicyErrs []error) (*ruleS
 	conn, err := pgTestFixture.newClientConn(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	ssm := &failingSyncStandbyManager{setPolicyErrs: setPolicyErrs}
 	rs := NewRuleStore(logger, &connQueryService{conn: conn}, ssm)
 	return rs, ssm

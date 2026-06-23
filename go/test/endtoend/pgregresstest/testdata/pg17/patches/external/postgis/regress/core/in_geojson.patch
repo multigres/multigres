@@ -1,0 +1,18 @@
+# Known divergence: error/notice cursor offset only ("at character N"). NOT a
+# multigres bug. multigateway rewrites the submitted query text before
+# forwarding it to PostgreSQL (parse + deparse), which shifts the byte offset
+# PostgreSQL records for an error/notice cursor. The message text, ordering, and
+# every result row are byte-identical to stock PostgreSQL; only the trailing
+# "at character N" position differs. This patch records that offset shift so the
+# test is verified against multigres's deparsed-query cursor positions.
+--- a
++++ b
+@@ -6,7 +6,7 @@
+ geomfromgeojson_06|MULTIPOLYGON(((0 0,1 1,1 0,0 0)))
+ geomfromgeojson_07|MULTIPOLYGON(((0 0,1 1,1 0,0 0)))
+ geomfromgeojson_08|MULTIPOLYGON(((0 0,1 1,1 0,0 0)))
+-ERROR: Only lon/lat coordinate systems are supported in geography. at character 71
++ERROR: Only lon/lat coordinate systems are supported in geography. at character 77
+ #1434: Next two errors
+ ERROR: Unable to find 'coordinates' in GeoJSON string
+ ERROR: unexpected character (at offset 0)

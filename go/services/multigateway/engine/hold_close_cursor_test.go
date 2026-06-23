@@ -55,17 +55,16 @@ func TestHoldCursorRoute_StreamExecute_Success(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE c WITH HOLD FOR …", "c")
-	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, func(context.Context, *sqltypes.Result) error { return nil })
+	// The planner puts the cursor name on the plan's ExecInfo.PinPortals; here we
+	// supply it directly to verify HoldCursorRoute forwards it to ScatterConn and
+	// records the cursor as open on success.
+	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, PlanExecInfo{PinPortals: []string{"c"}}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
 	require.True(t, state.HasOpenHoldCursor("c"),
 		"successful DECLARE WITH HOLD must record the cursor in the open set")
-	// ScatterConn would normally Take the pending pin slot — in this unit
-	// test there is no ScatterConn, so the slot stays populated. The
-	// invariant under test: AppendPendingPinPortals was called.
-	require.True(t, state.HasPendingPinPortals(),
-		"HoldCursorRoute must enqueue the cursor name as a pending pin")
-	assert.Equal(t, []string{"c"}, state.TakePendingPinPortals())
+	assert.Equal(t, []string{"c"}, mockExec.lastStreamResv.PinPortals,
+		"HoldCursorRoute must forward the plan's PinPortals to the reservation")
 }
 
 // TestHoldCursorRoute_StreamExecute_Failure verifies the gateway does NOT
@@ -75,7 +74,7 @@ func TestHoldCursorRoute_StreamExecute_Failure(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE bad WITH HOLD FOR …", "bad")
-	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, func(context.Context, *sqltypes.Result) error { return nil })
+	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
 	require.False(t, state.HasOpenHoldCursor("bad"),
@@ -120,12 +119,13 @@ func TestCloseCursorRoute_StreamExecute_Success(t *testing.T) {
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
-	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, func(context.Context, *sqltypes.Result) error { return nil })
+	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
 	require.False(t, state.HasOpenHoldCursor("c"),
 		"successful CLOSE must drop the cursor from OpenHoldCursors")
-	assert.Equal(t, []string{"c"}, state.TakePendingReleasePortals())
+	assert.Equal(t, []string{"c"}, mockExec.lastStreamResv.ReleasePortals,
+		"CloseCursorRoute must pass the cursor name as a ReleasePortals reservation intent")
 }
 
 // TestCloseCursorRoute_StreamExecute_Failure verifies the cursor stays
@@ -136,7 +136,7 @@ func TestCloseCursorRoute_StreamExecute_Failure(t *testing.T) {
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
-	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, func(context.Context, *sqltypes.Result) error { return nil })
+	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
 	require.True(t, state.HasOpenHoldCursor("c"),
@@ -151,7 +151,7 @@ func TestCloseCursorRoute_PortalStreamExecute(t *testing.T) {
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
-	err := route.PortalStreamExecute(context.Background(), mockExec, nil, state, nil, 0, false, func(context.Context, *sqltypes.Result) error { return nil })
+	err := route.PortalStreamExecute(context.Background(), mockExec, nil, state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
 	require.False(t, state.HasOpenHoldCursor("c"))
@@ -162,7 +162,7 @@ func TestHoldCursorRoute_PortalStreamExecute(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE c WITH HOLD FOR …", "c")
-	err := route.PortalStreamExecute(context.Background(), mockExec, nil, state, nil, 0, false, func(context.Context, *sqltypes.Result) error { return nil })
+	err := route.PortalStreamExecute(context.Background(), mockExec, nil, state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
 	require.True(t, state.HasOpenHoldCursor("c"))

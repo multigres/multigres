@@ -1,0 +1,14 @@
+# Known divergence (by design): CREATE UNLOGGED SEQUENCE emits an extra WARNING
+# + HINT because unlogged sequence state is not replicated and is reset on
+# failover. See docs/query_serving/unlogged_tables.md.
+--- a
++++ b
+@@ -602,6 +602,8 @@
+ -- unlogged sequences
+ -- (more tests in src/test/recovery/)
+ CREATE UNLOGGED SEQUENCE sequence_test_unlogged;
++WARNING: unlogged sequence is reset to its start value on failover
++HINT: Unlogged sequence state is not replicated; a failover restarts it from its initial value. See docs/query_serving/unlogged_tables.md.
+ ALTER SEQUENCE sequence_test_unlogged SET LOGGED;
+ \d sequence_test_unlogged
+ Sequence "public.sequence_test_unlogged"

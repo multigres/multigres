@@ -16,6 +16,7 @@ package handler
 
 import (
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -83,44 +84,25 @@ type MultiGatewayConnectionState struct {
 	// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE") when a transaction is started
 	// with deferred execution. This is consumed when creating the first reserved
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
+	//
+	// Unlike the single-query reservation signals (which ride on the
+	// engine.PlanExecInfo passed to IExecute), this spans statements: it is
+	// set at the deferred BEGIN and consumed by a *later* statement's reservation,
+	// so it genuinely belongs to connection state.
 	PendingBeginQuery string
 
-	// PendingTempTableReservation is set by the planner (via TempTableRoute)
-	// when the current query creates a temporary object. ScatterConn consumes
-	// it to create a reserved connection with ReasonTempTable. One-shot:
-	// cleared after the reservation is created.
-	PendingTempTableReservation bool
-
-	// PendingAdvisoryLockReservation is set by the planner (via
-	// AdvisoryLockRoute) when the current query acquires a session-level
-	// advisory lock. ScatterConn consumes it to create (or promote to) a
-	// reserved connection with ReasonSessionAdvisoryLock, pinning the backend
-	// for the lifetime of the lock. One-shot: cleared after the reservation is
-	// created.
-	PendingAdvisoryLockReservation bool
-
-	// PendingAdvisoryLockRecheck is set by the planner (via AdvisoryLockRoute)
-	// when the current query touches a session-level advisory lock (acquire or
-	// release). ScatterConn consumes it to set ReservationOptions.RecheckAdvisoryLocks,
-	// asking the multipooler to re-probe pg_locks after the statement and unpin
-	// if no advisory lock remains. This is what keeps the probe off the
-	// per-statement hot path: it runs only on advisory-touching statements.
-	// One-shot: cleared after it is consumed.
-	PendingAdvisoryLockRecheck bool
-
-	// PendingPinPortals carries the cursor names that the next StreamExecute
-	// must register on the reserved backend's portal set via
-	// ReservationOptions.PinPortalNames. Populated by HoldCursorRoute when a
-	// `DECLARE ... WITH HOLD` is planned. One-shot: cleared by ScatterConn
-	// after the reservation request is sent.
-	PendingPinPortals []string
-
-	// PendingReleasePortals carries the cursor names to unpin on the next
-	// StreamExecute via ReservationOptions.ReleasePortalNames. Populated by
-	// CloseCursorRoute when a `CLOSE <name>` / `CLOSE ALL` is planned and the
-	// named cursor is currently a WITH HOLD pin on the reserved connection.
-	// One-shot.
-	PendingReleasePortals []string
+	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
+	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
+	// on the backend without the pooler observing the exact reverted values, so
+	// ScatterConn forwards it as ReservationOptions.MarkSessionStateUntrusted,
+	// asking the multipooler to force reconciliation before the next reserved
+	// user SQL or at release. One-shot: cleared after it is consumed.
+	//
+	// Like PendingBeginQuery (and unlike the single-query reservation signals
+	// that ride on engine.PlanExecInfo), this spans statements: it is set on the
+	// ROLLBACK TO and consumed by a *later* statement's reservation, so it
+	// genuinely belongs to connection state.
+	PendingMarkSessionStateUntrusted bool
 
 	// OpenHoldCursors tracks the names of currently-open `DECLARE ... WITH HOLD`
 	// cursors on this gateway session. Used to compute `CLOSE ALL` membership
@@ -329,65 +311,6 @@ func (m *MultiGatewayConnectionState) RestoreOpenHoldCursorsToBeginSnapshot() {
 		restored[cur] = true
 	}
 	m.OpenHoldCursors = restored
-}
-
-// AppendPendingPinPortals adds one cursor name to the pending-pin queue.
-// Used by HoldCursorRoute to register the cursor for the next StreamExecute
-// call without touching the field directly.
-func (m *MultiGatewayConnectionState) AppendPendingPinPortals(names ...string) {
-	if len(names) == 0 {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PendingPinPortals = append(m.PendingPinPortals, names...)
-}
-
-// TakePendingPinPortals returns the current pending-pin list and clears it
-// atomically. Called by ScatterConn at the moment it builds the
-// ReservationOptions for an outbound RPC.
-func (m *MultiGatewayConnectionState) TakePendingPinPortals() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.PendingPinPortals) == 0 {
-		return nil
-	}
-	out := m.PendingPinPortals
-	m.PendingPinPortals = nil
-	return out
-}
-
-// HasPendingPinPortals reports whether the pending-pin queue is non-empty.
-// Used by ScatterConn to decide whether to take the reserve-creating path
-// for a session whose only reservation reason is a new HOLD cursor.
-func (m *MultiGatewayConnectionState) HasPendingPinPortals() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.PendingPinPortals) > 0
-}
-
-// AppendPendingReleasePortals queues cursor names for unpinning on the next
-// StreamExecute.
-func (m *MultiGatewayConnectionState) AppendPendingReleasePortals(names ...string) {
-	if len(names) == 0 {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.PendingReleasePortals = append(m.PendingReleasePortals, names...)
-}
-
-// TakePendingReleasePortals returns the current pending-release list and
-// clears it atomically.
-func (m *MultiGatewayConnectionState) TakePendingReleasePortals() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.PendingReleasePortals) == 0 {
-		return nil
-	}
-	out := m.PendingReleasePortals
-	m.PendingReleasePortals = nil
-	return out
 }
 
 // StorePortalInfo stores the portal information.
@@ -634,8 +557,8 @@ func (m *MultiGatewayConnectionState) snapshotSessionSettingsLocked() map[string
 // case-folded identifiers, which the parser already canonicalizes). Returns
 // -1 if not found. Caller must hold m.mu.
 func (m *MultiGatewayConnectionState) findSavepointLocked(name string) int {
-	for i := len(m.savepoints) - 1; i >= 0; i-- {
-		if m.savepoints[i].name == name {
+	for i, v := range slices.Backward(m.savepoints) {
+		if v.name == name {
 			return i
 		}
 	}

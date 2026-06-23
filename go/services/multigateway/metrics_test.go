@@ -139,7 +139,7 @@ func TestGatewayMetrics_RecordTLSConnection_TagsVersionAndCipher(t *testing.T) {
 	m, reader := setupGatewayMetrics(t)
 	ctx := context.Background()
 
-	m.RecordTLSConnection(ctx, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
+	m.RecordTLSConnection(ctx, server.TLSNegotiationNegotiated, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
 
 	agg := findMetric(t, reader, "mg.gateway.tls.connections")
 	require.NotNil(t, agg)
@@ -147,10 +147,47 @@ func TestGatewayMetrics_RecordTLSConnection_TagsVersionAndCipher(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, sum.DataPoints, 1)
 	dp := sum.DataPoints[0]
+	require.Equal(t, server.TLSNegotiationNegotiated, attrLookup(t, dp.Attributes, "negotiation"))
 	require.Equal(t, "TLS 1.3", attrLookup(t, dp.Attributes, "tls_version"))
 	require.Equal(t, tls.CipherSuiteName(tls.TLS_AES_128_GCM_SHA256),
 		attrLookup(t, dp.Attributes, "cipher_suite"))
 	require.Equal(t, int64(1), dp.Value)
+}
+
+func TestGatewayMetrics_RecordTLSConnection_DirectNegotiationLabel(t *testing.T) {
+	m, reader := setupGatewayMetrics(t)
+	ctx := context.Background()
+
+	m.RecordTLSConnection(ctx, server.TLSNegotiationDirect, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
+
+	agg := findMetric(t, reader, "mg.gateway.tls.connections")
+	require.NotNil(t, agg)
+	sum, ok := agg.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	require.Equal(t, server.TLSNegotiationDirect,
+		attrLookup(t, sum.DataPoints[0].Attributes, "negotiation"))
+}
+
+func TestGatewayMetrics_RecordDirectTLSRejected_TagsReason(t *testing.T) {
+	m, reader := setupGatewayMetrics(t)
+	ctx := context.Background()
+
+	m.RecordDirectTLSRejected(ctx, server.DirectTLSRejectedReasonTLSDisabled)
+	m.RecordDirectTLSRejected(ctx, server.DirectTLSRejectedReasonNoALPN)
+	m.RecordDirectTLSRejected(ctx, server.DirectTLSRejectedReasonNoALPN)
+
+	agg := findMetric(t, reader, "mg.gateway.tls.direct_rejected")
+	require.NotNil(t, agg)
+	sum, ok := agg.(metricdata.Sum[int64])
+	require.True(t, ok)
+
+	values := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		values[attrLookup(t, dp.Attributes, "reason")] = dp.Value
+	}
+	require.Equal(t, int64(1), values[server.DirectTLSRejectedReasonTLSDisabled])
+	require.Equal(t, int64(2), values[server.DirectTLSRejectedReasonNoALPN])
 }
 
 func TestGatewayMetrics_RecordPlaintextRejected_TagsReason(t *testing.T) {
@@ -201,9 +238,10 @@ func TestGatewayMetrics_NilReceiverIsNoop(t *testing.T) {
 		m.RecordSCRAMDuration(ctx, server.AuthOutcomeSuccess, time.Second)
 		m.RecordAuthAttempt(ctx, server.AuthOutcomeSuccess)
 		m.RecordCredentialLookup(ctx, time.Second)
-		m.RecordTLSHandshake(ctx, server.TLSOutcomeSuccess, time.Second)
-		m.RecordTLSConnection(ctx, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
+		m.RecordTLSHandshake(ctx, server.TLSNegotiationNegotiated, server.TLSOutcomeSuccess, time.Second)
+		m.RecordTLSConnection(ctx, server.TLSNegotiationNegotiated, tls.VersionTLS13, tls.TLS_AES_128_GCM_SHA256)
 		m.RecordPlaintextRejected(ctx, server.PlaintextRejectedReasonNoSSLRequest)
 		m.RecordSSLRequestDeclined(ctx)
+		m.RecordDirectTLSRejected(ctx, server.DirectTLSRejectedReasonNoALPN)
 	})
 }

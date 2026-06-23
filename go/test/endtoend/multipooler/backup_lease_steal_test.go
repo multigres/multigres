@@ -28,7 +28,7 @@ import (
 
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/tools/s3mock"
+	"github.com/multigres/multigres/go/test/s3mock"
 )
 
 // TestBackup_LeaseStealingOnConcurrentBackup verifies that when a second backup

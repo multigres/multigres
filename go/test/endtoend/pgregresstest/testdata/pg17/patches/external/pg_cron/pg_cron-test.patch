@@ -1,3 +1,7 @@
+# Known divergence (by design): CREATE DATABASE and DROP DATABASE are blocked
+# through the connection pooler (database provisioning is not a query-path
+# operation), so multigateway rejects them.
+# See docs/query_serving/unsafe_statement_rejection.md.
 --- a
 +++ b
 @@ -143,6 +143,7 @@

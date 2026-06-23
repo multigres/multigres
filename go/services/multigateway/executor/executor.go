@@ -135,7 +135,7 @@ func (e *Executor) resolvePlan(
 	conn *server.Conn,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
 	if !isCacheable(astStmt) {
-		plan, err := e.planner.Plan(queryStr, astStmt, conn)
+		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
 		if err != nil {
 			return nil, nil, false, "", "", err
 		}
@@ -165,7 +165,7 @@ func (e *Executor) resolvePlan(
 	}
 
 	// Cache miss — plan with normalized SQL/AST and cache the result.
-	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn)
+	plan, err := e.planner.Plan(normalizedSQL, normResult.NormalizedAST, conn, planner.PlanOptions{})
 	if err != nil {
 		return nil, nil, false, normalizedSQL, fingerprint, err
 	}
@@ -214,100 +214,102 @@ func (e *Executor) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
-
-	// For cacheable DML (SELECT, INSERT, UPDATE, DELETE), use the plan cache
-	// to resolve routing. The extended protocol query already has $1, $2, ...
-	// placeholders — the same form as our normalized cache key — so portal
-	// queries share cache entries with simple protocol queries.
-	if isCacheable(astStmt) {
-		plan, cacheHit, err := e.resolvePortalPlan(ctx, astStmt, conn)
-		planTime := time.Since(planStart)
-		normalizedSQL := astStmt.SqlString()
-		fingerprint := ast.FingerprintSQL(normalizedSQL)
-		if err != nil {
-			e.logger.ErrorContext(ctx, "portal query planning failed",
-				"query", portalInfo.PreparedStatementInfo.Query, "error", err)
-			return &handler.ExecuteResult{
-				PlanTime:      planTime,
-				NormalizedSQL: normalizedSQL,
-				Fingerprint:   fingerprint,
-			}, err
-		}
-
-		// Hand off to the plan, which delegates to its root primitive's
-		// PortalStreamExecute. Each primitive owns its portal-mode behavior:
-		// Route reissues the portal to the multipooler, Sequence iterates
-		// children (so any silent ApplySessionState prefix runs before the
-		// trailing Route forwards), gateway-local primitives ignore
-		// portalInfo and run their StreamExecute logic.
-		err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn)
+	planTime := time.Since(planStart)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "portal query planning failed",
+			"query", portalInfo.PreparedStatementInfo.Query, "error", err)
 		return &handler.ExecuteResult{
-			TablesUsed:    plan.TablesUsed,
-			PlanType:      plan.Type,
 			PlanTime:      planTime,
-			CacheHit:      cacheHit,
 			NormalizedSQL: normalizedSQL,
 			Fingerprint:   fingerprint,
 		}, err
 	}
 
-	// Non-cacheable — check if the gateway needs to handle locally (e.g.,
-	// SET/SHOW gateway-managed variables, LISTEN/NOTIFY, temp table DDL).
-	plan, err := e.planner.PlanPortal(portalInfo, conn)
-	planTime := time.Since(planStart)
+	// Hand off to the plan, which delegates to its root primitive's
+	// PortalStreamExecute. Each primitive owns its portal-mode behavior:
+	// Route reissues the portal to the multipooler, Sequence iterates children
+	// (so any silent ApplySessionState prefix runs before the trailing Route
+	// forwards), and gateway-local primitives ignore portalInfo and run their
+	// StreamExecute logic. A plain Route reissuing the portal is exactly what a
+	// raw forward to the multipooler would do, so non-routable utility
+	// statements need no special-casing here.
+	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "portal query planning failed",
+		e.logger.ErrorContext(ctx, "portal query execution failed",
 			"query", portalInfo.PreparedStatementInfo.Query,
-			"error", err)
-		return &handler.ExecuteResult{PlanTime: planTime}, err
+			"plan", plan.String(), "error", err)
 	}
-	if plan != nil {
-		e.logger.DebugContext(ctx, "executing portal plan locally",
-			"plan", plan.String())
-		err = plan.StreamExecute(ctx, e.exec, conn, state, nil, callback)
-		return &handler.ExecuteResult{
-			TablesUsed: plan.TablesUsed,
-			PlanType:   plan.Type,
-			PlanTime:   planTime,
-		}, err
-	}
-
-	// Non-cacheable, non-local — send directly to multipooler with defaults.
-	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	return &handler.ExecuteResult{
-		TablesUsed: ast.ExtractTablesUsed(astStmt),
-		PlanType:   engine.PlanTypeRoute,
-		PlanTime:   planTime,
+		TablesUsed:    plan.TablesUsed,
+		PlanType:      plan.Type,
+		PlanTime:      planTime,
+		CacheHit:      cacheHit,
+		NormalizedSQL: normalizedSQL,
+		Fingerprint:   fingerprint,
 	}, err
 }
 
-// resolvePortalPlan looks up or creates a cached plan for a portal's query.
-// The AST's SqlString() is used as the normalized SQL portion of the cache key,
-// producing the same canonical form as the simple protocol path. This ensures
-// cross-protocol cache sharing regardless of casing or whitespace differences
-// in the original query text.
+// resolvePortalPlan obtains a query plan for a portal, mirroring resolvePlan but
+// for the extended protocol. The portal query already carries $1, $2, ...
+// placeholders, so there is nothing to normalize: the AST's SqlString() is used
+// directly as the cache key's SQL portion, producing the same canonical form as
+// the simple protocol path so the two protocols share cache entries regardless
+// of casing or whitespace in the original query text.
+//
+// Returns the plan, whether it was a cache hit, the normalized SQL (empty for
+// non-cacheable statements), a fingerprint of that SQL, and any planning error.
 func (e *Executor) resolvePortalPlan(
 	ctx context.Context,
-	astStmt ast.Stmt,
+	portalInfo *preparedstatement.PortalInfo,
 	conn *server.Conn,
-) (*engine.Plan, bool, error) {
+) (*engine.Plan, bool, string, string, error) {
+	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	// Non-cacheable statements (SET/SHOW, LISTEN/NOTIFY, DISCARD, temp/unlogged
+	// DDL, transactions, cursors, PREPARE/EXECUTE/DEALLOCATE, plain DDL, ...) are
+	// planned directly. Plan produces a gateway-local primitive where the
+	// statement needs special handling and a plain Route otherwise — and a Route
+	// in portal mode forwards the portal to the multipooler, which is what
+	// non-routable statements want anyway.
+	//
+	// IsPortal is set only here, on the path that never caches. It gates exactly
+	// one plan-time decision — the wrapped-EXECUTE unwrap (EXPLAIN EXECUTE /
+	// CREATE TABLE AS EXECUTE), which is simple-protocol only and itself
+	// non-cacheable. Keeping IsPortal off the cacheable branch makes the shared
+	// plan cache protocol-agnostic by construction: every plan that can be cached
+	// is built identically regardless of protocol, so a plan cached by one path
+	// is always correct to serve to the other. The protocol difference lives in
+	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
+	if !isCacheable(astStmt) {
+		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true})
+		if err != nil {
+			return nil, false, "", "", err
+		}
+		e.logger.DebugContext(ctx, "portal plan created (non-cacheable)",
+			"plan", plan.String())
+		return plan, false, "", "", nil
+	}
+
 	normalizedSQL := astStmt.SqlString()
+	fingerprint := ast.FingerprintSQL(normalizedSQL)
 	cacheKey := buildCacheKey(conn.Database(), normalizedSQL)
 	if cachedPlan, ok := e.planCache.Get(ctx, cacheKey); ok {
 		e.logger.DebugContext(ctx, "portal plan cache hit", "query", normalizedSQL)
-		return cachedPlan, true, nil
+		return cachedPlan, true, normalizedSQL, fingerprint, nil
 	}
 
-	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn)
+	// Cacheable DML is planned protocol-agnostically (zero-value PlanOptions, same
+	// as the simple path) so the cached entry is shared safely across protocols.
+	plan, err := e.planner.Plan(normalizedSQL, astStmt, conn, planner.PlanOptions{})
 	if err != nil {
-		return nil, false, err
+		return nil, false, normalizedSQL, fingerprint, err
 	}
 
 	e.planCache.Put(cacheKey, plan)
 	e.logger.DebugContext(ctx, "portal plan cache miss, planned and cached",
 		"query", normalizedSQL, "plan", plan.String())
-	return plan, false, nil
+	return plan, false, normalizedSQL, fingerprint, nil
 }
 
 // buildCacheKey constructs the plan cache key from the database name and

@@ -31,6 +31,42 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
+// PlanExecInfo carries the per-query connection-reservation signals a
+// routing primitive derives at execution time and hands to IExecute, which
+// folds them into the multipooler ReservationOptions. These signals are scoped
+// to a single StreamExecute / PortalStreamExecute call, so they ride on the
+// call rather than on per-connection state (they used to live as one-shot
+// state.Pending* fields, which leaked single-query intent onto the connection).
+// The zero value means "no special reservation". Primitives are plan-cached and
+// shared across concurrent connections, so the intent must be a per-call value,
+// never a field on the primitive.
+type PlanExecInfo struct {
+	// TempTable requests a reserved connection with ReasonTempTable. Set by
+	// TempTableRoute for CREATE TEMP / SELECT INTO TEMP.
+	TempTable bool
+
+	// AdvisoryLock requests a reserved connection with ReasonSessionAdvisoryLock,
+	// pinning the backend for the lock's lifetime. Set by AdvisoryLockRoute when
+	// the statement acquires a session-level advisory lock.
+	AdvisoryLock bool
+
+	// RecheckAdvisoryLocks asks the multipooler to re-probe pg_locks after the
+	// statement and unpin if none remain. Set by AdvisoryLockRoute for any
+	// advisory-touching statement (acquire or release); keeps the probe off the
+	// per-statement hot path.
+	RecheckAdvisoryLocks bool
+
+	// PinPortals lists cursor names to pin on the reserved backend's portal set
+	// (ReasonPortal). Set by HoldCursorRoute for DECLARE ... WITH HOLD.
+	PinPortals []string
+
+	// ReleasePortals lists cursor names to unpin from the reserved backend's
+	// portal set. Set by CloseCursorRoute (CLOSE / CLOSE ALL) and by
+	// TransactionPrimitive when ROLLBACK TO drops cursors declared after a
+	// savepoint.
+	ReleasePortals []string
+}
+
 // IExecute is the execution interface that provides access to execution
 // resources like ScatterConn. It's passed to primitives during execution,
 // allowing them to execute queries without directly depending on concrete types.
@@ -54,6 +90,9 @@ type IExecute interface {
 	//     canonical name. Pass nil for queries that do not reference a
 	//     gateway-managed prepared statement.
 	//   state: Connection state containing session information and reserved connections
+	//   info: Per-query reservation intent (temp-table / advisory-lock / portal
+	//     pin-release signals) the calling primitive derived; folded into the
+	//     multipooler ReservationOptions. Pass the zero value for plain routing.
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
 	// Routing parameters instead and figure out which all shards to send queries to.
@@ -65,6 +104,7 @@ type IExecute interface {
 		sql string,
 		preparedStatement *query.PreparedStatement,
 		state *handler.MultiGatewayConnectionState,
+		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -83,6 +123,9 @@ type IExecute interface {
 	//     pipelines the two). The portal RowDescription rides back through
 	//     the streaming callback's Fields on the first chunk. When false,
 	//     the Execute uses Bind+Execute+Sync as before.
+	//   info: Per-query reservation intent, as in StreamExecute. Portal-path
+	//     statements carry temp-table / advisory-lock signals (cursor pin/release
+	//     only flow through StreamExecute); pass the zero value for plain routing.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -93,6 +136,7 @@ type IExecute interface {
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,
+		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -264,12 +308,20 @@ type Primitive interface {
 	// bindVars contains literal values extracted during query normalization;
 	// it is nil for non-cached execution paths. Primitives that need it
 	// (e.g., Route) use bindVars to reconstruct the final SQL.
+	//
+	// info carries the plan's PlanExecInfo (planner-computed reservation
+	// directives). Routing primitives forward it to IExecute; auxiliary
+	// primitives (e.g. ResolveTrackSetConfig's set_config apply) and composite
+	// primitives that wrap a non-routing step pass the zero value on their own
+	// IExecute calls. Cursor/rollback primitives augment it with the
+	// runtime-computed portal release set.
 	StreamExecute(
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
 		bindVars []*ast.A_Const,
+		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -295,6 +347,7 @@ type Primitive interface {
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,
+		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

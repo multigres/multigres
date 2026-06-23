@@ -80,6 +80,64 @@ func ParseSSLMode(s string) (SSLMode, error) {
 	}
 }
 
+// SSLNegotiation mirrors libpq's sslnegotiation connection parameter
+// (PostgreSQL 17+). It selects how the TLS layer is established on a TCP
+// connection; it does not change whether TLS is attempted (that remains
+// sslmode's job).
+//
+// Reference: https://www.postgresql.org/docs/17/libpq-connect.html#LIBPQ-CONNECT-SSLNEGOTIATION
+type SSLNegotiation string
+
+const (
+	// SSLNegotiationPostgres performs the classic PostgreSQL handshake:
+	// send SSLRequest, wait for 'S'/'N', then run the TLS handshake.
+	// libpq default.
+	SSLNegotiationPostgres SSLNegotiation = "postgres"
+
+	// SSLNegotiationDirect starts the TLS handshake immediately after the
+	// TCP connection is established, skipping the SSLRequest round trip
+	// (PostgreSQL 17 direct SSL). ALPN "postgresql" is mandatory in this
+	// mode — the dial fails if the server does not negotiate it. Requires
+	// a TLS-enforcing sslmode (require / verify-ca / verify-full): there is
+	// no plaintext fallback once the first byte on the wire is a TLS
+	// ClientHello, so libpq rejects weaker modes and so do we.
+	SSLNegotiationDirect SSLNegotiation = "direct"
+)
+
+// ParseSSLNegotiation parses the string form of an sslnegotiation value.
+// Empty input returns SSLNegotiationPostgres (libpq default).
+func ParseSSLNegotiation(s string) (SSLNegotiation, error) {
+	switch SSLNegotiation(strings.ToLower(strings.TrimSpace(s))) {
+	case "":
+		return SSLNegotiationPostgres, nil
+	case SSLNegotiationPostgres:
+		return SSLNegotiationPostgres, nil
+	case SSLNegotiationDirect:
+		return SSLNegotiationDirect, nil
+	default:
+		return "", fmt.Errorf("invalid sslnegotiation %q (want postgres|direct)", s)
+	}
+}
+
+// ValidateSSLNegotiation enforces libpq's compatibility rule between
+// sslnegotiation and sslmode: direct negotiation cannot fall back to
+// plaintext, so it may only be combined with a mode that requires TLS.
+// Mirrors libpq's "weak sslmode ... may not be used with
+// sslnegotiation=direct" check in fe-connect.c.
+func ValidateSSLNegotiation(negotiation SSLNegotiation, mode SSLMode) error {
+	switch negotiation {
+	case "", SSLNegotiationPostgres:
+		return nil
+	case SSLNegotiationDirect:
+		if !mode.RequiresTLS() {
+			return fmt.Errorf("weak sslmode %q may not be used with sslnegotiation=direct (use \"require\", \"verify-ca\", or \"verify-full\")", mode)
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid sslnegotiation %q (want postgres|direct)", negotiation)
+	}
+}
+
 // AttemptsTLS reports whether the mode wants the SSLRequest negotiation step.
 func (m SSLMode) AttemptsTLS() bool {
 	switch m {

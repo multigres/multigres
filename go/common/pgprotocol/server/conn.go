@@ -157,6 +157,15 @@ type Conn struct {
 	// SCRAM-SHA-256-PLUS. Nil for plaintext connections.
 	tlsServerCert *x509.Certificate
 
+	// directTLSFailed is set when a direct-TLS attempt (first byte 0x16,
+	// PG 17 sslnegotiation=direct) was detected but could not be completed
+	// — either TLS is not configured or the handshake itself failed. The
+	// client is speaking raw TLS on the wire in both cases, so serve()'s
+	// best-effort plaintext ErrorResponse would surface as garbage;
+	// canSendPlaintextStartupError consults this flag to suppress it,
+	// matching PostgreSQL's silent rejection of failed direct SSL startups.
+	directTLSFailed bool
+
 	// gssDone indicates that a GSSENCRequest has already been handled
 	// for this connection. Prevents double negotiation.
 	gssDone bool
@@ -550,9 +559,15 @@ func (c *Conn) endWriterBuffering() error {
 // client. If the client sent SSLRequest and the server already answered
 // 'S' but the TLS handshake hasn't completed, the underlying conn is
 // still plaintext while the client is waiting for encrypted bytes — so
-// any plaintext write would surface as garbage. Every other startup
-// state (raw plaintext or fully upgraded TLS) can carry the reply.
+// any plaintext write would surface as garbage. Likewise a failed
+// direct-TLS attempt (directTLSFailed): the client opened with a TLS
+// ClientHello, so only TLS alerts — already sent by crypto/tls where
+// applicable — make sense on the wire. Every other startup state (raw
+// plaintext or fully upgraded TLS) can carry the reply.
 func (c *Conn) canSendPlaintextStartupError() bool {
+	if c.directTLSFailed {
+		return false
+	}
 	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
 }
 
@@ -1521,11 +1536,11 @@ func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.No
 				// committed atomically under that lock, so it can't be
 				// interleaved with a synchronous handler's packet.
 				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
-					c.logger.Error("failed to push notification", "error", err)
+					c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
 					return
 				}
 				if err := c.flush(); err != nil {
-					c.logger.Error("failed to flush notification", "error", err)
+					c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
 					return
 				}
 			}

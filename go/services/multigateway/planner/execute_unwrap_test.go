@@ -156,15 +156,17 @@ func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	// The primitive should be a TempTableRoute with PreparedStatement attached.
-	ttr, ok := plan.Primitive.(*engine.TempTableRoute)
-	require.True(t, ok, "expected TempTableRoute primitive, got %T", plan.Primitive)
-	assert.Contains(t, ttr.Query, canonical)
-	require.NotNil(t, ttr.PreparedStatement)
-	assert.Equal(t, canonical, ttr.PreparedStatement.Name)
+	// The primitive is a Route with PreparedStatement attached; the plan's
+	// ExecInfo marks the temp-table reservation.
+	route, ok := plan.Primitive.(*engine.Route)
+	require.True(t, ok, "expected Route primitive, got %T", plan.Primitive)
+	assert.True(t, plan.ExecInfo.TempTable, "CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
+	assert.Contains(t, route.Query, canonical)
+	require.NotNil(t, route.PreparedStatement)
+	assert.Equal(t, canonical, route.PreparedStatement.Name)
 }
 
 // TestUnwrapCreateUnloggedTableAsExecute verifies that the wrapped-execute
@@ -185,7 +187,7 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	// Sequence[UnloggedTableWarning, Route(with prepared statement)].
@@ -221,7 +223,7 @@ func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	route, ok := plan.Primitive.(*engine.Route)
@@ -249,14 +251,15 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	const sql = "EXPLAIN CREATE TEMP TABLE tmp_nested AS EXECUTE p_nested_temp"
 	asts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	ttr, ok := plan.Primitive.(*engine.TempTableRoute)
-	require.True(t, ok, "expected TempTableRoute primitive for EXPLAIN CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
-	assert.Contains(t, ttr.Query, canonical)
-	require.NotNil(t, ttr.PreparedStatement)
-	assert.Equal(t, canonical, ttr.PreparedStatement.Name)
+	route, ok := plan.Primitive.(*engine.Route)
+	require.True(t, ok, "expected Route primitive for EXPLAIN CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
+	assert.True(t, plan.ExecInfo.TempTable, "EXPLAIN CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
+	assert.Contains(t, route.Query, canonical)
+	require.NotNil(t, route.PreparedStatement)
+	assert.Equal(t, canonical, route.PreparedStatement.Name)
 }
 
 // TestUnwrapMissingPreparedStatement verifies that EXPLAIN EXECUTE of an

@@ -598,6 +598,7 @@ func PrintLogLocation(tempDir string) {
 		}
 
 		println("\n--- " + path + " ---")
+		// #nosec G122 -- walking the test's own temp dir to print logs on failure; no untrusted symlink TOCTOU.
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			println("  [error reading log: " + readErr.Error() + "]")

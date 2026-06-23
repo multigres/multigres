@@ -154,12 +154,13 @@ func (s *ApplySessionState) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if s.BindRefs != nil {
 		return s.executeSetWithBinds(ctx, conn, state, portalInfo, callback)
 	}
-	return s.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return s.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // setConfigParamResolver is the small protocol-specific layer for resolving
@@ -319,6 +320,7 @@ func (s *ApplySessionState) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	bindVars []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {

@@ -1,3 +1,9 @@
+# Two known divergences, both by design:
+#  1. CREATE INDEX IF NOT EXISTS without a name is rejected by multigateway's
+#     own parser ("parse error at position 29: syntax error") instead of
+#     PostgreSQL's "syntax error at or near ...".
+#  2. CREATE UNLOGGED TABLE emits an extra WARNING + HINT (unlogged data is not
+#     replicated; see docs/query_serving/unlogged_tables.md).
 --- a
 +++ b
 @@ -11,9 +11,7 @@

@@ -1,3 +1,8 @@
+# Known divergence (by design): this malformed statement is rejected by
+# multigateway's own SQL parser before it reaches PostgreSQL, so the error is
+# "parse error at position 20: syntax error" instead of PostgreSQL's "syntax
+# error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Here: select distinct from pg_database.
 --- a
 +++ b
 @@ -32,9 +32,7 @@
@@ -44,17 +49,6 @@
  -- no such relation
  alter table nonesuch rename to newnonesuch;
  ERROR: relation "nonesuch" does not exist
-@@ -114,10 +106,8 @@
- -- TRANSACTION STUFF
- -- not in a xact
- abort;
--WARNING: there is no transaction in progress
- -- not in a xact
- end;
--WARNING: there is no transaction in progress
- --
- -- CREATE AGGREGATE
- -- sfunc/finalfunc type disagreement
 @@ -136,14 +126,10 @@
  -- DROP INDEX
  -- missing index name

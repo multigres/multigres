@@ -1,0 +1,26 @@
+# Known divergence (by design): this statement is rejected by multigateway's
+# own SQL parser before it reaches PostgreSQL, so the error wording differs --
+# "parse error at position 31: syntax error" instead of PostgreSQL's
+# "syntax error at or near <tok>" with the "LINE n: ...\n  ^" source cursor.
+# Here: copy (select ...) from stdin.
+--- a
++++ b
+@@ -49,16 +49,12 @@
+ -- This should fail
+ --
+ copy (select * from test1) from stdin;
+-ERROR: syntax error at or near "from"
+-LINE 1: copy (select * from test1) from stdin;
+-^
++ERROR: parse error at position 31: syntax error
+ --
+ -- This should fail
+ --
+ copy (select * from test1) (t,id) to stdout;
+-ERROR: syntax error at or near "("
+-LINE 1: copy (select * from test1) (t,id) to stdout;
+-^
++ERROR: parse error at position 28: syntax error
+ --
+ -- Test JOIN
+ --

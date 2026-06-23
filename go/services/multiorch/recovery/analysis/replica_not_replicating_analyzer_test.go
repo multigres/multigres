@@ -36,7 +36,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 	rpcClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
 		Cell:      "cell1",
@@ -53,10 +53,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	// leaderHealth is the health of a reachable primary with a known address — the
 	// precondition the analyzer needs (it knows where to point the replica).
-	leaderHealth := func() *multiorchdatapb.PoolerHealthState {
-		return &multiorchdatapb.PoolerHealthState{
+	leaderHealth := func() *store.Pooler {
+		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{Id: primaryID, Hostname: "primary.example.com"},
-		}
+		}, nil)
 	}
 
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {

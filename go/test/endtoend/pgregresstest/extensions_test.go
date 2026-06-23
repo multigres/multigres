@@ -25,22 +25,32 @@ import (
 
 // TestExternalSpecs_Coherent guards the catalog/spec invariants so a config
 // edit can't silently break the external suite: every runnable external
-// extension has a build spec, every spec pins exactly one of Tag/Commit, and
-// every DependsOn entry resolves to a spec.
+// extension has a build spec, real build specs pin exactly one of Tag/Commit,
+// aliases point at their covering build spec, and every DependsOn entry resolves
+// to a spec.
 func TestExternalSpecs_Coherent(t *testing.T) {
 	require.Empty(t, CheckExternalSpecs(),
 		"every runnable external extension needs an externalSpecs entry")
 
 	for name, spec := range externalSpecs {
 		assert.Equal(t, name, spec.Name, "spec key and Name must match")
-		assert.NotEmpty(t, spec.Repo, "%s: Repo required", name)
-		assert.True(t, (spec.Tag == "") != (spec.Commit == ""),
-			"%s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
-			name, spec.Tag, spec.Commit)
 		for _, dep := range spec.DependsOn {
 			_, ok := externalSpecs[dep]
 			assert.True(t, ok, "%s: DependsOn %q has no externalSpecs entry", name, dep)
 		}
+
+		if spec.TestRunner == "postgis-alias" {
+			assert.Empty(t, spec.Repo, "%s: alias should not clone a repo", name)
+			assert.Empty(t, spec.Tag, "%s: alias should not pin a tag", name)
+			assert.Empty(t, spec.Commit, "%s: alias should not pin a commit", name)
+			assert.Contains(t, spec.DependsOn, "postgis", "%s: alias must depend on postgis", name)
+			continue
+		}
+
+		assert.NotEmpty(t, spec.Repo, "%s: Repo required", name)
+		assert.True(t, (spec.Tag == "") != (spec.Commit == ""),
+			"%s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
+			name, spec.Tag, spec.Commit)
 	}
 }
 
@@ -79,6 +89,31 @@ func TestExternalBuildOnlySmokeSelection(t *testing.T) {
 		coveredNames = append(coveredNames, spec.Name)
 	}
 	assert.NotContains(t, coveredNames, "pgaudit")
+}
+
+// TestWrappersBuildOnlySmokeSelection verifies wrappers is selected for the
+// build/load smoke path with its extra pgrx feature and not counted as covered.
+func TestWrappersBuildOnlySmokeSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "wrappers")
+
+	modules := ExternalModules()
+	require.Len(t, modules, 1)
+	assert.Equal(t, "wrappers", modules[0].Name)
+	assert.Equal(t, HarnessSmoke, modules[0].Harness)
+	assert.Equal(t, "pgrx", modules[0].BuildSystem)
+	assert.Equal(t, "wrappers", modules[0].BuildSubdir)
+	assert.Equal(t, []string{"helloworld_fdw"}, modules[0].PgrxFeatures)
+	assert.Equal(t, []ExtensionInstall{{Name: "wrappers"}}, modules[0].PreCreateExtensions)
+
+	build := ExternalBuildList()
+	require.Len(t, build, 1)
+	assert.Equal(t, "wrappers", build[0].Name)
+
+	var coveredNames []string
+	for _, spec := range CoveredExternalExtensions() {
+		coveredNames = append(coveredNames, spec.Name)
+	}
+	assert.NotContains(t, coveredNames, "wrappers")
 }
 
 // TestExternalPartialSelection verifies partial extensions are runnable and
@@ -126,9 +161,32 @@ func TestExternalPreloadLibraries_MergesSelection(t *testing.T) {
 	t.Setenv("PGEXTERNAL_TESTS", "pgaudit")
 	assert.Equal(t, []string{"pgaudit"}, ExternalPreloadLibraries())
 
+	t.Setenv("PGEXTERNAL_TESTS", "pg_net supabase_vault")
+	assert.Equal(t, []string{"pg_net", "supabase_vault"}, ExternalPreloadLibraries())
+
 	t.Setenv("PGEXTERNAL_TESTS", "vector")
 	assert.Empty(t, ExternalPreloadLibraries(),
 		"a selection with no preload needs must generate no snippet")
+}
+
+func TestExternalVaultGetKeyConfigSelection(t *testing.T) {
+	t.Setenv("PGEXTERNAL_TESTS", "supabase_vault")
+
+	path := generatedVaultGetKeyConfPath()
+	require.NotEmpty(t, path)
+
+	conf, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(conf), "vault.getkey_script = '")
+
+	script := filepath.Join(filepath.Dir(path), "vault_getkey.sh")
+	info, err := os.Stat(script)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+
+	body, err := os.ReadFile(script)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f")
 }
 
 func TestExtensionCoverageMarkdown_BuildOnlySmokeResult(t *testing.T) {

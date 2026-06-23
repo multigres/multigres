@@ -36,16 +36,16 @@ The multi-AZ example below uses three cells to show an HA-oriented layout.
 
 Complete these steps before applying the `MultigresCluster` manifest:
 
-| Step                                   | Command or check                                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Install the Multigres operator         | `kubectl apply -f https://github.com/multigres/multigres-operator/releases/download/v0.1.0/install.yaml`           |
-| Choose a namespace                     | `kubectl create namespace multigres-demo`                                                                          |
-| Confirm persistent volume provisioning | `kubectl get storageclass`                                                                                         |
-| Confirm EKS zone labels                | `kubectl get nodes -L topology.k8s.aws/zone-id,topology.kubernetes.io/zone`                                        |
-| Prepare an S3 backup bucket and prefix | Create or select a bucket, choose a unique `keyPrefix`, and grant the backup service account access to that prefix |
-| Create the PostgreSQL password secret  | `kubectl create secret generic multigres-admin-password --from-literal=password='<replace-me>'`                    |
-| Apply the `MultigresCluster` manifest  | `kubectl apply -f multigres-demo.yaml`                                                                             |
-| Verify the cluster with a SQL query    | Run the `psql` check in [Verify Query Serving](#8-verify-query-serving)                                            |
+| Step                                   | Command or check                                                                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Install the Multigres operator         | `kubectl apply --server-side=true -f https://github.com/multigres/multigres-operator/releases/download/v0.1.0/install.yaml` |
+| Choose a namespace                     | `kubectl create namespace multigres-demo`                                                                                   |
+| Confirm persistent volume provisioning | `kubectl get storageclass`                                                                                                  |
+| Confirm EKS zone labels                | `kubectl get nodes -L topology.k8s.aws/zone-id,topology.kubernetes.io/zone`                                                 |
+| Prepare an S3 backup bucket and prefix | Create or select a bucket, choose a unique `keyPrefix`, and grant the backup service account access to that prefix          |
+| Create the PostgreSQL password secret  | `kubectl create secret generic multigres-admin-password --from-literal=password='<replace-me>'`                             |
+| Apply the `MultigresCluster` manifest  | `kubectl apply -f multigres-demo.yaml`                                                                                      |
+| Verify the cluster with a SQL query    | Run the `psql` check in [Verify Query Serving](#8-verify-query-serving)                                                     |
 
 ## 1. Install The Operator
 
@@ -53,14 +53,25 @@ Install the operator version that matches the Multigres release you want to
 run. For example, for Multigres `v0.1.0`:
 
 ```bash
-kubectl apply -f https://github.com/multigres/multigres-operator/releases/download/v0.1.0/install.yaml
+kubectl apply --server-side=true -f https://github.com/multigres/multigres-operator/releases/download/v0.1.0/install.yaml
 ```
 
 If you are experimenting with the newest available operator release, you can
 use:
 
 ```bash
-kubectl apply -f https://github.com/multigres/multigres-operator/releases/latest/download/install.yaml
+kubectl apply --server-side=true -f https://github.com/multigres/multigres-operator/releases/latest/download/install.yaml
+```
+
+Server-side apply avoids storing the full release manifest in the
+`kubectl.kubernetes.io/last-applied-configuration` annotation. This matters for
+operator release bundles because they include large CRDs. If a previous plain
+`kubectl apply` left a partial install after hitting annotation limits, rerun
+the operator install command with `--server-side=true`, then verify the
+`MultigresCluster` CRD is present:
+
+```bash
+kubectl get crd multigresclusters.multigres.com
 ```
 
 For reproducible tests, prefer a versioned release URL over `latest`.

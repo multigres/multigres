@@ -93,8 +93,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// + make + install on slower developer machines (macOS); CI is faster so
 	// 20 minutes is overkill there but harmless.
 	const (
-		buildTimeout = 20 * time.Minute
-		suiteTimeout = 20 * time.Minute
+		buildTimeout = 60 * time.Minute
+		suiteTimeout = 60 * time.Minute
 	)
 
 	buildCtx := utils.WithTimeout(t, buildTimeout)
@@ -102,6 +102,12 @@ func TestPostgreSQLRegression(t *testing.T) {
 	t.Cleanup(func() {
 		builder.Cleanup()
 	})
+
+	// The core compression regression test expects lz4 support in PostgreSQL;
+	// without --with-lz4, a stock run fails before exercising Multigres behavior.
+	if runRegress {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, "--with-lz4")
+	}
 
 	// Two contrib modules need optional build features enabled at ./configure.
 	// Enable them only when the contrib suite runs so regression/isolation-only
@@ -195,7 +201,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 				BuildSubdir:   ext.BuildSubdir,
 				BuildSystem:   ext.BuildSystem,
 				PgrxVersion:   ext.PgrxVersion,
+				PgrxFeatures:  ext.PgrxFeatures,
 				PkgConfigDeps: ext.PkgConfigDeps,
+				ConfigureArgs: ext.ConfigureArgs,
 			}
 			if _, err := builder.InstallExternalExtension(t, buildCtx, spec); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)

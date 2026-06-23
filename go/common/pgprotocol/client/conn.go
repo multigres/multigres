@@ -81,6 +81,14 @@ type Config struct {
 	// and which verification rules apply.
 	SSLMode SSLMode
 
+	// SSLNegotiation selects how TLS is established on TCP connections
+	// (libpq sslnegotiation, PostgreSQL 17+). Empty string and "postgres"
+	// use the classic SSLRequest → 'S'/'N' negotiation; "direct" starts the
+	// TLS handshake immediately after the TCP dial with mandatory ALPN
+	// ("postgresql"). Direct requires a TLS-enforcing SSLMode (require /
+	// verify-ca / verify-full); startup fails otherwise, matching libpq.
+	SSLNegotiation SSLNegotiation
+
 	// TLSConfig is the TLS configuration for SSL connections.
 	// Only used for TCP connections. Pair with SSLMode; for prefer/require/
 	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.
@@ -147,6 +155,10 @@ type Conn struct {
 	// ctx is the context for this connection.
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// replState tracks the copy-both replication lifecycle. Zero value
+	// (replStreamIdle) is correct for every non-replication connection.
+	replState replStreamState
 }
 
 // Connect establishes a new connection to a PostgreSQL server.

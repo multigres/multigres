@@ -26,7 +26,6 @@ import (
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
@@ -65,7 +64,7 @@ import (
 //
 //	Keeps the engine's view of the cluster up-to-date and performs general maintenance tasks.
 //
-//	Topology Discovery (event-driven via PoolerWatcher):
+//	Topology Discovery (event-driven via the pooler cache hooks):
 //	- Watches the etcd cells/ directory to detect cell additions/removals
 //	- For each cell, watches the poolers/ directory for pooler changes
 //	- New poolers are added to the store and a ManagerHealthStream stream is opened
@@ -84,13 +83,13 @@ import (
 //	backoff (1s → 2s → … → 30s cap).
 //
 //	  ┌──────────────────────┐   ManagerHealthStream   ┌──────────────────────┐
-//	  │    Multipooler       │ ──── snapshot ────────> │   HealthStream      │
+//	  │    Multipooler       │ ──── snapshot ────────> │ HealthStream   │
 //	  │  (state change or    │                         │   (per pooler)       │
 //	  │   5s poll ticker)    │                         └──────────┬───────────┘
 //	  └──────────────────────┘                                    │ applySnapshot
 //	                                                              ▼
 //	                                                   ┌──────────────────────┐
-//	                                                   │    Pooler Store      │
+//	                                                   │    Pooler Cache      │
 //	                                                   └──────────────────────┘
 //
 // Recovery Loop:
@@ -188,10 +187,10 @@ type Engine struct {
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.PoolerStore
+	poolerCache *store.PoolerCache
 
-	// Health stream manager — one stream per pooler.
-	healthStream *HealthStream
+	// Health stream factory — spawns one HealthStream per pooler.
+	healthStreams *store.HealthStreamFactory
 
 	// Current configuration values
 	mu                sync.Mutex // protects shardWatchTargets
@@ -203,9 +202,6 @@ type Engine struct {
 	// Periodic runners for background tasks
 	bookkeepingRunner *timer.PeriodicRunner
 	recoveryRunner    *timer.PeriodicRunner
-
-	// Watcher-based topology discovery
-	poolerWatcher *PoolerWatcher
 
 	// Detected problems tracking (replaced each cycle)
 	detectedProblemsMu sync.Mutex
@@ -227,7 +223,7 @@ type Engine struct {
 	cancel      context.CancelFunc
 }
 
-// NewEngine creates a new RecoveryEngine instance.
+// NewEngine creates a new Engine instance.
 func NewEngine(
 	ts topoclient.Store,
 	logger *slog.Logger,
@@ -238,16 +234,11 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
-	poolerStore := store.NewPoolerStore()
-	healthStream := NewHealthStream(ctx, rpcClient, poolerStore, logger)
-
 	engine := &Engine{
 		ts:                ts,
 		logger:            logger,
 		config:            config,
 		rpcClient:         rpcClient,
-		poolerStore:       poolerStore,
-		healthStream:      healthStream,
 		shardWatchTargets: shardWatchTargets,
 		coordinator:       coordinator,
 		shutdownCtx:       ctx,
@@ -256,6 +247,18 @@ func NewEngine(
 		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
+	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
+	// cache's OnLive hook (bound at cache.Start in engine.Start) passes the
+	// cache into factory.New, and the resulting goroutine captures it for
+	// the lifetime of the stream.
+	engine.healthStreams = store.NewHealthStreamFactory(ctx, rpcClient, logger)
+	engine.poolerCache = newPoolerCache(
+		ctx,
+		ts,
+		engine.getWatchTargets,
+		logger,
+	)
+
 	// Initialize metrics
 	var err error
 	engine.metrics, err = NewMetrics()
@@ -263,62 +266,32 @@ func NewEngine(
 		logger.Error("failed to initialize recovery metrics", "error", err)
 	}
 
-	// Register callback for pooler store size observable gauge
-	err = engine.metrics.RegisterPoolerStoreSizeCallback(func() int {
-		return poolerStore.Len()
-	})
+	err = engine.metrics.RegisterPoolerStoreSizeCallback(engine.poolerCache.Len)
 	if err != nil {
 		logger.Error("failed to monitor pooler store size", "error", err)
 	}
 
-	// Register callback for detected problems gauge
-	err = engine.metrics.RegisterDetectedProblemsCallback(func() []DetectedProblemData {
-		return engine.collectDetectedProblemsData()
-	})
+	err = engine.metrics.RegisterDetectedProblemsCallback(engine.collectDetectedProblemsData)
 	if err != nil {
 		logger.Error("failed to register detected problems callback", "error", err)
 	}
 
-	// Register callback for stream health gauges (connected, snapshots_received)
-	err = engine.metrics.RegisterStreamHealthCallback(func() []StreamHealthData {
-		return engine.collectStreamHealthData()
-	})
+	err = engine.metrics.RegisterStreamHealthCallback(engine.collectStreamHealthData)
 	if err != nil {
 		logger.Error("failed to register stream health callback", "error", err)
 	}
 
-	// Create action factory for recovery actions
 	engine.actionFactory = analysis.NewRecoveryActionFactory(
 		config,
-		poolerStore,
+		engine.poolerCache,
 		rpcClient,
 		ts,
 		coordinator,
 		logger,
 	)
 
-	// Create deadline tracker for grace periods
 	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
 		WithLogger(logger))
-
-	// Create the watcher-based topology discovery.
-	// When a new pooler is discovered, start a health stream for it; when an
-	// existing pooler transitions to LIFECYCLE_SHUTDOWN, stop the per-pooler
-	// health-stream goroutine so the reconnect loop exits cleanly instead of
-	// dialling the dead address until bookkeeping eviction (~4 h). The
-	// onPoolerDeleted hook is reserved for future use — accidental external
-	// deletion of a still-running pooler's entry should not tear down its
-	// health stream, so we deliberately pass nil here.
-	engine.poolerWatcher = NewPoolerWatcher(
-		ctx,
-		ts,
-		engine.getWatchTargets,
-		poolerStore,
-		healthStream.Start,
-		healthStream.Stop, // onPoolerStopped
-		nil,               // onPoolerDeleted: reserved
-		logger,
-	)
 
 	return engine
 }
@@ -330,7 +303,7 @@ func (re *Engine) SetConfigReloader(reloader func() []string) {
 	re.reloadConfig = reloader
 }
 
-// Start initializes and starts the RecoveryEngine loops.
+// Start initializes and starts the Engine loops.
 func (re *Engine) Start() error {
 	re.logger.Info("starting recovery engine",
 		"cell", re.config.GetCell(),
@@ -353,24 +326,23 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle(ctx)
 	}, nil)
 
-	// Start watcher-based topology discovery.
-	// New poolers discovered by the watcher will have a stream started via the
-	// healthStream.Start callback registered in NewEngine.
-	re.poolerWatcher.Start()
+	// Start the pooler cache (watch + sweeper) with the lifecycle hooks
+	// that drive per-pooler health streams via HealthStream.spawnStream.
+	re.poolerCache.Start(poolerCacheHooks(re.shutdownCtx, re.poolerCache, re.healthStreams, re.logger))
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
 }
 
-// Stop gracefully shuts down the RecoveryEngine.
+// Shutdown gracefully shuts down the Engine.
 // It cancels the context and waits for all goroutines to finish.
-func (re *Engine) Stop() {
+func (re *Engine) Shutdown() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
-	re.poolerWatcher.Stop()
-	re.healthStream.Shutdown()
+	re.poolerCache.Shutdown()
+	re.healthStreams.Shutdown()
 	re.logger.Info("recovery engine stopped")
 }
 
@@ -416,7 +388,7 @@ func shardWatchTargetsEqual(a, b []config.WatchTarget) bool {
 }
 
 // getWatchTargets returns a snapshot of the current watch targets.
-// Used as the targets accessor for PoolerWatcher.
+// Used as the targets accessor for the pooler cache filter.
 func (re *Engine) getWatchTargets() []config.WatchTarget {
 	re.mu.Lock()
 	defer re.mu.Unlock()
@@ -454,20 +426,21 @@ func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 // collectStreamHealthData reads stream connection state from the pooler store
 // for all tracked poolers. Called by the observable gauge callback.
 func (re *Engine) collectStreamHealthData() []StreamHealthData {
-	var data []StreamHealthData
-	re.poolerStore.Range(func(_ topoclient.ComponentID, state *multiorchdatapb.PoolerHealthState) bool {
-		if state.MultiPooler == nil {
-			return true
+	entries := re.poolerCache.All()
+	data := make([]StreamHealthData, 0, len(entries))
+	for _, entry := range entries {
+		state := entry.Rider
+		if state.Health().MultiPooler == nil {
+			continue
 		}
 		data = append(data, StreamHealthData{
-			PoolerID:          topoclient.ComponentIDString(state.MultiPooler.Id),
-			DBNamespace:       state.MultiPooler.GetShardKey().GetDatabase(),
-			Shard:             state.MultiPooler.GetShardKey().GetShard(),
-			Connected:         state.StreamConnected,
-			SnapshotsReceived: state.StreamSnapshotsReceived,
+			PoolerID:          topoclient.ComponentIDString(state.Health().MultiPooler.Id),
+			DBNamespace:       state.Health().MultiPooler.GetShardKey().GetDatabase(),
+			Shard:             state.Health().MultiPooler.GetShardKey().GetShard(),
+			Connected:         state.Health().StreamConnected,
+			SnapshotsReceived: state.Health().StreamSnapshotsReceived,
 		})
-		return true
-	})
+	}
 	return data
 }
 
@@ -510,8 +483,8 @@ func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
 
 // GetPoolerHealthForShard returns health information for all poolers in a shard.
 // Thread-safe for concurrent access from gRPC handlers.
-func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*multiorchdatapb.PoolerHealthState {
-	return re.poolerStore.FindPoolersInShard(&clustermetadatapb.ShardKey{
+func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*store.Pooler {
+	return store.FindPoolersInShard(re.poolerCache, &clustermetadatapb.ShardKey{
 		Database:   database,
 		TableGroup: tableGroup,
 		Shard:      shard,
@@ -620,18 +593,6 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	}
 }
 
-// pollAllPoolers sends a poll request on the active health stream for every
-// tracked pooler. Requests are fire-and-forget; the resulting snapshots will
-// be applied to the store asynchronously as they arrive.
-func (re *Engine) pollAllPoolers() {
-	re.poolerStore.Range(func(_ topoclient.ComponentID, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
-		if poolerHealth != nil && poolerHealth.MultiPooler != nil && poolerHealth.MultiPooler.Id != nil {
-			_ = re.healthStream.Poll(poolerHealth.MultiPooler.Id)
-		}
-		return true
-	})
-}
-
 // pollAndWaitForNewSnapshots sends poll requests to all poolers and blocks
 // until each pooler that had an active stream delivers at least one new
 // snapshot, or until pollResponseWait elapses or the context is cancelled.
@@ -647,14 +608,22 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 
 	// Capture snapshot counters for poolers with active streams before polling.
 	var baselines []poolerBaseline
-	re.poolerStore.Range(func(poolerID topoclient.ComponentID, ph *multiorchdatapb.PoolerHealthState) bool {
-		if ph != nil && ph.StreamConnected {
-			baselines = append(baselines, poolerBaseline{poolerID, ph.StreamSnapshotsReceived})
+	for _, entry := range re.poolerCache.All() {
+		ph := entry.Rider
+		if ph != nil && ph.Health().StreamConnected {
+			baselines = append(baselines, poolerBaseline{topoclient.ComponentIDString(ph.Health().MultiPooler.Id), ph.Health().StreamSnapshotsReceived})
 		}
-		return true
-	})
+	}
 
-	re.pollAllPoolers()
+	// Send poll requests on the active health stream for every tracked pooler.
+	// Requests are fire-and-forget; the resulting snapshots will be applied to
+	// the store asynchronously as they arrive.
+	for _, entry := range re.poolerCache.All() {
+		ph := entry.Rider
+		if ph != nil && ph.Health().MultiPooler != nil && ph.Health().MultiPooler.Id != nil && ph.HealthStream != nil {
+			_ = ph.HealthStream.Poll()
+		}
+	}
 
 	if len(baselines) == 0 {
 		return
@@ -675,7 +644,7 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 				)
 				return
 			}
-			if ph, ok := re.poolerStore.Get(pb.id); ok && ph.StreamSnapshotsReceived > pb.baseline {
+			if ph, ok := re.poolerCache.GetRider(pb.id); ok && ph.Health().StreamSnapshotsReceived > pb.baseline {
 				break
 			}
 			select {

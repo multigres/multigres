@@ -35,7 +35,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
 
 ##@ General
 
@@ -178,7 +178,7 @@ pgregress-update-patches: build ## Regenerate testdata/pg17/patches/*.patch from
 # testdata/pg17/patches/external/<ext>/.
 pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch-based verification.
 	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=verify \
-	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+	go test -v -timeout 180m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
 
 # Re-run the external extension suite in generate mode: any residual diff between
 # actual output and patched-expected output is absorbed by (re)writing
@@ -186,7 +186,16 @@ pgexternal: build ## Run the external extension suite (e.g. pgvector) with patch
 # in the PR diff before merging.
 pgexternal-update-patches: build ## Regenerate testdata/pg17/patches/external/*.patch from the current run.
 	RUN_PGEXTERNAL=1 PGREGRESS_PATCH_MODE=generate \
-	go test -v -timeout 60m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+	go test -v -timeout 180m -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/...
+
+# Regenerate the FULL pgregress patch set (regression + isolation + contrib +
+# external) inside an ubuntu-24.04 container that mirrors CI. The patch set is
+# platform-sensitive (locale collation, timezone formatting, error-cursor
+# positions), so it MUST be regenerated on Linux — running the targets above
+# directly on macOS produces patches that fail CI verification. Patches are
+# written back into the working tree via a bind mount. Requires Docker.
+pgregress-update-patches-docker: ## Regenerate ALL pgregress patches in a CI-matching Linux container (Docker).
+	./docker/pgregress-generate.sh
 
 # Run the pgproto wire-protocol conformance suite (patch-verify mode). Requires
 # `make build` and `make tools` (builds the pgproto binary); clones/builds

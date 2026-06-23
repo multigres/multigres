@@ -73,7 +73,7 @@ func TestValidateSetting_PropagatesError(t *testing.T) {
 	mockExec := &mockIExecute{streamExecuteErr: wantErr}
 
 	v := NewValidateSetting("default", "0-inf", "extra_float_digits", "100", "SET extra_float_digits = 100")
-	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, nil)
+	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{}, nil)
 	require.ErrorIs(t, err, wantErr, "validation error must propagate so the SET fails at SET time")
 }
 
@@ -83,6 +83,6 @@ func TestValidateSetting_PropagatesError(t *testing.T) {
 // e2e, where the client sees CommandComplete("SET") rather than a result row.
 func TestValidateSetting_SuccessReturnsNil(t *testing.T) {
 	v := NewValidateSetting("default", "0-inf", "work_mem", "64MB", "SET work_mem = '64MB'")
-	err := v.StreamExecute(context.Background(), &mockIExecute{}, nil, nil, nil, nil)
+	err := v.StreamExecute(context.Background(), &mockIExecute{}, nil, nil, nil, PlanExecInfo{}, nil)
 	require.NoError(t, err)
 }

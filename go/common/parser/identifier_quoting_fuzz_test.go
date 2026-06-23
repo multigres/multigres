@@ -155,7 +155,7 @@ func collectIdentifierFields(v reflect.Value, parentPath string, visited map[uin
 		return
 	}
 	switch v.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if v.IsNil() {
 			return
 		}

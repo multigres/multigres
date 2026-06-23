@@ -38,7 +38,7 @@ func (p *Planner) planVariableShowStmt(
 	// and matches the column label PostgreSQL returns.
 	name := strings.ToLower(stmt.Name)
 	if !isGatewayManagedVariable(name) {
-		return p.planDefault(sql, stmt, conn, PlannerOptions{})
+		return p.planDefault(sql, stmt, conn, PlanOptions{})
 	}
 
 	p.logger.Debug("planning SHOW gateway-managed variable", "variable", name)

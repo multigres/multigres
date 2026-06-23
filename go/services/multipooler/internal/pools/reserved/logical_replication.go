@@ -93,11 +93,11 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 		return nil, fmt.Errorf("dial replication connection: %w", err)
 	}
 	pooled.Conn = regular.NewConn(clientConn, p.config.RegularPoolConfig.AdminPool)
-
-	// IMPORTANT: do NOT call pooled.Taint() here. Taint immediately frees
-	// the slot via p.pool.put(nil) — see connpool/pooled.go. The slot must
-	// stay held for the session's lifetime, so we leave pool intact and
-	// let reserved.Pool.release() Taint right before Recycle.
+	// Replication mode is a startup-time backend property, so this socket must
+	// never return to the regular idle pool. Mark it tainted now, but defer the
+	// slot release until Recycle so the active replication session remains
+	// capacity-accounted for its full lifetime.
+	pooled.TaintOnRecycle()
 
 	connID := p.lastID.Add(1)
 	c := newConn(pooled, connID, p)

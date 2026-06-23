@@ -79,18 +79,16 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		"original", sql,
 		"rewritten", rewrittenSQL)
 
-	// Build the route. Use TempTableRoute for `CREATE TEMP TABLE t AS EXECUTE p`
-	// so the query runs on a temp-table-reserved connection; otherwise use a
-	// plain Route that goes through the regular pool.
-	var prim engine.Primitive
+	// Build a Route carrying the prepared statement. For
+	// `CREATE TEMP TABLE t AS EXECUTE p`, ExecInfo.TempTable makes the executor
+	// run it on a temp-table-reserved connection; otherwise it goes through the
+	// regular pool.
+	plan := engine.NewPlan(rewrittenSQL,
+		engine.NewRouteWithPreparedStatement(p.defaultTableGroup, constants.DefaultShard, rewrittenSQL, psi.PreparedStatement))
 	if isTemp {
-		prim = engine.NewTempTableRouteWithPreparedStatement(
-			p.defaultTableGroup, constants.DefaultShard, rewrittenSQL, psi.PreparedStatement)
-	} else {
-		prim = engine.NewRouteWithPreparedStatement(
-			p.defaultTableGroup, constants.DefaultShard, rewrittenSQL, psi.PreparedStatement)
+		plan.ExecInfo.TempTable = true
 	}
-	return engine.NewPlan(rewrittenSQL, prim), nil
+	return plan, nil
 }
 
 // findWrappedExecute returns the innermost ExecuteStmt inside a supported

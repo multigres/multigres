@@ -40,7 +40,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	defer span.End()
 
 	// Create generator - this builds the poolersByTG map once
-	generator := analysis.NewAnalysisGenerator(re.poolerStore, re.makePolicyLookup(ctx))
+	generator := analysis.NewAnalysisGenerator(re.poolerCache, re.makePolicyLookup(ctx))
 	shardAnalyses := generator.GenerateShardAnalyses()
 
 	// Run all analyzers to detect problems
@@ -308,7 +308,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	// Re-generate analysis for this shard using current store data.
 	// Note: we analyze the full shard (all poolers) rather than a single pooler; for
 	// single-pooler problems the extra poolers are harmless since analyzePooler filters by role.
-	generator := analysis.NewAnalysisGenerator(re.poolerStore, re.makePolicyLookup(ctx))
+	generator := analysis.NewAnalysisGenerator(re.poolerCache, re.makePolicyLookup(ctx))
 	shardAnalysis, err := generator.GenerateShardAnalysis(problem.ShardKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)

@@ -51,12 +51,12 @@ type streamExecuteCall struct {
 	preparedStatement *query.PreparedStatement
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultiGatewayConnectionState, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
 	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, preparedStatement: ps})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
 	m.portalStreamExecuteCalled = true
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1", Rows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("1")}}}})
 }
@@ -157,7 +157,7 @@ func planAndExecute(t *testing.T, s *testSetup, sql string) (*sqltypes.Result, e
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
 
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	if err != nil {
 		return nil, err
 	}

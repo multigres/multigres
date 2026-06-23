@@ -98,7 +98,7 @@ func TestDiscardAllPrimitive_RejectsInTransaction(t *testing.T) {
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
 	var got *sqltypes.Result
-	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil,
+	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error { got = r; return nil })
 
 	require.Error(t, err)
@@ -131,7 +131,7 @@ func TestDiscardAllPrimitive_Success(t *testing.T) {
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
 	var got *sqltypes.Result
-	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil,
+	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error { got = r; return nil })
 
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 	state.AddOpenHoldCursor("c1")
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
-	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil,
+	err := prim.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{},
 		func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -195,7 +195,7 @@ func TestDiscardAllPrimitive_PortalStreamExecute(t *testing.T) {
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
 	var got *sqltypes.Result
-	err := prim.PortalStreamExecute(context.Background(), mockExec, conn, state, nil, 0, false,
+	err := prim.PortalStreamExecute(context.Background(), mockExec, conn, state, nil, 0, false, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error { got = r; return nil })
 
 	require.NoError(t, err)

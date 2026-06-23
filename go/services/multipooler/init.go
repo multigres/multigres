@@ -341,6 +341,9 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)
+	// Launch the background backup-health poller (service-level concern, kept
+	// out of manager.Start so RPC unit tests don't run background DB queries).
+	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)

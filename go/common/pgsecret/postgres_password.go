@@ -57,6 +57,7 @@ func ReadPostgresPassword(filePath string) (string, error) {
 // configuration layer (e.g. viperutil) and only need the file-reading
 // primitive.
 func ReadPasswordFile(path string) (string, error) {
+	// #nosec G703 -- path is an operator-configured password-file location (flag/env/Secret mount), not external request input.
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read postgres password file %q: %w", path, err)

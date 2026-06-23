@@ -73,8 +73,7 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 		return nil, fmt.Errorf("failed to create Unix socket directory: %w", err)
 	}
 
-	// Set Multigres default values - starting with Pico instance defaults from Supabase
-	// Reference: https://github.com/supabase/supabase-admin-api/blob/3765a153ef6361cb19a1cbd485cdbf93e0a1820a/optimizations/postgres.go#L38
+	// Set Multigres default values tuned for a small instance.
 	// These can be changed in the future based on instance size/requirements
 	cnf.MaxConnections = 60
 	cnf.SharedBuffers = "64MB"

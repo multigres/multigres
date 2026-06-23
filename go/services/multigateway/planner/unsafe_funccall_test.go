@@ -545,7 +545,7 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -598,7 +598,7 @@ func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -617,8 +617,8 @@ func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
 // TestPlan_DynamicSetConfig_AdvisoryLockPins verifies that a dynamic set_config
 // whose argument acquires a session-level advisory lock still pins the backend.
 // The lock is taken when the resolve projection evaluates the arguments, so the
-// resolve must run through an AdvisoryLockRoute — built by routePrimitive from
-// the forwarded opts — rather than a plain Route.
+// pin must ride on the plan's ExecInfo — which ResolveTrackSetConfig forwards to
+// its (plain) ResolveRoute at exec time.
 func TestPlan_DynamicSetConfig_AdvisoryLockPins(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -628,14 +628,15 @@ func TestPlan_DynamicSetConfig_AdvisoryLockPins(t *testing.T) {
 	// not a literal/bound param) and advisory-lock-acquiring.
 	sql := "SELECT set_config('x', pg_try_advisory_lock(1)::text, false)"
 	stmt := parseOne(t, sql)
-	plan, err := p.Plan(sql, stmt, testConn.Conn)
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
 	prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
 	require.True(t, ok, "expected ResolveTrackSetConfig, got %T", plan.Primitive)
-	alr, ok := prim.ResolveRoute.(*engine.AdvisoryLockRoute)
-	require.True(t, ok, "expected resolve to run through AdvisoryLockRoute, got %T", prim.ResolveRoute)
-	assert.True(t, alr.Pins(), "advisory-lock acquire must pin the backend")
+	_, isRoute := prim.ResolveRoute.(*engine.Route)
+	require.True(t, isRoute, "resolve must run through a plain Route, got %T", prim.ResolveRoute)
+	assert.True(t, plan.ExecInfo.AdvisoryLock, "advisory-lock acquire must pin the backend via plan ExecInfo")
+	assert.True(t, plan.ExecInfo.RecheckAdvisoryLocks, "advisory statement must request a pg_locks recheck")
 }
 
 // TestPlan_RejectsUnsafeFuncCalls verifies Plan() itself rejects blocklisted
@@ -670,7 +671,7 @@ func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, plan)
 			var diag *mterrors.PgDiagnostic

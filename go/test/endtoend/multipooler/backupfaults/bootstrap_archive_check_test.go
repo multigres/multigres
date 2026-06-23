@@ -27,8 +27,8 @@ import (
 
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/s3mock"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/s3mock"
 )
 
 // walSegmentKey matches pgBackRest WAL-segment archive PUTs: a key under
