@@ -274,20 +274,16 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// 2. After restart, every subsequent pg_is_in_recovery must report standby.
-	// Covers isInRecovery (verify after restart), resetSynchronousReplication's
-	// role check, and setPrimaryConnInfoLocked's guardrail.
+	// Covers isInRecovery (verify after restart) and setPrimaryConnInfoLocked's
+	// guardrail. The post-demotion sync clear goes through the (fake) rule store's
+	// ClearSyncStandby, asserted below, so it issues no SQL here.
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
 	// 3. waitForDatabaseConnection polls SELECT 1 after the standby restart.
 	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 
-	// 4. resetSynchronousReplication clears sync standby list and reloads.
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// 5. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
+	// 4. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
 	var capturedConnInfoSQL string
 	mockQueryService.AddQueryPatternWithCallback(
 		"ALTER SYSTEM SET primary_conninfo",
@@ -300,7 +296,8 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000"}}))
 
-	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	ruleStore := &fakeRuleStore{pos: makeRulePosition(3)}
+	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, ruleStore)
 
 	// Seed an initial revocation so we can verify SetPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
@@ -331,10 +328,15 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetPrimary.
-	rev, err := pm.consensusState.GetInconsistentRevocation()
-	require.NoError(t, err)
+	rev := pm.consensusState.GetInconsistentRevocation()
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
+
+	// Demoting a stale primary clears synchronous_standby_names through the rule
+	// store's SyncStandbyManager (keeping its cache coherent), not via a direct
+	// ALTER SYSTEM that would bypass the cache.
+	assert.True(t, ruleStore.clearSyncCalled,
+		"stale-primary demotion should clear sync standby names via ClearSyncStandby")
 
 	// Gateway leader observation should reflect the new primary.
 	healthState := pm.healthStreamer.getState()

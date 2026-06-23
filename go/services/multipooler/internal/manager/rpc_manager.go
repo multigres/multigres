@@ -325,8 +325,12 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		Status: poolerStatus,
 	}
 
+	// Best-effort status report: prefer a fresh read, fall back to the cached
+	// position if postgres is unreachable.
 	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
 		resp.ConsensusStatus = cs
+	} else {
+		resp.ConsensusStatus = pm.getCachedConsensusStatus()
 	}
 	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
 
@@ -734,9 +738,10 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 
 	pm.healthStreamer.UpdateLeaderObservation(nil)
 
-	// Suppress the postgres monitor until a rewind completes; the monitor would
-	// otherwise restart postgres on this demoted node.
-	pm.rewindPending.Store(true)
+	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
+	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
+	// demote path) must run pg_rewind before trusting local WAL.
+	pm.suspectedDivergence.Store(true)
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
@@ -791,9 +796,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	defer pm.actionLock.Release(ctx)
 
 	// RewindToSource is an explicit "this WAL is suspect, rewind it" request from
-	// the caller; raise rewindPending so restartAsStandbyLocked runs the
+	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
 	// pg_rewind dry-run.
-	pm.rewindPending.Store(true)
+	pm.suspectedDivergence.Store(true)
 	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port)
 	if err != nil {
 		return nil, err
@@ -861,12 +866,12 @@ func (pm *MultiPoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 
 // restartAsStandbyLocked is the shared core of RewindToSource and the
 // stale-primary branch of SetPrimary: it pauses the manager, stops
-// postgres, runs pg_rewind against source iff rewindPending is set
+// postgres, runs pg_rewind against source iff suspectedDivergence is set
 // (patching pgbackrest paths in postgresql.auto.conf after the rewind
 // copies them from source), then restarts postgres as standby and
 // resumes the manager.
 //
-// Gating on rewindPending: callers raise the flag when this node's WAL may
+// Gating on suspectedDivergence: callers raise the flag when this node's WAL may
 // have diverged from the cluster's chosen history (emergencyDemoteLocked
 // sets it after an emergency demote; SetPrimary's stale-primary branch
 // and RewindToSource set it before calling here). When the flag is clear we
@@ -893,7 +898,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	wantRewind := pm.rewindPending.Load()
+	wantRewind := pm.suspectedDivergence.Load()
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	resume := pm.Pause(ctx)
@@ -912,7 +917,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// dry-run detects no divergence and skips), so clearing as soon as
 		// pg_rewind returns is safe even if the restart or reconnect below
 		// fails: the next attempt will skip pg_rewind and just restart.
-		pm.rewindPending.Store(false)
+		pm.suspectedDivergence.Store(false)
 		// pg_rewind copies postgresql.auto.conf from source, baking source's
 		// own pooler paths into pgbackrest commands (restore_command,
 		// archive_command). Patch them back to this pooler's paths before

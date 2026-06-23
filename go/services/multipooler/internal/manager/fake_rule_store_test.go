@@ -72,6 +72,8 @@ type fakeRuleStore struct {
 	inconsistentGUC    bool
 	reconcileGUCCalled bool
 	reconcileGUCErr    error
+	clearSyncCalled    bool
+	clearSyncErr       error
 }
 
 func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
@@ -141,6 +143,13 @@ func (f *fakeRuleStore) ReconcileGUC(_ context.Context, _ bool) error {
 	defer f.mu.Unlock()
 	f.reconcileGUCCalled = true
 	return f.reconcileGUCErr
+}
+
+func (f *fakeRuleStore) ClearSyncStandby(_ context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.clearSyncCalled = true
+	return f.clearSyncErr
 }
 
 // assertPromoteRecorded asserts that exactly one UpdateRule call was made with

@@ -2347,8 +2347,15 @@ type AvailabilityStatus struct {
 	// member signaling INELIGIBLE is a candidate for removal/replacement; a
 	// non-member signaling INELIGIBLE should be skipped when growing the cohort.
 	CohortEligibilityStatus *CohortEligibilityStatus `protobuf:"bytes,2,opt,name=cohort_eligibility_status,json=cohortEligibilityStatus,proto3" json:"cohort_eligibility_status,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// suspected_divergence is true when the pooler suspects its local WAL may have
+	// diverged from the cluster's chosen history and a pg_rewind may be needed to
+	// rejoin replication as a standby. This is a best-effort, in-memory signal that's
+	// usually set when a former primary learns an failover happened. A pooler with
+	// suspected divergence may be slower to endorse a new rule proposal because it
+	// needs to stop, run pg_rewind, and restart.
+	SuspectedDivergence bool `protobuf:"varint,3,opt,name=suspected_divergence,json=suspectedDivergence,proto3" json:"suspected_divergence,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AvailabilityStatus) Reset() {
@@ -2393,6 +2400,13 @@ func (x *AvailabilityStatus) GetCohortEligibilityStatus() *CohortEligibilityStat
 		return x.CohortEligibilityStatus
 	}
 	return nil
+}
+
+func (x *AvailabilityStatus) GetSuspectedDivergence() bool {
+	if x != nil {
+		return x.SuspectedDivergence
+	}
+	return false
 }
 
 // CohortEligibilityStatus carries the pooler's cohort-eligibility signal.
@@ -2585,10 +2599,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x10LeadershipStatus\x12\x1f\n" +
 	"\vleader_term\x18\x01 \x01(\x03R\n" +
 	"leaderTerm\x129\n" +
-	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"\xca\x01\n" +
+	"\x06signal\x18\x02 \x01(\x0e2!.clustermetadata.LeadershipSignalR\x06signal\"\xfd\x01\n" +
 	"\x12AvailabilityStatus\x12N\n" +
 	"\x11leadership_status\x18\x01 \x01(\v2!.clustermetadata.LeadershipStatusR\x10leadershipStatus\x12d\n" +
-	"\x19cohort_eligibility_status\x18\x02 \x01(\v2(.clustermetadata.CohortEligibilityStatusR\x17cohortEligibilityStatus\"[\n" +
+	"\x19cohort_eligibility_status\x18\x02 \x01(\v2(.clustermetadata.CohortEligibilityStatusR\x17cohortEligibilityStatus\x121\n" +
+	"\x14suspected_divergence\x18\x03 \x01(\bR\x13suspectedDivergence\"[\n" +
 	"\x17CohortEligibilityStatus\x12@\n" +
 	"\x06signal\x18\x01 \x01(\x0e2(.clustermetadata.CohortEligibilitySignalR\x06signal*@\n" +
 	"\n" +
