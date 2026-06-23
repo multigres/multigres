@@ -141,8 +141,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
 					t.Log("Listing backups to verify full backup...")
 					foundBackup := listAndFindBackup(t, backupClient, fullBackupID, 10)
-					t.Logf("Backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
-						foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+					t.Logf("Backup verified in list: ID=%s, Status=%s, StopLSN=%s",
+						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 				})
 
 				t.Run("RestoreAndVerify", func(t *testing.T) {
@@ -173,8 +173,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					// Find our backup in the standby's list
 					foundBackup := findBackupInList(t, listResp.Backups, fullBackupID)
 					assertBackupComplete(t, foundBackup, fullBackupID)
-					t.Logf("Backup verified in standby's list: ID=%s, Status=%s, FinalLSN=%s",
-						foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+					t.Logf("Backup verified in standby's list: ID=%s, Status=%s, StopLSN=%s",
+						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 
 					// Capture the standby's current term so we can verify it's preserved
 					// across the restore. Bootstrap recruits every member, so the
@@ -482,8 +482,8 @@ func TestBackup_FromStandby(t *testing.T) {
 				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
-				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
-					foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+				t.Logf("Standby backup verified in list: ID=%s, Status=%s, StopLSN=%s",
+					foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 			})
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
@@ -567,7 +567,15 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 					assert.Equal(t, "default", foundBackup.TableGroup)
 					assert.Equal(t, "0-inf", foundBackup.Shard)
 					assert.Equal(t, multiadminpb.BackupStatus_BACKUP_STATUS_COMPLETE, foundBackup.Status)
-					t.Logf("Backup verified in list: %s", foundBackup.BackupId)
+					// Verify the LSN range and server version make it all the way
+					// through multiadmin: pgbackrest info JSON (start/stop LSN) and the
+					// pg_version annotation captured at backup time are surfaced on the
+					// multiadmin BackupInfo.
+					assert.NotEmpty(t, foundBackup.StartLsn, "BackupInfo should carry start LSN")
+					assert.NotEmpty(t, foundBackup.StopLsn, "BackupInfo should carry stop LSN")
+					assert.NotEmpty(t, foundBackup.PgVersion, "BackupInfo should carry pg_version")
+					t.Logf("Backup verified in list: %s (start_lsn=%s stop_lsn=%s pg_version=%s)",
+						foundBackup.BackupId, foundBackup.StartLsn, foundBackup.StopLsn, foundBackup.PgVersion)
 				})
 			})
 
