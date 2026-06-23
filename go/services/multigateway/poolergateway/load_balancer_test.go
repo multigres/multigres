@@ -738,3 +738,48 @@ func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	assert.Empty(t, lb.shards, "shardSummary should be cleared once no poolers remain in the shard")
 	lb.mu.Unlock()
 }
+
+// TestLoadBalancer_OnPrimaryServingRequiresSelfNamedLeader is the regression
+// guard for the buffer-drain race: a pooler can be SERVING (as a REPLICA)
+// while consensus has just named it the new leader. Until the pooler's own
+// broadcast names itself as leader, draining the failover buffer toward it
+// would route writes to a queryServer that still rejects WRITABLE traffic
+// with MTF01. We must only call OnPrimaryServing once the pooler's most
+// recent health snapshot self-identifies as leader — the gateway-side
+// replacement for the dropped Target.PoolerType == PRIMARY check.
+func TestLoadBalancer_OnPrimaryServingRequiresSelfNamedLeader(t *testing.T) {
+	var calls []*clustermetadatapb.ShardKey
+	lb := newTestLBWithPrimaryServing(t, "zone1", func(sk *clustermetadatapb.ShardKey) {
+		calls = append(calls, sk)
+	})
+
+	// The eventual leader is also the observer here — it carries the
+	// LeaderObservation that names itself, but the broadcast naming itself
+	// only arrives after consensus completes the rule change.
+	leader := withSelfLeadership(createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	addPoolerForTest(t, lb, leader)
+	connLeader := connForTest(t, lb, leader)
+
+	// First broadcast: pooler is SERVING but its broadcast still names the
+	// OLD leader. This is the pre-promotion snapshot. Must not drain the
+	// buffer — the pooler hasn't acknowledged being leader yet.
+	oldLeaderID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "old-leader",
+	}
+	simulateHealthUpdate(connLeader,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: oldLeaderID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
+	assert.Empty(t, calls,
+		"OnPrimaryServing must not fire while the pooler's broadcast names a different leader")
+
+	// Second broadcast: pooler now names itself in the broadcast. This is
+	// the post-OnStateChange snapshot. Drain the buffer.
+	simulateHealthUpdate(connLeader,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
+	require.Len(t, calls, 1, "OnPrimaryServing must fire once the pooler self-identifies as leader")
+	assert.Equal(t, constants.DefaultTableGroup, calls[0].GetTableGroup())
+	assert.Equal(t, "0", calls[0].GetShard())
+}

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -307,17 +308,19 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 		return
 	}
 	leader := summary.leader()
-	if leader == nil || topoclient.ComponentIDString(leader.LeaderId) != conn.ID() {
+	connID := conn.PoolerInfo().GetId()
+	if leader == nil || !proto.Equal(leader.GetLeaderId(), connID) {
 		return
 	}
 	health := conn.Health()
 	if health == nil || !health.isServing() {
 		return
 	}
-	// ServingStatus == SERVING is sufficient: the multipooler commits the
-	// role transition (poolerType=PRIMARY) and servingStatus=SERVING in a
-	// single locked update, so by the time we see SERVING from the named
-	// leader, the role transition has finished.
+	// The pooler's own broadcast LeaderObservation must name itself as
+	// leader.
+	if !proto.Equal(health.LeaderObservation.GetLeaderId(), connID) {
+		return
+	}
 	lb.onPrimaryServing(summary.shardKey)
 }
 
