@@ -35,12 +35,17 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
+// testSnapshotCapturedAt is the fixed pooler-clock capture time stamped on
+// snapshots built by makeSnapshot, so tests can assert it flows into the store.
+var testSnapshotCapturedAt = timestamppb.New(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+
 // makeSnapshot wraps a Status into a HealthStreamResponse snapshot.
 func makeSnapshot(status *multipoolermanagerdatapb.Status) *multipoolermanagerdatapb.ManagerHealthStreamResponse {
 	return &multipoolermanagerdatapb.ManagerHealthStreamResponse{
 		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Snapshot{
 			Snapshot: &multipoolermanagerdatapb.ManagerHealthSnapshot{
-				Status: &multipoolermanagerdatapb.StatusResponse{Status: status},
+				Status:     &multipoolermanagerdatapb.StatusResponse{Status: status},
+				CapturedAt: testSnapshotCapturedAt,
 			},
 		},
 	}
@@ -156,6 +161,8 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	require.True(t, updated.Health().IsUpToDate)
 	require.NotNil(t, updated.Health().LastSeen)
 	require.NotNil(t, updated.Health().LastCheckSuccessful)
+	require.Equal(t, testSnapshotCapturedAt.AsTime(), updated.Health().GetPoolerCapturedAt().AsTime(),
+		"pooler-clock capture time should be stored from the snapshot")
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType())
 	require.NotNil(t, updated.Health().GetStatus().GetPrimaryStatus())
 	require.Equal(t, "0/123ABC", updated.Health().GetStatus().GetPrimaryStatus().GetLsn())

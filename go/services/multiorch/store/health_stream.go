@@ -428,6 +428,10 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 			// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 			// left at its previous value so callers can reason about "last known good" time.
 			h.StreamSnapshotsReceived++
+			// Record the pooler's own capture time (pooler clock) alongside the
+			// orchestrator-stamped LastSeen (orch clock) so consumers can reason about
+			// observation age without conflating the two clocks.
+			h.PoolerCapturedAt = snapshot.CapturedAt
 		})
 		return existing
 	}

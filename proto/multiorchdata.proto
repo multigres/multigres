@@ -79,4 +79,11 @@ message PoolerHealthState {
 
   // Monotonic counter of health snapshots received on the current or past streams.
   int64 stream_snapshots_received = 23;
+
+  // When the pooler reported it captured the most recent snapshot, on the
+  // pooler's own clock (copied verbatim from ManagerHealthSnapshot.captured_at).
+  // Distinct from last_seen/last_check_successful, which are stamped with the
+  // orchestrator's clock on receipt. Comparing this against an orchestrator
+  // timestamp must account for clock skew between the hosts.
+  google.protobuf.Timestamp pooler_captured_at = 24;
 }

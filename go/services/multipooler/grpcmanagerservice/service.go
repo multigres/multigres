@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -311,9 +312,10 @@ func (s *managerService) sendManagerHealthSnapshot(
 	}
 
 	healthSnapshot := &multipoolermanagerdatapb.ManagerHealthSnapshot{
-		Status:  statusResp,
-		Timeout: durationpb.New(timeout),
-		Trigger: trigger,
+		Status:     statusResp,
+		Timeout:    durationpb.New(timeout),
+		Trigger:    trigger,
+		CapturedAt: timestamppb.Now(),
 	}
 
 	response := &multipoolermanagerdatapb.ManagerHealthStreamResponse{
