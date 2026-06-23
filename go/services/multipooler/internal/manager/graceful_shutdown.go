@@ -97,8 +97,8 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	//
 	// Best-effort: a failure here is logged but doesn't block the rest of
 	// shutdown.
-	if pm.servingState != nil {
-		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if pm.stateManager != nil {
+		if err := pm.stateManager.SetState(lockCtx, pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
 				"error", err)
 		}

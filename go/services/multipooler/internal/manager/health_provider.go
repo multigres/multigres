@@ -109,18 +109,30 @@ func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObserv
 // discovering the new primary before the pooler can actually serve that type.
 // NOT_SERVING transitions broadcast immediately so the gateway can start
 // buffering without delay.
-func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, poolerType, servingStatus)
+		hs.queryServer.AwaitStateChange(ctx, isConsensusLeader, servingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
-	hs.poolerType = poolerType
+	// The health stream still reports the PoolerType routing label to the gateway
+	// (its buffer-drain gate keys off PoolerType == PRIMARY). Translate the leader
+	// fact back to the wire label: a non-leader is a read replica for routing.
+	hs.poolerType = poolerTypeForLeader(isConsensusLeader)
 	hs.servingStatus = servingStatus
 	hs.broadcastLocked()
 	return nil
+}
+
+// poolerTypeForLeader maps the consensus-leadership fact to the PoolerType routing
+// label published on the health stream.
+func poolerTypeForLeader(isConsensusLeader bool) clustermetadatapb.PoolerType {
+	if isConsensusLeader {
+		return clustermetadatapb.PoolerType_PRIMARY
+	}
+	return clustermetadatapb.PoolerType_REPLICA
 }
 
 // Broadcast sends the current state to all clients without changing any state.

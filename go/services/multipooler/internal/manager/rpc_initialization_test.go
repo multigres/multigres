@@ -275,7 +275,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		record:            record,
 		serviceID:         multipooler.Id,
 		topoClient:        ts,
-		servingState:      NewStateManager(slog.Default(), record),
+		stateManager:      NewStateManager(slog.Default(), record),
 		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 	}
 }

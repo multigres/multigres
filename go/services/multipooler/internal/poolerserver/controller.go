@@ -39,17 +39,20 @@ type PoolerController interface {
 	// OnStateChange transitions the query service to match the new serving state.
 	// This is called by StateManager during state transitions.
 	//
-	// The poolerType determines query behavior:
-	//   - PRIMARY: Accept reads + writes
-	//   - REPLICA: Accept reads only
-	//   - DRAINED: Offline, no user queries
+	// isConsensusLeader determines query behavior:
+	//   - leader: Accept reads + writes
+	//   - non-leader (replica): Accept reads only
+	//
+	// postgresPrimary reports the physical recovery state; the query server does
+	// not gate admission on it today (writability surfaces via the leader role and
+	// serving status), but it is part of the uniform StateAware signature.
 	//
 	// The servingStatus determines whether queries are accepted at all:
-	//   - SERVING: Accept queries (constrained by poolerType)
+	//   - SERVING: Accept queries
 	//   - NOT_SERVING: Reject all queries
 	//
 	// Returns error if the transition fails.
-	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
+	OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error
 
 	// StartRequest checks whether a request should be admitted, based on its
 	// RequestKind and the pooler's drain phase. It returns MTF01 (which the
@@ -60,10 +63,10 @@ type PoolerController interface {
 	// throughout. See StartRequest for the full admission matrix.
 	StartRequest(target *query.Target, kind RequestKind) error
 
-	// AwaitStateChange blocks until the pooler's type and serving status match
-	// the given targets, or ctx is cancelled. Used by the health streamer to
+	// AwaitStateChange blocks until the pooler's leader role and serving status
+	// match the given targets, or ctx is cancelled. Used by the health streamer to
 	// ensure the query server is ready before broadcasting the new state.
-	AwaitStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus)
+	AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus)
 
 	// IsServing returns true if the query service is currently serving requests.
 	IsServing() bool

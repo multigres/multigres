@@ -52,10 +52,13 @@ type QueryPoolerServer struct {
 	tableGroup string
 	shard      string
 
-	mu             sync.Mutex
-	poolerType     clustermetadatapb.PoolerType
-	servingStatus  clustermetadatapb.PoolerServingStatus
-	healthProvider HealthProvider
+	mu sync.Mutex
+	// isConsensusLeader reports whether this pooler is the consensus-elected
+	// leader (the shard's write target). Set from OnStateChange; replaces the
+	// PoolerType label, which the gateway no longer routes on.
+	isConsensusLeader bool
+	servingStatus     clustermetadatapb.PoolerServingStatus
+	healthProvider    HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
@@ -161,15 +164,15 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // any still-running single queries are killed by the postgres demotion that
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
-func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
+		"leader_from", s.isConsensusLeader, "leader_to", isConsensusLeader,
 		"status_from", s.servingStatus, "status_to", servingStatus)
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.poolerType = poolerType
+		s.isConsensusLeader = isConsensusLeader
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -178,8 +181,8 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	}
 
 	// NOT_SERVING: begin stage 1 of the graceful drain.
-	// The poolerType is NOT updated yet — in-flight requests on reserved
-	// connections (e.g., COMMIT after a demotion) must still see the old type
+	// The leader role is NOT updated yet — in-flight requests on reserved
+	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
 	s.drainPhase = drainReserved
 	s.mu.Unlock()
@@ -225,10 +228,10 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
 	}
 
-	// Complete the transition. The poolerType is set here (after drain) so that
-	// in-flight requests saw the old type throughout the drain phase.
+	// Complete the transition. The leader role is set here (after drain) so that
+	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
-	s.poolerType = poolerType
+	s.isConsensusLeader = isConsensusLeader
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -310,13 +313,13 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 //
 // Validation rules:
 //   - TableGroup and Shard must always match. A mismatch is a routing bug (MTD01).
-//   - PoolerType: if the target is PRIMARY but this pooler is a REPLICA, the gateway
-//     has stale topology (likely a demotion happened). Returns MTF01 to trigger
-//     buffering until the new primary is discovered. All other type combinations
-//     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic).
+//   - Leadership: if the target is PRIMARY but this pooler is not the consensus
+//     leader, the gateway has stale topology (likely a demotion happened). Returns
+//     MTF01 to trigger buffering until the new primary is discovered. All other
+//     combinations are allowed (a leader serves both PRIMARY and REPLICA traffic).
 //
 // existingReserved signals an in-flight operation on an existing reserved
-// connection. Such operations bypass the demotion (PRIMARY→REPLICA) check: the
+// connection. Such operations bypass the demotion (leader→non-leader) check: the
 // reserved connection's existence is the real gate (see StartRequest), so a
 // demoted pooler whose reserved connection survived the drain can still conclude
 // its transaction, and one whose connection was force-closed surfaces an honest
@@ -341,10 +344,9 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	// A PRIMARY request hitting a REPLICA means the gateway thinks this pooler is
-	// still the primary, but it was demoted. Return MTF01 to trigger buffering.
-	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY &&
-		s.poolerType == clustermetadatapb.PoolerType_REPLICA {
+	// A PRIMARY request hitting a non-leader means the gateway thinks this pooler
+	// is still the primary, but it was demoted. Return MTF01 to trigger buffering.
+	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY && !s.isConsensusLeader {
 		return mterrors.MTF01.New()
 	}
 
@@ -362,10 +364,10 @@ func (s *QueryPoolerServer) notifyStateChangedLocked() {
 // AwaitStateChange blocks until the pooler's type and serving status match
 // the given targets, or ctx is cancelled. Used by the health streamer to
 // ensure the query server is ready before broadcasting the new state.
-func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) {
+func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus) {
 	for {
 		s.mu.Lock()
-		if s.poolerType == poolerType && s.servingStatus == servingStatus {
+		if s.isConsensusLeader == isConsensusLeader && s.servingStatus == servingStatus {
 			s.mu.Unlock()
 			return
 		}
@@ -419,7 +421,7 @@ func (s *QueryPoolerServer) RegisterGRPCServices() {
 func (s *QueryPoolerServer) StartServiceForTests() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	return s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	return s.OnStateChange(ctx, true /* isConsensusLeader */, true /* postgresPrimary */, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.

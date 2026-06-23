@@ -808,7 +808,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// stale-leader analyzer to keep firing forever. Promote has the same
 	// step on its replica branch for the same reason.
 	// A REPLICA pooler record carries no self leadership observation.
-	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_REPLICA, nil, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+	if err := pm.stateManager.SetState(ctx, nil, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}
 

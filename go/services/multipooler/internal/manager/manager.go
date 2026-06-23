@@ -201,9 +201,9 @@ type MultiPoolerManager struct {
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
-	// servingState coordinates serving state transitions across components
+	// stateManager coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
-	servingState *StateManager
+	stateManager *StateManager
 
 	// backup is the pgBackRest engine. The manager orchestrates lifecycle and
 	// owns the gRPC handlers, delegating the pgBackRest steps to the engine.
@@ -353,7 +353,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.servingState = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
+	pm.stateManager = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
@@ -506,7 +506,7 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// streamer) and Mutates the record. The publisher (if running, started
 	// by StartTopoRegistration) picks it up and writes to etcd.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), pm.record.SelfLeadership(), targetServingStatus); err != nil {
+	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), targetServingStatus); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
 }
@@ -596,7 +596,7 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 	// running) picks up the Mutate and writes NOT_SERVING to etcd —
 	// pausing the manager intentionally still reflects in topology so
 	// callers see the pooler is not serving queries.
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
 	}
 
@@ -619,7 +619,7 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	// Register with StateManager and sync to current state. This ensures the
 	// heartbeat writer starts for PRIMARY or the reader starts for REPLICA,
 	// based on whatever state the StateManager currently holds.
-	return pm.servingState.RegisterAndSync(ctx, pm.replTracker)
+	return pm.stateManager.RegisterAndSync(ctx, pm.replTracker)
 }
 
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
@@ -634,7 +634,7 @@ func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
 	}
 	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger, pubsubMetrics)
 	pm.qsc.SetPubSubListener(pm.pubsubListener)
-	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
+	return pm.stateManager.RegisterAndSync(ctx, pm.pubsubListener)
 }
 
 // QueryServiceControl returns the query service controller.
@@ -1181,7 +1181,7 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 	// Use the serving state manager to transition components.
 	// This updates query service, heartbeat, and the pooler record. Mutate
 	// inside StateManager schedules an async publish to topology.
-	if err := pm.servingState.SetState(ctx, pm.record.Type(), pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+	if err := pm.stateManager.SetState(ctx, pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
 		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
 	}
 
@@ -1580,8 +1580,15 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 
 	// rule is the rule this pooler was just promoted under; it names this pooler
 	// as leader, so the leadership observation built from it is authoritative.
-	// SetState is idempotent — if already at PRIMARY/SERVING it short-circuits.
-	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, pm.leaderObs(rule), clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+	// Promotion has already waited for postgres to leave recovery, so set the
+	// writable state in the same Mutate — this lets the heartbeat writer / LISTEN
+	// start immediately rather than waiting for the next monitor tick to observe
+	// it. Mutate is idempotent — if already at this state it short-circuits.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.SelfLeadership = pm.leaderObs(rule)
+		s.PostgresPrimary = true
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state for promotion")
 	}
 
