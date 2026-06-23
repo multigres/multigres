@@ -33,10 +33,22 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// shardKey identifies a shard for leader tracking.
+// shardKey identifies a shard for leader tracking. Database is included
+// so two databases that share a (tableGroup, shard) name don't collide in
+// lb.shards — see commit history for the cross-database bug this fixes.
 type shardKey struct {
+	database   string
 	tableGroup string
 	shard      string
+}
+
+// shardKeyOf builds an internal shardKey from a clustermetadata.ShardKey.
+func shardKeyOf(sk *clustermetadatapb.ShardKey) shardKey {
+	return shardKey{
+		database:   sk.GetDatabase(),
+		tableGroup: sk.GetTableGroup(),
+		shard:      sk.GetShard(),
+	}
 }
 
 // shardSummary holds the gateway's per-shard consensus state.
@@ -300,30 +312,36 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if health == nil || !health.isServing() {
 		return
 	}
-	if health.Target.GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
-		return
-	}
+	// ServingStatus == SERVING is sufficient: the multipooler commits the
+	// role transition (poolerType=PRIMARY) and servingStatus=SERVING in a
+	// single locked update, so by the time we see SERVING from the named
+	// leader, the role transition has finished.
 	lb.onPrimaryServing(summary.shardKey.GetTableGroup(), summary.shardKey.GetShard())
 }
 
 // getConnection returns a poolerConnection matching the target specification.
 // Returns an error immediately if no suitable connection is available.
 //
-// Selection logic:
-//   - For PRIMARY: consults `leaders` (most-authoritative LeaderObservation) to
-//     identify the leader, then looks up its connection in the cache. Two
-//     distinct error cases: no leader observed yet, vs. leader known but not
-//     connected.
-//   - For REPLICA: any connected pooler in the shard that does not believe
-//     itself the leader, judged per-connection from self_leadership and
-//     health-stream observations (see matchesReplicaTarget). This excludes both
-//     the current leader and a stale leader, never consulting pooler.Type.
+// Routing by Mode:
+//   - WRITABLE / CONSISTENT: route to the consensus leader. Uses the
+//     shard's most-authoritative LeaderObservation, then looks up the
+//     leader's connection in the cache. Two distinct error cases: no
+//     leader observed yet, vs. leader known but not connected. (CONSISTENT
+//     today resolves to the leader; future routing work may downgrade to
+//     a sync standby caught up to the leader's LSN — see Mode docs.)
+//   - INCONSISTENT (and UNSPECIFIED, treated as INCONSISTENT for backward
+//     compatibility with old REPLICA callers): any connected pooler in
+//     the shard that does not believe itself the leader, judged per
+//     connection from self_leadership and health-stream observations
+//     (see matchesReplicaTarget). Excludes both the current leader and a
+//     stale leader.
 func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
 	}
 
-	key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
+	sk := target.GetShardKey()
+	key := shardKeyOf(sk)
 
 	// Look up the shard summary under lb.mu, release it, then read the
 	// leader observation via the summary's own lock.
@@ -335,37 +353,45 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 		leaderObs = summary.leader()
 	}
 
-	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+	mode := target.GetMode()
+	routesToLeader := mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT
+	if routesToLeader {
 		if leaderObs == nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"no leader observed yet for tablegroup=%s, shard=%s",
-				target.TableGroup, target.Shard)
+				"no leader observed yet for database=%s, tablegroup=%s, shard=%s",
+				sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}
 		leaderID := topoclient.ComponentIDString(leaderObs.LeaderId)
 		if lb.cache == nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"leader %s known but not connected for tablegroup=%s, shard=%s",
-				leaderID, target.TableGroup, target.Shard)
+				"leader %s known but not connected for database=%s, tablegroup=%s, shard=%s",
+				leaderID, sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}
 		conn, ok := lb.cache.GetRider(leaderID)
 		if !ok || conn == nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"leader %s known but not connected for tablegroup=%s, shard=%s",
-				leaderID, target.TableGroup, target.Shard)
+				"leader %s known but not connected for database=%s, tablegroup=%s, shard=%s",
+				leaderID, sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}
 		return conn, nil
 	}
 
-	// REPLICA: collect every connection eligible to serve reads in the shard.
-	// A pooler that believes itself the leader — the current leader or a stale
-	// leader — is excluded; see matchesReplicaTarget.
-	//
-	// TODO: use cache.GetByShard once query.Target carries a Database field.
-	// shardKey is currently database-agnostic, so a swap would collide across
-	// databases.
+	// INCONSISTENT (or unspecified): collect every connection eligible to
+	// serve reads in this shard. A pooler that believes itself the leader
+	// — the current leader or a stale leader — is excluded; see
+	// matchesReplicaTarget. When the target's shard is non-empty we use
+	// GetByShard for an index lookup; when it's empty we honor the
+	// "any shard" semantic from the proto by scanning All() and letting
+	// matchesReplicaTarget filter on tablegroup alone.
 	var candidates []*poolerConnection
 	if lb.cache != nil {
-		for _, entry := range lb.cache.All() {
+		var entries []poolerwatch.Entry[*poolerConnection]
+		if sk.GetShard() == "" {
+			entries = lb.cache.All()
+		} else {
+			entries = lb.cache.GetByShard(sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
+		}
+		for _, entry := range entries {
 			conn := entry.Rider
 			if conn == nil {
 				continue
@@ -378,8 +404,8 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 
 	if len(candidates) == 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"no pooler found for target: tablegroup=%s, shard=%s, type=%s",
-			target.TableGroup, target.Shard, target.PoolerType.String())
+			"no pooler found for target: database=%s, tablegroup=%s, shard=%s, mode=%s",
+			sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard(), mode.String())
 	}
 
 	selected := lb.selectReplicaConnection(candidates)
@@ -387,7 +413,7 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 		// All replicas exceeded the replication lag threshold.
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"no replica with acceptable replication lag for target: tablegroup=%s, shard=%s",
-			target.TableGroup, target.Shard)
+			target.GetShardKey().GetTableGroup(), target.GetShardKey().GetShard())
 	}
 	return selected, nil
 }
@@ -571,12 +597,12 @@ func matchesShardTarget(conn *poolerConnection, target *query.Target) bool {
 	poolerInfo := conn.PoolerInfo()
 
 	// Check tablegroup match
-	if target.TableGroup != poolerInfo.GetShardKey().GetTableGroup() {
+	if target.GetShardKey().GetTableGroup() != poolerInfo.GetShardKey().GetTableGroup() {
 		return false
 	}
 
 	// Check shard match (empty target shard matches any)
-	if target.Shard != "" && target.Shard != poolerInfo.GetShardKey().GetShard() {
+	if target.GetShardKey().GetShard() != "" && target.GetShardKey().GetShard() != poolerInfo.GetShardKey().GetShard() {
 		return false
 	}
 

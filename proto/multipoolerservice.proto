@@ -489,9 +489,17 @@ message StreamPoolerHealthRequest {
 
 // StreamPoolerHealthResponse contains the current health state of the multipooler.
 // Sent immediately on connection, on state changes, and periodically as heartbeats.
+//
+// Note: this message used to carry a query.Target. That field has been removed
+// because (a) shard identity is already known to the gateway from topology,
+// and (b) the only client-side consumer of Target.pooler_type was a buffer-drain
+// race check that is now expressed via (serving_status == SERVING) — the
+// multipooler atomically transitions serving_status only after the role
+// transition is complete (see QueryPoolerServer.OnStateChange).
 message StreamPoolerHealthResponse {
-  // target identifies the tablegroup, shard, and pooler type this pooler serves.
-  query.Target target = 1;
+  // Reserved: target was field 1. Removed; see message-level comment above.
+  reserved 1;
+  reserved "target";
 
   // pooler_id identifies this multipooler instance.
   clustermetadata.ID pooler_id = 2;

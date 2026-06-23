@@ -177,7 +177,7 @@ func TestCopyReady_CopyBidiExecuteError(t *testing.T) {
 
 	_, _, _, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -203,7 +203,7 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 
 	_, _, _, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -232,7 +232,7 @@ func TestCopyReady_RecvReadyError(t *testing.T) {
 
 	_, _, _, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -265,7 +265,7 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 
 	_, _, rs, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -309,7 +309,7 @@ func TestCopyReady_ErrorPhasePropagatesReservedState(t *testing.T) {
 
 	_, _, rs, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t (xyz) FROM STDIN",
 		&query.ExecuteOptions{ReservedConnectionId: 12345},
 		nil,
@@ -340,7 +340,7 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 
 	_, _, _, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -375,7 +375,7 @@ func TestCopyReady_Success(t *testing.T) {
 
 	format, columnFormats, reservedState, err := svc.CopyReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
 		nil,
@@ -414,7 +414,7 @@ func TestCopyOutReady_Success(t *testing.T) {
 
 	format, columnFormats, notices, reservedState, err := svc.CopyOutReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t TO STDOUT",
 		&query.ExecuteOptions{},
 		nil,
@@ -449,7 +449,7 @@ func TestCopyOutReady_ErrorPhasePropagatesReservedState(t *testing.T) {
 
 	_, _, _, rs, err := svc.CopyOutReady(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t TO STDOUT",
 		&query.ExecuteOptions{ReservedConnectionId: 123},
 		nil,
@@ -495,7 +495,7 @@ func TestCopyOutStream_SuccessWithDataNoticesAndResult(t *testing.T) {
 	var messages []client.CopyOutMessage
 	result, rs, err := svc.CopyOutStream(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 		func(msg client.CopyOutMessage) error {
 			messages = append(messages, msg)
@@ -531,7 +531,7 @@ func TestCopyOutStream_CallbackErrorClosesAndRemovesStream(t *testing.T) {
 
 	_, _, err := svc.CopyOutStream(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 		func(client.CopyOutMessage) error {
 			return errors.New("client write failed")
@@ -560,7 +560,7 @@ func TestCopyOutStream_ErrorPhasePropagatesState(t *testing.T) {
 
 	_, rs, err := svc.CopyOutStream(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 		func(client.CopyOutMessage) error { return nil },
 	)
@@ -580,7 +580,7 @@ func TestCopyOutStream_RecvErrorRemovesStream(t *testing.T) {
 
 	_, _, err := svc.CopyOutStream(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 		func(client.CopyOutMessage) error { return nil },
 	)
@@ -605,7 +605,7 @@ func TestCopyAbort_HandlesStreamLifecycle(t *testing.T) {
 
 	rs, err := svc.CopyAbort(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"abort requested",
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 	)
@@ -632,7 +632,7 @@ func TestCopyAbort_RecvEOFStillSucceeds(t *testing.T) {
 
 	rs, err := svc.CopyAbort(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		"abort requested",
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 	)
@@ -670,7 +670,7 @@ func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
 
 	_, rs, err := svc.CopyFinalize(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		nil,
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 	)
@@ -703,7 +703,7 @@ func TestCopyFinalize_ErrorPhaseWithoutReservedState(t *testing.T) {
 
 	_, rs, err := svc.CopyFinalize(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		nil,
 		&query.ExecuteOptions{ReservedConnectionId: connID},
 	)
@@ -727,7 +727,7 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 
 	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
 		nil,
@@ -750,7 +750,7 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 
 	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
 		nil,
@@ -779,7 +779,7 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 
 	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
 		nil,
@@ -801,7 +801,7 @@ func TestConcludeTransaction_Error(t *testing.T) {
 
 	_, _, err := svc.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "test"},
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{ReservedConnectionId: 42},
 		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
 		nil,

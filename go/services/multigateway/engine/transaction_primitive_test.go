@@ -149,10 +149,7 @@ func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.
 func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGatewayConnectionState {
 	state := handler.NewMultiGatewayConnectionState()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	target := &query.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", tableGroup, "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 100,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},

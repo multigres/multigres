@@ -177,9 +177,9 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	user := e.getUserFromOptions(options)
 	e.logger.DebugContext(ctx, "executing query",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"user", user,
 		"query", sql)
 
@@ -284,9 +284,9 @@ func (e *Executor) StreamExecute(
 	user := e.getUserFromOptions(options)
 	reasons := protoutil.GetReasons(reservationOptions)
 	e.logger.DebugContext(ctx, "stream executing query",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"user", user,
 		"query", sql)
 
@@ -723,8 +723,8 @@ func (e *Executor) PortalStreamExecute(
 	}
 
 	e.logger.DebugContext(ctx, "portal stream execute",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"user", user,
 		"statement", preparedStatement.Name,
 		"portal", portal.Name,
@@ -976,8 +976,8 @@ func (e *Executor) Describe(
 	}
 
 	e.logger.DebugContext(ctx, "describe",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"user", user,
 		"has_statement", preparedStatement != nil,
 		"has_portal", portal != nil,

@@ -473,9 +473,11 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	notifMgr := poolergateway.NewGRPCNotificationManager(
 		func() multipoolerpb.MultiPoolerServiceClient {
 			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
-				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      constants.DefaultShard,
+				ShardKey: &clustermetadatapb.ShardKey{
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
 			})
 			if err != nil || conn == nil {
 				return nil

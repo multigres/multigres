@@ -98,14 +98,21 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 // When the connection arrived on the replica-reads port (state.TargetReplica()),
 // the target's PoolerType is set to REPLICA; otherwise PRIMARY.
 func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.MultiGatewayConnectionState) *querypb.Target {
-	poolerType := clustermetadatapb.PoolerType_PRIMARY
+	// state.TargetReplica() preserves the old PRIMARY/REPLICA distinction
+	// expressed by the caller. Map REPLICA → INCONSISTENT (matches today's
+	// semantic of "any replica is fine, lag tolerable") and PRIMARY →
+	// WRITABLE. Callers that want CONSISTENT must surface that explicitly;
+	// the SQL layer doesn't yet distinguish read-your-writes from stale.
+	mode := querypb.Mode_MODE_WRITABLE
 	if state.TargetReplica() {
-		poolerType = clustermetadatapb.PoolerType_REPLICA
+		mode = querypb.Mode_MODE_INCONSISTENT
 	}
 	return &querypb.Target{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		PoolerType: poolerType,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		Mode: mode,
 	}
 }
 
@@ -394,7 +401,7 @@ func (sc *ScatterConn) StreamExecute(
 	sc.logger.DebugContext(ctx, "executing query via regular pooled connection",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	if _, err := sc.gateway.StreamExecute(ctx, target, sql, eo, nil, callback); err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
@@ -549,7 +556,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"portal", portalInfo.Portal.Name,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
@@ -628,7 +635,7 @@ func (sc *ScatterConn) Describe(
 	sc.logger.DebugContext(ctx, "describing via query service",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	description, err := qs.Describe(ctx, target, preparedStatement, portal, eo)
 	if err != nil {
@@ -899,9 +906,8 @@ func (sc *ScatterConn) CopyOutInitiate(
 	defer span.End()
 
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	execOptions := &querypb.ExecuteOptions{
@@ -967,9 +973,8 @@ func (sc *ScatterConn) CopyOutStream(
 	defer span.End()
 
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	ss := state.GetMatchingShardState(target)
@@ -1023,9 +1028,8 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create target for routing - COPY always goes to PRIMARY
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Create execute options
@@ -1103,9 +1107,8 @@ func (sc *ScatterConn) CopySendData(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state
@@ -1161,9 +1164,8 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state
@@ -1228,9 +1230,8 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state

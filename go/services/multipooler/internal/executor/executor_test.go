@@ -978,7 +978,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 
 	_, _, _, _, err := e.CopyOutReady(
 		context.Background(),
-		&query.Target{TableGroup: "tg"},
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t TO STDOUT",
 		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
 		nil,
@@ -1000,7 +1000,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 
 	_, _, err := e.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "tg"},
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
 		0, // TRANSACTION_CONCLUSION_UNSPECIFIED — unused on the not-found path
 		nil,
@@ -1018,7 +1018,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 	t.Run("missing reserved connection id", func(t *testing.T) {
 		_, _, err := e.CopyOutStream(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			&query.ExecuteOptions{},
 			func(client.CopyOutMessage) error { return nil },
 		)
@@ -1030,7 +1030,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		e.poolManager = &stubPoolManager{}
 		_, _, err := e.CopyOutStream(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			&query.ExecuteOptions{User: "alice", ReservedConnectionId: 99},
 			func(client.CopyOutMessage) error { return nil },
 		)
@@ -1044,7 +1044,7 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 	e := newTestExecutor()
 
 	t.Run("nil options is best-effort no-op", func(t *testing.T) {
-		state, err := e.CopyAbort(context.Background(), &query.Target{TableGroup: "tg"}, "abort", nil)
+		state, err := e.CopyAbort(context.Background(), protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED), "abort", nil)
 		require.NoError(t, err)
 		require.Nil(t, state)
 	})
@@ -1054,7 +1054,7 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 
 		state, err := e.CopyAbort(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			"abort",
 			&query.ExecuteOptions{User: "postgres", ReservedConnectionId: 777},
 		)
