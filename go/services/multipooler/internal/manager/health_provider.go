@@ -80,7 +80,7 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 		shard:                       shard,
 		clients:                     make(map[chan *poolerserver.HealthState]struct{}),
 		recommendedStalenessTimeout: defaultRecommendedStalenessTimeout,
-		servingStatus:               clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus:               clustermetadatapb.PoolerServingStatus_DISABLED,
 	}
 }
 

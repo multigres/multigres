@@ -442,20 +442,17 @@ func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.Poo
 	//     entering/leaving recovery while the role is unchanged — the resign window,
 	//     or recovery clearing again), so the heartbeat writer doesn't spam failed
 	//     writes against a standby;
-	//   - serving disabled: serving is turned off explicitly for a drain (shutdown,
-	//     pause, demotion) and re-enabled explicitly here. A running, role-aligned
-	//     node that is NOT_SERVING with no reason to stay drained — e.g. a demotion
-	//     that errored before completing — is brought back to SERVING by the monitor
-	//     loop rather than as a side effect of some other operation. In-progress
-	//     drains hold the action lock (the monitor can't fight them) and a resigned
-	//     leader is handled by the branch above.
-	//
-	// TODO: once serving can be disabled by configuration (a persistent operator
-	// choice) rather than only transiently for a transition, distinguish that here
-	// so the monitor does not re-enable a deliberately-disabled pooler.
+	//   - DRAINING: serving was disabled transiently for an in-place transition
+	//     (demotion) and is re-enabled here once the node is healthy and role-aligned
+	//     — e.g. after a demote restarts the node as a standby, or a demote that
+	//     errored before completing. DISABLED is deliberately NOT re-enabled (it
+	//     means stopping/paused/operator-drained); the drain that set DRAINING ran
+	//     under the action lock, so an actionable DRAINING means the drain finished
+	//     and restoring SERVING is safe. A resigned leader is handled by the branch
+	//     above.
 	if pm.getPoolerType() != intended ||
 		state.isPrimary != lastAppliedPrimary ||
-		pm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_NOT_SERVING {
+		pm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_DRAINING {
 		return remedialActionReconcileState
 	}
 
@@ -603,17 +600,21 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionReconcileState:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		// The StateManager's effective state has drifted (role, physical
-		// primary-ness, and/or serving disabled). Reconcile all three in one Mutate:
-		// the leadership obs sets the derived role, the observed isPrimary syncs the
-		// writable state that gates the heartbeat writer / LISTEN, and serving is
-		// (re)enabled — a running, role-aligned node serves unless it is mid-drain.
+		// primary-ness, and/or a transient drain). Reconcile in one Mutate: the
+		// leadership obs sets the derived role, and the observed isPrimary syncs the
+		// writable state that gates the heartbeat writer / LISTEN. Serving is
+		// re-enabled only out of DRAINING (the transient drain this loop owns); a
+		// DISABLED pooler (stopping/paused/operator-drained) is left not-serving,
+		// since this case also fires for plain role/primary drift.
 		intended, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling state from rule",
 			"intended_role", intended.String(), "postgres_primary", state.isPrimary)
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.SelfLeadership = obs
 			s.PostgresPrimary = state.isPrimary
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+			if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+				s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+			}
 		}); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile state from rule", "error", err)
 		}

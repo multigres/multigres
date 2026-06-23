@@ -315,7 +315,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),
 	}
-	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
 	// For now, all poolers start as REPLICA

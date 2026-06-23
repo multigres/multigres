@@ -216,7 +216,7 @@ func newPoolerConnection(
 		health: &poolerHealth{
 			Target:        initialTarget,
 			PoolerID:      pooler.Id,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			LastError:     errPoolerUninitialized,
 		},
 	}
@@ -468,7 +468,7 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 func (pc *poolerConnection) setHealthError(err error) {
 	pc.healthMu.Lock()
 	newHealth := pc.health.simpleCopy()
-	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	newHealth.LastError = err
 	pc.health = newHealth
 	pc.healthMu.Unlock()

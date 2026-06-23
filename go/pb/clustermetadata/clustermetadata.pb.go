@@ -171,26 +171,40 @@ func (PoolerLifecycleStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
+//
+// To test "not serving", compare `!= SERVING` rather than against a specific
+// not-serving value: both DISABLED and DRAINING are non-serving, and checking one
+// alone would silently miss the other.
 type PoolerServingStatus int32
 
 const (
-	// SERVING is the status a server during normal operations when it is serving traffic.
+	// SERVING is the status during normal operations when the pooler is serving traffic.
 	PoolerServingStatus_SERVING PoolerServingStatus = 0
-	// NOT_SERVING is the status of a server when it is not serving traffic.
-	// This typically occurs during startup, shutdown, or when the server is
-	// in an error state and cannot accept connections.
-	PoolerServingStatus_NOT_SERVING PoolerServingStatus = 1
+	// DISABLED means not serving and NOT brought back automatically: the pooler is
+	// stopping/restarting, paused, or has been deliberately drained (operator or
+	// config). The postgres monitor does not re-enable serving from this state; an
+	// explicit action (Open/resume, promotion) does.
+	PoolerServingStatus_DISABLED PoolerServingStatus = 1
+	// DRAINING is a transient non-serving state used while a node drains for an
+	// in-place transition (demotion). The ONLY thing distinguishing it from DISABLED
+	// is that the postgres monitor will re-enable serving (DRAINING -> SERVING) on
+	// its own once the node is healthy and role-aligned. The drain always completes
+	// while the action lock is held, so an actionable DRAINING the monitor observes
+	// means the drain has finished and restoring SERVING is safe.
+	PoolerServingStatus_DRAINING PoolerServingStatus = 4
 )
 
 // Enum value maps for PoolerServingStatus.
 var (
 	PoolerServingStatus_name = map[int32]string{
 		0: "SERVING",
-		1: "NOT_SERVING",
+		1: "DISABLED",
+		4: "DRAINING",
 	}
 	PoolerServingStatus_value = map[string]int32{
-		"SERVING":     0,
-		"NOT_SERVING": 1,
+		"SERVING":  0,
+		"DISABLED": 1,
+		"DRAINING": 4,
 	}
 )
 
@@ -2607,10 +2621,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x12LIFECYCLE_STARTING\x10\x01\x12\x14\n" +
 	"\x10LIFECYCLE_ACTIVE\x10\x02\x12\x16\n" +
 	"\x12LIFECYCLE_STOPPING\x10\x03\x12\x16\n" +
-	"\x12LIFECYCLE_SHUTDOWN\x10\x04*3\n" +
+	"\x12LIFECYCLE_SHUTDOWN\x10\x04*>\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
-	"\aSERVING\x10\x00\x12\x0f\n" +
-	"\vNOT_SERVING\x10\x01*h\n" +
+	"\aSERVING\x10\x00\x12\f\n" +
+	"\bDISABLED\x10\x01\x12\f\n" +
+	"\bDRAINING\x10\x04*h\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x1a\n" +

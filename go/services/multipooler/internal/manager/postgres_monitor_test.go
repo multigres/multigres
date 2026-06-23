@@ -484,12 +484,20 @@ func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
 		require.Equal(t, remedialActionReconcileState, got)
 	})
 
-	t.Run("serving disabled reconciles", func(t *testing.T) {
-		// Role and primary aligned, but serving was left NOT_SERVING (e.g. a
-		// demotion that errored before completing). The monitor re-enables it.
-		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	t.Run("draining reconciles", func(t *testing.T) {
+		// Role and primary aligned, but serving was left DRAINING (e.g. a demotion
+		// that errored before re-serving). The monitor re-enables it.
+		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DRAINING)
 		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
 		require.Equal(t, remedialActionReconcileState, got)
+	})
+
+	t.Run("disabled is left alone", func(t *testing.T) {
+		// DISABLED is a deliberate non-serving state (stopping/paused/operator);
+		// the monitor must NOT auto-re-enable it.
+		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DISABLED)
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
+		require.Equal(t, remedialActionNone, got)
 	})
 
 	t.Run("no drift is a no-op", func(t *testing.T) {

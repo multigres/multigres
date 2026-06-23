@@ -781,7 +781,7 @@ func TestPause_PreservesPublisher(t *testing.T) {
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		PoolerDir:     t.TempDir(),
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -858,7 +858,7 @@ func TestPause_RestartsBackupHealthPoller(t *testing.T) {
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		PoolerDir:     t.TempDir(),
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",

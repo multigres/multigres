@@ -135,7 +135,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		executor:       exec,
 		tableGroup:     tableGroup,
 		shard:          shard,
-		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus:  clustermetadatapb.PoolerServingStatus_DISABLED,
 		healthProvider: healthProvider,
 		gracePeriod:    gracePeriod,
 		stateChanged:   make(chan struct{}),

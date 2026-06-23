@@ -336,7 +336,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		if isPrimary {
 			pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
 				"revoked_below_term", revokedBelowTerm)
-			err = pm.emergencyDemoteLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
+			err = pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
 		} else {
 			// Save primary_conninfo so we can restore it if the position check fails.
 			if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {

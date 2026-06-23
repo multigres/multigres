@@ -169,7 +169,7 @@ type MultiPoolerManager struct {
 	//
 	// We suspect divergence when:
 	//   - a primary learns its term was ended by a failover — it may have local
-	//     WAL the new leader's history never adopted. Set by emergencyDemoteLocked,
+	//     WAL the new leader's history never adopted. Set by demoteToStandbyLocked,
 	//     SetPrimary's stale-primary branch, and the monitor's stale-primary demote.
 	//   - a replica cannot replicate despite successfully connecting to the leader,
 	//     implying its timeline diverged. Set via RewindToSource; today orch detects
@@ -231,7 +231,6 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isNotServing        bool   // PoolerServingStatus == NOT_SERVING (includes heartbeat stopped)
 	isReplicaInTopology bool   // PoolerType == REPLICA
 	isReadOnly          bool   // default_transaction_read_only = on
 	finalLSN            string // Captured LSN before demotion
@@ -600,7 +599,7 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 	// pausing the manager intentionally still reflects in topology so
 	// callers see the pooler is not serving queries.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
 	}
@@ -1140,7 +1139,6 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.mu.Unlock()
 
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
-	state.isNotServing = (servingStatus == clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	isPrimary, err := pm.isPrimary(ctx)
@@ -1158,7 +1156,6 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_not_serving", state.isNotServing,
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
 		"is_primary", isPrimary,
@@ -1166,34 +1163,6 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 		"serving_status", servingStatus)
 
 	return state, nil
-}
-
-// setNotServing transitions the pooler to NOT_SERVING status during demotion.
-// This uses the StateManager to coordinate:
-//   - Query service rejects all queries
-//   - Heartbeat writer is stopped
-//   - Multipooler record is updated
-//
-// After this, topology is synced to persist the state change.
-func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotionState) error {
-	if state.isNotServing {
-		pm.logger.InfoContext(ctx, "Already in NOT_SERVING state, skipping")
-		return nil
-	}
-
-	pm.logger.InfoContext(ctx, "Transitioning to NOT_SERVING")
-
-	// Use the serving state manager to transition components.
-	// This updates query service, heartbeat, and the pooler record. Mutate
-	// inside StateManager schedules an async publish to topology.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-	}); err != nil {
-		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
-	}
-
-	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
-	return nil
 }
 
 // restartPostgresAsStandby restarts PostgreSQL as a standby server
@@ -1206,7 +1175,7 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 // shutdown) should set suspectedDivergence=true so that the next standby-side
 // operation (SetPrimary's standby branch, remedialActionFixPrimaryConnInfo,
 // or self-rewind detection) routes through pg_rewind dry-run before
-// trusting local WAL. Today the only setter is emergencyDemoteLocked,
+// trusting local WAL. Today the only setter is demoteToStandbyLocked,
 // which leaves several transition paths under-defended.
 func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
@@ -1573,7 +1542,7 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 //
 // The serving-state transition must always run, even when the topology already
 // reports PRIMARY. That can happen on re-promotion of the same pooler at a
-// higher term: emergencyDemoteLocked left the topology Type=PRIMARY (only
+// higher term: demoteToStandbyLocked left the topology Type=PRIMARY (only
 // stale-primary demote updates topology) but transitioned serving status to
 // NOT_SERVING. Skipping the SetState call left the pooler stuck at
 // PRIMARY/NOT_SERVING, which prevented the multigateway buffer from draining
@@ -1749,7 +1718,7 @@ func (pm *MultiPoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_UNKNOWN
 		s.SelfLeadership = nil
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
 			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
 			Reason:  "pooler shutdown",

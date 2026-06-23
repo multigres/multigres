@@ -140,7 +140,7 @@ func TestHealthStreamer_GetState(t *testing.T) {
 	got := hs.getState()
 	require.NotNil(t, got)
 	assert.Equal(t, "test", got.Target.TableGroup)
-	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, got.ServingStatus)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, got.ServingStatus)
 
 	// Update and verify
 	require.NoError(t, hs.OnStateChange(context.Background(), false, false, clustermetadatapb.PoolerServingStatus_SERVING))
@@ -372,7 +372,7 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	// NOT_SERVING should broadcast immediately, even though qps is still PRIMARY/SERVING.
 	hsDone := make(chan struct{})
 	go func() {
-		_ = hs.OnStateChange(t.Context(), false, false, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = hs.OnStateChange(t.Context(), false, false, clustermetadatapb.PoolerServingStatus_DISABLED)
 		close(hsDone)
 	}()
 

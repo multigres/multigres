@@ -147,7 +147,7 @@ func TestPoolerRecord_PublishIfNeeded_WritesOnStateChange(t *testing.T) {
 func TestPoolerRecord_PublishIfNeeded_RetriesAfterFailure(t *testing.T) {
 	ts := &fakeTopoStore{}
 	ts.setError(errors.New("etcd unavailable"))
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	// First attempt fails.
 	r.publishIfNeeded(t.Context())
@@ -163,7 +163,7 @@ func TestPoolerRecord_PublishIfNeeded_RetriesAfterFailure(t *testing.T) {
 
 func TestPoolerRecord_Mutate_UpdatesDesiredAndSchedulesPublish(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	require.NoError(t, r.Mutate(newActionLockedCtx(t), func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_PRIMARY
@@ -184,7 +184,7 @@ func TestPoolerRecord_Mutate_UpdatesDesiredAndSchedulesPublish(t *testing.T) {
 
 func TestPoolerRecord_Mutate_RequiresActionLock(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	err := r.Mutate(t.Context(), func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_PRIMARY
@@ -198,7 +198,7 @@ func TestPoolerRecord_Mutate_RequiresActionLock(t *testing.T) {
 
 func TestPoolerRecord_Mutate_CoalescesPendingWakeups(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	// Three back-to-back mutations with no consumer of the wakeup channel.
 	// The size-1 buffer must absorb them without blocking.
@@ -211,7 +211,7 @@ func TestPoolerRecord_Mutate_CoalescesPendingWakeups(t *testing.T) {
 		s.SelfLeadership = primaryObs()
 	}))
 	require.NoError(t, r.Mutate(ctx, func(s *MutablePoolerRecordState) {
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	}))
 
 	// Exactly one wakeup is pending — drain it.
@@ -232,7 +232,7 @@ func TestPoolerRecord_Mutate_CoalescesPendingWakeups(t *testing.T) {
 	seen := ts.lastSeen.Load()
 	require.NotNil(t, seen)
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, seen.Type)
-	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, seen.ServingStatus)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, seen.ServingStatus)
 }
 
 func TestPoolerRecord_Snapshot_ReturnsClone(t *testing.T) {
@@ -248,7 +248,7 @@ func TestPoolerRecord_Snapshot_ReturnsClone(t *testing.T) {
 
 func TestPoolerRecord_ImmutableAccessors(t *testing.T) {
 	ts := &fakeTopoStore{}
-	initial := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	initial := newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 	initial.PoolerDir = "/tmp/pooler"
 	initial.PgDataDir = "/tmp/pgdata"
 	initial.Hostname = "host.example.com"
@@ -275,7 +275,7 @@ func TestPoolerRecord_ImmutableAccessors(t *testing.T) {
 // triggers an immediate write without waiting for a ticker tick.
 func TestPoolerRecord_WakeupTriggersImmediatePublish(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	tickC := make(chan time.Time)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -303,7 +303,7 @@ func TestPoolerRecord_WakeupTriggersImmediatePublish(t *testing.T) {
 func TestPoolerRecord_TickerDrivesRetry(t *testing.T) {
 	ts := &fakeTopoStore{}
 	ts.setError(errors.New("etcd unavailable"))
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	tickC := make(chan time.Time)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -331,7 +331,7 @@ func TestPoolerRecord_TickerDrivesRetry(t *testing.T) {
 
 func TestPoolerRecord_PublisherLoop_ExitsOnContextCancel(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	tickC := make(chan time.Time)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -371,14 +371,14 @@ func TestPoolerRecord_RegisterAndUnregister(t *testing.T) {
 	r.Unregister(t.Context(), func(s *MutablePoolerRecordState) {
 		s.Type = clustermetadatapb.PoolerType_UNKNOWN
 		s.SelfLeadership = nil
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	})
 
 	// The final publish should carry whatever state finalize stamped.
 	seen := ts.lastSeen.Load()
 	require.NotNil(t, seen)
 	assert.Equal(t, clustermetadatapb.PoolerType_UNKNOWN, seen.Type)
-	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, seen.ServingStatus)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, seen.ServingStatus)
 }
 
 // TestPoolerRecord_Unregister_NoFinalize verifies that Unregister with a nil
@@ -386,7 +386,7 @@ func TestPoolerRecord_RegisterAndUnregister(t *testing.T) {
 // publishes any state the caller wrote via Mutate beforehand.
 func TestPoolerRecord_Unregister_NoFinalize(t *testing.T) {
 	ts := &fakeTopoStore{}
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 	r.Register(t.Context(), func(string) {})
 
 	// Mutate to PRIMARY before Unregister.
@@ -464,7 +464,7 @@ func TestNewPoolerRecord_ValidatesSeed(t *testing.T) {
 
 	t.Run("valid REPLICA seed is accepted", func(t *testing.T) {
 		r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{},
-			newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+			newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
 		require.NoError(t, err)
 		require.NotNil(t, r)
 	})

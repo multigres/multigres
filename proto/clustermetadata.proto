@@ -345,14 +345,27 @@ message PoolerLifecycle {
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
+//
+// To test "not serving", compare `!= SERVING` rather than against a specific
+// not-serving value: both DISABLED and DRAINING are non-serving, and checking one
+// alone would silently miss the other.
 enum PoolerServingStatus {
-  // SERVING is the status a server during normal operations when it is serving traffic.
+  // SERVING is the status during normal operations when the pooler is serving traffic.
   SERVING = 0;
 
-  // NOT_SERVING is the status of a server when it is not serving traffic.
-  // This typically occurs during startup, shutdown, or when the server is
-  // in an error state and cannot accept connections.
-  NOT_SERVING = 1;
+  // DISABLED means not serving and NOT brought back automatically: the pooler is
+  // stopping/restarting, paused, or has been deliberately drained (operator or
+  // config). The postgres monitor does not re-enable serving from this state; an
+  // explicit action (Open/resume, promotion) does.
+  DISABLED = 1;
+
+  // DRAINING is a transient non-serving state used while a node drains for an
+  // in-place transition (demotion). The ONLY thing distinguishing it from DISABLED
+  // is that the postgres monitor will re-enable serving (DRAINING -> SERVING) on
+  // its own once the node is healthy and role-aligned. The drain always completes
+  // while the action lock is held, so an actionable DRAINING the monitor observes
+  // means the drain has finished and restoring SERVING is safe.
+  DRAINING = 4;
 }
 
 // =============================================================================

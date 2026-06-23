@@ -119,7 +119,7 @@ func TestDrainMetricGracefulOutcome(t *testing.T) {
 
 	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 	// No in-flight connections → WaitForDrain returns immediately.
-	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
 	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
@@ -145,7 +145,7 @@ func TestDrainMetricForceCloseOutcome(t *testing.T) {
 
 	// Simulate an in-flight connection that never returns → WaitForDrain blocks until grace period.
 	mock.regularAdd(1)
-	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
 	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
@@ -169,7 +169,7 @@ func TestDrainMetricDurationBuckets(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
-	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
 	require.NotNil(t, hist)

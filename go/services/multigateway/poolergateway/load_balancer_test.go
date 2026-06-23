@@ -302,7 +302,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 		// primary2 thinks primary2 is leader with term 12 (stale)
 		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+			clustermetadatapb.PoolerServingStatus_DISABLED,
 			&clustermetadatapb.LeaderObservation{LeaderId: primary2.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 12}})
 
 		// replica1 observed the new leader (primary1) with term 20 (highest)
@@ -496,7 +496,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	connRemote := connForTest(t, lb, remoteReplica)
 
 	t.Run("prefers local serving over remote serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 
@@ -511,8 +511,8 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	})
 
 	t.Run("falls back to remote serving when no local serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 
 		target := &query.Target{
@@ -526,9 +526,9 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	})
 
 	t.Run("falls back to local not-serving when no serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,

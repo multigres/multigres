@@ -656,16 +656,19 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	return status, nil
 }
 
-// emergencyDemoteLocked performs the core demotion logic.
+// demoteToStandbyLocked performs the core demotion logic: it drains the pooler
+// (DRAINING), captures the final LSN, signals resignation, and restarts postgres
+// as a standby so the node stays in the cluster as a replication target. It does
+// not perform a graceful switchover — this is the forced path used by Recruit when
+// consensus has revoked this node's leadership.
+//
 // REQUIRES: action lock must already be held by the caller.
-// This is used for emergency demote operations.
-// We won't try to perform a graceful switchover in this case.
-// We will drain this pooler and stop postgres.
-// This should only be called during ungraceful shutdown.
-// MultiOrch will try to contact all nodes in the cohort.
-// In the case that the dead primary received the RPC, it should just
-// shut down itself.
-func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) error {
+//
+// Serving is left DRAINING (not DISABLED): once the node is back as a healthy
+// standby, the postgres monitor's reconcile re-enables serving so it rejoins the
+// read pool. The drain runs entirely under the action lock, so by the time the
+// monitor can act, the drain has finished.
+func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) error {
 	// Verify action lock is held
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -685,14 +688,20 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	}
 
 	// If everything is already complete, return early (fully idempotent)
-	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
+	if state.isReplicaInTopology && state.isReadOnly {
 		return nil
 	}
 
-	// Transition to NOT_SERVING — rejects all queries and stops heartbeat.
-	// This ensures no new writes arrive while we drain existing connections.
-	if err := pm.setNotServing(ctx, state); err != nil {
-		return err
+	// Transition to DRAINING — rejects all queries and stops heartbeat. This
+	// ensures no new writes arrive while we drain existing connections. DRAINING
+	// (not DISABLED) marks this as a transient drain: if we error out before
+	// re-serving below, the monitor recovers the node from DRAINING -> SERVING.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+		}
+	}); err != nil {
+		return mterrors.Wrap(err, "failed to transition to DRAINING")
 	}
 
 	// Drain write connections
@@ -742,6 +751,21 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
 	// demote path) must run pg_rewind before trusting local WAL.
 	pm.suspectedDivergence.Store(true)
+
+	// Re-enable serving now that we're back as a healthy standby: the drain
+	// existed only to gracefully restart, so there's no reason to make reads wait
+	// for the monitor. postgresPrimary=false keeps the heartbeat writer off (we're
+	// a standby); the role stays as the record holds it until the monitor
+	// reconciles it to the rule-derived role. Leaving DRAINING for the monitor is
+	// only the fallback for the error paths above that return before this point.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.PostgresPrimary = false
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}); err != nil {
+		return mterrors.Wrap(err, "failed to re-enable serving after demote")
+	}
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
@@ -872,7 +896,7 @@ func (pm *MultiPoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 // resumes the manager.
 //
 // Gating on suspectedDivergence: callers raise the flag when this node's WAL may
-// have diverged from the cluster's chosen history (emergencyDemoteLocked
+// have diverged from the cluster's chosen history (demoteToStandbyLocked
 // sets it after an emergency demote; SetPrimary's stale-primary branch
 // and RewindToSource set it before calling here). When the flag is clear we
 // skip even the pg_rewind dry-run — the WAL is trusted and we just need to

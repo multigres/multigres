@@ -80,7 +80,7 @@ func newStartRequestTestServer() *QueryPoolerServer {
 	logger := slog.New(slog.DiscardHandler)
 	return &QueryPoolerServer{
 		logger:        logger,
-		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
@@ -106,7 +106,7 @@ func TestStartRequest_Serving(t *testing.T) {
 
 func TestStartRequest_NotServing(t *testing.T) {
 	s := newStartRequestTestServer()
-	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING // drainPhase is drainNone (post-flip)
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED // drainPhase is drainNone (post-flip)
 
 	// Existing reserved ops are still admitted (the connection's existence is the
 	// gate; a force-closed connection surfaces an honest 40001 from the executor).
@@ -142,7 +142,7 @@ func TestStartRequest_DrainRegular_RejectsSingleQueries(t *testing.T) {
 
 func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 	s := newStartRequestTestServer()
-	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	s.isConsensusLeader = false
 
 	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
@@ -351,7 +351,7 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 	return &QueryPoolerServer{
 		logger:        logger,
 		poolManager:   mock,
-		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
@@ -388,7 +388,7 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Stage 1: blocked on the in-flight transaction. Single queries are served,
@@ -432,7 +432,7 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 	mock.reservedAdd(1)
 
 	start := time.Now()
-	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 	elapsed := time.Since(start)
 
 	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should block ~grace period waiting on the held transaction")
@@ -460,7 +460,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Drain should not complete while connections are in-flight
@@ -502,7 +502,7 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	select {
@@ -532,7 +532,7 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 	assert.True(t, pooler.IsServing())
 
-	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 	assert.False(t, pooler.IsServing())
 
 	// Transition back to SERVING
@@ -578,7 +578,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Wait for all goroutines and drain to complete
