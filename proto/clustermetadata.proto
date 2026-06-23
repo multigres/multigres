@@ -353,14 +353,6 @@ enum PoolerServingStatus {
   // This typically occurs during startup, shutdown, or when the server is
   // in an error state and cannot accept connections.
   NOT_SERVING = 1;
-
-  // BACKUP is the status of a server when it is taking a backup. No queries
-  // can be served in BACKUP mode.
-  BACKUP = 2;
-
-  // RESTORE is the status a server uses when restoring a backup, at
-  // startup time.  No queries can be served in RESTORE mode.
-  RESTORE = 3;
 }
 
 // =============================================================================

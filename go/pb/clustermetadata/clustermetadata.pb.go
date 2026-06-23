@@ -180,12 +180,6 @@ const (
 	// This typically occurs during startup, shutdown, or when the server is
 	// in an error state and cannot accept connections.
 	PoolerServingStatus_NOT_SERVING PoolerServingStatus = 1
-	// BACKUP is the status of a server when it is taking a backup. No queries
-	// can be served in BACKUP mode.
-	PoolerServingStatus_BACKUP PoolerServingStatus = 2
-	// RESTORE is the status a server uses when restoring a backup, at
-	// startup time.  No queries can be served in RESTORE mode.
-	PoolerServingStatus_RESTORE PoolerServingStatus = 3
 )
 
 // Enum value maps for PoolerServingStatus.
@@ -193,14 +187,10 @@ var (
 	PoolerServingStatus_name = map[int32]string{
 		0: "SERVING",
 		1: "NOT_SERVING",
-		2: "BACKUP",
-		3: "RESTORE",
 	}
 	PoolerServingStatus_value = map[string]int32{
 		"SERVING":     0,
 		"NOT_SERVING": 1,
-		"BACKUP":      2,
-		"RESTORE":     3,
 	}
 )
 
@@ -2617,13 +2607,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x12LIFECYCLE_STARTING\x10\x01\x12\x14\n" +
 	"\x10LIFECYCLE_ACTIVE\x10\x02\x12\x16\n" +
 	"\x12LIFECYCLE_STOPPING\x10\x03\x12\x16\n" +
-	"\x12LIFECYCLE_SHUTDOWN\x10\x04*L\n" +
+	"\x12LIFECYCLE_SHUTDOWN\x10\x04*3\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
-	"\vNOT_SERVING\x10\x01\x12\n" +
-	"\n" +
-	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03*h\n" +
+	"\vNOT_SERVING\x10\x01*h\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x1a\n" +

@@ -52,13 +52,6 @@ func TestPoolerHealthIsServing(t *testing.T) {
 			},
 			expected: false,
 		},
-		{
-			name: "BACKUP returns false",
-			health: &poolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_BACKUP,
-			},
-			expected: false,
-		},
 	}
 
 	for _, tt := range tests {
