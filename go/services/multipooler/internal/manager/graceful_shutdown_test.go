@@ -92,22 +92,28 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		Cell:      "zone1",
 		Name:      "test",
 	}
+	// Match the production default set by topoclient.NewMultiPooler so the
+	// record's LifecycleStatus reads as STARTING from the start. (Real boot wires
+	// this in via NewMultiPoolerManager(multiPooler).)
+	record := newRecordFromProto(&clustermetadatapb.MultiPooler{
+		Id: id,
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+		},
+	})
+	healthStreamer := newHealthStreamer(logger, id, "tg", "0")
 	return &MultiPoolerManager{
 		logger:         logger,
 		serviceID:      id,
 		config:         &Config{},
 		pgctldClient:   pgctldClient,
-		healthStreamer: newHealthStreamer(logger, id, "tg", "0"),
+		healthStreamer: healthStreamer,
 		actionLock:     actionlock.NewActionLock(),
-		// Match the production default set by topoclient.NewMultiPooler so
-		// the record's LifecycleStatus reads as STARTING from the start.
-		// (Real boot wires this in via NewMultiPoolerManager(multiPooler).)
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-			Id: id,
-			LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
-				Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
-			},
-		}),
+		record:         record,
+		// GracefulShutdown transitions serving state to NOT_SERVING; wire a real
+		// StateManager (fanning out to the healthStreamer) so the shutdown path
+		// runs as in production rather than relying on a nil-check.
+		stateManager: NewStateManager(logger, record, healthStreamer),
 	}
 }
 
