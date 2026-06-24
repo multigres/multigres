@@ -15,26 +15,24 @@ transactions that exist on one copy but could never have been recovered if that
 node had failed instead. A system with redundancy needs a way to answer: which
 transactions actually happened, and which ones only look like they did?
 
-This is the consensus problem. Consensus means agreeing on a single
-authoritative transaction history across multiple nodes, in the presence of
-failures. The core invariant is **preservation**, stated as a rule for when a
-transaction may _become_ durable: a transaction commits durably only if (1) the
-history it extends already holds every transaction that was durable before it,
-and (2) it is acknowledged by enough nodes to satisfy the redundancy policy in
-force when it is written. Condition 1 makes the durable transactions a single
-chain — each one sits atop all the earlier durable ones — so there is exactly one
-durable history, and no two durable transactions can disagree about what came
-before.
+This is the consensus problem. Each node keeps a **WAL** — an append-only log of
+transactions — and consensus is agreement on a single authoritative WAL across
+the cohort despite failures. A transaction is **durable** once a quorum of the
+cohort holds its position in their WAL, under the rule in force when it was
+written. Because a WAL only grows by appending, a node that holds a position
+holds everything before it — so "don't lose earlier durable transactions" isn't a
+separate rule, it's just what a WAL is. That leaves one invariant,
+**preservation**: a position that became durable is never lost.
 
-That chain is what makes recovery decidable: the surviving node with the newest
-durable transaction holds the entire chain beneath it, so promoting the
-most-advanced node loses nothing durable. Preservation runs one way: anything
-dropped during recovery was, by this rule, never durable — but not the converse.
-When we cannot tell whether a transaction committed, we keep it rather than risk
-dropping a durable one, so a hung transaction that never met the redundancy
-requirement may be propagated and made durable going forward. A rule change is
-itself such a transaction, so preservation holds even as the set of nodes or the
-redundancy policy itself changes.
+Preservation makes recovery decidable. Durability is a position on a log, so the
+recruited node with the furthest WAL holds every durable position — promoting it
+loses nothing durable. Preservation runs one way: anything dropped during
+recovery was, by this rule, never durable, but the converse doesn't hold — when we
+cannot tell whether a position reached quorum we keep it, so a hung transaction
+may be propagated and made durable going forward. A rule change is itself a
+transaction in the WAL, so preservation holds even as the cohort or the
+redundancy policy itself changes. Two nodes whose WALs diverged past their last
+common position are the split-brain case the rest of this doc works to prevent.
 
 ## Terminology: Rules & Rogue Cohorts
 
