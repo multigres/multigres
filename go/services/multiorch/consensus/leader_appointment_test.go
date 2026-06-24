@@ -168,9 +168,9 @@ func TestAppointLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(6), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }
 
@@ -269,8 +269,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(1), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }

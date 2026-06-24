@@ -1950,7 +1950,16 @@ type ReplicationPrimary struct {
 	// Contact info for the primary the pooler was last told to use. Snapshot
 	// from the most recent SetPrimary/Promote; treat as "what this pooler currently
 	// believes," not as the canonical primary for the cluster.
-	Primary       *PoolerAddress `protobuf:"bytes,2,opt,name=primary,proto3" json:"primary,omitempty"`
+	Primary *PoolerAddress `protobuf:"bytes,2,opt,name=primary,proto3" json:"primary,omitempty"`
+	// Whether the primary in this record is safe to pg_rewind from: it has
+	// completed a checkpoint on its current timeline, so its control file no
+	// longer advertises a stale checkpoint timeline. A diverged follower that
+	// rewinds before this is true copies the stale timeline into its own
+	// minRecoveryPoint and FATALs on startup. When the record's primary is this
+	// pooler itself, the value is computed live (checkpointed timeline == running
+	// timeline); for a follower it is the value most recently relayed via
+	// SetPrimary about the leader it follows.
+	RewindReady   bool `protobuf:"varint,3,opt,name=rewind_ready,json=rewindReady,proto3" json:"rewind_ready,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1997,6 +2006,13 @@ func (x *ReplicationPrimary) GetPrimary() *PoolerAddress {
 		return x.Primary
 	}
 	return nil
+}
+
+func (x *ReplicationPrimary) GetRewindReady() bool {
+	if x != nil {
+		return x.RewindReady
+	}
+	return false
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms
@@ -2578,10 +2594,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"\x90\x01\n" +
 	"\x11LeaderObservation\x120\n" +
 	"\tleader_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12I\n" +
-	"\x12leader_rule_number\x18\x02 \x01(\v2\x1b.clustermetadata.RuleNumberR\x10leaderRuleNumber\"~\n" +
+	"\x12leader_rule_number\x18\x02 \x01(\v2\x1b.clustermetadata.RuleNumberR\x10leaderRuleNumber\"\xa1\x01\n" +
 	"\x12ReplicationPrimary\x12.\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\x128\n" +
-	"\aprimary\x18\x02 \x01(\v2\x1e.clustermetadata.PoolerAddressR\aprimary\"\xa3\x02\n" +
+	"\aprimary\x18\x02 \x01(\v2\x1e.clustermetadata.PoolerAddressR\aprimary\x12!\n" +
+	"\frewind_ready\x18\x03 \x01(\bR\vrewindReady\"\xa3\x02\n" +
 	"\x0eTermRevocation\x12,\n" +
 	"\x12revoked_below_term\x18\x01 \x01(\x03R\x10revokedBelowTerm\x12K\n" +
 	"\x17accepted_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x15acceptedCoordinatorId\x12T\n" +

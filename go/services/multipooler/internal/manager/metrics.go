@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,6 +27,8 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
+
+const meterName = "github.com/multigres/multigres/go/services/multipooler/internal/manager"
 
 // healthMetrics holds OTel metrics for pooler health/replication observability.
 //
@@ -45,7 +48,7 @@ type healthMetrics struct {
 // measurement. Best-effort: an instrument that fails to initialise is skipped
 // and the joined error is returned for logging by the caller.
 func newHealthMetrics(lagNsGetter func() int64) (*healthMetrics, error) {
-	meter := otel.Meter("github.com/multigres/multigres/go/services/multipooler/internal/manager")
+	meter := otel.Meter(meterName)
 	m := &healthMetrics{transitions: noop.Int64Counter{}}
 	var errs []error
 
@@ -101,4 +104,39 @@ func (m *healthMetrics) recordTransition(ctx context.Context, from, to clusterme
 		attribute.String("from", from.String()),
 		attribute.String("to", to.String()),
 	))
+}
+
+// managerMetrics holds the OTel instruments for the pooler manager.
+type managerMetrics struct {
+	rewindCheckpointWait metric.Float64Histogram
+}
+
+// newManagerMetrics creates and registers the manager's OTel instruments. It
+// always returns a non-nil *managerMetrics; a registration error is returned
+// alongside, and the affected instrument is left nil (its record helper no-ops).
+func newManagerMetrics() (*managerMetrics, error) {
+	meter := otel.Meter(meterName)
+	// How long a diverged follower's pg_rewind was held off waiting for the new
+	// leader to advertise rewind-readiness — i.e. to complete its post-promotion
+	// checkpoint onto the current timeline so it is safe to rewind from. Near zero
+	// when the leader was already rewind-ready by the time the follower learned of
+	// it; seconds when the follower had to wait for the checkpoint. A consistently
+	// high distribution would argue for keeping the explicit post-promotion
+	// checkpoint over relying on PostgreSQL's lazy one.
+	h, err := meter.Float64Histogram(
+		"multipooler.rewind.checkpoint_wait.duration",
+		metric.WithDescription("Time a diverged follower's pg_rewind waited for the new leader to become rewind-ready (post-promotion checkpoint completion)"),
+		metric.WithUnit("s"),
+	)
+	return &managerMetrics{rewindCheckpointWait: h}, err
+}
+
+// recordRewindCheckpointWait records how long a pg_rewind waited for the source
+// leader to become rewind-ready before proceeding. Nil-receiver safe so manager
+// values constructed without metrics (e.g. in unit tests) are no-ops.
+func (m *managerMetrics) recordRewindCheckpointWait(ctx context.Context, d time.Duration) {
+	if m == nil || m.rewindCheckpointWait == nil {
+		return
+	}
+	m.rewindCheckpointWait.Record(ctx, d.Seconds())
 }

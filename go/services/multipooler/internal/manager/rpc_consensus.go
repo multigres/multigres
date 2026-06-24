@@ -71,12 +71,27 @@ func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replic
 		return nil
 	}
 	rule := observedRule
-	if commonconsensus.CompareRuleNumbers(rpcRule.GetRuleNumber(), observedRule.GetRuleNumber()) > 0 {
+	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
+	// it is the self-report ("checkpointed onto my current timeline", maintained
+	// by the postgres monitor / async-checkpoint completion); on a follower it is
+	// the value last relayed via SetPrimary about its leader. Republishing a
+	// relayed value is harmless — the leader's own status is the authority orch
+	// reads.
+	//
+	// Use the rpc record's rule and rewind_ready whenever it is at least as high
+	// as the observed position — including a tie, which is the steady state for a
+	// leader (its observed rule catches up to the rule it recorded at promotion).
+	// Only a strictly-higher observed rule means the recorded rewind_ready no
+	// longer describes the rule we publish, so we fall back to false there.
+	rewindReady := false
+	if commonconsensus.CompareRuleNumbers(rpcRule.GetRuleNumber(), observedRule.GetRuleNumber()) >= 0 {
 		rule = rpcRule
+		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{
-		Rule:    rule,
-		Primary: rpcPrimary,
+		Rule:        rule,
+		Primary:     rpcPrimary,
+		RewindReady: rewindReady,
 	}
 }
 
@@ -583,7 +598,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 			if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
 			}
-			return pm.promoteStandbyToPrimary(hookCtx, state)
+			return pm.promoteStandbyToPrimary(hookCtx, state, proposedRule.GetRuleNumber().GetCoordinatorTerm())
 		})
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
@@ -605,7 +620,10 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
 	// new leadership immediately.
-	pm.consensusState.RecordTermPrimary(proposedRule, proposalLeader)
+	pm.consensusState.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+		Rule:    proposedRule,
+		Primary: proposalLeader,
+	})
 
 	pm.logger.InfoContext(ctx, "Promote complete",
 		"rule", commonconsensus.FormatRuleNumber(proposedRule.GetRuleNumber()),
@@ -641,13 +659,14 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		return nil, err
 	}
 
-	leader := req.GetLeader()
-	rule := req.GetRule()
+	rp := req.GetReplicationPrimary()
+	leader := rp.GetPrimary()
+	rule := rp.GetRule()
 	if leader == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "leader is required")
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "replication_primary.primary is required")
 	}
 	if rule == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "rule is required")
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "replication_primary.rule is required")
 	}
 	// The rule's leader_id is authoritative; the leader field carries contact
 	// info for that ID. A mismatch is a caller bug — we'd otherwise route
@@ -715,7 +734,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	//   - Pooler-side reconciliation: reads last-known-primary to retry
 	//     ALTER SYSTEM SET primary_conninfo if this SetPrimary arrived while
 	//     postgres was unavailable.
-	pm.consensusState.RecordTermPrimary(rule, leader)
+	pm.consensusState.RecordTermPrimary(rp)
 
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
@@ -749,8 +768,9 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 }
 
 func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
-	leader := req.GetLeader()
-	rule := req.GetRule()
+	rp := req.GetReplicationPrimary()
+	leader := rp.GetPrimary()
+	rule := rp.GetRule()
 	port := leader.GetPostgresPort()
 
 	// Decide between "standby update" and "stale-primary demote" based on
@@ -772,7 +792,20 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	}
 
 	if pm.suspectedDivergence.Load() {
-		// If a rewind is pending, restartAsStandbyLocked() will take care of the rewind.
+		// Demoting a (likely diverged) stale primary restarts it as a standby of the
+		// new leader, which requires a pg_rewind. Defer that until the leader is
+		// rewind-ready — it has checkpointed onto its current timeline, relayed here
+		// as replication_primary.rewind_ready. Restarting before then would FATAL on
+		// this node's own un-replicated WAL and leave it stuck. Deferring leaves the
+		// node running as-is (queryable, no downtime); the record was already updated
+		// by RecordTermPrimary above, so orch's retry and the monitor's demote path
+		// both re-attempt once the leader advertises rewind_ready.
+		if !rp.GetRewindReady() {
+			pm.logger.InfoContext(ctx, "SetPrimary: leader not yet rewind-ready; deferring stale-primary demote",
+				"new_leader", leader.GetId().GetName(), "incoming_rule", rule.GetRuleNumber())
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"leader %s not yet rewind-ready; deferring demote of stale primary", leader.GetId().GetName())
+		}
 		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber(),

@@ -142,9 +142,9 @@ func TestRecordTermPrimary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := NewConsensusState(t.TempDir(), nil)
 			if tt.seedRule != nil {
-				cs.RecordTermPrimary(tt.seedRule, tt.seedPrimary)
+				cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary})
 			}
-			cs.RecordTermPrimary(tt.callRule, tt.callPrimary)
+			cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary})
 
 			got := cs.GetReplicationPrimary()
 			if tt.wantRule == nil && tt.wantPrimary == nil {
@@ -175,7 +175,7 @@ func TestRecordTermPrimary(t *testing.T) {
 // by holding the returned pointer.
 func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	cs := NewConsensusState(t.TempDir(), nil)
-	cs.RecordTermPrimary(ruleAt(5, 0), primaryAt("p1", "hostA", 5432))
+	cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)})
 
 	got := cs.GetReplicationPrimary()
 	require.NotNil(t, got)

@@ -149,11 +149,11 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 
 	req := fakeClient.SetPrimaryRequests["multipooler-cell1-stale-leader"]
 	require.NotNil(t, req)
-	require.NotNil(t, req.Leader)
-	assert.Equal(t, "correct-leader", req.Leader.Id.Name)
-	assert.Equal(t, "correct.example.com", req.Leader.GetHost())
-	require.NotNil(t, req.Rule)
-	assert.Equal(t, int64(5), req.Rule.GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, req.GetReplicationPrimary().GetPrimary())
+	assert.Equal(t, "correct-leader", req.GetReplicationPrimary().GetPrimary().GetId().GetName())
+	assert.Equal(t, "correct.example.com", req.GetReplicationPrimary().GetPrimary().GetHost())
+	require.NotNil(t, req.GetReplicationPrimary().GetRule())
+	assert.Equal(t, int64(5), req.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 }
 
 // TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader asserts the error path
@@ -246,10 +246,10 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-stale-leader)")
 	req := fakeClient.SetPrimaryRequests["multipooler-cell1-stale-leader"]
 	require.NotNil(t, req)
-	require.NotNil(t, req.Leader)
-	assert.Equal(t, "new-leader", req.Leader.Id.Name,
+	require.NotNil(t, req.GetReplicationPrimary().GetPrimary())
+	assert.Equal(t, "new-leader", req.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 		"rewind target must be the leader named by the replica's higher-term rule, not the stale self-claim")
-	assert.Equal(t, int64(6), req.Rule.GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, int64(6), req.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 }
 
 // TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader verifies that a

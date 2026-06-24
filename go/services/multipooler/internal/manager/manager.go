@@ -72,6 +72,7 @@ const (
 // MultiPoolerManager manages the pooler lifecycle and PostgreSQL operations
 type MultiPoolerManager struct {
 	logger     *slog.Logger
+	metrics    *managerMetrics
 	config     *Config
 	topoClient topoclient.Store
 	// Deprecated: use servicePoolerID instead.
@@ -175,6 +176,13 @@ type MultiPoolerManager struct {
 	//     implying its timeline diverged. Set via RewindToSource; today orch detects
 	//     this, but in the future a pooler could self-detect it.
 	suspectedDivergence atomic.Bool
+
+	// rewindWaitEmittedFor is the ConsensusState.LeaderObservedAt() value the
+	// rewind-wait metric was last emitted for, so a rewind that fails and is
+	// re-attempted against the same leader is counted once. Only read/written from
+	// restartAsStandbyLocked, which always holds the action lock, so it needs no
+	// separate synchronization.
+	rewindWaitEmittedFor time.Time
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -297,8 +305,14 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	monitorRetryInterval := 5 * time.Second
 	monitorRunner := timer.NewPeriodicRunner(ctx, monitorRetryInterval)
 
+	metrics, metricsErr := newManagerMetrics()
+	if metricsErr != nil {
+		logger.ErrorContext(ctx, "Failed to register manager metrics", "error", metricsErr)
+	}
+
 	pm := &MultiPoolerManager{
 		logger:                 logger.With("pooler_name", multiPooler.Id.GetName()),
+		metrics:                metrics,
 		config:                 config,
 		topoClient:             config.TopoClient,
 		serviceID:              multiPooler.Id,
@@ -1399,8 +1413,11 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context) (*promoti
 	return state, nil
 }
 
-// promoteStandbyToPrimary calls pg_promote() and waits for promotion to complete
-func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState) error {
+// promoteStandbyToPrimary calls pg_promote() and waits for promotion to complete.
+// coordinatorTerm is the term being promoted to; it scopes the async
+// post-promotion checkpoint's rewind-ready mark so a later re-promotion can't
+// inherit a stale mark.
+func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, coordinatorTerm int64) error {
 	// Return early if already promoted
 	if state.isPrimaryInPostgres {
 		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping")
@@ -1446,6 +1463,32 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	if err := pm.waitForPromotionComplete(ctx); err != nil {
 		return err
 	}
+
+	// Checkpoint onto the new timeline so the control file advertises it, making
+	// this node a safe pg_rewind source. PostgreSQL's post-promotion checkpoint is
+	// lazy (a background CHECKPOINT_END_OF_RECOVERY), so right after promotion the
+	// control file's "Latest checkpoint's TimeLineID" still reflects the OLD
+	// timeline; a follower that pg_rewinds against this node would copy that stale
+	// TLI into its own minRecoveryPoint and FATAL on startup.
+	//
+	// Run it asynchronously: a checkpoint can be slow (proportional to dirty
+	// buffers since the last one) and must not block the failover path. This is
+	// safe because a diverged follower's rewind is gated on this node advertising
+	// rewind_ready. On completion we mark rewind_ready for the term we promoted to
+	// (the atomic term check skips it if a newer term has since replaced the
+	// record); the postgres monitor is the backstop that marks within ~100ms once
+	// it observes the completed checkpoint. Use the manager's lifetime context so
+	// the checkpoint outlives this RPC's return.
+	go func() {
+		if err := pm.exec(pm.ctx, "CHECKPOINT"); err != nil {
+			pm.logger.WarnContext(pm.ctx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
+			return
+		}
+		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
+			pm.logger.InfoContext(pm.ctx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
+			pm.broadcastHealth()
+		}
+	}()
 
 	// Promotion supersedes any pending rewind from a prior emergency demotion:
 	// the consensus protocol picked this node as the new leader at a higher
