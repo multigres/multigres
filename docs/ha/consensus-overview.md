@@ -89,6 +89,19 @@ transactions. The two histories are irreconcilable — this is split brain.
 Recruiting 3 of the 4 nodes to close R1 would have left at most 1 unrecruited —
 too few to form a rogue quorum.
 
+## Comparing diverged WALs
+
+Divergence like this is what recovery has to resolve — and it can, because WAL
+positions are **totally ordered**: any two are comparable, even across forks. The
+position written under the later rule wins; if both are at the same rule, the
+longer WAL (higher LSN) wins. Preferring the later rule is safe, not arbitrary —
+a rule is only ever created after capturing everything durable under earlier
+rules, so a later rule can never be hiding a durable transaction an earlier one
+held. This is what makes "the most advanced WAL" a well-defined and safe choice
+when electing a new leader, the foundation of the recovery in the next section.
+The exact comparison, with a worked example, is in
+[the state model](state-model.md#total-ordering-across-divergence).
+
 ## Safely Changing the Rules
 
 A safe rule change requires two steps, in order:

@@ -130,7 +130,9 @@ intersects every possible committing `N`-subset of the old cohort, it carries
 every transaction that was ever durable under the old rule
 ([`discoverMostAdvancedTimeline`](../../go/common/consensus/proposals.go)). This
 is the overview's "the most advanced transaction history becomes the starting
-point — nothing durable is lost."
+point — nothing durable is lost." "Most advanced" is well-defined because
+positions are totally ordered even across diverged WALs; see
+[Total ordering across divergence](state-model.md#total-ordering-across-divergence).
 
 > The coordinator commits to the leader at the **first** moment a safe proposal
 > can be built, streaming `Promote` from there rather than waiting for stragglers

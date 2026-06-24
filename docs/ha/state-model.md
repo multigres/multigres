@@ -186,17 +186,55 @@ flow in
 
 ## Positions and PostgreSQL state
 
-> TODO: We could note that a purpose of PoolerPosition is identifying the
-> most advanced timeline during leader selection for a rule change. We need
-> to order poolers by their consensus term first and LSN second, which what
-> position comparisons will do.
-
 A `PoolerPosition` is a `ShardRule` plus an `lsn` string — the highest rule a
-node has committed to its local WAL, and its current WAL head. Positions are
-ordered by rule number first, LSN second
-([`ComparePosition`](../../go/common/consensus/compare.go)); the most advanced
-position across a cohort is the candidate the overview calls "the most advanced
-transaction history."
+node has committed to its local WAL, and its current WAL head. Identifying the
+most advanced position across a cohort is the core of leader selection during a
+rule change.
+
+### Total ordering across divergence
+
+Leader selection must compare positions from nodes whose WALs have **diverged** —
+forked into different transaction sequences after failovers. Positions are
+nonetheless **totally ordered**, so "most advanced" is always well-defined. A
+position is `(rule number, LSN)`, compared in that priority
+([`ComparePosition`](../../go/common/consensus/compare.go)):
+
+- **Same rule number and LSN** → the same position.
+- **Same rule number** → the higher LSN is more advanced (more transactions
+  appended under that rule).
+- **Different rule numbers** → the higher final rule number is more advanced,
+  _regardless of LSN_ — a node at rule 6 with a lower LSN outranks one at rule 5
+  with a higher LSN.
+
+The cross-rule case rests on a guarantee from the
+[rule-change protocol](rule-change.md): a rule change to rule N is only written
+after recruiting enough of the previous cohort to capture **everything that was
+durable under rules below N**. So a WAL whose latest entry is at rule 6 already
+contains every potentially-durable transaction from earlier rules — even rules it
+never directly participated in. That is why a WAL ending at rule 5 can be
+disregarded next to one ending at rule 6 _even if the rule-6 WAL holds no rule-5
+transactions at all_: their absence is proof that no rule-5 transaction ever
+reached durability.
+
+```text
+Four nodes after a series of failovers. Each token is a committed transaction;
+[Rn] marks where rule n took effect.
+
+A   t1 t2 [R2] t3 t4              position  rule 2 @ 0/50
+B   t1 t2 [R2] t3 t4 t5           position  rule 2 @ 0/70
+C   t1 t2 [R2] t3 [R5] t6         position  rule 5 @ 0/40
+D   t1 t2 [R2] t3 [R6] t9         position  rule 6 @ 0/30   <- most advanced
+
+ordering:  A < B < C < D
+  A < B   same rule 2, B has the higher LSN
+  B < C   rule 5 > rule 2
+  C < D   rule 6 > rule 5  (LSN ignored: D's 0/30 < C's 0/40, yet D wins)
+```
+
+D is most advanced despite holding the _lowest_ LSN. C's rule-5 transaction `t6`
+is absent from D; because D reached rule 6 — which can only be written after
+capturing everything durable below it — that absence proves `t6` never became
+durable, so C can be safely disregarded.
 
 > TODO: distinguish "transaction history" (the consensus concept — the single
 > durable chain from the overview) from a Postgres **timeline** (the WAL lineage
