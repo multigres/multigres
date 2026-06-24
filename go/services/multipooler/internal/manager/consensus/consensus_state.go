@@ -157,16 +157,16 @@ func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 // be outdated by the time it's used. Use GetRevocation() as part of any action
 // workflow to protect against race conditions.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetInconsistentRevocation() (*clustermetadatapb.TermRevocation, error) {
+func (cs *ConsensusState) GetInconsistentRevocation() *clustermetadatapb.TermRevocation {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	if cs.revocation == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Return a copy to prevent external modifications
-	return cloneRevocation(cs.revocation), nil
+	return cloneRevocation(cs.revocation)
 }
 
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.

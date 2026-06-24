@@ -416,8 +416,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted, err := pm.consensusState.GetInconsistentRevocation()
-			require.NoError(t, err)
+			persisted := pm.consensusState.GetInconsistentRevocation()
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
@@ -425,13 +424,13 @@ func TestRecruit(t *testing.T) {
 		})
 	}
 
-	t.Run("RewindPending_DoesNotBlockRecruit", func(t *testing.T) {
-		// rewindPending is intentionally not a Recruit gate: a node still
+	t.Run("SuspectedDivergence_DoesNotBlockRecruit", func(t *testing.T) {
+		// suspectedDivergence is intentionally not a Recruit gate: a node still
 		// pending a rewind may participate so multiorch can always form
 		// quorum. The actual rewind happens at SetPrimary.
 		mockQueryService := mock.NewQueryService()
 		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
-		pm.rewindPending.Store(true)
+		pm.suspectedDivergence.Store(true)
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -443,11 +442,11 @@ func TestRecruit(t *testing.T) {
 		}
 		_, err := pm.Recruit(t.Context(), req)
 		// We don't require success here (the minimal mock setup doesn't
-		// satisfy the full Recruit path); we only assert that rewindPending
+		// satisfy the full Recruit path); we only assert that suspectedDivergence
 		// is no longer the reason for rejection.
 		if err != nil {
 			assert.NotContains(t, err.Error(), "rewind pending",
-				"rewindPending should no longer block Recruit")
+				"suspectedDivergence should no longer block Recruit")
 		}
 	})
 }
@@ -1009,6 +1008,13 @@ func TestAvailabilityStatus(t *testing.T) {
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
+	})
+
+	t.Run("suspectedDivergence is published", func(t *testing.T) {
+		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
+		pm.suspectedDivergence.Store(true)
+		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
 }
 

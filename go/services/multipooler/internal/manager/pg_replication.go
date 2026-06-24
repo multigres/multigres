@@ -112,8 +112,9 @@ func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.A
 	return stats, nil
 }
 
-// backupSettings reads the backup-relevant PostgreSQL settings for the
-// backup-health poller. These are cheap pg_settings reads (no forced I/O). It
+// backupSettings reads the backup-relevant PostgreSQL settings, used both by
+// the backup-health poller and to capture server_version for the backup-time
+// pg_version annotation. These are cheap pg_settings reads (no forced I/O). It
 // reuses the manager's query path and is injected into the backup engine via
 // SetPGSettingsProvider.
 func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
@@ -123,20 +124,22 @@ func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.
 	sql := `SELECT
 		COALESCE(current_setting('archive_command', true), '') AS archive_command,
 		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
-		COALESCE(current_setting('restore_command', true), '') AS restore_command`
+		COALESCE(current_setting('restore_command', true), '') AS restore_command,
+		COALESCE(split_part(current_setting('server_version', true), ' ', 1), '') AS server_version`
 	result, err := pm.query(queryCtx, sql)
 	if err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
 	}
 
-	var archiveCommand, archiveMode, restoreCommand string
-	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand); err != nil {
+	var archiveCommand, archiveMode, restoreCommand, serverVersion string
+	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand, &serverVersion); err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to scan backup settings result")
 	}
 	return backupengine.PGSettings{
 		ArchiveCommand: archiveCommand,
 		ArchiveMode:    archiveMode,
 		RestoreCommand: restoreCommand,
+		ServerVersion:  serverVersion,
 	}, nil
 }
 
@@ -890,28 +893,6 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully cleared synchronous replication for demotion")
-	return nil
-}
-
-// resetSynchronousReplication clears the synchronous standby list
-// This should be called after the server is read-only to safely clear settings
-func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	// Clear synchronous_standby_names to remove all standbys
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
-	}
-
-	if err := pm.reloadPostgresConfig(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
 	return nil
 }
 

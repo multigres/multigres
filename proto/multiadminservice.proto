@@ -426,6 +426,12 @@ message BackupInfo {
   string multipooler_service_id = 9;
   // pooler_type is the type of the multipooler (PRIMARY or REPLICA)
   clustermetadata.PoolerType pooler_type = 10;
+  // start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
+  string start_lsn = 11;
+  // stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
+  string stop_lsn = 12;
+  // pg_version is the full PostgreSQL server_version the backup was taken from (e.g. "16.2")
+  string pg_version = 13;
 }
 
 // BackupStatus indicates the state of a backup artifact
