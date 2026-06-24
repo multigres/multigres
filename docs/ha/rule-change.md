@@ -38,7 +38,7 @@ recovery calls it (via `AppointLeaderAction`), and bootstrap calls the sibling
 A coordinator (a multiorch instance) drives every cohort member through two
 RPCs. The leader-to-be gets `Promote`; everyone else gets `SetPrimary`.
 
-```
+```text
 coordinator                 cohort member (pooler)
 -----------                 ----------------------
   │  Recruit(revocation)  →   stop replication, pledge term N to disk,
@@ -108,7 +108,7 @@ The coordinator only proceeds once the recruited set is large enough, checked by
 [`CheckSufficientRecruitment`](../../go/common/consensus/policy_at_least_n.go)
 over the **outgoing** cohort. Two thresholds combine:
 
-```
+```text
 |recruited| ≥ max(
     ⌊|cohort|/2⌋ + 1,    // majority   — any two recruitments share a pooler
     |cohort| − N + 1,    // revocation — un-recruited set is too small to form an N-quorum
@@ -237,7 +237,7 @@ from both succeeding.
 > TODO: this path is also the intended home for operator-driven overrides
 > (forced failover when a quorum is permanently lost). Document the operator
 > entry point once it lands.
-
+>
 > TODO: add a worked end-to-end example — a 3-node `AT_LEAST_2` cohort losing
 > its leader, traced step by step (recruit responses, term/LSN selection,
 > promote, the diverged-follower pg_rewind) — to make the protocol concrete.

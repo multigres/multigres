@@ -44,7 +44,7 @@ Leader, cohort, and policy are only meaningful _together and relative to the
 rule that established them_. Shard rules are written to a table in postgres
 
 > TODO: move the table schema up here and introduce the rules store?...
-
+>
 > TODO: comment on why leader is in the shard rule: the consensus algorithm doesn't
 > require that the leader be persisted anywhere specific, but it's convenient in practice.
 
