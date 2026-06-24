@@ -145,6 +145,8 @@ var _ reservedConnAPI = (*mockReservedConn)(nil)
 type stubPoolManager struct {
 	reservedConn   *reserved.Conn
 	reservedConnOK bool
+	reservedPool   *reserved.Pool
+	settingsCache  *connstate.SettingsCache
 }
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
@@ -161,8 +163,18 @@ func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string
 	return nil, nil
 }
 
-func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
-	return nil, errors.New("not implemented in test stub")
+func (m *stubPoolManager) NewReservedConn(ctx context.Context, settings map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	if m.reservedPool == nil {
+		return nil, errors.New("not implemented in test stub")
+	}
+	var cached *connstate.Settings
+	if len(settings) > 0 {
+		if m.settingsCache == nil {
+			m.settingsCache = connstate.NewSettingsCache(16)
+		}
+		cached = m.settingsCache.GetOrCreate(settings)
+	}
+	return m.reservedPool.NewConn(ctx, cached, opts...)
 }
 
 func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) {
@@ -183,12 +195,12 @@ func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQu
 var _ connpoolmanager.PoolManager = (*stubPoolManager)(nil)
 
 // newTestExecutor returns an Executor that has just enough wiring to exercise
-// streamExecuteOnReservedConn. The pool manager is left nil because the helper
-// never touches it.
+// reserved-connection execution helpers.
 func newTestExecutor() *Executor {
 	return &Executor{
 		logger:   slog.Default(),
 		poolerID: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		metrics:  newQueryStats(),
 	}
 }
 
@@ -604,6 +616,52 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 // CLOSE / DISCARD ALL semantics: ReleasePortalNames drains the matching
 // pins, and when the last reason clears, the connection is released with
 // a zero ReservedState.
+func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	const badDeclare = "DECLARE bad CURSOR WITH HOLD FOR SELECT * FROM missing_table"
+	server.AddRejectedQuery(badDeclare, errors.New("ERROR: relation \"missing_table\" does not exist"))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	e := newTestExecutor()
+	e.poolManager = &stubPoolManager{reservedPool: pool}
+
+	state, err := e.reserveAndStreamExecute(
+		context.Background(),
+		badDeclare,
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{
+			Reasons:        protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonPortal,
+			BeginQuery:     "BEGIN",
+			PinPortalNames: []string{"bad"},
+		},
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, state, "failed first statement should preserve the transaction reservation")
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons(),
+		"statement-local temp/portal reasons must be unwound before returning surviving state")
+
+	rconn, ok := pool.Get(int64(state.GetReservedConnectionId()))
+	require.True(t, ok, "surviving transaction should still be in the reserved pool")
+	assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons())
+	assert.False(t, rconn.HasPortal("bad"), "failed DECLARE must not leave a phantom portal pin")
+}
+
 func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
@@ -783,12 +841,11 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 
 // --- stampVpid* early-return tests ---
 //
-// The happy-path SET application_name issue is covered by integration tests
-// (it requires a real pool connection). Here we lock in the guard semantics:
-// the helpers must be safe no-ops when stamping is disabled, options is nil,
-// or ClientConnectionId is zero. A nil conn is intentionally passed to prove
-// the helpers return before touching it.
-
+// The happy-path SET application_name issue is covered below with fakepgserver.
+// Here we lock in the guard semantics: the helpers must be safe no-ops when
+// stamping is disabled, options is nil, or ClientConnectionId is zero. A nil
+// conn is intentionally passed to prove the helpers return before dereferencing
+// it.
 func TestStampVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -828,14 +885,12 @@ func TestStampVpidOnRegular_NoOpGuards(t *testing.T) {
 	}
 }
 
-// --- stampVpid* happy-path tests ---
+// --- stampVpid* SET application_name tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
-// verify that the helper issues the expected SET application_name when
-// stamping is enabled and ClientConnectionId is non-zero. This is the only
-// behaviour the early-return tests above don't cover.
+// verify that VPID stamping issues the expected SET application_name.
 
-func TestStampVpidOnRegular_HappyPath(t *testing.T) {
+func TestStampVpidOnRegular_SetsApplicationName(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -853,7 +908,7 @@ func TestStampVpidOnRegular_HappyPath(t *testing.T) {
 	assert.Equal(t, "set application_name = 'multigres_vpid:99'", server.QueryLog())
 }
 
-func TestStampVpidOnReserved_HappyPath(t *testing.T) {
+func TestStampVpidOnReserved_SetsApplicationName(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)

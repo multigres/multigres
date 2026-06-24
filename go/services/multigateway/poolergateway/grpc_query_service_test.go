@@ -658,6 +658,11 @@ func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
 			Phase:         multipoolerservice.CopyBidiExecuteResponse_ERROR,
 			Error:         "constraint violation",
 			ReservedState: survivingState,
+			Notices: []*query.PgDiagnostic{{
+				MessageType: int32('N'),
+				Severity:    "NOTICE",
+				Message:     "input = {\"f1\":0}",
+			}},
 		},
 	}
 	mockClient := &mockMultiPoolerServiceClient{
@@ -668,7 +673,7 @@ func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
 	// Pre-register stream as if CopyReady had succeeded earlier.
 	svc.copyStreams[connID] = mockStream
 
-	_, rs, err := svc.CopyFinalize(
+	result, rs, err := svc.CopyFinalize(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		nil,
@@ -679,6 +684,9 @@ func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
 	require.Contains(t, err.Error(), "constraint violation")
 	require.NotNil(t, rs, "ReservedState must be propagated when multipooler attaches it")
 	require.Equal(t, connID, rs.GetReservedConnectionId())
+	require.NotNil(t, result, "notices preceding the COPY error should be returned for forwarding")
+	require.Len(t, result.Notices, 1)
+	require.Equal(t, "input = {\"f1\":0}", result.Notices[0].Message)
 	// CopyFinalize removes the stream regardless of outcome.
 	require.NotContains(t, svc.copyStreams, connID)
 }

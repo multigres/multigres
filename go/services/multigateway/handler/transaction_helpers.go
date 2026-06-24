@@ -274,7 +274,21 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	// This matches PostgreSQL's behavior in exec_simple_query(): the commit is
 	// attempted before the last statement's CommandComplete is sent to the client.
 	if isImplicitTx {
-		if err := silentExecute(ast.NewCommitStmt()); err != nil {
+		// Commit may emit NoticeResponse diagnostics while firing deferred
+		// constraint triggers. PostgreSQL sends those notices before the held
+		// CommandComplete for the last statement in the implicit transaction, so use
+		// a custom callback that forwards notices but suppresses the synthetic COMMIT
+		// command tag.
+		commitStmt := ast.NewCommitStmt()
+		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, commitStmt)
+		_, err := h.executor.StreamExecute(stmtCtx, conn, state, commitStmt.SqlString(), commitStmt, func(ctx context.Context, result *sqltypes.Result) error {
+			if len(result.Notices) > 0 {
+				return callback(ctx, &sqltypes.Result{Notices: result.Notices})
+			}
+			return nil
+		})
+		cancel()
+		if err != nil {
 			// Commit failed — rollback to clean up. The held CommandComplete is
 			// discarded; the caller will send an ErrorResponse instead.
 			rollbackImplicit()

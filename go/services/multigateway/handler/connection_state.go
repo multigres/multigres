@@ -529,6 +529,25 @@ func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value st
 	}
 }
 
+// ResetGatewayManagedVariable applies RESET / set_config(name, NULL, is_local)
+// semantics to a single gateway-managed variable. For a transaction-local reset
+// it installs a local default mask (matching SET LOCAL var TO DEFAULT); callers
+// are responsible for skipping SET LOCAL outside a transaction when PostgreSQL
+// would treat it as a no-op.
+func (m *MultiGatewayConnectionState) ResetGatewayManagedVariable(name string, isLocal bool) bool {
+	switch strings.ToLower(name) {
+	case "statement_timeout":
+		if isLocal {
+			m.SetLocalStatementTimeoutToDefault()
+		} else {
+			m.ResetStatementTimeout()
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
 // variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
 // observes the session-level (or default) value.

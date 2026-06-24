@@ -243,6 +243,37 @@ func TestConn_Transaction(t *testing.T) {
 	})
 }
 
+func TestConn_CommitResultIncludesNotices(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("BEGIN", &sqltypes.Result{CommandTag: "BEGIN"})
+	server.AddQuery("COMMIT", &sqltypes.Result{
+		CommandTag: "COMMIT",
+		Notices: []*mterrors.PgDiagnostic{{
+			MessageType: 'N',
+			Severity:    "NOTICE",
+			Message:     "deferred trigger fired",
+		}},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	defer conn.Release(ReleaseCommit, nil)
+
+	require.NoError(t, conn.Begin(ctx))
+	result, err := conn.CommitResult(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "COMMIT", result.CommandTag)
+	require.Len(t, result.Notices, 1)
+	require.Equal(t, "deferred trigger fired", result.Notices[0].Message)
+}
+
 func TestConn_PortalReservation(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
