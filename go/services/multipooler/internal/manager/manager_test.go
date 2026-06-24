@@ -813,7 +813,7 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	// Pause the manager. With the old "publisher tied to Open" design this
 	// would have cancelled the publisher; with the new "publisher tied to
 	// Register" design it should keep running.
-	resume := pm.Pause(lockCtx)
+	resume := pm.Pause(lockCtx, true /* stopMonitor */)
 	defer resume(lockCtx)
 
 	// Mutate to PRIMARY while paused. The publisher should still pick this
@@ -891,7 +891,7 @@ func TestPause_RestartsBackupHealthPoller(t *testing.T) {
 
 	// Pause cancels pm.ctx (stopping the poller); resume recreates it and must
 	// relaunch the poller, which refreshes again.
-	resume := pm.Pause(lockCtx)
+	resume := pm.Pause(lockCtx, true /* stopMonitor */)
 	resume(lockCtx)
 
 	require.Eventually(t, func() bool {

@@ -186,7 +186,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
+		// TODO: lower this back to 2s once the rewind-readiness gating (PR #1187) is
+		// merged. Without gating the first rewind can poison the node (minRecoveryPoint
+		// on the wrong timeline), so the monitor self-heal has to crash-recover and
+		// re-rewind across a few cycles before the node rejoins — which exceeds 2s. With
+		// gating the first rewind is delayed until safe, so the node rejoins fast again.
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 10*time.Second)
 
 		// Verify multigateway has rerouted to the new primary by confirming a write succeeds.
 		require.Eventually(t, func() bool {

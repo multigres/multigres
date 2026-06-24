@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -27,6 +28,11 @@ import (
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
+
+// standbySignalFilename is the marker file whose presence puts PostgreSQL into
+// standby mode. It must be absent for single-user mode (postgres --single),
+// which is why crash recovery removes and recreates it.
+const standbySignalFilename = "standby.signal"
 
 // postgresAlreadyRunningPattern matches the postgres error reported when the
 // postmaster.pid lock file is held. After a postmaster crash (kill -9 of a single
@@ -69,9 +75,50 @@ func extractClusterState(output string) string {
 	return "unknown"
 }
 
-// runCrashRecovery performs crash recovery in single-user mode.
-// This runs postgres --single to complete crash recovery, then exits cleanly.
+// crashRecoveryNeeded reports whether PostgreSQL is not cleanly shut down and so
+// must be crash recovered before it can start again.
+func crashRecoveryNeeded(ctx context.Context) (bool, error) {
+	cleanlyStopped, err := isPostgresCleanlyStopped(ctx)
+	if err != nil {
+		return false, err
+	}
+	return !cleanlyStopped, nil
+}
+
+// hasStandbySignal reports whether a standby.signal marker file is present, i.e.
+// PostgreSQL is configured to start in standby mode.
+func hasStandbySignal() bool {
+	_, err := os.Stat(filepath.Join(pgctld.PostgresDataDir(), standbySignalFilename))
+	return err == nil
+}
+
+// runCrashRecovery performs crash recovery in single-user mode (postgres --single),
+// which replays WAL to a clean shutdown and exits.
+//
+// A standby.signal blocks single-user mode ("standby mode is not supported by
+// single-user servers"), so when one is present it is removed for the duration of
+// recovery and recreated afterwards, preserving the node's standby identity. Both
+// the start and rewind paths share this primitive, so a standby that can only be
+// cleaned up via single-user recovery — e.g. one wedged by an early pg_rewind that
+// stamped minRecoveryPoint onto the wrong timeline — is handled consistently
+// (notably, this lets a re-issued pg_rewind clean-shut-down such a node).
 func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
+	signalPath := filepath.Join(pgctld.PostgresDataDir(), standbySignalFilename)
+	if _, err := os.Stat(signalPath); err == nil {
+		logger.InfoContext(ctx, "Temporarily removing standby.signal for single-user crash recovery",
+			"path", signalPath)
+		if rmErr := os.Remove(signalPath); rmErr != nil {
+			return fmt.Errorf("failed to remove standby.signal before crash recovery: %w", rmErr)
+		}
+		// Recreate even if recovery fails, so the node is not silently converted
+		// from a standby into a primary on the next start.
+		defer func() {
+			if wErr := os.WriteFile(signalPath, []byte(""), 0o644); wErr != nil {
+				logger.ErrorContext(ctx, "failed to recreate standby.signal after crash recovery", "error", wErr, "path", signalPath)
+			}
+		}()
+	}
+
 	r := retry.New(constants.CrashRecoveryRetryDelay, constants.CrashRecoveryRetryDelay)
 	return runCrashRecoveryAttempts(ctx, logger, runSingleUserPostgres, r)
 }

@@ -176,6 +176,13 @@ type MultiPoolerManager struct {
 	//     this, but in the future a pooler could self-detect it.
 	suspectedDivergence atomic.Bool
 
+	// rewindBackoff and rewindReadyAt rate-limit monitor-driven divergence rewinds
+	// (remedialActionRewindToLeader) so a node that keeps failing to come up as a
+	// standby doesn't thrash disruptive restarts. Touched only by the single monitor
+	// goroutine, so no synchronization is needed. rewindBackoff is lazily created.
+	rewindBackoff *retry.ExponentialBackoff
+	rewindReadyAt time.Time
+
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
 	// Reported in the health status so multiorch can suppress spurious PrimaryIsDead detection.
@@ -518,7 +525,7 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 // The resume function is safe to call multiple times (idempotent). This allows
 // using both defer and explicit calls:
 //
-//	resume := pm.Pause(ctx)
+//	resume := pm.Pause(ctx, stopMonitor)
 //	defer resume(ctx)  // Guarantees cleanup
 //	// ... perform maintenance ...
 //	resume(ctx)        // Explicit resume at the right time
@@ -537,9 +544,19 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 // gateway would briefly cache as the new primary.
 //
 // Note: Pause() cancels the manager's context, but openLocked creates a fresh one.
-func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Context)) {
+//
+// stopMonitor is forwarded to closeLocked. Pass false when the caller already
+// keeps the monitor from acting concurrently: from within the monitor callback
+// itself (backpressure prevents a second iteration, and self-stopping would
+// deadlock), or from an RPC handler holding the action lock (the monitor blocks on
+// that lock before acting). restartAsStandbyLocked — Pause's only caller — is
+// always one of those, so it always passes false; only a full teardown stops the
+// monitor, and that goes through closeLocked directly (not Pause). The returned
+// resume restarts the monitor only if it was stopped — openLocked's pgMonitor.Start
+// is a no-op when the monitor is already running.
+func (pm *MultiPoolerManager) Pause(ctx context.Context, stopMonitor bool) (resume func(context.Context)) {
 	preServingStatus := pm.record.ServingStatus()
-	if !pm.closeLocked(ctx, "paused") {
+	if !pm.closeLocked(ctx, "paused", stopMonitor) {
 		pm.logger.ErrorContext(ctx, "MultiPoolerManager: Pause() called on already-closed manager")
 	}
 
@@ -573,17 +590,24 @@ func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
-	pm.closeLocked(lockCtx, "shutdown")
+	pm.closeLocked(lockCtx, "shutdown", true /* stopMonitor */)
 }
 
-// closeLocked performs the actual close operation.
-// Returns true if the manager was open and is now closed, false if it was already closed.
-// Caller should NOT hold pm.mu - this function acquires it.
-// Always cancels the context - Open() will create a fresh one if reopened.
+// closeLocked performs the actual close operation. Returns true if the manager
+// was open and is now closed, false if it was already closed. Caller should NOT
+// hold pm.mu - this function acquires it. Always cancels the context - Open() will
+// create a fresh one if reopened.
 //
 // ctx must carry an action lock. The state transition (NOT_SERVING) publishes
 // through pm.record.Mutate.
-func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string) bool {
+//
+// stopMonitor controls whether the postgres monitor is stopped: callers outside
+// the monitor (shutdown, RPC-driven restarts) pass true; a caller running *inside*
+// the monitor callback must pass false, because pgMonitor.Stop() waits for the
+// in-flight callback to finish and would deadlock waiting on itself. Skipping it is
+// safe there: the monitor runs one callback at a time (backpressure), so it cannot
+// start another iteration while this one is still executing.
+func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string, stopMonitor bool) bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if !pm.isOpen {
@@ -600,7 +624,9 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
 	}
 
-	pm.pgMonitor.Stop()
+	if stopMonitor {
+		pm.pgMonitor.Stop()
+	}
 	pm.closeConnectionsLocked(false /* forReopen */)
 	pm.cancel()
 	pm.isOpen = false
