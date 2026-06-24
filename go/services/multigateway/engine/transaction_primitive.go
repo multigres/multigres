@@ -111,8 +111,14 @@ func (t *TransactionPrimitive) StreamExecute(
 	case ast.TRANS_STMT_PREPARE:
 		return t.executePrepareTransaction(ctx, exec, conn, state, info, callback)
 
+	case ast.TRANS_STMT_COMMIT_PREPARED, ast.TRANS_STMT_ROLLBACK_PREPARED:
+		return t.executePreparedTransactionConclusion(ctx, exec, conn, state, callback)
+
 	default:
-		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info, callback)
+		// Fail closed for future parser enum values or planner mismatches. Passing
+		// through an unknown transaction-control kind could leave the gateway's
+		// transaction state inconsistent with PostgreSQL.
+		return mterrors.NewFeatureNotSupported(fmt.Sprintf("transaction statement kind %d is not supported", t.Kind))
 	}
 }
 
@@ -176,11 +182,15 @@ func (t *TransactionPrimitive) executeCommit(
 	// LOCAL overrides — current values of non-LOCAL SETs become persistent
 	// session state.
 	implicitRollback := conn.TxnStatus() == protocol.TxnStatusFailed
-	// Capture the HOLD-cursor diff BEFORE state is mutated. PG closes cursors
-	// declared inside the transaction at the implicit ROLLBACK boundary; cursors
-	// declared before BEGIN (under autocommit) survive.
 	var rollbackPortalReleases []string
 	if implicitRollback {
+		// Restore HOLD-cursor tracking to the pre-BEGIN snapshot BEFORE
+		// RollbackTransaction tears the savepoint stack down — the snapshot lives
+		// on savepoints[0] and is gone once RollbackTransaction nils the stack.
+		// Cursors declared inside the failed transaction are dropped; cursors that
+		// pre-date BEGIN are kept (PG preserves them). The multipooler-side pin set
+		// is updated by ConcludeTransaction's ROLLBACK path below using
+		// rollbackPortalReleases.
 		rollbackPortalReleases = state.HoldCursorsDeclaredInTxn()
 		state.RestoreOpenHoldCursorsToBeginSnapshot()
 		state.RollbackTransaction()
@@ -262,16 +272,21 @@ func (t *TransactionPrimitive) executeCommit(
 		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, commitCallback)
 
 	if t.Chain {
+		if err != nil {
+			// A backend-backed COMMIT AND CHAIN must preserve backend continuity. If
+			// conclusion failed and ScatterConn cleared the reservation, do not
+			// synthesize a replacement transaction on a different backend: the old
+			// backend may have carried unreplayable state, and COMMIT outcome may be
+			// uncertain. Fail closed and leave the session out of transaction.
+			clearFailedChainedTransaction(conn, state)
+			return err
+		}
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
-		// If the chained backend reservation was lost (RPC failure, destroyed
-		// connection, or rollback recovery), the gateway still owes the client a
-		// chained transaction. Preserve the inherited BEGIN query so the next
-		// statement creates a replacement backend transaction with the same
-		// isolation/read-only/deferrable characteristics. When the backend stayed
-		// reserved, it already executed COMMIT/ROLLBACK AND CHAIN, so no deferred
-		// BEGIN is needed.
 		if !hasTransactionReservation(state) {
-			state.PendingBeginQuery = chainBeginQuery
+			// This should not happen after a successful backend COMMIT AND CHAIN, but
+			// if the reservation disappeared, fail closed locally rather than
+			// transparently re-reserving a different backend.
+			clearFailedChainedTransaction(conn, state)
 		}
 	} else {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
@@ -304,6 +319,18 @@ func hasTransactionReservation(state *handler.MultiGatewayConnectionState) bool 
 	return false
 }
 
+func clearFailedChainedTransaction(conn *server.Conn, state *handler.MultiGatewayConnectionState) {
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
+	state.PendingBeginQuery = ""
+	state.ActiveTransactionBeginQuery = ""
+	state.TxnStartTime = time.Time{}
+	// Drop the synthetic BEGIN-level frame pushed for the chained transaction.
+	// No statements have run in that new transaction yet, so committing the local
+	// frame only clears savepoint/local-GUC bookkeeping without changing session
+	// values already resolved for the transaction that just ended/failed.
+	state.CommitTransaction()
+}
+
 // syncPendingSubscriptions applies buffered LISTEN/UNLISTEN changes via the
 // connection's SubscriptionSync. Called during COMMIT to ensure subscriptions
 // are active before the client is told the transaction committed.
@@ -334,10 +361,12 @@ func (t *TransactionPrimitive) executeRollback(
 	state.PendingBeginQuery = ""
 	// Discard any pending LISTEN/UNLISTEN changes — ROLLBACK cancels them.
 	state.DiscardPendingListens()
-	// Capture the HOLD-cursor diff before the snapshot stack collapses. PG closes
-	// cursors declared inside this transaction; cursors declared before BEGIN
-	// (autocommit) survive. Forward the in-txn list to the multipooler so it
-	// unpins exactly those names while preserving pre-existing pins.
+	// Restore HOLD-cursor tracking to the pre-BEGIN snapshot BEFORE
+	// RollbackTransaction tears the savepoint stack down — the snapshot lives on
+	// savepoints[0] and is gone once RollbackTransaction nils the stack. Cursors
+	// declared inside this transaction are dropped; cursors that pre-date BEGIN
+	// are kept (PG preserves them). The multipooler-side pin set is updated by
+	// ConcludeTransaction's ROLLBACK path below using rollbackPortalReleases.
 	rollbackPortalReleases := state.HoldCursorsDeclaredInTxn()
 	state.RestoreOpenHoldCursorsToBeginSnapshot()
 	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
@@ -379,16 +408,21 @@ func (t *TransactionPrimitive) executeRollback(
 		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, callback)
 
 	if t.Chain {
+		if err != nil {
+			// A backend-backed ROLLBACK AND CHAIN must preserve backend continuity. If
+			// conclusion failed and ScatterConn cleared the reservation, do not
+			// synthesize a replacement transaction on a different backend: the old
+			// backend may have carried unreplayable state. Fail closed and leave the
+			// session out of transaction.
+			clearFailedChainedTransaction(conn, state)
+			return err
+		}
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
-		// If the chained backend reservation was lost (RPC failure, destroyed
-		// connection, or rollback recovery), the gateway still owes the client a
-		// chained transaction. Preserve the inherited BEGIN query so the next
-		// statement creates a replacement backend transaction with the same
-		// isolation/read-only/deferrable characteristics. When the backend stayed
-		// reserved, it already executed COMMIT/ROLLBACK AND CHAIN, so no deferred
-		// BEGIN is needed.
 		if !hasTransactionReservation(state) {
-			state.PendingBeginQuery = chainBeginQuery
+			// This should not happen after a successful backend ROLLBACK AND CHAIN,
+			// but if the reservation disappeared, fail closed locally rather than
+			// transparently re-reserving a different backend.
+			clearFailedChainedTransaction(conn, state)
 		}
 	} else {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
@@ -418,10 +452,11 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 	var preparedResult *sqltypes.Result
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info,
 		func(cbCtx context.Context, result *sqltypes.Result) error {
-			// Hold CommandComplete until the reservation cleanup below succeeds, so
-			// the client is not told PREPARE completed while the gateway still thinks
-			// it has an open transaction. PREPARE TRANSACTION produces only a final
-			// command tag; preserve any notices defensively.
+			// Capture PostgreSQL's final PREPARE result so gateway transaction
+			// bookkeeping can be updated before we emit CommandComplete. Successful
+			// PREPARE is authoritative and will be returned before best-effort
+			// reservation cleanup below; ROLLBACK-tag PREPARE follows rollback
+			// semantics instead.
 			preparedResult = result
 			return nil
 		})
@@ -438,23 +473,39 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 		return err
 	}
 
-	// Successful PREPARE ends the transaction without committing it yet; from the
-	// session's perspective the transaction block is over and the backend is idle.
-	// Keep committed session state, clear transaction-local state, and release the
-	// transaction reservation without sending a client-visible COMMIT tag.
-	state.CommitTransaction()
-	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
-	if err := t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT); err != nil {
+	if preparedResult != nil && preparedResult.CommandTag == "ROLLBACK" {
+		// PostgreSQL accepts PREPARE TRANSACTION in an already-aborted transaction,
+		// but it resolves the statement as a ROLLBACK rather than creating a
+		// prepared transaction. Mirror that result: revert gateway-tracked
+		// transaction state and return the backend's ROLLBACK tag to the client.
+		state.DiscardPendingListens()
+		state.RollbackTransaction()
+		t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
+		_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
+			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
-		return err
-	}
-	conn.SetTxnStatus(protocol.TxnStatusIdle)
-
-	if preparedResult != nil {
 		return callback(ctx, preparedResult)
 	}
-	return nil
+
+	// Successful PREPARE ends the transaction without committing it yet; from the
+	// session's perspective the transaction block is over and the backend is idle.
+	// Keep committed session state and clear transaction-local state before
+	// returning PostgreSQL's authoritative PREPARE result to the client. The
+	// prepared transaction may already be durable, so reservation cleanup is
+	// best-effort and must not turn a successful PREPARE into a client-visible
+	// failure.
+	state.CommitTransaction()
+	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
+
+	var callbackErr error
+	if preparedResult != nil {
+		callbackErr = callback(ctx, preparedResult)
+	}
+
+	_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+	return callbackErr
 }
 
 // cleanupPreparedTransactionReservation drops the multipooler's transaction
@@ -483,6 +534,22 @@ func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
 	}
 	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false, false,
 		func(context.Context, *sqltypes.Result) error { return nil })
+}
+
+func (t *TransactionPrimitive) executePreparedTransactionConclusion(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// COMMIT/ROLLBACK PREPARED operate on a previously prepared global
+	// transaction, not the current session's transaction block. Route the command
+	// to PostgreSQL unchanged and let it enforce checks such as "cannot run inside
+	// a transaction block", missing GIDs, and ownership/permission errors. Keep
+	// the default case fail-closed for any future transaction-control enum that
+	// might require gateway state bookkeeping.
+	return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback)
 }
 
 // executeSavepoint handles SAVEPOINT by passing through to the backend, then

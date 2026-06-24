@@ -728,8 +728,11 @@ func (sc *ScatterConn) ConcludeTransaction(
 		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
-			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
-			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK {
+			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
+			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
+			// new transaction on the same backend, so losing that backend must fail
+			// closed rather than silently moving the chained transaction elsewhere.
+			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK && !chain {
 				callbackResult = &sqltypes.Result{CommandTag: "ROLLBACK"}
 				continue
 			}

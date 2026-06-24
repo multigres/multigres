@@ -306,7 +306,7 @@ func TestTransactionPrimitive_CommitAndChain_WithReservedConnectionKeepsBackendC
 	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY DEFERRABLE", state.ActiveTransactionBeginQuery)
 }
 
-func TestTransactionPrimitive_CommitAndChain_ConcludeErrorRestoresPendingBegin(t *testing.T) {
+func TestTransactionPrimitive_CommitAndChain_ConcludeErrorFailsClosed(t *testing.T) {
 	mockExec := &txMockIExecute{concludeTransactionErr: errors.New("commit failed")}
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
@@ -320,13 +320,15 @@ func TestTransactionPrimitive_CommitAndChain_ConcludeErrorRestoresPendingBegin(t
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "commit failed")
-	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "failed conclude clears the lost backend reservation")
-	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE", state.PendingBeginQuery)
-	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
+	require.Empty(t, state.PendingBeginQuery, "lost backend-backed chain must not be transparently replayed")
+	require.Empty(t, state.ActiveTransactionBeginQuery)
+	require.True(t, state.TxnStartTime.IsZero())
+	require.Equal(t, 0, state.SavepointDepth())
 }
 
-func TestTransactionPrimitive_RollbackAndChain_ConcludeErrorRestoresPendingBegin(t *testing.T) {
+func TestTransactionPrimitive_RollbackAndChain_ConcludeErrorFailsClosed(t *testing.T) {
 	mockExec := &txMockIExecute{concludeTransactionErr: errors.New("rollback failed")}
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
@@ -340,10 +342,12 @@ func TestTransactionPrimitive_RollbackAndChain_ConcludeErrorRestoresPendingBegin
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "rollback failed")
-	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "failed conclude clears the lost backend reservation")
-	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE NOT DEFERRABLE", state.PendingBeginQuery)
-	require.Equal(t, state.PendingBeginQuery, state.ActiveTransactionBeginQuery)
+	require.Empty(t, state.PendingBeginQuery, "lost backend-backed chain must not be transparently replayed")
+	require.Empty(t, state.ActiveTransactionBeginQuery)
+	require.True(t, state.TxnStartTime.IsZero())
+	require.Equal(t, 0, state.SavepointDepth())
 }
 
 func TestTransactionPrimitive_CommitAndChain_OutsideTransactionErrors(t *testing.T) {
@@ -508,6 +512,115 @@ func TestTransactionPrimitive_PrepareTransaction_SuccessEndsTransactionAndReleas
 	v, ok := state.GetSessionVariable("datestyle")
 	require.True(t, ok)
 	require.Equal(t, "German", v, "successful PREPARE keeps committed session SET state")
+	require.Equal(t, 0, state.SavepointDepth())
+}
+
+func TestTransactionPrimitive_CommitPrepared_PassThrough(t *testing.T) {
+	mockExec := &txMockIExecute{
+		callbackResult: &sqltypes.Result{CommandTag: "COMMIT PREPARED"},
+	}
+	conn := newTxTestConn()
+	state := handler.NewMultiGatewayConnectionState()
+
+	var callbackResult *sqltypes.Result
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT_PREPARED, "", false, "COMMIT PREPARED 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, []string{"COMMIT PREPARED 'gid'"}, mockExec.streamExecuteSQL)
+	require.Equal(t, 0, mockExec.concludeTransactionCount)
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "COMMIT PREPARED", callbackResult.CommandTag)
+}
+
+func TestTransactionPrimitive_RollbackPrepared_PassThrough(t *testing.T) {
+	mockExec := &txMockIExecute{
+		callbackResult: &sqltypes.Result{CommandTag: "ROLLBACK PREPARED"},
+	}
+	conn := newTxTestConn()
+	state := handler.NewMultiGatewayConnectionState()
+
+	var callbackResult *sqltypes.Result
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK_PREPARED, "", false, "ROLLBACK PREPARED 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, []string{"ROLLBACK PREPARED 'gid'"}, mockExec.streamExecuteSQL)
+	require.Equal(t, 0, mockExec.concludeTransactionCount)
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK PREPARED", callbackResult.CommandTag)
+}
+
+func TestTransactionPrimitive_PrepareTransaction_CleanupFailureDoesNotFailSuccessfulPrepare(t *testing.T) {
+	cleanupErr := errors.New("cleanup failed")
+	mockExec := &txMockIExecute{
+		callbackResult:         &sqltypes.Result{CommandTag: "PREPARE TRANSACTION"},
+		concludeTransactionErr: cleanupErr,
+	}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.BeginTransaction()
+	state.SetSessionVariable("datestyle", "German")
+
+	var callbackResult *sqltypes.Result
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err, "cleanup failure must not turn a durable PREPARE into client-visible failure")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "PREPARE TRANSACTION", callbackResult.CommandTag)
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "cleanup should still be attempted")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, mockExec.concludeTransactionConclusion)
+	require.Empty(t, state.ShardStates, "failed cleanup should clear the lost reservation locally")
+	v, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "German", v, "successful PREPARE keeps committed session SET state")
+	require.Equal(t, 0, state.SavepointDepth())
+}
+
+func TestTransactionPrimitive_PrepareTransaction_BackendRollbackTagRollsBackGatewayState(t *testing.T) {
+	mockExec := &txMockIExecute{
+		callbackResult: &sqltypes.Result{CommandTag: "ROLLBACK"},
+	}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.BeginTransaction()
+	state.SetSessionVariable("datestyle", "German")
+
+	var callbackResult *sqltypes.Result
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus(), "PREPARE returning ROLLBACK ends the failed transaction")
+	require.Equal(t, 1, mockExec.streamExecuteCount)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "PREPARE returning ROLLBACK should drop the transaction reservation")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
+	require.Empty(t, state.ShardStates, "transaction reservation should be cleared after ROLLBACK-tag PREPARE")
+	v, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	require.Equal(t, "ISO, MDY", v, "ROLLBACK-tag PREPARE reverts transaction-local session SET state")
 	require.Equal(t, 0, state.SavepointDepth())
 }
 
