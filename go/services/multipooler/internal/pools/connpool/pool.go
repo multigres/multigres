@@ -95,6 +95,15 @@ type Config struct {
 	// These are shared across all pools and created by the owner (e.g., connpoolmanager).
 	ConnectionCount ConnectionCount
 
+	// ServerConnMetrics records connection-establishment events. Shared across
+	// pools and created by the owner (connpoolmanager).
+	ServerConnMetrics ServerConnMetrics
+
+	// PoolType is the bounded pool category ("regular"/"reserved"/"admin") used
+	// as the pool_type attribute on ServerConnMetrics. Unlike Name, it carries no
+	// per-user suffix, keeping metric cardinality bounded.
+	PoolType string
+
 	// OnBorrow is called after a connection is borrowed from the pool (optional).
 	OnBorrow func()
 
@@ -180,6 +189,11 @@ type Pool[C Connection] struct {
 	// otelConnectionCount tracks connection state counts (idle/used).
 	// Optional, noop if not set. Provided via Config.ConnectionCount.
 	otelConnectionCount ConnectionCount
+
+	// serverConnMetrics records connection-establishment events; poolType is the
+	// bounded attribute applied to them. Provided via Config.
+	serverConnMetrics ServerConnMetrics
+	poolType          string
 }
 
 // NewPool creates a new connection pool with the given Config.
@@ -203,6 +217,8 @@ func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 		pool.logger = slog.Default()
 	}
 	pool.otelConnectionCount = config.ConnectionCount
+	pool.serverConnMetrics = config.ServerConnMetrics
+	pool.poolType = config.PoolType
 	pool.wait.init()
 
 	// Set up OTel idle tracking callbacks on all idle stacks.
@@ -615,10 +631,13 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 	connCtx, cancel := pool.connectionCtx(ctx)
 	defer cancel()
 
+	connectStart := time.Now()
 	dbconn.Conn, err = pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
+		pool.serverConnMetrics.RecordOpenError(ctx, pool.poolType, err)
 		return err
 	}
+	pool.serverConnMetrics.RecordOpen(ctx, pool.poolType, time.Since(connectStart))
 
 	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
 		err = dbconn.Conn.ApplySettings(connCtx, settings)
@@ -637,10 +656,13 @@ func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
 	connCtx, cancel := pool.connectionCtx(ctx)
 	defer cancel()
 
+	connectStart := time.Now()
 	conn, err := pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
+		pool.serverConnMetrics.RecordOpenError(ctx, pool.poolType, err)
 		return nil, err
 	}
+	pool.serverConnMetrics.RecordOpen(ctx, pool.poolType, time.Since(connectStart))
 	pooled := &Pooled[C]{
 		pool: pool,
 		Conn: conn,
