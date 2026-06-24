@@ -187,6 +187,99 @@ func TestPoolerMetricValues(t *testing.T) {
 	_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS metrics_test")
 }
 
+// TestQueryPathMetricsExposed drives a query, an explicit transaction, and a
+// query that fails at execution, then verifies the query-path observability
+// metrics (executor per-query, connection lifecycle, transactions, replication
+// / serving health, and gateway phase latency) are exported.
+func TestQueryPathMetricsExposed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := client.Connect(ctx, ctx, &client.Config{
+		Host:        "localhost",
+		Port:        setup.MultigatewayPgPort,
+		User:        shardsetup.DefaultTestUser,
+		Password:    shardsetup.TestPostgresPassword,
+		Database:    "postgres",
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Successful autocommit query: exercises query.duration/rows/pool_acquire on
+	// the regular pool and the gateway parse/plan/exec phase histograms.
+	_, err = conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+
+	// Explicit transaction: reserves a connection and concludes with COMMIT,
+	// exercising txn.outcomes{outcome=commit} and txn.duration.
+	_, err = conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "COMMIT")
+	require.NoError(t, err)
+
+	// Query that parses/plans cleanly but fails at execution (division by zero,
+	// SQLSTATE 22012) so the error surfaces from PostgreSQL through the pooler,
+	// exercising query.errors with a backend error_source.
+	_, err = conn.Query(ctx, "SELECT 1/0")
+	require.Error(t, err, "SELECT 1/0 should fail at execution")
+
+	// Scrape multipooler metrics from the primary (writes/transactions route there).
+	primary := setup.GetPrimary(t)
+	poolerPort, ok := setup.MetricsPorts[primary.Name]
+	require.True(t, ok, "no metrics port for primary %s", primary.Name)
+	poolerMetrics := scrapeMetrics(t, poolerPort)
+
+	// Histograms export as <name>_bucket/_sum/_count; counters as <name>_total.
+	// OTel maps dots to underscores and appends _seconds for the "s" unit.
+	poolerExpected := []string{
+		"mg_pooler_query_duration_seconds",
+		"mg_pooler_query_rows",
+		"mg_pooler_query_pool_acquire_duration_seconds",
+		"mg_pooler_query_errors_total",
+		"mg_pooler_server_conn_opened_total",
+		"mg_pooler_server_conn_setup_duration_seconds",
+		"mg_pooler_txn_outcomes_total",
+		"mg_pooler_txn_duration_seconds",
+		"mg_pooler_replication_lag_seconds",
+		"mg_pooler_serving_transitions_total",
+	}
+	for _, name := range poolerExpected {
+		assert.Contains(t, poolerMetrics, name, "multipooler should expose %s", name)
+	}
+
+	// Value checks: the COMMIT we issued is counted, and the failing query is
+	// counted as a pooler-side error.
+	poolerVals := parseMetrics(poolerMetrics)
+	assertMetricGE(t, poolerVals, "mg_pooler_txn_outcomes_total", map[string]string{"outcome": "commit"}, 1)
+	assertMetricGE(t, poolerVals, "mg_pooler_query_errors_total", map[string]string{"error_source": "backend"}, 1)
+
+	// Scrape multigateway metrics and verify the phase-latency histograms.
+	gatewayPort, ok := setup.MetricsPorts["multigateway"]
+	require.True(t, ok, "no metrics port for multigateway")
+	gatewayMetrics := scrapeMetrics(t, gatewayPort)
+	gatewayExpected := []string{
+		"mg_gateway_query_parse_duration_seconds",
+		"mg_gateway_query_plan_duration_seconds",
+		"mg_gateway_query_exec_duration_seconds",
+	}
+	for _, name := range gatewayExpected {
+		assert.Contains(t, gatewayMetrics, name, "multigateway should expose %s", name)
+	}
+}
+
 // scrapeMetrics fetches the Prometheus text format from the given port and returns it as a string.
 func scrapeMetrics(t *testing.T, port int) string {
 	t.Helper()

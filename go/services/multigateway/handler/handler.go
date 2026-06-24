@@ -637,6 +637,21 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status, fingerprintLabel)
 	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName, fingerprintLabel)
 
+	// Phase-latency breakdown. Each phase is recorded only when it actually ran
+	// for this call: parse is 0 on the extended-protocol path (parsing happened
+	// earlier), exec is 0 when an error short-circuited before execution, and
+	// plan is 0 for non-planned/utility statements. Recording those zeros would
+	// pollute the histograms, so guard on > 0.
+	if parseDuration > 0 {
+		h.metrics.parseDuration.Record(ctx, parseDuration.Seconds(), dbNamespace, operationName)
+	}
+	if planTime > 0 {
+		h.metrics.planDuration.Record(ctx, planTime.Seconds(), dbNamespace, operationName, planType)
+	}
+	if execDuration > 0 {
+		h.metrics.execDuration.Record(ctx, execDuration.Seconds(), dbNamespace, operationName)
+	}
+
 	// Feed the registry so popular fingerprints stay tracked, their stats roll
 	// up for /debug/queries, and newly-popular queries get promoted.
 	if fingerprint != "" {
