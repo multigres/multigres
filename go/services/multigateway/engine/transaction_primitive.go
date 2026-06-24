@@ -296,7 +296,7 @@ func (t *TransactionPrimitive) executeCommit(
 }
 
 func chainOutsideTransactionError(command string) error {
-	return mterrors.NewPgError("ERROR", "25P01",
+	return mterrors.NewPgError("ERROR", mterrors.PgSSNoActiveTransaction,
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
@@ -312,7 +312,7 @@ func inheritedBeginQuery(state *handler.MultiGatewayConnectionState) string {
 
 func hasTransactionReservation(state *handler.MultiGatewayConnectionState) bool {
 	for _, ss := range state.ShardStates {
-		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
+		if ss.ReservedState != nil && protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			return true
 		}
 	}
@@ -324,10 +324,10 @@ func clearFailedChainedTransaction(conn *server.Conn, state *handler.MultiGatewa
 	state.PendingBeginQuery = ""
 	state.ActiveTransactionBeginQuery = ""
 	state.TxnStartTime = time.Time{}
-	// Drop the synthetic BEGIN-level frame pushed for the chained transaction.
-	// No statements have run in that new transaction yet, so committing the local
-	// frame only clears savepoint/local-GUC bookkeeping without changing session
-	// values already resolved for the transaction that just ended/failed.
+	// Clear the synthetic chained transaction frame. CommitTransaction clears the
+	// whole savepoint stack; that is safe here because conclude finalization runs
+	// before any user statement can execute in the chained transaction, so the
+	// stack contains only the fresh BEGIN-level frame.
 	state.CommitTransaction()
 }
 
@@ -522,14 +522,7 @@ func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
 ) error {
-	hasActiveTransaction := false
-	for _, ss := range state.ShardStates {
-		if ss.ReservedState != nil && ss.ReservedState.ReservationReasons&protoutil.ReasonTransaction != 0 {
-			hasActiveTransaction = true
-			break
-		}
-	}
-	if !hasActiveTransaction {
+	if !hasTransactionReservation(state) {
 		return nil
 	}
 	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false, false,

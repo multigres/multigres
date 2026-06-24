@@ -29,6 +29,7 @@ const (
 	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
 	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
 	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSNoActiveTransaction     = "25P01" // no_active_sql_transaction
 	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
 	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
 	PgSSAuthFailed              = "28P01" // invalid_password

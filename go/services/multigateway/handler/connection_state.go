@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -405,21 +406,23 @@ func (m *MultiGatewayConnectionState) ClearAllReservedConnections() {
 }
 
 // SetSessionVariable sets a session variable (from SET command).
-// The variable name and value are stored to be propagated to multipooler.
+// The variable name is canonicalized using PostgreSQL's GUC-name comparison
+// rules before storage, so later SETs for the same GUC in different ASCII case
+// overwrite the previous value like PostgreSQL would.
 func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.SessionSettings == nil {
 		m.SessionSettings = make(map[string]string)
 	}
-	m.SessionSettings[name] = value
+	m.SessionSettings[pgsettings.CanonicalGUCName(name)] = value
 }
 
 // ResetSessionVariable removes a session variable (from RESET command).
 func (m *MultiGatewayConnectionState) ResetSessionVariable(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.SessionSettings, name)
+	delete(m.SessionSettings, pgsettings.CanonicalGUCName(name))
 }
 
 // ResetAllSessionVariables clears all session variables (from RESET ALL command).
@@ -805,10 +808,17 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 	if len(m.StartupParams) == 0 && len(m.SessionSettings) == 0 {
 		return nil
 	}
-	// Start with startup params, then overlay session settings (which take precedence)
+	// Start with startup params, then overlay session settings. Canonicalizing
+	// keys here preserves PostgreSQL's ASCII-case-insensitive GUC semantics and
+	// guarantees SET/session values win over same-GUC startup params regardless
+	// of spelling (for example TimeZone vs timezone).
 	merged := make(map[string]string, len(m.StartupParams)+len(m.SessionSettings))
-	maps.Copy(merged, m.StartupParams)
-	maps.Copy(merged, m.SessionSettings)
+	for k, v := range m.StartupParams {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
+	for k, v := range m.SessionSettings {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
 	return merged
 }
 
@@ -817,7 +827,7 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	value, exists := m.SessionSettings[name]
+	value, exists := m.SessionSettings[pgsettings.CanonicalGUCName(name)]
 	return value, exists
 }
 

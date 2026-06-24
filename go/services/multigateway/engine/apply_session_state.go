@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -398,7 +399,7 @@ func (s *ApplySessionState) applyTracked(
 }
 
 func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name, value string) {
-	switch strings.ToLower(name) {
+	switch pgsettings.CanonicalGUCName(name) {
 	case "session_authorization":
 		// PostgreSQL sets both session_user and current_user when session
 		// authorization changes. Any prior SET ROLE is cleared and must not be
@@ -406,14 +407,21 @@ func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, nam
 		state.SetSessionVariable("session_authorization", value)
 		state.ResetSessionVariable("role")
 	case "role":
-		state.SetSessionVariable("role", value)
+		// PostgreSQL's role GUC treats the literal value "none" as RESET ROLE
+		// (check_role compares the value string), regardless of whether it arrived
+		// through SET ROLE 'none', generic SET role = none, or set_config().
+		if value == "none" {
+			state.ResetSessionVariable("role")
+		} else {
+			state.SetSessionVariable("role", value)
+		}
 	default:
 		state.SetSessionVariable(name, value)
 	}
 }
 
 func resetTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name string) {
-	switch strings.ToLower(name) {
+	switch pgsettings.CanonicalGUCName(name) {
 	case "session_authorization":
 		// RESET SESSION AUTHORIZATION restores the original session user and also
 		// clears the active role.

@@ -94,7 +94,7 @@ func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	require.False(t, ok, "SET SESSION AUTHORIZATION resets any prior SET ROLE")
 }
 
-func TestApplySessionState_QuotedRoleNoneIsTrackedAsRoleName(t *testing.T) {
+func TestApplySessionState_RoleValueNoneResetsTrackedRole(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultiGatewayConnectionState{}
 	ctx := context.Background()
@@ -107,11 +107,33 @@ func TestApplySessionState_QuotedRoleNoneIsTrackedAsRoleName(t *testing.T) {
 	var results []*sqltypes.Result
 	require.NoError(t, setRoleNone.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
 
-	role, ok := state.GetSessionVariable("role")
-	require.True(t, ok)
-	require.Equal(t, "none", role)
+	_, ok := state.GetSessionVariable("role")
+	require.False(t, ok, "PostgreSQL treats role value \"none\" as RESET ROLE")
 	require.Len(t, results, 1)
 	require.Equal(t, "SET", results[0].CommandTag)
+}
+
+func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
+	state := &handler.MultiGatewayConnectionState{}
+	state.SetSessionVariable("role", "child")
+
+	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
+	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("session_authorization"), []byte("parent"), []byte("false"),
+	}}})
+
+	sessionAuth, ok := state.GetSessionVariable("session_authorization")
+	require.True(t, ok)
+	require.Equal(t, "parent", sessionAuth)
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok, "set_config('session_authorization', ...) clears active role")
+
+	state.SetSessionVariable("role", "child")
+	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("role"), []byte("none"), []byte("false"),
+	}}})
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok, "set_config('role', 'none', false) resets role")
 }
 
 func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
@@ -595,7 +617,7 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	require.Len(t, results[0].Notices, 1, "should attach a single NoticeResponse")
 	notice := results[0].Notices[0]
 	assert.Equal(t, "WARNING", notice.Severity)
-	assert.Equal(t, "25P01", notice.Code)
+	assert.Equal(t, mterrors.PgSSNoActiveTransaction, notice.Code)
 	assert.Equal(t, "SET LOCAL can only be used in transaction blocks", notice.Message)
 	assert.Equal(t, byte('N'), notice.MessageType, "must be NoticeResponse, not ErrorResponse")
 }
@@ -725,5 +747,5 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	assert.Equal(t, "SET", results[0].CommandTag,
 		`SET LOCAL var TO DEFAULT (even outside txn) must return CommandTag "SET"`)
 	require.Len(t, results[0].Notices, 1)
-	assert.Equal(t, "25P01", results[0].Notices[0].Code)
+	assert.Equal(t, mterrors.PgSSNoActiveTransaction, results[0].Notices[0].Code)
 }

@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -269,27 +270,15 @@ func canonicalizeGUCVars(vars map[string]string) map[string]string {
 
 	out := make(map[string]string, len(vars))
 	for _, k := range keys {
-		out[CanonicalGUCName(k)] = vars[k]
+		out[pgsettings.CanonicalGUCName(k)] = vars[k]
 	}
 	return out
 }
 
 // CanonicalGUCName returns the PostgreSQL-compatible canonical spelling used
-// for settings keys in Multigres: ASCII A-Z are folded to a-z and all other
-// bytes are preserved.
+// for settings keys in Multigres.
 func CanonicalGUCName(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 'A' && s[i] <= 'Z' {
-			b := []byte(s)
-			for j := i; j < len(b); j++ {
-				if b[j] >= 'A' && b[j] <= 'Z' {
-					b[j] += 'a' - 'A'
-				}
-			}
-			return string(b)
-		}
-	}
-	return s
+	return pgsettings.CanonicalGUCName(s)
 }
 
 // Bucket returns the bucket number for these settings.

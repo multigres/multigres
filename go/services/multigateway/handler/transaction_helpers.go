@@ -29,7 +29,7 @@ func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
 	if kind == ast.TRANS_STMT_ROLLBACK {
 		command = "ROLLBACK"
 	}
-	return mterrors.NewPgError("ERROR", "25P01",
+	return mterrors.NewPgError("ERROR", mterrors.PgSSNoActiveTransaction,
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
