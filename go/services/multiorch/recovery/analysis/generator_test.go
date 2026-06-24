@@ -93,11 +93,11 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	require.Len(t, analyses, 1, "should generate one analysis")
 
 	analysis := analyses[0]
-	assert.Equal(t, "testdb", analysis.ShardKey.Database)
-	assert.Equal(t, "testtg", analysis.ShardKey.TableGroup)
-	assert.Equal(t, "0", analysis.ShardKey.Shard)
-	assert.True(t, analysis.NamesSelfAsLeader)
-	assert.True(t, analysis.LastCheckValid)
+	assert.Equal(t, "testdb", analysis.Health().GetMultiPooler().GetShardKey().GetDatabase())
+	assert.Equal(t, "testtg", analysis.Health().GetMultiPooler().GetShardKey().GetTableGroup())
+	assert.Equal(t, "0", analysis.Health().GetMultiPooler().GetShardKey().GetShard())
+	assert.True(t, namesSelfAsLeader(analysis))
+	assert.True(t, analysis.Health().IsLastCheckValid)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.T) {
@@ -199,16 +199,16 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	require.Len(t, analyses, 3, "should generate three analyses")
 
 	// Find the primary analysis
-	var primaryAnalysis *PoolerAnalysis
+	var primaryAnalysis *store.Pooler
 	for _, a := range analyses {
-		if a.NamesSelfAsLeader {
+		if namesSelfAsLeader(a) {
 			primaryAnalysis = a
 			break
 		}
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.True(t, primaryAnalysis.NamesSelfAsLeader)
+	assert.True(t, namesSelfAsLeader(primaryAnalysis))
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
@@ -281,7 +281,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Find the replica analysis
 	replicaAnalysis := sa.Replicas()
 	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.False(t, replicaAnalysis[0].NamesSelfAsLeader)
+	assert.False(t, namesSelfAsLeader(replicaAnalysis[0]))
 
 	// Primary health is now a shard-level field
 	assert.NotNil(t, sa.HighestShardRule.GetLeaderId(), "should have topology primary ID populated")
@@ -344,7 +344,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 	// Verify both table groups are present
 	tableGroups := make(map[string]bool)
 	for _, a := range analyses {
-		tableGroups[a.ShardKey.TableGroup] = true
+		tableGroups[a.Health().GetMultiPooler().GetShardKey().GetTableGroup()] = true
 	}
 
 	assert.True(t, tableGroups["tg1"])
@@ -383,7 +383,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
-	assert.Equal(t, "db1", analyses[0].ShardKey.Database)
+	assert.Equal(t, "db1", analyses[0].Health().GetMultiPooler().GetShardKey().GetDatabase())
 }
 
 // Task 7: Test for no primary in shard
@@ -1773,7 +1773,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		require.NoError(t, err)
 		analysis := findPoolerByName(sa, "replica-1")
 		require.NotNil(t, analysis)
-		assert.True(t, sa.IsInStandbyList(analysis.PoolerID), "replica1 should be in standby list")
+		assert.True(t, sa.IsInStandbyList(poolerID(analysis)), "replica1 should be in standby list")
 	})
 
 	t.Run("replica not in standby list", func(t *testing.T) {
@@ -1781,7 +1781,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		require.NoError(t, err)
 		analysis := findPoolerByName(sa, "replica-2")
 		require.NotNil(t, analysis)
-		assert.False(t, sa.IsInStandbyList(analysis.PoolerID), "replica2 should not be in standby list")
+		assert.False(t, sa.IsInStandbyList(poolerID(analysis)), "replica2 should not be in standby list")
 	})
 }
 

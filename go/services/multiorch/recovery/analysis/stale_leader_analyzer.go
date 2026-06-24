@@ -24,6 +24,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // StaleLeaderAnalyzer detects stale leaders that came back online after failover.
@@ -67,12 +68,12 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 		return nil, nil
 	}
 
-	var staleLeaders []*PoolerAnalysis
+	var staleLeaders []*store.Pooler
 	for _, pa := range sa.Analyses {
-		if !pa.LastCheckValid || !commonconsensus.NamesSelfAsLeader(pa.ConsensusStatus) {
+		if !pa.Health().IsLastCheckValid || !namesSelfAsLeader(pa) {
 			continue
 		}
-		if proto.Equal(pa.PoolerID, leaderID) {
+		if proto.Equal(poolerID(pa), leaderID) {
 			continue
 		}
 		staleLeaders = append(staleLeaders, pa)
@@ -96,11 +97,11 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 		problems = append(problems, types.Problem{
 			Code:      types.ProblemStaleLeader,
 			CheckName: "StaleLeader",
-			PoolerID:  stale.PoolerID,
+			PoolerID:  poolerID(stale),
 			ShardKey:  sa.ShardKey,
 			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_term %d) is stale, current leader %s (leader_term %d)",
-				stale.PoolerID.Name,
-				commonconsensus.LeaderTerm(stale.ConsensusStatus),
+				poolerID(stale).Name,
+				commonconsensus.LeaderTerm(stale.Health().GetConsensusStatus()),
 				leaderID.Name,
 				leaderTerm),
 			Priority:       types.PriorityEmergency - types.Priority(i),

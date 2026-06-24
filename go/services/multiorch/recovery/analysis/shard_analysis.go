@@ -29,7 +29,11 @@ import (
 // It is the input type for the Analyzer interface.
 type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
-	Analyses []*PoolerAnalysis
+	// Analyses holds the cache rider for every pooler in the shard. Analyzers
+	// read raw health via Rider.Health() and derive judgments through the
+	// package helpers (namesSelfAsLeader, walReplayNotPaused, …) rather than
+	// reading pre-baked digest fields.
+	Analyses []*store.Pooler
 
 	// Now is the evaluation timestamp (orchestrator clock) captured when this
 	// analysis was generated. Analyzers use it — together with Policy — to judge
@@ -126,70 +130,60 @@ func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
 	return false
 }
 
-// Replicas returns the PoolerAnalysis entries for all follower poolers.
-func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
-	var replicas []*PoolerAnalysis
-	for _, pa := range sa.Analyses {
-		if !pa.NamesSelfAsLeader {
-			replicas = append(replicas, pa)
+// Replicas returns the riders for all follower poolers.
+func (sa *ShardAnalysis) Replicas() []*store.Pooler {
+	var replicas []*store.Pooler
+	for _, p := range sa.Analyses {
+		if !namesSelfAsLeader(p) {
+			replicas = append(replicas, p)
 		}
 	}
 	return replicas
 }
 
-// PoolerAnalysis represents the analyzed state of a single pooler
-// and its replication topology. This is the in-memory equivalent of
-// VTOrc's replication_analysis table.
-type PoolerAnalysis struct {
-	// Identity
-	PoolerID *clustermetadatapb.ID
-	ShardKey *clustermetadatapb.ShardKey
+// The helpers below derive analyzer-relevant judgments from a pooler's raw
+// health (Health()). They replaced the digested PoolerAnalysis fields so the
+// rider stays the single source of truth and there is no parallel cached copy.
 
-	// Rider is the cache rider this analysis was derived from. Analyzers that
-	// need raw health fields not surfaced as digested PoolerAnalysis fields
-	// (e.g. detailed replication status for the streaming-from-leader check)
-	// reach them through here, so those judgments can live in the analyzer
-	// rather than being pre-computed into opaque generator verdicts.
-	Rider *store.Pooler
-
-	// Pooler properties
-	NamesSelfAsLeader bool
-	// Represents if the poolerID is reachable and it's returning a
-	// valid status response
-	LastCheckValid bool
-	IsInitialized  bool // Whether this pooler is fully initialized and ready to join the cohort
-	// CohortMembers are the strongly-typed IDs from the most recent
-	// multigres.leadership_history record. Nil or empty both indicate no cohort
-	// has been established. When IsInitialized=true, an empty list means the
-	// 0-member bootstrap record is present — Phase 2 is needed.
-	CohortMembers []*clustermetadatapb.ID
-
-	// Replica-specific fields. WalReplayNotPaused is true when the standby's WAL
-	// replay is not paused. The zero value (false) means "not running", so an
-	// unpopulated analysis errs toward repair rather than assuming health.
-	WalReplayNotPaused  bool
-	PrimaryConnInfoHost string
-
-	// ConsensusStatus from the pooler's most recent StatusResponse snapshot.
-	// Used to derive the primary term via commonconsensus.PrimaryTerm(ConsensusStatus).
-	ConsensusStatus *clustermetadatapb.ConsensusStatus
-
-	// AvailabilityStatus carries the pooler's self-reported willingness signals
-	// (cohort eligibility, leader-resignation request). May be nil for older
-	// poolers that don't publish it.
-	AvailabilityStatus *clustermetadatapb.AvailabilityStatus
+// poolerID returns the pooler's ID from its health record.
+func poolerID(p *store.Pooler) *clustermetadatapb.ID {
+	return p.Health().GetMultiPooler().GetId()
 }
 
-// compareLeaderTimeline compares two leader PoolerAnalysis entries by the
-// coordinator term of each pooler's current rule (via commonconsensus.LeaderTerm).
-// Returns negative if a is less advanced than b, 0 if equal, positive if a is
-// more advanced. LSN is intentionally excluded: for leaders, the coordinator
-// term must be unique per promotion, so equal terms indicate a consensus bug
-// rather than a resolvable tie.
-func compareLeaderTimeline(a, b *PoolerAnalysis) int {
+// namesSelfAsLeader reports whether the pooler's own consensus status claims it
+// is the leader of its term.
+func namesSelfAsLeader(p *store.Pooler) bool {
+	return commonconsensus.NamesSelfAsLeader(p.Health().GetConsensusStatus())
+}
+
+// walReplayNotPaused reports whether the standby's WAL replay is active. A
+// pooler with no replication status (e.g. a primary, or one we haven't observed
+// replicating) returns false, so an unpopulated state errs toward repair rather
+// than assuming health.
+func walReplayNotPaused(p *store.Pooler) bool {
+	rs := p.Health().GetStatus().GetReplicationStatus()
+	if rs == nil {
+		return false
+	}
+	return !rs.GetIsWalReplayPaused()
+}
+
+// primaryConnInfoHost returns the standby's configured primary host, or "" if
+// replication is not configured.
+func primaryConnInfoHost(p *store.Pooler) string {
+	return p.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost()
+}
+
+// compareLeaderTimeline compares two leader riders by the coordinator term of
+// each pooler's current rule (via commonconsensus.LeaderTerm). Returns negative
+// if a is less advanced than b, 0 if equal, positive if a is more advanced. LSN
+// is intentionally excluded: for leaders, the coordinator term must be unique
+// per promotion, so equal terms indicate a consensus bug rather than a
+// resolvable tie.
+func compareLeaderTimeline(a, b *store.Pooler) int {
 	return cmp.Compare(
-		commonconsensus.LeaderTerm(a.ConsensusStatus),
-		commonconsensus.LeaderTerm(b.ConsensusStatus),
+		commonconsensus.LeaderTerm(a.Health().GetConsensusStatus()),
+		commonconsensus.LeaderTerm(b.Health().GetConsensusStatus()),
 	)
 }
 
@@ -197,7 +191,7 @@ func compareLeaderTimeline(a, b *PoolerAnalysis) int {
 // Both the shard analysis and the per-pooler analysis are passed so callbacks can
 // access shard-level fields (e.g. LeaderReachable) alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
-func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *PoolerAnalysis) (*types.Problem, error)) ([]types.Problem, error) {
+func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *store.Pooler) (*types.Problem, error)) ([]types.Problem, error) {
 	var problems []types.Problem
 	var firstErr error
 	for _, poolerAnalysis := range sa.Analyses {

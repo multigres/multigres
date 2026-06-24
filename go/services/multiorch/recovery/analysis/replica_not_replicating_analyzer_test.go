@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -59,19 +60,32 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		}, nil)
 	}
 
+	// pooler builds a rider for these analyzer scenarios: a self-leader when
+	// selfLeader is set, otherwise a replica with the given replication state.
+	pooler := func(id *clustermetadatapb.ID, selfLeader, initialized bool, primaryHost string, walReplayPaused bool) *store.Pooler {
+		h := &multiorchdatapb.PoolerHealthState{
+			MultiPooler:      &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey},
+			IsLastCheckValid: true,
+			Status:           &multipoolermanagerdatapb.Status{IsInitialized: initialized},
+		}
+		if selfLeader {
+			h.ConsensusStatus = primaryConsensusStatus(id, 1)
+		}
+		if primaryHost != "" || walReplayPaused {
+			h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+				IsWalReplayPaused: walReplayPaused,
+				PrimaryConnInfo:   &multipoolermanagerdatapb.PrimaryConnInfo{Host: primaryHost},
+			}
+		}
+		return newRider(h)
+	}
+
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:        shardKey,
 			Leader:          leaderHealth(),
 			LeaderReachable: true,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "", // No primary_conninfo configured
-				WalReplayNotPaused:  true,
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", false)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -88,14 +102,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ShardKey:        shardKey,
 			Leader:          leaderHealth(),
 			LeaderReachable: true,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "primary.example.com",
-				WalReplayNotPaused:  false, // Replication stopped
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -111,13 +118,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ShardKey:        shardKey,
 			Leader:          nil,
 			LeaderReachable: true,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "",
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -128,14 +129,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:        shardKey,
 			LeaderReachable: true,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "primary.example.com",
-				WalReplayNotPaused:  true,
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", false)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -146,13 +140,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores primary nodes", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey: shardKey,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            primaryID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   true,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
-			}},
+			Analyses: []*store.Pooler{pooler(primaryID, true, true, "", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -163,13 +151,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey: shardKey,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       false, // Not initialized
-				PrimaryConnInfoHost: "",
-			}},
+			Analyses: []*store.Pooler{pooler(replicaID, false, false, "", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -181,13 +163,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:        shardKey,
 			LeaderReachable: false, // Primary unreachable — PrimaryIsDead handles this
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "",
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -204,13 +180,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:        shardKey,
 			LeaderReachable: true,
-			Analyses: []*PoolerAnalysis{{
-				PoolerID:            replicaID,
-				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
-				IsInitialized:       true,
-				PrimaryConnInfoHost: "",
-			}},
+			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 
 		problems, err := nilFactoryAnalyzer.Analyze(sa)

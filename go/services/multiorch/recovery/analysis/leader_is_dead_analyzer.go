@@ -81,22 +81,22 @@ func replicasStreamingFromLeader(sa *ShardAnalysis) bool {
 	replicaCount := 0
 	connectedCount := 0
 	for _, pa := range sa.Analyses {
-		if pa.Rider == nil {
+		if pa == nil {
 			continue
 		}
 		// Skip the leader itself and any node that self-claims leadership.
-		if topoclient.ComponentIDString(pa.PoolerID) == leaderKey || pa.NamesSelfAsLeader {
+		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || namesSelfAsLeader(pa) {
 			continue
 		}
 		// Ignore followers with no fresh observation (never reported, or a stale
 		// snapshot). A snapshot we haven't refreshed recently is absence of
 		// evidence, so it neither vouches for a live connection nor counts as
 		// disconnected — the decision rests on followers we currently see.
-		if !observationFresh(pa.Rider, sa.Now, sa.Policy.FollowerStreamFreshness) {
+		if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
 			continue
 		}
 		replicaCount++
-		if followerStreamingFromLeader(sa, pa.Rider, primaryHost, primaryPort) {
+		if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
 			connectedCount++
 		}
 	}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
@@ -44,18 +45,18 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Prob
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Pooler) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	// Only analyze replicas
-	if poolerAnalysis.NamesSelfAsLeader {
+	if namesSelfAsLeader(pa) {
 		return nil, nil
 	}
 
 	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
-	if !poolerAnalysis.IsInitialized {
+	if !pa.IsInitialized() {
 		return nil, nil
 	}
 
@@ -74,16 +75,16 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 	}
 
 	// Check if replication is not configured or stopped
-	if !a.needsReplicationFix(poolerAnalysis) {
+	if !a.needsReplicationFix(pa) {
 		return nil, nil
 	}
 
 	return &types.Problem{
 		Code:           types.ProblemReplicaNotReplicating,
 		CheckName:      "ReplicaNotReplicating",
-		PoolerID:       poolerAnalysis.PoolerID,
-		ShardKey:       poolerAnalysis.ShardKey,
-		Description:    fmt.Sprintf("Replica %s has no replication configured", poolerAnalysis.PoolerID.Name),
+		PoolerID:       poolerID(pa),
+		ShardKey:       sa.ShardKey,
+		Description:    fmt.Sprintf("Replica %s has no replication configured", poolerID(pa).Name),
 		Priority:       types.PriorityHigh,
 		Scope:          types.ScopePooler,
 		DetectedAt:     time.Now(),
@@ -92,14 +93,14 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 }
 
 // needsReplicationFix returns true if replication is not configured or stopped.
-func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(analysis *PoolerAnalysis) bool {
+func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(pa *store.Pooler) bool {
 	// No primary_conninfo configured
-	if analysis.PrimaryConnInfoHost == "" {
+	if primaryConnInfoHost(pa) == "" {
 		return true
 	}
 
 	// Replication not running (e.g. WAL replay paused)
-	if !analysis.WalReplayNotPaused {
+	if !walReplayNotPaused(pa) {
 		return true
 	}
 

@@ -69,7 +69,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 				}
 			}
 			for _, pa := range shardAnalysis.Analyses {
-				poolerID := topoclient.ComponentIDString(pa.PoolerID)
+				poolerID := topoclient.ComponentIDString(pa.Health().GetMultiPooler().GetId())
 				isHealthy := !problematicPoolerIDs[poolerID]
 				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(poolerID), analyzer.RecoveryAction(), isHealthy)
 			}

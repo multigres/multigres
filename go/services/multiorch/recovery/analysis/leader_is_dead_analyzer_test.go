@@ -75,13 +75,12 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 				},
 				IsLastCheckValid: false,
 			}, nil),
-			Analyses: []*PoolerAnalysis{
-				{
-					PoolerID:          &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
-					ShardKey:          shardKey,
-					NamesSelfAsLeader: false,
-					IsInitialized:     true,
-				},
+			Analyses: []*store.Pooler{
+				newRider(&multiorchdatapb.PoolerHealthState{
+					MultiPooler:      &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}, ShardKey: shardKey},
+					IsLastCheckValid: true,
+					Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+				}),
 			},
 		}
 		for _, o := range overrides {
@@ -107,8 +106,8 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	// streaming from the leader, so replicasStreamingFromLeader sees a live
 	// connection. Replaces the old pre-baked ReplicasConnectedToLeader verdict.
 	connectReplica := func(sa *ShardAnalysis) {
-		sa.Analyses[0].Rider = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: sa.Analyses[0].PoolerID, ShardKey: shardKey},
+		sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerID(sa.Analyses[0]), ShardKey: shardKey},
 			IsLastCheckValid: true,
 			LastSeen:         timestamppb.New(sa.Now),
 			Status: &multipoolermanagerdatapb.Status{

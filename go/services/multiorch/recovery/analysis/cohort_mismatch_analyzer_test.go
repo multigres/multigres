@@ -26,6 +26,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -47,36 +49,37 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	replicaB := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-b"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 
-	// healthyReplicaPA returns a PoolerAnalysis for a healthy, replicating
-	// REPLICA, optionally with a cohort eligibility signal.
-	healthyReplicaPA := func(id *clustermetadatapb.ID, signal clustermetadatapb.CohortEligibilitySignal) *PoolerAnalysis {
+	// healthyReplicaPA returns a rider for a healthy, replicating REPLICA,
+	// optionally with a cohort eligibility signal.
+	healthyReplicaPA := func(id *clustermetadatapb.ID, signal clustermetadatapb.CohortEligibilitySignal) *store.Pooler {
 		var av *clustermetadatapb.AvailabilityStatus
 		if signal != clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_UNKNOWN {
 			av = &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{Signal: signal},
 			}
 		}
-		return &PoolerAnalysis{
-			PoolerID:            id,
-			ShardKey:            shardKey,
-			LastCheckValid:      true,
-			IsInitialized:       true,
-			PrimaryConnInfoHost: "primary.example.com",
-			WalReplayNotPaused:  true,
-			AvailabilityStatus:  av,
-		}
+		return newRider(&multiorchdatapb.PoolerHealthState{
+			MultiPooler:        &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey},
+			IsLastCheckValid:   true,
+			AvailabilityStatus: av,
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+				},
+			},
+		})
 	}
 
-	leaderPA := &PoolerAnalysis{
-		PoolerID:          primaryID,
-		ShardKey:          shardKey,
-		NamesSelfAsLeader: true,
-		LastCheckValid:    true,
-		IsInitialized:     true,
-	}
+	leaderPA := newRider(&multiorchdatapb.PoolerHealthState{
+		MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey},
+		IsLastCheckValid: true,
+		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
+		Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+	})
 
-	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*PoolerAnalysis) *ShardAnalysis {
-		analyses := append([]*PoolerAnalysis{leaderPA}, replicas...)
+	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*store.Pooler) *ShardAnalysis {
+		analyses := append([]*store.Pooler{leaderPA}, replicas...)
 		return &ShardAnalysis{
 			ShardKey: shardKey,
 			HighestShardRule: &clustermetadatapb.ShardRule{
@@ -133,7 +136,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores non-replicating non-cohort pooler", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.PrimaryConnInfoHost = "" // not yet replicating
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.ReplicationStatus = nil }) // not yet replicating
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -142,7 +145,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica with stopped replication", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.WalReplayNotPaused = false
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.ReplicationStatus.IsWalReplayPaused = true })
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -151,7 +154,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.IsInitialized = false
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.IsInitialized = false })
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -203,8 +206,12 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		// cohort as a "missing replica".
 		leaderShard := healthyShard(nil)
 		// Inject the leader as a non-cohort-member by mutating its state to
-		// look like an addition candidate apart from IsLeader=true.
-		leaderShard.Analyses[0].PrimaryConnInfoHost = "primary.example.com"
+		// look like an addition candidate apart from naming itself leader.
+		leaderShard.Analyses[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+			}
+		})
 		problems, err := analyzer.Analyze(leaderShard)
 		require.NoError(t, err)
 		assert.Empty(t, problems)
@@ -212,7 +219,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica with stale health snapshot (LastCheckValid false)", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
-		pa.LastCheckValid = false
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.IsLastCheckValid = false })
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -241,9 +248,9 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		policy *clustermetadatapb.DurabilityPolicy,
 		cohortIDs []*clustermetadatapb.ID,
 		tombstones []*clustermetadatapb.ID,
-		analyses ...*PoolerAnalysis,
+		analyses ...*store.Pooler,
 	) *ShardAnalysis {
-		full := append([]*PoolerAnalysis{leaderPA}, analyses...)
+		full := append([]*store.Pooler{leaderPA}, analyses...)
 		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
 		for _, id := range tombstones {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}

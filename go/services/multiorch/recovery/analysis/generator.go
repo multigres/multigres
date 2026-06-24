@@ -132,7 +132,7 @@ func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.Shard
 		Policy:       g.availability,
 	}
 	for _, pooler := range poolers {
-		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
+		sa.Analyses = append(sa.Analyses, pooler)
 	}
 	g.computeShardLevelFields(sa, poolers)
 	return sa
@@ -229,40 +229,6 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.Com
 	return g.buildShardAnalysis(shardKey, poolers), nil
 }
 
-// generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
-func (g *AnalysisGenerator) generateAnalysisForPooler(
-	pooler *store.Pooler,
-	shardKey *clustermetadatapb.ShardKey,
-) *PoolerAnalysis {
-	analysis := &PoolerAnalysis{
-		Rider:             pooler,
-		PoolerID:          pooler.Health().MultiPooler.Id,
-		ShardKey:          shardKey,
-		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()),
-		LastCheckValid:    pooler.Health().IsLastCheckValid,
-		IsInitialized:     pooler.IsInitialized(),
-		CohortMembers:     pooler.Health().GetStatus().GetCohortMembers(),
-	}
-
-	// Store consensus status.
-	analysis.ConsensusStatus = pooler.Health().GetConsensusStatus()
-	analysis.AvailabilityStatus = pooler.Health().GetAvailabilityStatus()
-
-	// If this is a REPLICA, populate replica-specific fields
-	if !analysis.NamesSelfAsLeader {
-		if rs := pooler.Health().GetStatus().GetReplicationStatus(); rs != nil {
-			analysis.WalReplayNotPaused = !rs.GetIsWalReplayPaused()
-
-			// Extract primary connection info
-			if rs.PrimaryConnInfo != nil {
-				analysis.PrimaryConnInfoHost = rs.PrimaryConnInfo.Host
-			}
-		}
-	}
-
-	return analysis
-}
-
 // poolerByID returns the pooler with the given ID, or nil if id is nil or no
 // pooler matches.
 func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermetadatapb.ID) *store.Pooler {
@@ -306,7 +272,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// Count reachable, initialized poolers for bootstrap analysis.
 	for _, pa := range sa.Analyses {
-		if pa.LastCheckValid && pa.IsInitialized {
+		if pa.Health().IsLastCheckValid && pa.IsInitialized() {
 			sa.NumInitialized++
 		}
 	}
@@ -353,7 +319,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
 	for _, pa := range sa.Analyses {
-		if !pa.NamesSelfAsLeader && pa.LastCheckValid && pa.IsInitialized {
+		if !namesSelfAsLeader(pa) && pa.Health().IsLastCheckValid && pa.IsInitialized() {
 			sa.HasInitializedReplica = true
 			break
 		}
