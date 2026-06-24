@@ -19,8 +19,8 @@ Browse the design and reference docs by area:
 - **[Query serving](./query_serving/)** — connection pooling, prepared
   statements, transactions, session settings, plan caching, query
   cancellation, failover buffering, replica reads, listen/notify, etc.
-- **[High availability](./ha/decision-log/)** — decision log for consensus,
-  failover, and primary-term changes.
+- **[High availability](./ha/)** — consensus, failover, and the state model,
+  plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management).
 
