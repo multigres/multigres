@@ -79,6 +79,44 @@ func TestSettingsCacheEmptyVars(t *testing.T) {
 	assert.Equal(t, 0, cache.Size())
 }
 
+func TestSettingsCacheCanonicalizesGUCNames(t *testing.T) {
+	cache := NewSettingsCache(testCacheSize)
+
+	s1 := cache.GetOrCreate(map[string]string{
+		"Work_Mem":              "64MB",
+		"Role":                  "regress_child",
+		"SESSION_AUTHORIZATION": "regress_parent",
+	})
+	s2 := cache.GetOrCreate(map[string]string{
+		"work_mem":              "64MB",
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+	})
+
+	require.NotNil(t, s1)
+	assert.Same(t, s1, s2, "PostgreSQL GUC names compare case-insensitively for ASCII")
+	assert.Equal(t, map[string]string{
+		"work_mem":              "64MB",
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+	}, s1.Vars)
+	assert.Equal(t, "SELECT pg_catalog.set_config('work_mem', '64MB', false); SET SESSION AUTHORIZATION 'regress_parent'; SET ROLE 'regress_child'", s1.ApplyQuery())
+	assert.Equal(t, 1, cache.Size())
+}
+
+func TestSettingsCacheCanonicalizeGUCNamesPreservesHighBitCase(t *testing.T) {
+	cache := NewSettingsCache(testCacheSize)
+
+	s1 := cache.GetOrCreate(map[string]string{"my.Ä": "upper"})
+	s2 := cache.GetOrCreate(map[string]string{"my.ä": "lower"})
+
+	require.NotNil(t, s1)
+	require.NotNil(t, s2)
+	assert.NotSame(t, s1, s2, "PostgreSQL GUC name comparison folds ASCII only; high-bit bytes remain distinct")
+	assert.Equal(t, map[string]string{"my.Ä": "upper"}, s1.Vars)
+	assert.Equal(t, map[string]string{"my.ä": "lower"}, s2.Vars)
+}
+
 func TestSettingsCacheKeyOrder(t *testing.T) {
 	cache := NewSettingsCache(testCacheSize)
 

@@ -247,9 +247,49 @@ type Settings struct {
 // to ensure settings are properly interned (same settings = same pointer).
 func NewSettings(vars map[string]string, bucket uint32) *Settings {
 	return &Settings{
-		Vars:   vars,
+		Vars:   canonicalizeGUCVars(vars),
 		bucket: bucket,
 	}
+}
+
+func canonicalizeGUCVars(vars map[string]string) map[string]string {
+	if len(vars) == 0 {
+		return vars
+	}
+
+	// PostgreSQL GUC lookup folds only ASCII A-Z to a-z (guc_name_compare), not
+	// full Unicode case. Keep the same rule here: strings.ToLower would collapse
+	// distinct custom GUC names like "my.Ä" and "my.ä" that PostgreSQL keeps
+	// separate.
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make(map[string]string, len(vars))
+	for _, k := range keys {
+		out[CanonicalGUCName(k)] = vars[k]
+	}
+	return out
+}
+
+// CanonicalGUCName returns the PostgreSQL-compatible canonical spelling used
+// for settings keys in Multigres: ASCII A-Z are folded to a-z and all other
+// bytes are preserved.
+func CanonicalGUCName(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			b := []byte(s)
+			for j := i; j < len(b); j++ {
+				if b[j] >= 'A' && b[j] <= 'Z' {
+					b[j] += 'a' - 'A'
+				}
+			}
+			return string(b)
+		}
+	}
+	return s
 }
 
 // Bucket returns the bucket number for these settings.
@@ -291,7 +331,7 @@ func (s *Settings) ApplyQuery() string {
 	// identity change.
 	keys := make([]string, 0, len(s.Vars))
 	for k := range s.Vars {
-		switch strings.ToLower(k) {
+		switch CanonicalGUCName(k) {
 		case "role", "session_authorization":
 			continue
 		default:

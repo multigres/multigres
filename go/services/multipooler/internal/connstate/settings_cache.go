@@ -69,8 +69,9 @@ func (c *SettingsCache) GetOrCreate(vars map[string]string) *Settings {
 	if len(vars) == 0 {
 		return nil
 	}
+	vars = canonicalizeGUCVars(vars)
 
-	// Generate a deterministic cache key from the vars
+	// Generate a deterministic cache key from the canonical vars.
 	key := c.makeKey(vars)
 
 	c.mu.Lock()

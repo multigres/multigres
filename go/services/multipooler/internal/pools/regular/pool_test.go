@@ -387,17 +387,17 @@ func TestConn_ApplySettings_RoleSessionAuthorizationResetAndApplyOrder(t *testin
 
 	ctx := context.Background()
 	initial := connstate.NewSettings(map[string]string{
-		"session_authorization": "parent1",
-		"role":                  "child1",
-		"search_path":           "public",
+		"SESSION_AUTHORIZATION": "parent1",
+		"Role":                  "child1",
+		"Search_Path":           "public",
 	}, 0)
 	pooled, err := pool.GetWithSettings(ctx, initial)
 	require.NoError(t, err)
 
 	desired := connstate.NewSettings(map[string]string{
-		"session_authorization": "parent2",
-		"role":                  "child2",
-		"work_mem":              "64MB",
+		"Session_Authorization": "parent2",
+		"ROLE":                  "child2",
+		"Work_Mem":              "64MB",
 	}, 0)
 	err = pooled.Conn.ApplySettings(ctx, desired)
 	require.NoError(t, err)

@@ -143,7 +143,7 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 
 		var resetKeys []string
 		for name := range current.Vars {
-			switch strings.ToLower(name) {
+			switch connstate.CanonicalGUCName(name) {
 			case "role", "session_authorization":
 				continue
 			}
