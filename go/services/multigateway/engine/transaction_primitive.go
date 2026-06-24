@@ -462,28 +462,15 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 		})
 	if err != nil {
 		// Failed PREPARE behaves like a rollback of the transaction being
-		// prepared: transaction-local/gateway-tracked state reverts, pending
-		// LISTEN/UNLISTEN changes are discarded, and the connection is idle.
-		state.DiscardPendingListens()
-		state.RollbackTransaction()
-		t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
-		_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
-			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
-		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		// prepared; PostgreSQL has already ended the backend transaction.
+		t.rollbackPrepareTransactionState(ctx, exec, conn, state)
 		return err
 	}
 
 	if preparedResult != nil && preparedResult.CommandTag == "ROLLBACK" {
 		// PostgreSQL accepts PREPARE TRANSACTION in an already-aborted transaction,
-		// but it resolves the statement as a ROLLBACK rather than creating a
-		// prepared transaction. Mirror that result: revert gateway-tracked
-		// transaction state and return the backend's ROLLBACK tag to the client.
-		state.DiscardPendingListens()
-		state.RollbackTransaction()
-		t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
-		_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
-			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
-		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		// but resolves it as a ROLLBACK rather than creating a prepared transaction.
+		t.rollbackPrepareTransactionState(ctx, exec, conn, state)
 		return callback(ctx, preparedResult)
 	}
 
@@ -504,8 +491,29 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 	}
 
 	_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
-		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, nil)
 	return callbackErr
+}
+
+// rollbackPrepareTransactionState applies the gateway and multipooler cleanup
+// for PREPARE TRANSACTION paths that PostgreSQL resolves as a rollback. It
+// mirrors ordinary rollback behavior: discard pending LISTEN/UNLISTEN changes,
+// release HOLD cursors declared in the transaction, restore transaction-local
+// gateway state from the BEGIN snapshot, and mark the session idle.
+func (t *TransactionPrimitive) rollbackPrepareTransactionState(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) {
+	state.DiscardPendingListens()
+	rollbackPortalReleases := state.HoldCursorsDeclaredInTxn()
+	state.RestoreOpenHoldCursorsToBeginSnapshot()
+	state.RollbackTransaction()
+	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
+	_ = t.cleanupPreparedTransactionReservation(ctx, exec, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, rollbackPortalReleases)
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
 }
 
 // cleanupPreparedTransactionReservation drops the multipooler's transaction
@@ -521,11 +529,12 @@ func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
+	releasePortalNames []string,
 ) error {
 	if !hasTransactionReservation(state) {
 		return nil
 	}
-	return exec.ConcludeTransaction(ctx, conn, state, conclusion, nil, false, false,
+	return exec.ConcludeTransaction(ctx, conn, state, conclusion, releasePortalNames, false, false,
 		func(context.Context, *sqltypes.Result) error { return nil })
 }
 

@@ -49,9 +49,10 @@ type txMockIExecute struct {
 	streamExecuteCount int
 	callbackResult     *sqltypes.Result
 
-	concludeTransactionErr        error
-	concludeTransactionCount      int
-	concludeTransactionConclusion multipoolerpb.TransactionConclusion
+	concludeTransactionErr                error
+	concludeTransactionCount              int
+	concludeTransactionConclusion         multipoolerpb.TransactionConclusion
+	concludeTransactionReleasePortalNames []string
 }
 
 func (m *txMockIExecute) StreamExecute(
@@ -114,13 +115,14 @@ func (m *txMockIExecute) ConcludeTransaction(
 	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
-	_ []string,
+	releasePortalNames []string,
 	_ bool,
 	chain bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.concludeTransactionCount++
 	m.concludeTransactionConclusion = conclusion
+	m.concludeTransactionReleasePortalNames = append([]string(nil), releasePortalNames...)
 	if m.concludeTransactionErr != nil {
 		// On error, clear all shard states (matches ScatterConn behavior)
 		state.ClearAllReservedConnections()
@@ -600,8 +602,10 @@ func TestTransactionPrimitive_PrepareTransaction_BackendRollbackTagRollsBackGate
 	state := newTestReservedState("tg1", conn)
 	conn.SetTxnStatus(protocol.TxnStatusFailed)
 	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.AddOpenHoldCursor("pre_existing")
 	state.BeginTransaction()
 	state.SetSessionVariable("datestyle", "German")
+	state.AddOpenHoldCursor("declared_in_txn")
 
 	var callbackResult *sqltypes.Result
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
@@ -617,7 +621,10 @@ func TestTransactionPrimitive_PrepareTransaction_BackendRollbackTagRollsBackGate
 	require.Equal(t, 1, mockExec.streamExecuteCount)
 	require.Equal(t, 1, mockExec.concludeTransactionCount, "PREPARE returning ROLLBACK should drop the transaction reservation")
 	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
+	require.Equal(t, []string{"declared_in_txn"}, mockExec.concludeTransactionReleasePortalNames)
 	require.Empty(t, state.ShardStates, "transaction reservation should be cleared after ROLLBACK-tag PREPARE")
+	require.True(t, state.HasOpenHoldCursor("pre_existing"), "ROLLBACK-tag PREPARE should preserve HOLD cursors that pre-date the transaction")
+	require.False(t, state.HasOpenHoldCursor("declared_in_txn"), "ROLLBACK-tag PREPARE should drop HOLD cursors declared in the transaction")
 	v, ok := state.GetSessionVariable("datestyle")
 	require.True(t, ok)
 	require.Equal(t, "ISO, MDY", v, "ROLLBACK-tag PREPARE reverts transaction-local session SET state")
@@ -630,8 +637,10 @@ func TestTransactionPrimitive_PrepareTransaction_FailureRollsBackGatewayStateAnd
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
 	state.SetSessionVariable("datestyle", "ISO, MDY")
+	state.AddOpenHoldCursor("pre_existing")
 	state.BeginTransaction()
 	state.SetSessionVariable("datestyle", "German")
+	state.AddOpenHoldCursor("declared_in_txn")
 
 	var callbackCalled bool
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_PREPARE, "", false, "PREPARE TRANSACTION 'gid'", "tg1", nil)
@@ -646,7 +655,10 @@ func TestTransactionPrimitive_PrepareTransaction_FailureRollsBackGatewayStateAnd
 	require.Equal(t, 1, mockExec.streamExecuteCount)
 	require.Equal(t, 1, mockExec.concludeTransactionCount, "failed PREPARE should drop the transaction reservation")
 	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
+	require.Equal(t, []string{"declared_in_txn"}, mockExec.concludeTransactionReleasePortalNames)
 	require.Empty(t, state.ShardStates, "transaction reservation should be cleared after failed PREPARE")
+	require.True(t, state.HasOpenHoldCursor("pre_existing"), "failed PREPARE should preserve HOLD cursors that pre-date the transaction")
+	require.False(t, state.HasOpenHoldCursor("declared_in_txn"), "failed PREPARE should drop HOLD cursors declared in the transaction")
 	v, ok := state.GetSessionVariable("datestyle")
 	require.True(t, ok)
 	require.Equal(t, "ISO, MDY", v, "failed PREPARE reverts transaction-local session SET state")
