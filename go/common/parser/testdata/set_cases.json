@@ -80,6 +80,23 @@
     "query": "SET ROLE 'admin_role'"
   },
   {
+    "comment": "SET ROLE NONE",
+    "query": "SET ROLE NONE",
+    "expected": "SET ROLE DEFAULT"
+  },
+  {
+    "comment": "SET ROLE DEFAULT",
+    "query": "SET ROLE DEFAULT"
+  },
+  {
+    "comment": "SET ROLE quoted none",
+    "query": "SET ROLE 'none'"
+  },
+  {
+    "comment": "SET ROLE quoted default",
+    "query": "SET ROLE 'default'"
+  },
+  {
     "comment": "SET SESSION AUTHORIZATION user",
     "query": "SET SESSION AUTHORIZATION 'username'"
   },
