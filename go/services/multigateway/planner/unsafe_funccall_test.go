@@ -512,9 +512,8 @@ func TestResolveFuncName(t *testing.T) {
 
 // TestPlan_SetConfig_ProducesSequence verifies that every accepted
 // `SELECT set_config(...)` shape — bare or mixed with a FROM/targets —
-// plans as the same Sequence[silent ApplySessionState..., Route]. No
-// fast-path for the bare case: uniform construction is worth the extra
-// round-trip.
+// plans as the same Sequence[Route, silent ApplySessionState...]. No fast-path
+// for the bare case: uniform construction is worth the extra round-trip.
 func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -553,15 +552,16 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
+			_, ok = seq.Primitives[0].(*engine.Route)
+			require.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+
 			for i, wantName := range tt.wantTrackers {
-				applyState, ok := seq.Primitives[i].(*engine.ApplySessionState)
-				require.True(t, ok, "primitive %d should be ApplySessionState, got %T", i, seq.Primitives[i])
-				assert.True(t, applyState.SilentTracking, "tracker step %d must be silent; Route owns the client response", i)
+				primIdx := i + 1
+				applyState, ok := seq.Primitives[primIdx].(*engine.ApplySessionState)
+				require.True(t, ok, "primitive %d should be ApplySessionState, got %T", primIdx, seq.Primitives[primIdx])
+				assert.True(t, applyState.SilentTracking, "tracker step %d must be silent; Route owns the client response", primIdx)
 				assert.Equal(t, wantName, applyState.VariableStmt.Name)
 			}
-
-			_, ok = seq.Primitives[len(tt.wantTrackers)].(*engine.Route)
-			require.True(t, ok, "last primitive should be Route, got %T", seq.Primitives[len(tt.wantTrackers)])
 		})
 	}
 }

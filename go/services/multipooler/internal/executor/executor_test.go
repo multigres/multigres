@@ -150,6 +150,8 @@ type stubPoolManager struct {
 	newReservedConn  *reserved.Conn
 	newReservedPool  *reserved.Pool
 	newReservedErr   error
+	reservedPool     *reserved.Pool
+	settingsCache    *connstate.SettingsCache
 	adminConnFactory func(context.Context) (admin.PooledConn, error)
 	adminErr         error
 }
@@ -180,17 +182,28 @@ func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string
 	return m.regularConn, nil
 }
 
-func (m *stubPoolManager) NewReservedConn(ctx context.Context, _ map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+func (m *stubPoolManager) NewReservedConn(ctx context.Context, settings map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	if m.newReservedErr != nil {
 		return nil, m.newReservedErr
 	}
 	if m.newReservedConn != nil {
 		return m.newReservedConn, nil
 	}
-	if m.newReservedPool == nil {
+	pool := m.newReservedPool
+	if pool == nil {
+		pool = m.reservedPool
+	}
+	if pool == nil {
 		return nil, errors.New("not implemented in test stub")
 	}
-	return m.newReservedPool.NewConn(ctx, nil, opts...)
+	var cached *connstate.Settings
+	if len(settings) > 0 {
+		if m.settingsCache == nil {
+			m.settingsCache = connstate.NewSettingsCache(16)
+		}
+		cached = m.settingsCache.GetOrCreate(settings)
+	}
+	return pool.NewConn(ctx, cached, opts...)
 }
 
 func (m *stubPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
@@ -236,12 +249,12 @@ func newVpidTrackingExecutor(t *testing.T, server *fakepgserver.Server) *Executo
 }
 
 // newTestExecutor returns an Executor that has just enough wiring to exercise
-// streamExecuteOnReservedConn. The pool manager is left nil because the helper
-// never touches it.
+// reserved-connection execution helpers.
 func newTestExecutor() *Executor {
 	return &Executor{
 		logger:   slog.Default(),
 		poolerID: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		metrics:  newQueryStats(),
 	}
 }
 
@@ -730,6 +743,52 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 // CLOSE / DISCARD ALL semantics: ReleasePortalNames drains the matching
 // pins, and when the last reason clears, the connection is released with
 // a zero ReservedState.
+func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	const badDeclare = "DECLARE bad CURSOR WITH HOLD FOR SELECT * FROM missing_table"
+	server.AddRejectedQuery(badDeclare, errors.New("ERROR: relation \"missing_table\" does not exist"))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	e := newTestExecutor()
+	e.poolManager = &stubPoolManager{reservedPool: pool}
+
+	state, err := e.reserveAndStreamExecute(
+		context.Background(),
+		badDeclare,
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{
+			Reasons:        protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonPortal,
+			BeginQuery:     "BEGIN",
+			PinPortalNames: []string{"bad"},
+		},
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, state, "failed first statement should preserve the transaction reservation")
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons(),
+		"statement-local temp/portal reasons must be unwound before returning surviving state")
+
+	rconn, ok := pool.Get(int64(state.GetReservedConnectionId()))
+	require.True(t, ok, "surviving transaction should still be in the reserved pool")
+	assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons())
+	assert.False(t, rconn.HasPortal("bad"), "failed DECLARE must not leave a phantom portal pin")
+}
+
 func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,

@@ -38,7 +38,7 @@ import (
 // A session-scoped (is_local=false) set_config must be tracked in
 // SessionSettings so it survives pool rotation, which needs the concrete GUC
 // name — but here the name is a column reference resolved per row. Rather than
-// reject it (or pin the connection), this primitive runs in three steps:
+// reject it (or pin the connection), this primitive runs in four steps:
 //
 //  1. Resolve: execute the "unroll" projection — the original SELECT with each
 //     set_config(a, b, c) target replaced by its three arguments a, b, c — once,
@@ -47,14 +47,18 @@ import (
 //     ordinary Route (or an AdvisoryLockRoute when a set_config argument
 //     acquires/releases a session advisory lock), so backend pinning and
 //     bindVar reconstruction reuse the existing routing machinery.
-//  2. Apply: synthesize a set_config(...) query from the *captured literals* and
+//  2. Prepare tracking: validate gateway-managed values and capture closures
+//     for the state changes, without mutating gateway state yet.
+//  3. Apply: synthesize a set_config(...) query from the *captured literals* and
 //     run it, forwarding PostgreSQL's authoritative result to the client. Using
 //     the captured literals — not a re-run of the original dynamic query — is
 //     essential: the original could resolve to different rows/values the second
 //     time (concurrent catalog change, volatile FROM).
-//  3. Track: record the session-scoped (is_local=false) tuples in
-//     SessionSettings for pool-rotation replay. is_local=true tuples were
-//     applied by step 2 but are transaction-scoped and deliberately not tracked.
+//  4. Track: run the prepared closures only after step 3 succeeds. Ordinary
+//     session-scoped (is_local=false) tuples are recorded in SessionSettings for
+//     pool-rotation replay. Gateway-managed tuples update gateway-local state;
+//     ordinary is_local=true tuples are transaction-scoped and deliberately not
+//     tracked.
 //
 // Zero resolved rows (e.g. a WHERE that matches nothing — a GUC absent on this
 // server version) means nothing is set and the client gets an empty result,
@@ -140,8 +144,8 @@ func (s *ResolveTrackSetConfig) PortalStreamExecute(
 	return s.execute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
-// execute drives resolve → apply → track. bindVars resolves any $N ParamRefs
-// in the unroll projection (empty when there are none).
+// execute drives resolve → prepare-track → apply → track. bindVars resolves
+// any $N ParamRefs in the unroll projection (empty when there are none).
 func (s *ResolveTrackSetConfig) execute(
 	ctx context.Context,
 	exec IExecute,
@@ -166,6 +170,15 @@ func (s *ResolveTrackSetConfig) execute(
 		return callback(ctx, s.emptyResult())
 	}
 
+	// Prepare tracking before backend apply so gateway-managed validation errors
+	// (for example an unparsable statement_timeout) are returned before any
+	// client-visible result is streamed. The returned closures are intentionally
+	// not executed until after PostgreSQL accepts the synthesized apply query.
+	trackActions, err := s.prepareTrackActions(conn, state, rows)
+	if err != nil {
+		return err
+	}
+
 	// Apply every resolved tuple with literals (is_local := true — see
 	// buildApplySQL) and forward PostgreSQL's authoritative result to the client.
 	applySQL, err := s.buildApplySQL(rows)
@@ -176,9 +189,11 @@ func (s *ResolveTrackSetConfig) execute(
 		return err
 	}
 
-	// Track the session-scoped settings only after a successful apply, so we
-	// never record a setting PostgreSQL rejected.
-	s.track(state, rows)
+	// Track settings only after a successful apply, so we never record a setting
+	// PostgreSQL rejected.
+	for _, action := range trackActions {
+		action()
+	}
 	return nil
 }
 
@@ -255,32 +270,91 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 	return strings.Join(legs, " UNION ALL "), nil
 }
 
-// track records the session-scoped (is_local=false) resolved tuples in
-// SessionSettings. A NULL value resets the GUC to its default
-// (set_config(name, NULL, false) semantics); a NULL name is skipped (the apply
-// query would already have raised PostgreSQL's error).
+// prepareTrackActions validates and captures the state updates for resolved
+// set_config tuples. Ordinary session-scoped (is_local=false) GUCs go to
+// SessionSettings. Gateway-managed GUCs (currently statement_timeout) are
+// routed to gateway-local state for both session and transaction-local scopes.
+// A NULL value resets the GUC to its default (set_config(name, NULL, is_local)
+// semantics); a NULL name is skipped (the apply query would already have raised
+// PostgreSQL's error).
+//
+// It performs gateway-managed validation before the synthesized backend apply
+// query runs, but returns closures so state is mutated only after PostgreSQL
+// successfully applies/rejects the statement. This preserves wire ordering:
+// validation failures happen before any client-visible apply result is sent.
 //
 // It uses the same helper as ApplySessionState for role/session authorization
 // coupling: SET SESSION AUTHORIZATION clears the active role, and role value
 // "none" means RESET ROLE. Building synthetic primitives per tuple would be
 // more code for the same tracking behavior.
-func (s *ResolveTrackSetConfig) track(state *handler.MultigatewayConnectionState, rows []*sqltypes.Row) {
+func (s *ResolveTrackSetConfig) prepareTrackActions(conn *server.Conn, state *handler.MultigatewayConnectionState, rows []*sqltypes.Row) ([]func(), error) {
+	var actions []func()
 	numCalls := len(s.Aliases)
 	for _, row := range rows {
 		for ci := range numCalls {
 			name := row.Values[ci*3]
 			value := row.Values[ci*3+1]
 			isLocal := row.Values[ci*3+2]
-			if name.IsNull() || isLocal.IsTrue() {
+			if name.IsNull() {
 				continue
 			}
+
+			nameStr := string(name)
+			local := isLocal.IsTrue()
+			if local && !handler.IsGatewayManagedVariable(nameStr) {
+				continue
+			}
+			// PostgreSQL treats SET LOCAL outside an explicit transaction as a no-op
+			// (with a warning). The dynamic tracker sees only the successful apply
+			// result, so mirror the static ApplySessionState guard here.
+			if local && !conn.IsInTransaction() {
+				continue
+			}
+
 			if value.IsNull() {
-				resetTrackedSessionVariable(state, string(name))
+				nameCopy := nameStr
+				localCopy := local
+				actions = append(actions, func() {
+					if !state.ResetGatewayManagedVariable(nameCopy, localCopy) {
+						resetTrackedSessionVariable(state, nameCopy)
+					}
+				})
 				continue
 			}
-			applyTrackedSessionVariable(state, string(name), string(value))
+
+			valueStr := string(value)
+			if handler.IsGatewayManagedVariable(nameStr) {
+				switch strings.ToLower(nameStr) {
+				case "statement_timeout":
+					d, err := handler.ParsePostgresInterval("statement_timeout", valueStr)
+					if err != nil {
+						return nil, err
+					}
+					localCopy := local
+					dCopy := d
+					actions = append(actions, func() {
+						if localCopy {
+							state.SetLocalStatementTimeout(dCopy)
+						} else {
+							state.SetStatementTimeout(dCopy)
+						}
+					})
+				default:
+					return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+						"internal error resolving set_config (please report this as a bug)",
+						fmt.Sprintf("unsupported gateway-managed variable %q", nameStr))
+				}
+				continue
+			}
+
+			nameCopy := nameStr
+			valueCopy := valueStr
+			actions = append(actions, func() {
+				applyTrackedSessionVariable(state, nameCopy, valueCopy)
+			})
 		}
 	}
+	return actions, nil
 }
 
 // emptyResult builds a zero-row result carrying the original's columns (text),

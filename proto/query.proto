@@ -57,6 +57,12 @@ message QueryResult {
   // distinguish a nil repeated field from an empty one, so this bool
   // preserves the distinction across the gRPC boundary.
   bool has_fields = 5;
+
+  // notices contains PostgreSQL NoticeResponse diagnostics that belong to this
+  // result. Streaming RPCs usually send notices as separate QueryResultPayload
+  // diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
+  // ConcludeTransaction) use this field to preserve backend notice ordering.
+  repeated PgDiagnostic notices = 6;
 }
 
 // Field represents metadata about a column in the result set.
@@ -363,10 +369,10 @@ message ExecuteOptions {
   UserAuth user_auth = 7;
 
   // client_connection_id is the multigateway's virtual PID for this client
-  // connection. The multipooler stamps it onto the underlying PostgreSQL
-  // backend's application_name as `multigres_vpid:<id>` so lock-detection
-  // functions can map virtual PIDs (visible to clients) back to real
-  // backend PIDs via pg_stat_activity.
+  // connection. The multipooler can register it against the underlying
+  // PostgreSQL backend PID so lock-detection functions can map virtual PIDs
+  // (visible to clients) back to real backend PIDs without altering the
+  // client-visible application_name.
   uint32 client_connection_id = 8;
 
   // execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE

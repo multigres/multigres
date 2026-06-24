@@ -130,11 +130,15 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 			}
 		}
 
-		// Send row data (if any)
+		// Send row data (if any). Notices are streamed above as separate
+		// diagnostics, so keep the result payload notice-free to avoid duplicate
+		// NoticeResponse frames on the gateway.
 		if len(result.Rows) > 0 || result.CommandTag != "" {
+			protoResult := result.ToProto()
+			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
 				Payload: &query.QueryResultPayload_Result{
-					Result: result.ToProto(),
+					Result: protoResult,
 				},
 			}
 			resp := &multipoolerpb.StreamExecuteResponse{
@@ -370,11 +374,15 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 				}
 			}
 
-			// Send row data (if any)
+			// Send row data (if any). Notices are streamed above as separate
+			// diagnostics, so keep the result payload notice-free to avoid duplicate
+			// NoticeResponse frames on the gateway.
 			if len(result.Rows) > 0 || result.CommandTag != "" {
+				protoResult := result.ToProto()
+				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
 					Payload: &query.QueryResultPayload_Result{
-						Result: result.ToProto(),
+						Result: protoResult,
 					},
 				}
 				response := &multipoolerpb.PortalStreamExecuteResponse{
@@ -386,10 +394,17 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		},
 	)
 	if err != nil {
-		// Note: When PortalStreamExecute returns an error, it also releases any reserved
-		// connection and returns an empty ReservedState. So we don't need to send a
-		// reserved connection ID in the error case.
-		// Convert errors to gRPC format, preserving PostgreSQL error details
+		// A PostgreSQL-level portal error can leave the reserved backend alive
+		// (typically in an aborted transaction, awaiting ROLLBACK). Send the
+		// authoritative state before returning the gRPC error so the gateway doesn't
+		// drift from the multipooler and accidentally route follow-up cleanup to a
+		// different backend.
+		if reservedState.GetReservedConnectionId() > 0 {
+			if sendErr := stream.Send(&multipoolerpb.PortalStreamExecuteResponse{ReservedState: reservedState}); sendErr != nil {
+				return mterrors.ToGRPC(sendErr)
+			}
+		}
+		// Convert errors to gRPC format, preserving PostgreSQL error details.
 		return mterrors.ToGRPC(err)
 	}
 
@@ -555,20 +570,31 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				// writing CopyFail on a backend already back in RFQ. Forward
 				// the state CopyFinalize returned. Carry the structured PG
 				// diagnostic so the gateway re-emits a verbatim ErrorResponse.
+				// If PostgreSQL emitted notices before the ErrorResponse, keep them
+				// on the ERROR frame so the gateway can write NoticeResponse before
+				// ErrorResponse in backend order.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
 					ErrorDiagnostic: pgDiagnosticFromError(err),
 					ReservedState:   reservedState,
 				}
+				if result != nil {
+					errorResp.Notices = noticesToProto(result.Notices)
+				}
 				_ = stream.Send(errorResp)
 				return mterrors.ToGRPC(err)
 			}
 
-			// Send RESULT response with final result, notices, and reserved state
+			// Send RESULT response with final result, notices, and reserved state.
+			// COPY bidi has a dedicated Notices field that the gateway folds into the
+			// final Result in wire order, so keep the QueryResult notice-free to avoid
+			// duplicate NoticeResponse frames after QueryResult grew unary notices.
+			protoResult := result.ToProto()
+			protoResult.Notices = nil
 			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
 				Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
-				Result:        result.ToProto(),
+				Result:        protoResult,
 				ReservedState: reservedState,
 				Notices:       noticesToProto(result.Notices),
 			}

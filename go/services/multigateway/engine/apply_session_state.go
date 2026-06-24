@@ -40,8 +40,8 @@ import (
 // an invalid name/value errors at SET time (but leaves no backend state behind),
 // and this primitive runs only if that succeeded — recording the setting and
 // emitting CommandComplete("SET"). A silent variant of this primitive is also
-// used for `SELECT set_config(...)` (see planner.planSelectStmt), where a
-// trailing Route owns the client response.
+// used for `SELECT set_config(...)` (see planner.planSelectStmt), where the
+// paired Route owns the client response.
 //
 // RESET/RESET ALL run through this primitive directly (no backend round-trip):
 // the variable is removed from SessionSettings, and on the next query the merged
@@ -57,9 +57,9 @@ type ApplySessionState struct {
 	// SilentTracking, when true, updates SessionSettings but does NOT invoke
 	// the callback. Used inside a Sequence where a sibling primitive (like
 	// Route) owns the client-facing result — if both called back, the client
-	// would see a stray CommandComplete before the real row data. This is
-	// the shape a `SELECT set_config(...)` plan takes: silent tracking step
-	// first, then a Route that sends the query to PG and streams the result.
+	// would see a stray CommandComplete after the real row data. This is
+	// the shape a `SELECT set_config(...)` plan takes: a Route sends the query
+	// to PG and streams the result first, then silent tracking records the state.
 	SilentTracking bool
 
 	// BindRefs, when non-nil, marks this primitive as a deferred-resolution
@@ -126,8 +126,8 @@ func NewApplySessionStateSilent(sql string, stmt *ast.VariableSetStmt) *ApplySes
 // SqlString-based debug output structurally valid.
 //
 // Always silent: a bound set_config is only emitted as part of the
-// Sequence[ApplySessionState, Route] plan, where the trailing Route owns
-// the client-facing CommandComplete.
+// Sequence[Route, ApplySessionState] plan, where the Route owns the
+// client-facing CommandComplete.
 func NewApplySessionStateFromBind(sql string, stmt *ast.VariableSetStmt, refs *BoundSetConfigRefs) *ApplySessionState {
 	return &ApplySessionState{
 		VariableStmt:   stmt,
@@ -185,14 +185,18 @@ func (s *ApplySessionState) executeSetWithBinds(
 	portalInfo *preparedstatement.PortalInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return s.executeSetWithResolvedParams(ctx, conn, state, setConfigParamResolver{
+	return s.executeSetWithResolvedParams(ctx, conn, state, portalSetConfigResolver(portalInfo), callback)
+}
+
+func portalSetConfigResolver(portalInfo *preparedstatement.PortalInfo) setConfigParamResolver {
+	return setConfigParamResolver{
 		resolveBool: func(ref *ast.ParamRef, what string) (bool, error) {
 			return preparedstatement.DecodeBindAsBool(portalInfo, ref, what)
 		},
 		resolveText: func(ref *ast.ParamRef, what string) (string, error) {
 			return preparedstatement.DecodeBindAsText(portalInfo, ref, what)
 		},
-	}, callback)
+	}
 }
 
 // executeSetWithNormalizedBinds is StreamExecute's counterpart to
@@ -209,7 +213,11 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return s.executeSetWithResolvedParams(ctx, conn, state, setConfigParamResolver{
+	return s.executeSetWithResolvedParams(ctx, conn, state, normalizedSetConfigResolver(bindVars), callback)
+}
+
+func normalizedSetConfigResolver(bindVars []*ast.A_Const) setConfigParamResolver {
+	return setConfigParamResolver{
 		resolveBool: func(ref *ast.ParamRef, what string) (bool, error) {
 			c, err := normalizedBindConst(bindVars, ref, what)
 			if err != nil {
@@ -229,20 +237,21 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 			}
 			return extractConstValue(c), nil
 		},
-	}, callback)
+	}
 }
 
-// executeSetWithResolvedParams owns the protocol-independent set_config bind
-// flow: resolve is_local first because it decides whether tracking happens at
-// all, resolve name next so the gateway-managed guard can run, and resolve the
-// value only when a tracker write will actually fire.
-func (s *ApplySessionState) executeSetWithResolvedParams(
-	ctx context.Context,
-	conn *server.Conn,
-	state *handler.MultigatewayConnectionState,
-	resolver setConfigParamResolver,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
+type resolvedSetConfig struct {
+	name        string
+	value       string
+	isLocal     bool
+	shouldTrack bool
+}
+
+// resolveSetConfig owns the protocol-independent set_config bind flow: resolve
+// is_local first because it decides whether tracking happens at all, resolve
+// name next so the gateway-managed guard can run, and resolve the value only
+// when a tracker write will actually fire.
+func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (resolvedSetConfig, error) {
 	// is_local resolves from the bound value when present; otherwise it falls
 	// back to the literal baked into the synthetic VariableStmt (true only for a
 	// gateway-managed set_config(..., true) — see planner.syntheticSetStmt).
@@ -250,7 +259,7 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 	if s.BindRefs.IsLocalParam != nil {
 		b, err := resolver.resolveBool(s.BindRefs.IsLocalParam, "set_config is_local argument")
 		if err != nil {
-			return err
+			return resolvedSetConfig{}, err
 		}
 		isLocal = b
 	}
@@ -259,30 +268,54 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 	if s.BindRefs.NameParam != nil {
 		v, err := resolver.resolveText(s.BindRefs.NameParam, "set_config name argument")
 		if err != nil {
-			return err
+			return resolvedSetConfig{}, err
 		}
 		name = v
 	}
 
 	// A transaction-scoped set_config of an ordinary (non-gateway-managed)
-	// variable is owned by PostgreSQL via the trailing Route — the gateway
+	// variable is owned by PostgreSQL via the paired Route — the gateway
 	// tracks nothing and can skip resolving the value. Gateway-managed
 	// variables fall through so the transaction-local override is applied to
 	// gateway state.
 	if isLocal && !handler.IsGatewayManagedVariable(name) {
-		return nil
+		return resolvedSetConfig{shouldTrack: false}, nil
 	}
 
 	value := extractVariableValue(s.VariableStmt.Args)
 	if s.BindRefs.ValueParam != nil {
 		v, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
 		if err != nil {
-			return err
+			return resolvedSetConfig{}, err
 		}
 		value = v
 	}
 
-	return s.applyTracked(ctx, conn, state, name, value, isLocal, callback)
+	return resolvedSetConfig{
+		name:        name,
+		value:       value,
+		isLocal:     isLocal,
+		shouldTrack: true,
+	}, nil
+}
+
+// executeSetWithResolvedParams resolves bound set_config slots and applies the
+// resulting tracker update immediately.
+func (s *ApplySessionState) executeSetWithResolvedParams(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	resolver setConfigParamResolver,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	resolved, err := s.resolveSetConfig(resolver)
+	if err != nil {
+		return err
+	}
+	if !resolved.shouldTrack {
+		return nil
+	}
+	return s.applyTracked(ctx, conn, state, resolved.name, resolved.value, resolved.isLocal, callback)
 }
 
 // normalizedBindConst returns the normalizer-extracted literal that ref
@@ -290,9 +323,8 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 // normalizer mints them from a single counter; ast.ReconstructSQL uses the
 // same mapping for the Route's SQL reconstruction). An out-of-range
 // reference means the statement carried a user-typed $N the normalizer
-// never extracted a literal for — invalid in the simple protocol, so fail
-// here, before any gateway state is written (the trailing Route would
-// reject it anyway with "there is no parameter $N").
+// never extracted a literal for — invalid in the simple protocol, so fail here
+// before any gateway state is written.
 func normalizedBindConst(bindVars []*ast.A_Const, ref *ast.ParamRef, what string) (*ast.A_Const, error) {
 	idx := ref.Number - 1 // ParamRef is 1-based
 	if idx < 0 || idx >= len(bindVars) {
@@ -305,6 +337,78 @@ func normalizedBindConst(bindVars []*ast.A_Const, ref *ast.ParamRef, what string
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s ($%d) cannot be NULL", what, ref.Number))
 	}
 	return c, nil
+}
+
+func (s *ApplySessionState) prepareStreamSilentTrackingAction(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	bindVars []*ast.A_Const,
+) (func(), bool, error) {
+	if !s.SilentTracking {
+		return nil, false, nil
+	}
+	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
+		if s.BindRefs != nil {
+			return s.resolveSetConfig(normalizedSetConfigResolver(bindVars))
+		}
+		return resolvedSetConfig{
+			name:        s.VariableStmt.Name,
+			value:       extractVariableValue(s.VariableStmt.Args),
+			isLocal:     s.VariableStmt.IsLocal,
+			shouldTrack: true,
+		}, nil
+	})
+}
+
+func (s *ApplySessionState) preparePortalSilentTrackingAction(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+) (func(), bool, error) {
+	if !s.SilentTracking {
+		return nil, false, nil
+	}
+	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
+		if s.BindRefs != nil {
+			return s.resolveSetConfig(portalSetConfigResolver(portalInfo))
+		}
+		return resolvedSetConfig{
+			name:        s.VariableStmt.Name,
+			value:       extractVariableValue(s.VariableStmt.Args),
+			isLocal:     s.VariableStmt.IsLocal,
+			shouldTrack: true,
+		}, nil
+	})
+}
+
+func (s *ApplySessionState) prepareSilentTrackingAction(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	resolveSet func() (resolvedSetConfig, error),
+) (func(), bool, error) {
+	switch s.VariableStmt.Kind {
+	case ast.VAR_SET_VALUE:
+		resolved, err := resolveSet()
+		if err != nil {
+			return nil, true, err
+		}
+		if !resolved.shouldTrack {
+			return func() {}, true, nil
+		}
+		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		return action, true, err
+	case ast.VAR_SET_DEFAULT:
+		return func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }, true, nil
+	case ast.VAR_RESET:
+		return func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }, true, nil
+	case ast.VAR_RESET_ALL:
+		return func() {
+			resetAllSessionVariablesPreservingRoleAuth(state)
+			state.ResetGatewayManagedVariables()
+		}, true, nil
+	default:
+		return nil, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
+	}
 }
 
 // StreamExecute handles the SET/RESET command.
@@ -380,14 +484,11 @@ func (s *ApplySessionState) applyTracked(
 	isLocal bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	skipLeakyLocal := isLocal && !conn.IsInTransaction() && handler.IsGatewayManagedVariable(name)
-	if !skipLeakyLocal {
-		if handled, err := state.ApplyGatewayManagedVariable(name, value, isLocal); err != nil {
-			return err
-		} else if !handled {
-			applyTrackedSessionVariable(state, name, value)
-		}
+	action, err := prepareTrackedSetAction(conn, state, name, value, isLocal)
+	if err != nil {
+		return err
 	}
+	action()
 
 	if s.SilentTracking {
 		return nil
@@ -396,6 +497,41 @@ func (s *ApplySessionState) applyTracked(
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "SET",
 	})
+}
+
+// prepareTrackedSetAction validates and captures a non-failing state update for
+// a tracked SET / set_config. Callers can run this before a client-visible Route
+// and invoke the returned action only after PostgreSQL accepts the statement.
+func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), error) {
+	skipLeakyLocal := isLocal && !conn.IsInTransaction() && handler.IsGatewayManagedVariable(name)
+	if skipLeakyLocal {
+		return func() {}, nil
+	}
+
+	if handler.IsGatewayManagedVariable(name) {
+		switch strings.ToLower(name) {
+		case "statement_timeout":
+			d, err := handler.ParsePostgresInterval("statement_timeout", value)
+			if err != nil {
+				return nil, err
+			}
+			return func() {
+				if isLocal {
+					state.SetLocalStatementTimeout(d)
+				} else {
+					state.SetStatementTimeout(d)
+				}
+			}, nil
+		default:
+			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+				"internal error resolving set_config (please report this as a bug)",
+				fmt.Sprintf("unsupported gateway-managed variable %q", name))
+		}
+	}
+
+	return func() {
+		applyTrackedSessionVariable(state, name, value)
+	}, nil
 }
 
 func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, name, value string) {
