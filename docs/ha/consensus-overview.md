@@ -1,7 +1,5 @@
 # Generalized Consensus Overview
 
-## High Availability & Consensus
-
 Building an available system means surviving outages. Servers fail, disks die,
 networks partition. A system that stores data on a single node will eventually
 lose that data or become unable to accept new transactions — often both at once.
@@ -17,22 +15,24 @@ transactions actually happened, and which ones only look like they did?
 
 This is the consensus problem. Each node keeps a **WAL** — an append-only log of
 transactions — and consensus is agreement on a single authoritative WAL across
-the cohort despite failures. A transaction is **durable** once a quorum of the
-cohort holds its position in their WAL, under the rule in force when it was
-written. Because a WAL only grows by appending, a node that holds a position
-holds everything before it — so "don't lose earlier durable transactions" isn't a
-separate rule, it's just what a WAL is. That leaves one invariant,
-**preservation**: a position that became durable is never lost.
+the **cohort** (the replicas eligible to acknowledge writes) despite failures. A
+transaction is **durable** once a **quorum** of the cohort — enough of them, by
+the policy in force — holds its position in their WAL. Because a WAL only grows by
+appending, a node that holds a position holds everything before it — so "don't
+lose earlier durable transactions" isn't a separate requirement, it's just what a
+WAL is. That leaves one invariant, **preservation**: a position that became
+durable is never lost.
 
 Preservation makes recovery decidable. Durability is a position on a log, so the
-recruited node with the furthest WAL holds every durable position — promoting it
+surviving node with the furthest WAL holds every durable position — promoting it
 loses nothing durable. Preservation runs one way: anything dropped during
-recovery was, by this rule, never durable, but the converse doesn't hold — when we
-cannot tell whether a position reached quorum we keep it, so a hung transaction
-may be propagated and made durable going forward. A rule change is itself a
-transaction in the WAL, so preservation holds even as the cohort or the
-redundancy policy itself changes. Two nodes whose WALs diverged past their last
-common position are the split-brain case the rest of this doc works to prevent.
+recovery was never durable, but the converse doesn't hold — when
+we cannot tell whether a position reached quorum we keep it, so a hung
+transaction may be propagated and made durable going forward. A change to that
+policy is itself a transaction in the WAL, so preservation holds even as the
+cohort or the policy itself changes. Two nodes whose WALs diverged past their
+last common position are the split-brain case the rest of this doc works to
+prevent.
 
 ## Terminology: Rules & Rogue Cohorts
 
@@ -91,15 +91,17 @@ too few to form a rogue quorum.
 
 ## Comparing diverged WALs
 
-Divergence like this is what recovery has to resolve — and it can, because WAL
-positions are **totally ordered**: any two are comparable, even across forks. The
-position written under the later rule wins; if both are at the same rule, the
-longer WAL (higher LSN) wins. Preferring the later rule is safe, not arbitrary —
-a rule is only ever created after capturing everything durable under earlier
-rules, so a later rule can never be hiding a durable transaction an earlier one
-held. This is what makes "the most advanced WAL" a well-defined and safe choice
-when electing a new leader, the foundation of the recovery in the next section.
-The exact comparison, with a worked example, is in
+When the rule-change protocol below is followed, the irreconcilable split brain
+above cannot arise — so the divergence recovery actually faces is always
+_benign_: at most one fork holds durable data. That case is always resolvable,
+because WAL positions are **totally ordered**: any two are comparable, even across
+forks. The position written under the later rule wins; if both are at the same
+rule, the longer WAL (higher LSN) wins. Preferring the later rule is safe, not
+arbitrary — a rule is only ever created after capturing everything durable under
+earlier rules, so a later rule can never be hiding a durable transaction an
+earlier one held. This is what makes "the most advanced WAL" a well-defined and
+safe choice when electing a new leader. The exact comparison, with a worked
+example, is in
 [the state model](state-model.md#total-ordering-across-divergence).
 
 ## Safely Changing the Rules
