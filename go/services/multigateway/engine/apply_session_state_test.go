@@ -94,6 +94,44 @@ func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	require.False(t, ok, "SET SESSION AUTHORIZATION resets any prior SET ROLE")
 }
 
+func TestApplySessionState_QuotedRoleNoneIsTrackedAsRoleName(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultiGatewayConnectionState{}
+	ctx := context.Background()
+
+	setRoleNone := NewApplySessionState("SET ROLE 'none'", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "role",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "none"}}}},
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, setRoleNone.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	role, ok := state.GetSessionVariable("role")
+	require.True(t, ok)
+	require.Equal(t, "none", role)
+	require.Len(t, results, 1)
+	require.Equal(t, "SET", results[0].CommandTag)
+}
+
+func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultiGatewayConnectionState{}
+	state.SetSessionVariable("role", "child")
+
+	setRoleDefault := NewApplySessionState("SET ROLE DEFAULT", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_DEFAULT,
+		Name: "role",
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, setRoleDefault.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	_, ok := state.GetSessionVariable("role")
+	require.False(t, ok)
+	require.Len(t, results, 1)
+	require.Equal(t, "SET", results[0].CommandTag)
+}
+
 func TestApplySessionState_ResetAllPreservesRoleSessionAuthorization(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultiGatewayConnectionState{}

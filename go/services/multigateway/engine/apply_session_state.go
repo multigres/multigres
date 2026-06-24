@@ -406,10 +406,6 @@ func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, nam
 		state.SetSessionVariable("session_authorization", value)
 		state.ResetSessionVariable("role")
 	case "role":
-		if strings.EqualFold(value, "none") || strings.EqualFold(value, "default") {
-			state.ResetSessionVariable("role")
-			return
-		}
 		state.SetSessionVariable("role", value)
 	default:
 		state.SetSessionVariable(name, value)
