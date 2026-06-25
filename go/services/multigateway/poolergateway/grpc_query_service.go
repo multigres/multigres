@@ -797,8 +797,9 @@ func (g *grpcQueryService) StreamReplication(
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive replication Ready")
 	}
 
-	// A structured backend error: surface the PgDiagnostic directly so the
-	// gateway re-emits a verbatim ErrorResponse to the client.
+	// A structured backend error: surface the PgDiagnostic directly (recoverable
+	// via errors.As) so a caller can later re-emit it verbatim as an
+	// ErrorResponse. This method itself only performs the open handshake.
 	if replErr := resp.GetError(); replErr != nil {
 		if diag := replErr.GetDiagnostic(); diag != nil {
 			return nil, mterrors.PgDiagnosticFromProto(diag)

@@ -415,6 +415,21 @@ func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
 	c.conn = nil         // prevent Close() from closing the hijacked socket
 	c.closed.Store(true) // Conn is no longer usable for protocol I/O
 	c.cancel()           // release the connection's context
+
+	// Mirror Close()'s credential hygiene: setting closed=true above makes the
+	// later Close() short-circuit before it can wipe these, so do it here. The
+	// caller has already read any keys it needs (e.g. for SCRAM passthrough)
+	// before detaching; they are not needed for the raw byte stream.
+	c.state = nil
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
+
 	return raw, buffered, nil
 }
 

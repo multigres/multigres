@@ -124,6 +124,26 @@ func TestConn_DetachConn(t *testing.T) {
 	_ = raw.Close()
 }
 
+// TestConn_DetachConn_ZeroizesSCRAMKeys verifies DetachConn applies the same
+// credential hygiene as Close(): the SCRAM passthrough keys are wiped and
+// nilled, even though the later Close() short-circuits on the closed flag.
+func TestConn_DetachConn_ZeroizesSCRAMKeys(t *testing.T) {
+	listener := newDetachTestListener(t)
+	serverEnd, clientEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close() })
+
+	c := newConn(serverEnd, listener, 1)
+	c.scramClientKey = []byte("client-key-secret")
+	c.scramServerKey = []byte("server-key-secret")
+
+	raw, _, err := c.DetachConn()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = raw.Close() })
+
+	assert.Nil(t, c.scramClientKey, "scramClientKey must be nilled after detach")
+	assert.Nil(t, c.scramServerKey, "scramServerKey must be nilled after detach")
+}
+
 // TestConn_DetachConn_NoBuffered verifies DetachConn works when nothing has
 // been read ahead: buffered must be empty and the socket still handed off.
 func TestConn_DetachConn_NoBuffered(t *testing.T) {
