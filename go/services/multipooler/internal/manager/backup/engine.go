@@ -83,6 +83,7 @@ type PGSettings struct {
 	ArchiveCommand string
 	ArchiveMode    string // "on" / "off" / "always"
 	RestoreCommand string
+	ServerVersion  string // full server_version (e.g. "16.2"), build suffix stripped
 }
 
 // PGSettingsFunc returns the backup-relevant PostgreSQL settings. It is injected

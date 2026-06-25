@@ -46,6 +46,25 @@ func TestListBackups(t *testing.T) {
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, backups[0].Status)
 }
 
+func TestListBackups_LSNAndPgVersion(t *testing.T) {
+	json := `[{"backup":[
+		{"label":"20250104-100000F","type":"full",
+		 "lsn":{"start":"0/21000028","stop":"0/21000100"},
+		 "annotation":{"table_group":"tg1","shard":"0","job_id":"j1","pg_version":"16.2"}}
+	]}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	backups, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+	assert.Equal(t, "0/21000028", backups[0].StartLsn)
+	assert.Equal(t, "0/21000100", backups[0].StopLsn)
+	assert.Equal(t, "16.2", backups[0].PgVersion)
+}
+
 func TestListBackups_SkipsMismatchedTableGroup(t *testing.T) {
 	// A backup annotated with a different table_group must be filtered out
 	// (defense-in-depth), exercising the table_group-mismatch skip branch.
