@@ -1748,15 +1748,6 @@ func (*StreamPoolerHealthRequest) Descriptor() ([]byte, []int) {
 
 // StreamPoolerHealthResponse contains the current health state of the multipooler.
 // Sent immediately on connection, on state changes, and periodically as heartbeats.
-//
-// Note: this message used to carry a query.Target. That field has been removed
-// because (a) shard identity is already known to the gateway from topology,
-// and (b) the only client-side consumer of Target.pooler_type was a buffer-drain
-// race check that is now expressed by requiring BOTH (serving_status == SERVING)
-// AND (leader_observation names this pooler itself). The pooler ships
-// leader_observation = self once it has been named leader by consensus; the
-// dual check keeps the gateway from draining the failover buffer toward a
-// pooler that hasn't yet acknowledged being leader.
 type StreamPoolerHealthResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// pooler_id identifies this multipooler instance.
