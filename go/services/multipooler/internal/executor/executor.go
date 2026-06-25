@@ -523,6 +523,9 @@ func (e *Executor) reserveAndStreamExecute(
 	if executeSQLPreparedStmt != nil {
 		querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
 		if err != nil {
+			if beginTx {
+				_ = reservedConn.Rollback(ctx)
+			}
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
 		}
