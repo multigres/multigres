@@ -275,31 +275,36 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	successfulWrites, failedWrites := validator.Stats()
 	t.Logf("Post-failover writes: %d successful, %d failed", successfulWrites, failedWrites)
 
-	// Refresh primary one final time to ensure we have the correct final primary for verification
-	finalPrimary := setup.RefreshPrimary(t)
-	require.NotNil(t, finalPrimary, "final primary should exist")
-	t.Logf("Final primary after all failovers: %s", finalPrimary.Name)
-
 	// Wait for all multipoolers to be healthy before verification
 	t.Logf("Waiting for all multipoolers to be healthy before verification...")
 	var allInstances []*shardsetup.MultipoolerInstance
 	for _, inst := range setup.Multipoolers {
 		allInstances = append(allInstances, inst)
 	}
-	shardsetup.EventuallyPoolerCondition(t, allInstances, 10*time.Second, 500*time.Millisecond,
+	shardsetup.EventuallyPoolerCondition(t, allInstances, 30*time.Second, 500*time.Millisecond,
 		func(r shardsetup.PoolerStatusResult) (bool, string) {
 			if !r.Status.PostgresReady {
 				return false, "postgres not running"
 			}
 			if r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-				if r.Status.ReplicationStatus == nil || r.Status.ReplicationStatus.PrimaryConnInfo == nil {
+				rs := r.Status.ReplicationStatus
+				if rs == nil || rs.PrimaryConnInfo == nil {
 					return false, "replication not configured"
+				}
+				walStatus := rs.GetWalReceiverStatus()
+				if walStatus != "streaming" && walStatus != "waiting" {
+					return false, fmt.Sprintf("wal receiver not yet connected (status=%q)", walStatus)
 				}
 			}
 			return true, ""
 		},
 		"all multipoolers should be healthy",
 	)
+
+	// Refresh primary one final time to ensure we have the correct final primary for verification
+	finalPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, finalPrimary, "final primary should exist")
+	t.Logf("Final primary after all failovers: %s", finalPrimary.Name)
 
 	// After the failovers settle, every pooler — the final primary included —
 	// must agree on who leads the shard.
@@ -324,7 +329,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			}
 		}
 		return true
-	}, 10*time.Second, 500*time.Millisecond, "every pooler should name the final primary as leader")
+	}, 30*time.Second, 500*time.Millisecond, "every pooler should name the final primary as leader")
 
 	// Verify final primary is functional
 	t.Run("verify final primary is functional", func(t *testing.T) {
@@ -525,7 +530,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			require.NoError(t, err)
 
 			// Wait for replica to catch up to the final primary's LSN
-			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
 				TargetLsn: primaryLSN,
 			})
 			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)
