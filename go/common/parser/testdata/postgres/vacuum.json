@@ -593,7 +593,7 @@
   {
     "comment": "vacuum - Statement 134",
     "query": "ANALYZE (nonexistent-arg) does_not_exist",
-    "error": "parse error at position 24: syntax error"
+    "error": "syntax error at or near \"arg\""
   },
   {
     "comment": "vacuum - Statement 135",

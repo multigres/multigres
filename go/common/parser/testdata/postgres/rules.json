@@ -69,17 +69,17 @@
   {
     "comment": "rules - Statement 15",
     "query": "create rule rtest_sys_upd as on update to rtest_system do also ( update rtest_interface set sysname = new.sysname where sysname = old.sysname",
-    "error": "parse error at position 141: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "rules - Statement 16",
     "query": "update rtest_admin set sysname = new.sysname where sysname = old.sysname )",
-    "error": "parse error at position 74: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "rules - Statement 17",
     "query": "create rule rtest_sys_del as on delete to rtest_system do also ( delete from rtest_interface where sysname = old.sysname",
-    "error": "parse error at position 120: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "rules - Statement 18",
@@ -89,7 +89,7 @@
   {
     "comment": "rules - Statement 19",
     "query": ")",
-    "error": "parse error at position 1: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "rules - Statement 20",
@@ -329,7 +329,7 @@
   {
     "comment": "rules - Statement 67",
     "query": "** Remember the delete rule on rtest_v1: It says ** DO INSTEAD DELETE FROM rtest_t1 WHERE a = old.a ** So this time both rows with a = 2 must get deleted \\p \\r delete from rtest_v1 where b = 12",
-    "error": "parse error at position 2: syntax error"
+    "error": "syntax error at or near \"**\""
   },
   {
     "comment": "rules - Statement 68",
@@ -1512,7 +1512,7 @@
   {
     "comment": "rules - Statement 308",
     "query": "create rule rrule as on update to vview do instead ( insert into cchild (pid, descrip) select old.pid, new.descrip where old.descrip isnull",
-    "error": "parse error at position 139: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "rules - Statement 309",
@@ -2378,7 +2378,7 @@
   {
     "comment": "rules - Statement 490",
     "query": "CREATE FUNCTION merge_sf_test() RETURNS TABLE(action text, a int, b text, id int, data text, filling int[]) LANGUAGE sql BEGIN ATOMIC MERGE INTO sf_target t USING rule_merge1 s ON (s.a = t.id) WHEN MATCHED AND (s.a + t.id) = 42 THEN UPDATE SET data = repeat(t.data, s.a) || s.b, id = length(s.b) WHEN NOT MATCHED AND (s.b IS NOT NULL) THEN INSERT (data, id) VALUES (s.b, s.a) WHEN MATCHED AND length(s.b || t.data) > 10 THEN UPDATE SET data = s.b WHEN MATCHED AND s.a > 200 THEN UPDATE SET filling[s.a] = t.id WHEN MATCHED AND s.a > 100 THEN DELETE WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED AND s.a > 200 THEN INSERT DEFAULT VALUES WHEN NOT MATCHED AND s.a > 100 THEN INSERT (id, data) OVERRIDING USER VALUE VALUES (s.a, DEFAULT) WHEN NOT MATCHED AND s.a > 0 THEN INSERT VALUES (s.a, s.b, DEFAULT) WHEN NOT MATCHED THEN INSERT (filling[1], id) VALUES (s.a, s.a) RETURNING merge_action() AS action, *",
-    "error": "parse error at position 903: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "rules - Statement 491",

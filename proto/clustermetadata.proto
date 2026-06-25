@@ -506,6 +506,16 @@ message ReplicationPrimary {
   // from the most recent SetPrimary/Promote; treat as "what this pooler currently
   // believes," not as the canonical primary for the cluster.
   PoolerAddress primary = 2;
+
+  // Whether the primary in this record is safe to pg_rewind from: it has
+  // completed a checkpoint on its current timeline, so its control file no
+  // longer advertises a stale checkpoint timeline. A diverged follower that
+  // rewinds before this is true copies the stale timeline into its own
+  // minRecoveryPoint and FATALs on startup. When the record's primary is this
+  // pooler itself, the value is computed live (checkpointed timeline == running
+  // timeline); for a follower it is the value most recently relayed via
+  // SetPrimary about the leader it follows.
+  bool rewind_ready = 3;
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms

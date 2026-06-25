@@ -751,7 +751,7 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// e.g. for older gateways that don't compute the diff).
 	result, reservedState, err := executor.ConcludeTransaction(
 		ctx, req.Target, req.Options, req.Conclusion,
-		req.GetReleasePortalNames(), req.GetReleaseAllPortals(),
+		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
 	)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)

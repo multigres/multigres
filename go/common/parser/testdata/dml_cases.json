@@ -394,7 +394,7 @@
   {
     "comment": "INSERT with ONLY modifier",
     "query": "INSERT INTO ONLY parent_table (id, name) VALUES (1, 'test')",
-    "error": "parse error at position 16: syntax error"
+    "error": "syntax error at or near \"ONLY\""
   },
   {
     "comment": "UPDATE with ONLY modifier",
@@ -407,7 +407,7 @@
   {
     "comment": "INSERT with empty column list and VALUES",
     "query": "INSERT INTO users () VALUES ()",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "UPDATE with no WHERE clause",

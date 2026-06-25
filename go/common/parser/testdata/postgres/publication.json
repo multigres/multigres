@@ -305,7 +305,7 @@
   {
     "comment": "publication - Statement 70",
     "query": "CREATE PUBLICATION testpub_syntax3 FOR TABLES IN SCHEMA testpub_rf_schema1 WHERE (a = 123)",
-    "error": "parse error at position 80: syntax error"
+    "error": "syntax error at or near \"WHERE\""
   },
   {
     "comment": "publication - Statement 71",
@@ -1338,7 +1338,7 @@
   {
     "comment": "publication - Statement 311",
     "query": "CREATE PUBLICATION testpub_forschema1 FOR TABLE CURRENT_SCHEMA",
-    "error": "parse error at position 62: syntax error"
+    "error": "syntax error at or near \"CURRENT_SCHEMA\""
   },
   {
     "comment": "publication - Statement 312",

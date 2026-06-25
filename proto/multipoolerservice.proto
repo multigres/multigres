@@ -427,6 +427,11 @@ message ConcludeTransactionRequest {
   // historical behavior so old gateway clients that do not yet compute
   // the per-txn diff keep working.
   bool release_all_portals = 6;
+
+  // chain executes COMMIT AND CHAIN or ROLLBACK AND CHAIN instead of the plain
+  // transaction-ending command. The reserved backend remains pinned for the
+  // next transaction so transaction characteristics are inherited exactly.
+  bool chain = 7;
 }
 
 // ConcludeTransactionResponse represents the response from concluding a transaction.

@@ -71,6 +71,32 @@ func TestPlanVariableSetStmt_RESET(t *testing.T) {
 	assert.True(t, ok, "expected ApplySessionState primitive")
 }
 
+func TestPlanVariableSetStmt_TransactionOnlyVariablesPassThrough(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{name: "RESET transaction_isolation", sql: "RESET transaction_isolation"},
+		{name: "RESET transaction_read_only", sql: "RESET transaction_read_only"},
+		{name: "RESET transaction_deferrable", sql: "RESET transaction_deferrable"},
+		{name: "SET TRANSACTION SNAPSHOT", sql: "SET TRANSACTION SNAPSHOT 'FFF-FFF-F'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := planPortal(t, p, testConn.Conn, tt.sql)
+			require.NoError(t, err)
+			require.NotNil(t, plan)
+			_, ok := plan.Primitive.(*engine.Route)
+			assert.True(t, ok, "transaction-only variable must route to PostgreSQL, got %T", plan.Primitive)
+		})
+	}
+}
+
 func TestPlanVariableSetStmt_RESET_ALL(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)

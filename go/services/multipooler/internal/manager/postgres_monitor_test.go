@@ -187,10 +187,16 @@ func TestDetermineRemedialAction(t *testing.T) {
 	}
 	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *consensus.ConsensusState {
 		cs := consensus.NewConsensusState("", selfID)
-		cs.RecordTermPrimary(&clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-			LeaderId:   leader,
-		}, addr)
+		cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
+			},
+			Primary: addr,
+			// The recorded leader has advertised rewind-readiness, so the
+			// stale-primary demote is allowed to proceed.
+			RewindReady: true,
+		})
 		return cs
 	}
 
@@ -531,10 +537,16 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 	}
 	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *consensus.ConsensusState {
 		cs := consensus.NewConsensusState("", selfID)
-		cs.RecordTermPrimary(&clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-			LeaderId:   leader,
-		}, addr)
+		cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
+			},
+			Primary: addr,
+			// The recorded leader has advertised rewind-readiness, so the
+			// stale-primary demote is allowed to proceed.
+			RewindReady: true,
+		})
 		return cs
 	}
 
@@ -621,7 +633,9 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultiPoolerManager {
 		cs := consensus.NewConsensusState(t.TempDir(), selfID)
 		if recordedRule != nil {
-			cs.RecordTermPrimary(recordedRule, addr)
+			// RewindReady so the rewind-ready gate is satisfied; cases that expect
+			// nil do so for their own reason (not-ready is covered separately below).
+			cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: recordedRule, Primary: addr, RewindReady: true})
 		}
 		return &MultiPoolerManager{
 			serviceID:      selfID,
@@ -664,6 +678,20 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, "other-host", got.GetHost())
 		assert.Equal(t, int32(5432), got.GetPostgresPort())
+	})
+
+	t.Run("recorded leader not yet rewind-ready -> nil (defer demote)", func(t *testing.T) {
+		// Same as the returns-target case, but the recorded leader has not advertised
+		// rewind-readiness, so we defer rather than restart into a rewind that would
+		// FATAL against a not-yet-checkpointed source.
+		cs := consensus.NewConsensusState(t.TempDir(), selfID)
+		cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: rule(5, otherID), Primary: otherAddr, RewindReady: false})
+		pm := &MultiPoolerManager{
+			serviceID:      selfID,
+			consensusState: cs,
+			rules:          &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(4, selfID)}},
+		}
+		require.Nil(t, pm.staleStandbyDemoteTarget())
 	})
 }
 
@@ -1443,7 +1471,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
-				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
+				pm.consensusState.RecordTermPrimary(tt.seedRP)
 			}
 			if tt.seedRevocation != nil {
 				consensustest.SeedTerm(t, tmpDir, tt.seedRevocation)

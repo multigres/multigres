@@ -38,17 +38,18 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 }
 
 // planExecuteStmt creates a plan for EXECUTE name [(params)].
-// Delegates to conn.Handler().HandleBind + exec.PortalStreamExecute at execution time.
+// The primitive rewrites only the prepared-statement name to its canonical
+// gateway-managed name at execution time, preserving argument expressions for
+// PostgreSQL to evaluate.
 func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt) (*engine.Plan, error) {
-	params, err := engine.ExtractExecuteParams(stmt)
-	if err != nil {
-		return nil, err
-	}
-
-	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt.Name, params)
+	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt)
 	plan := engine.NewPlan(sql, prim)
 
-	p.logger.Debug("created execute plan", "name", stmt.Name, "param_count", len(params))
+	paramCount := 0
+	if stmt.Params != nil {
+		paramCount = stmt.Params.Len()
+	}
+	p.logger.Debug("created execute plan", "name", stmt.Name, "param_count", paramCount)
 	return plan, nil
 }
 

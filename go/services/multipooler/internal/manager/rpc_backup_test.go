@@ -137,13 +137,13 @@ func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int
 		Cell:      "zone1",
 		Name:      primaryName,
 	}
-	pm.consensusState.RecordTermPrimary(
-		&clustermetadatapb.ShardRule{
+	pm.consensusState.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   id,
 		},
-		&clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
-	)
+		Primary: &clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
+	})
 }
 
 // setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.

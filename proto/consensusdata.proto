@@ -88,15 +88,15 @@ message PromoteResponse {
 // rule's identity is authoritative; the leader field is just the contact
 // information needed to act on that identity.
 message SetPrimaryRequest {
-  // Contact info for the leader named in rule.leader_id. The pooler uses
-  // leader.host and leader.postgres_port when it rewrites primary_conninfo.
-  // leader.id must match rule.leader_id.
-  clustermetadata.PoolerAddress leader = 1;
-
-  // The rule the caller is informing about. The pooler compares this against
-  // its own observed rule (by RuleNumber) and only applies the change when
-  // the supplied rule is strictly higher.
-  clustermetadata.ShardRule rule = 2;
+  // The (rule, primary, rewind_ready) the follower should adopt. Contact info
+  // for the leader is replication_primary.primary (host + postgres_port used to
+  // rewrite primary_conninfo); the rule is replication_primary.rule, which the
+  // pooler compares against its own observed rule (by RuleNumber) and only
+  // applies when strictly higher. primary.id must match rule.leader_id.
+  // replication_primary.rewind_ready relays whether the leader has checkpointed
+  // onto its current timeline: a diverged follower defers its pg_rewind until
+  // it is true, but sets up primary_conninfo and attempts to stream regardless.
+  clustermetadata.ReplicationPrimary replication_primary = 3;
 }
 
 // SetPrimaryResponse carries the pooler's state after processing a

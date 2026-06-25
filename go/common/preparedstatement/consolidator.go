@@ -90,7 +90,12 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 	if err != nil {
 		// ParseSQL only does syntactic parsing, so any error here is a syntax
 		// error. Surface it as a 42601 diagnostic (the parser stays
-		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would.
+		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would,
+		// carrying the cursor position for the ErrorResponse "P" field.
+		var se *parser.ParseSyntaxError
+		if errors.As(err, &se) {
+			return nil, mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+		}
 		return nil, mterrors.NewParseError(err.Error())
 	}
 	if len(asts) != 1 {

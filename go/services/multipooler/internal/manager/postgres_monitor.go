@@ -81,8 +81,11 @@ func (pm *MultiPoolerManager) intendedRole() clustermetadatapb.PoolerType {
 // standby of, for the case where consensus has moved on but postgres is still
 // running as a primary on a deposed term. Returns nil unless there is a recorded
 // primary with usable contact info, the recorded rule strictly outranks our
-// applied position, the recorded leader is not us, and the rule is not revoked —
-// without a target to rewind against we wait rather than restart blind.
+// applied position, the recorded leader is not us, the rule is not revoked, and
+// the recorded leader has advertised that it is rewind-ready — without a target
+// that is safe to rewind against we wait rather than restart blind (restarting a
+// diverged primary as a standby of a not-yet-checkpointed leader would FATAL on
+// our own un-replicated WAL).
 func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.PoolerAddress {
 	rp := pm.consensusState.GetReplicationPrimary()
 	if rp == nil {
@@ -90,6 +93,13 @@ func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 	}
 	target := rp.GetPrimary()
 	if target == nil || target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return nil
+	}
+	// Defer the demote until the recorded leader is rewind-ready (it has
+	// checkpointed onto its current timeline, relayed via SetPrimary). Leaving the
+	// node running as a deposed (queryable) primary meanwhile avoids both downtime
+	// and the FATAL of rewinding against a stale-timeline source.
+	if !rp.GetRewindReady() {
 		return nil
 	}
 	// The recorded leader is us: not a "superseded by another leader" case, so
@@ -122,6 +132,11 @@ type postgresState struct {
 	// primaryTerm is the coordinator term at which this pooler is the primary
 	// per the highest known rule. 0 if we are not the primary for that rule.
 	primaryTerm int64
+	// rewindSourceReady is true when this pooler is a primary whose last completed
+	// checkpoint is on its current running timeline, so it is safe to pg_rewind
+	// from. False on standbys and on a freshly promoted primary that has not yet
+	// checkpointed onto its new timeline.
+	rewindSourceReady bool
 }
 
 // postgresStateEqual reports whether two postgresState values are identical.
@@ -132,7 +147,8 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.backupsAvailable == b.backupsAvailable &&
 		a.isPrimary == b.isPrimary &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
-		a.primaryTerm == b.primaryTerm
+		a.primaryTerm == b.primaryTerm &&
+		a.rewindSourceReady == b.rewindSourceReady
 }
 
 // remedialAction represents actions the postgres monitor can take
@@ -168,6 +184,12 @@ const (
 	// is running as a standby. We do not self-promote; signal resignation so the
 	// coordinator re-elects.
 	remedialActionResignLeadership
+	// remedialActionMarkRewindReady means this pooler is the non-resigned leader,
+	// postgres has checkpointed onto its current timeline (rewindSourceReady), but
+	// the published ReplicationPrimary has not yet advertised rewind_ready. Mark it
+	// and broadcast so a diverged follower's recovery (orch's gated pg_rewind) can
+	// proceed. Purely a state-publication step — no postgres mutation.
+	remedialActionMarkRewindReady
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -274,6 +296,17 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		state.isPrimary, err = pm.isPrimary(ctx)
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
+		}
+		// A primary is a rewind source only once it has checkpointed onto its
+		// current timeline. Cheap to skip on standbys (rewindSourceReady would
+		// return false anyway).
+		if state.isPrimary {
+			ready, rrErr := pm.rewindSourceReady(ctx)
+			if rrErr != nil {
+				pm.logger.WarnContext(ctx, "Failed to determine rewind-source readiness", "error", rrErr)
+			} else {
+				state.rewindSourceReady = ready
+			}
 		}
 		// Lock-free first pass from the monitor: prefer a fresh read, fall back to
 		// the cached rule when postgres is unreachable so we keep the last-known
@@ -516,11 +549,36 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 		if action := pm.determineRoleAction(intended, currentState, lastAppliedPrimary); action != remedialActionNone {
 			return action
 		}
-		return pm.determineReplicationSettingsAction(ctx, currentState)
+		if action := pm.determineReplicationSettingsAction(ctx, currentState); action != remedialActionNone {
+			return action
+		}
+		if pm.shouldMarkRewindReady(currentState, intended) {
+			return remedialActionMarkRewindReady
+		}
+		return remedialActionNone
 	}
 
 	// Postgres is not running: start it, restore from backup, or bootstrap.
 	return determinePostgresNotRunningAction(currentState)
+}
+
+// shouldMarkRewindReady reports whether this pooler should advertise rewind
+// readiness this tick: postgres has checkpointed onto its current timeline
+// (rewindSourceReady), this pooler is the rule-named leader and has not resigned
+// leadership, and the published ReplicationPrimary has not yet advertised it. The
+// last check makes the resulting action a false->true edge, so its broadcast
+// fires once per promotion rather than every tick.
+func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, intended clustermetadatapb.PoolerType) bool {
+	if !state.rewindSourceReady || intended != clustermetadatapb.PoolerType_PRIMARY {
+		return false
+	}
+	pm.mu.Lock()
+	resigned := pm.resignedLeaderAtTerm != 0
+	pm.mu.Unlock()
+	if resigned {
+		return false
+	}
+	return !pm.consensusState.GetReplicationPrimary().GetRewindReady()
 }
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
@@ -567,7 +625,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 	case remedialActionDemoteStalePrimary:
 		// Re-check under the action lock: the decision was made on a lock-free
-		// snapshot and may have raced a revocation or another demote path.
+		// snapshot and may have raced a revocation or another demote path. This also
+		// re-applies the rewind-ready gate (staleStandbyDemoteTarget returns nil
+		// until the recorded leader has checkpointed onto its current timeline).
 		target := pm.staleStandbyDemoteTarget()
 		if target == nil {
 			return
@@ -579,7 +639,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			"target_port", target.GetPostgresPort())
 		// postgres is a primary on a deposed term, so its timeline has likely
 		// diverged from the new leader; restartAsStandbyLocked runs pg_rewind
-		// (cheap when there's no divergence) when suspectedDivergence is set.
+		// (cheap when there's no divergence). The rewind-ready gate is enforced in
+		// staleStandbyDemoteTarget above, so by here it is safe to rewind.
 		pm.suspectedDivergence.Store(true)
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err)
@@ -719,6 +780,18 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
 		if err := pm.rules.ReconcileGUC(ctx, !state.isPrimary); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
+		}
+
+	case remedialActionMarkRewindReady:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		// Advertise rewind-source readiness. MarkSelfRewindReady defends that the
+		// record names us at the term we observed and that the flag was not already
+		// set; broadcast on the false->true edge so a diverged follower's recovery
+		// sees it without waiting for the next periodic snapshot.
+		term := pm.consensusState.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
+		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, term) {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
+			pm.broadcastHealth()
 		}
 	}
 }
