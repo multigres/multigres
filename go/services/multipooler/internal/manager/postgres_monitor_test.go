@@ -599,11 +599,19 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	})
 
 	t.Run("recorded rule is revoked -> nil", func(t *testing.T) {
-		pm := newPM(t, rule(5, otherID), otherAddr, 4)
-		lockCtx, err := actionlock.NewActionLock().Acquire(t.Context(), "test")
+		dir := t.TempDir()
+		// Seed a revocation of everything below term 6, which revokes the recorded
+		// rule at term 5.
+		consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6})
+		cs := consensus.NewConsensusPromises(dir, selfID)
+		_, err := cs.Load()
 		require.NoError(t, err)
-		// Revoke everything below term 6, which revokes the recorded rule at term 5.
-		require.NoError(t, pm.consensusPromises.UpdateTermAndSave(lockCtx, 6))
+		cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: rule(5, otherID), Primary: otherAddr, RewindReady: true})
+		pm := &MultiPoolerManager{
+			serviceID:         selfID,
+			consensusPromises: cs,
+			rules:             &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(4, selfID)}},
+		}
 		require.Nil(t, pm.staleStandbyDemoteTarget())
 	})
 
@@ -863,14 +871,17 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			pm := newRemedialActionTestManager(t, multipooler)
 			pm.rules = &fakeRuleStore{pos: tc.cachedPos}
 
-			cs := consensus.NewConsensusPromises(t.TempDir(), nil)
+			dir := t.TempDir()
+			// Seed a revocation of everything below term 1 so the manager has a term.
+			consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1})
+			cs := consensus.NewConsensusPromises(dir, nil)
+			_, err := cs.Load()
+			require.NoError(t, err)
 			pm.consensusPromises = cs
 
 			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 			require.NoError(t, err)
 			defer pm.actionLock.Release(lockCtx)
-
-			require.NoError(t, cs.UpdateTermAndSave(lockCtx, 1))
 
 			if tc.resignedBefore != 0 {
 				require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, tc.resignedBefore))

@@ -199,30 +199,6 @@ func (cs *ConsensusPromises) Load() (int64, error) {
 	return revocation.RevokedBelowTerm, nil
 }
 
-// GetCurrentTermNumber returns the current term.
-// Returns 0 if state has not been loaded.
-func (cs *ConsensusPromises) GetCurrentTermNumber(ctx context.Context) (int64, error) {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return 0, err
-	}
-	return cs.GetInconsistentCurrentTermNumber()
-}
-
-// GetInconsistentCurrentTermNumber returns the current term for monitoring.
-// It doesn't require the action lock to be held, so the value returned may
-// be outdated by the time it's used. Use GetCurrentTermNumber() as part of
-// any action workflow to protect against race conditions.
-// Returns 0 if state has not been loaded.
-func (cs *ConsensusPromises) GetInconsistentCurrentTermNumber() (int64, error) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	if cs.revocation == nil {
-		return 0, nil
-	}
-	return cs.revocation.GetRevokedBelowTerm(), nil
-}
-
 // GetInconsistentRevocation returns a copy of the current term revocation for monitoring.
 // It doesn't require the action lock to be held, so the value returned may
 // be outdated by the time it's used. Use GetRevocation() as part of any action
@@ -238,21 +214,6 @@ func (cs *ConsensusPromises) GetInconsistentRevocation() *clustermetadatapb.Term
 
 	// Return a copy to prevent external modifications
 	return cloneRevocation(cs.revocation)
-}
-
-// GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
-// Returns empty string if no coordinator was accepted.
-func (cs *ConsensusPromises) GetAcceptedLeader(ctx context.Context) (string, error) {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return "", err
-	}
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	if cs.revocation == nil || cs.revocation.AcceptedCoordinatorId == nil {
-		return "", nil
-	}
-	return cs.revocation.AcceptedCoordinatorId.GetName(), nil
 }
 
 // GetRevocation returns a copy of the current term revocation.
@@ -292,42 +253,6 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 	}
 
 	return cs.saveAndUpdateLocked(cloneRevocation(revocation))
-}
-
-// UpdateTermAndSave atomically updates the term number, resetting accepted coordinator.
-// This is called when discovering a newer term from another node.
-// Returns error if newTerm < currentTerm.
-// Idempotent: succeeds without changes if newTerm == currentTerm.
-func (cs *ConsensusPromises) UpdateTermAndSave(ctx context.Context, newTerm int64) error {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	currentTerm := int64(0)
-	if cs.revocation != nil {
-		currentTerm = cs.revocation.GetRevokedBelowTerm()
-	}
-
-	if newTerm < currentTerm {
-		return fmt.Errorf("cannot update to older term: current=%d, new=%d", currentTerm, newTerm)
-	}
-
-	// If same term, nothing to do (idempotent success)
-	if newTerm == currentTerm {
-		return nil
-	}
-
-	// Only if newTerm > currentTerm: create new revocation with reset acceptance
-	newRevocation := &clustermetadatapb.TermRevocation{
-		RevokedBelowTerm:       newTerm,
-		AcceptedCoordinatorId:  nil,
-		CoordinatorInitiatedAt: nil,
-	}
-
-	// Save and update under lock
-	return cs.saveAndUpdateLocked(newRevocation)
 }
 
 // saveAndUpdateLocked saves the revocation to disk and updates memory.

@@ -862,11 +862,10 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
-	revokedBelowTerm, _ := pm.consensusPromises.GetInconsistentCurrentTermNumber()
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", revokedBelowTerm)
+		"rule", commonconsensus.FormatRuleNumber(pm.rules.CachedPosition().GetRule().GetRuleNumber()))
 
 	return nil
 }

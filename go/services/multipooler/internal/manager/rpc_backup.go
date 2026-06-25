@@ -367,6 +367,15 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
+	// Best-effort refresh of the rule observation cache. The restore restarted
+	// postgres with the backup's current_rule row and reopenPoolerManager just
+	// re-established the query-service connection, so observe the position now
+	// rather than leaving the cache stale until the next monitor tick. A failure
+	// here is non-fatal — the next ObservePosition will refresh it.
+	if _, err := pm.rules.ObservePosition(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
+	}
+
 	// Mark as initialized after successful restore
 	return telemetry.WithSpan(ctx, "restore/mark-initialized", func(_ context.Context) error {
 		if err := pm.setInitialized(); err != nil {

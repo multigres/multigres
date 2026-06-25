@@ -876,11 +876,6 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTermNumber returns the current consensus term number.
-func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
-	return pm.consensusPromises.GetCurrentTermNumber(ctx)
-}
-
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
 // This is a common guardrail for replication-related operations on standby servers
 func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
@@ -1091,51 +1086,6 @@ func (pm *MultiPoolerManager) loadShardConfigFromGlobalTopo() {
 		pm.checkAndSetReady()
 		return
 	}
-}
-
-// validateAndUpdateTerm validates the request term against the current term following Consensus rules.
-// Returns an error if the request term is stale (less than current term).
-// If the request term is higher, it updates the term in pgctld and the cache.
-// If force is true, validation is skipped.
-func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, requestTerm int64, force bool) error {
-	if force {
-		return nil // Skip validation if force is set
-	}
-
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// If request term == current term: ACCEPT (same term, execute)
-	// If request term < current term: REJECT (stale request)
-	// If request term > current term: UPDATE term and ACCEPT (new term discovered)
-	if requestTerm < currentTerm {
-		// Request has stale term, reject
-		pm.logger.ErrorContext(ctx, "Consensus term too old, rejecting request",
-			"request_term", requestTerm,
-			"current_term", currentTerm,
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
-				requestTerm, currentTerm))
-	} else if requestTerm > currentTerm {
-		// Request has newer term, update our term
-		pm.logger.InfoContext(ctx, "Discovered newer term, updating",
-			"request_term", requestTerm,
-			"old_term", currentTerm,
-			"service_id", pm.serviceID.String())
-
-		// Update term atomically (resets accepted leader)
-		if err := pm.consensusPromises.UpdateTermAndSave(ctx, requestTerm); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
-			return mterrors.Wrap(err, "failed to update consensus term")
-		}
-
-		pm.logger.InfoContext(ctx, "Consensus term updated successfully", "new_term", requestTerm)
-	}
-	// If requestTerm == currentCachedTerm, just continue (same term is OK)
-	return nil
 }
 
 // checkDemotionState checks the current state to determine what steps remain
