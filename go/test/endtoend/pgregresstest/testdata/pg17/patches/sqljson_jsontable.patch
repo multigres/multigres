@@ -5,18 +5,7 @@
 # Here: SELECT JSON_TABLE('[]', '$').
 --- a
 +++ b
-@@ -1,9 +1,7 @@
- -- JSON_TABLE
- -- Should fail (JSON_TABLE can be used only in FROM clause)
- SELECT JSON_TABLE('[]', '$');
--ERROR: syntax error at or near "("
--LINE 1: SELECT JSON_TABLE('[]', '$');
--^
-+ERROR: parse error at position 18: syntax error
- -- Only allow EMPTY and ERROR for ON ERROR
- SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') DEFAULT 1 ON ERROR);
- ERROR: invalid ON ERROR behavior
-@@ -25,19 +23,17 @@
+@@ -25,7 +25,7 @@
  -- Column and path names must be distinct
  SELECT * FROM JSON_TABLE(jsonb'"1.23"', '$.a' as js2 COLUMNS (js2 int path '$'));
  ERROR: duplicate JSON_TABLE column or path name: js2
@@ -25,12 +14,7 @@
  ^
  -- Should fail (no columns)
  SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ());
--ERROR: syntax error at or near ")"
--LINE 1: SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ());
--^
-+ERROR: parse error at position 45: syntax error
- SELECT * FROM JSON_TABLE (NULL::jsonb, '$' COLUMNS (v1 timestamp)) AS f (v1, v2);
- ERROR: JSON_TABLE function has 1 columns available but 2 columns specified
+@@ -37,7 +37,7 @@
  --duplicated column name
  SELECT * FROM JSON_TABLE(jsonb'"1.23"', '$.a' COLUMNS (js2 int path '$', js2 int path '$'));
  ERROR: duplicate JSON_TABLE column or path name: js2
@@ -39,7 +23,7 @@
  ^
  --return composite data type.
  create type comp as (a int, b int);
-@@ -490,7 +486,7 @@
+@@ -490,7 +490,7 @@
  -- JSON_TABLE: only one FOR ORDINALITY columns allowed
  SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, id2 FOR ORDINALITY, a int PATH '$.a' ERROR ON EMPTY)) jt;
  ERROR: only one FOR ORDINALITY column is allowed
@@ -48,7 +32,7 @@
  ^
  SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, a int PATH '$' ERROR ON EMPTY)) jt;
  id | a
-@@ -664,7 +660,7 @@
+@@ -664,7 +664,7 @@
  -- Error: OMIT QUOTES should not be specified when WITH WRAPPER is present
  SELECT * FROM JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text PATH '$' WITH WRAPPER OMIT QUOTES));
  ERROR: SQL/JSON QUOTES behavior must not be specified when WITH WRAPPER is used
@@ -57,7 +41,7 @@
  ^
  -- But KEEP QUOTES (the default) is fine
  SELECT * FROM JSON_TABLE(jsonb '"world"', '$' COLUMNS (item text FORMAT JSON PATH '$' WITH WRAPPER KEEP QUOTES));
-@@ -705,7 +701,7 @@
+@@ -705,7 +705,7 @@
  -- Should fail (not supported)
  SELECT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || 'a' COLUMNS (foo int));
  ERROR: only string constants are supported in JSON_TABLE path specification
@@ -66,15 +50,7 @@
  ^
  -- JsonPathQuery() error message mentioning column name
  SELECT * FROM JSON_TABLE('{"a": [{"b": "1"}, {"b": "2"}]}', '$' COLUMNS (b json path '$.a[*].b' ERROR ON ERROR));
-@@ -1107,29 +1103,27 @@
- DROP TABLE s;
- -- Prevent ON EMPTY specification on EXISTS columns
- SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on empty));
--ERROR: syntax error at or near "empty"
--LINE 1: ...sonb '1', '$' COLUMNS (a int exists empty object on empty));
--^
-+ERROR: parse error at position 83: syntax error
- -- Test ON ERROR / EMPTY value validity for the function and column types;
+@@ -1114,22 +1114,22 @@
  -- all fail
  SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ERROR);
  ERROR: invalid ON ERROR behavior

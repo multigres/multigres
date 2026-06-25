@@ -12,17 +12,17 @@
   {
     "comment": "stats_ext - Statement 3",
     "query": "CREATE STATISTICS tst",
-    "error": "parse error at position 21: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "stats_ext - Statement 4",
     "query": "CREATE STATISTICS tst ON a, b",
-    "error": "parse error at position 29: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "stats_ext - Statement 5",
     "query": "CREATE STATISTICS tst FROM sometab",
-    "error": "parse error at position 26: syntax error"
+    "error": "syntax error at or near \"FROM\""
   },
   {
     "comment": "stats_ext - Statement 6",
@@ -63,12 +63,12 @@
   {
     "comment": "stats_ext - Statement 15",
     "query": "CREATE STATISTICS tst ON y + z FROM ext_stats_test",
-    "error": "parse error at position 28: syntax error"
+    "error": "syntax error at or near \"+\""
   },
   {
     "comment": "stats_ext - Statement 16",
     "query": "CREATE STATISTICS tst ON (x, y) FROM ext_stats_test",
-    "error": "parse error at position 28: syntax error"
+    "error": "syntax error at or near \",\""
   },
   {
     "comment": "stats_ext - Statement 17",
