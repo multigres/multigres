@@ -64,13 +64,17 @@ func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatap
 // recent observed position and the most recent rule+primary heard via RPC.
 // See buildConsensusStatus for the merge semantics.
 func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
-	observedRule := pos.GetRule()
-	rpcRule := replicationPrimary.GetRule()
+	// ruleStoreRule is read fresh from the rule store (the current_rule row in
+	// postgres, replicated through WAL). highestKnownRule is the rule last recorded
+	// via a SetPrimary/Promote RPC, which can lead the rule store before the write
+	// has been observed locally.
+	ruleStoreRule := pos.GetRule()
+	highestKnownRule := replicationPrimary.GetRule()
 	rpcPrimary := replicationPrimary.GetPrimary()
-	if observedRule == nil && rpcRule == nil && rpcPrimary == nil {
+	if ruleStoreRule == nil && highestKnownRule == nil && rpcPrimary == nil {
 		return nil
 	}
-	rule := observedRule
+	rule := ruleStoreRule
 	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
 	// it is the self-report ("checkpointed onto my current timeline", maintained
 	// by the postgres monitor / async-checkpoint completion); on a follower it is
@@ -78,14 +82,14 @@ func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replic
 	// relayed value is harmless — the leader's own status is the authority orch
 	// reads.
 	//
-	// Use the rpc record's rule and rewind_ready whenever it is at least as high
-	// as the observed position — including a tie, which is the steady state for a
-	// leader (its observed rule catches up to the rule it recorded at promotion).
-	// Only a strictly-higher observed rule means the recorded rewind_ready no
+	// Use the recorded rule and rewind_ready whenever it is at least as high as the
+	// rule-store observation — including a tie, which is the steady state for a
+	// leader (its rule-store rule catches up to the rule it recorded at promotion).
+	// Only a strictly-higher rule-store rule means the recorded rewind_ready no
 	// longer describes the rule we publish, so we fall back to false there.
 	rewindReady := false
-	if commonconsensus.CompareRuleNumbers(rpcRule.GetRuleNumber(), observedRule.GetRuleNumber()) >= 0 {
-		rule = rpcRule
+	if commonconsensus.CompareRuleNumbers(highestKnownRule.GetRuleNumber(), ruleStoreRule.GetRuleNumber()) >= 0 {
+		rule = highestKnownRule
 		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{

@@ -169,6 +169,16 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 //
 // Returns false (not an error) on a standby: pg_current_wal_lsn() errors during
 // recovery, so the CASE guards it — a standby is never a rewind source.
+//
+// Design assumption: the rewind source must be a writable primary. A node that is
+// the rule-named leader but still in recovery (e.g. it has not yet been promoted to
+// a writable primary) never advertises rewind_ready, so a diverged follower's
+// rewind against it stays deferred until it becomes a writable primary. This is the
+// safe behavior — you cannot rewind a target off a still-replaying source without
+// risking the stale-minRecoveryPoint FATAL this gating exists to prevent. A future
+// enhancement could let a standby on a matching timeline serve as a rewind source
+// (using pg_last_wal_replay_lsn() instead of pg_current_wal_lsn()), but the common
+// case rewinds a diverged old primary against a writable leader.
 func (pm *MultiPoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()

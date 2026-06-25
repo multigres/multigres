@@ -1477,15 +1477,15 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// rewind_ready. On completion we mark rewind_ready for the term we promoted to
 	// (the atomic term check skips it if a newer term has since replaced the
 	// record); the postgres monitor is the backstop that marks within ~100ms once
-	// it observes the completed checkpoint. Use the manager's lifetime context so
-	// the checkpoint outlives this RPC's return.
+	// it observes the completed checkpoint.
+	checkpointCtx := pm.ctx
 	go func() {
-		if err := pm.exec(pm.ctx, "CHECKPOINT"); err != nil {
-			pm.logger.WarnContext(pm.ctx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
+		if err := pm.exec(checkpointCtx, "CHECKPOINT"); err != nil {
+			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
 		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
-			pm.logger.InfoContext(pm.ctx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
+			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
 			pm.broadcastHealth()
 		}
 	}()
