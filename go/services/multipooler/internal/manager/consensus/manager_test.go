@@ -140,13 +140,13 @@ func TestRecordTermPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := NewConsensusPromises(t.TempDir(), nil)
+			cm := NewConsensusManager(nil, nil)
 			if tt.seedRule != nil {
-				cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary})
+				cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary})
 			}
-			cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary})
+			cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary})
 
-			got := cs.GetReplicationPrimary()
+			got := cm.GetReplicationPrimary()
 			if tt.wantRule == nil && tt.wantPrimary == nil {
 				assert.Nil(t, got)
 				return
@@ -174,15 +174,15 @@ func TestRecordTermPrimary(t *testing.T) {
 // TestRecordTermPrimary_ReturnsCopies guards against callers mutating internal state
 // by holding the returned pointer.
 func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
-	cs := NewConsensusPromises(t.TempDir(), nil)
-	cs.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)})
+	cm := NewConsensusManager(nil, nil)
+	cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)})
 
-	got := cs.GetReplicationPrimary()
+	got := cm.GetReplicationPrimary()
 	require.NotNil(t, got)
 	require.NotNil(t, got.GetPrimary())
 	got.Primary.Host = "tampered"
 
-	got2 := cs.GetReplicationPrimary()
+	got2 := cm.GetReplicationPrimary()
 	require.NotNil(t, got2)
 	require.NotNil(t, got2.GetPrimary())
 	assert.Equal(t, "hostA", got2.GetPrimary().GetHost(),

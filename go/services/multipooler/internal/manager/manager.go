@@ -1434,7 +1434,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
-		if pm.consensusMgr.Promises().MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
 			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
 			pm.broadcastHealth()
 		}

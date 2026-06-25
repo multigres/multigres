@@ -87,7 +87,7 @@ func (pm *MultiPoolerManager) intendedRole() clustermetadatapb.PoolerType {
 // diverged primary as a standby of a not-yet-checkpointed leader would FATAL on
 // our own un-replicated WAL).
 func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.PoolerAddress {
-	rp := pm.consensusMgr.Promises().GetReplicationPrimary()
+	rp := pm.consensusMgr.GetReplicationPrimary()
 	if rp == nil {
 		return nil
 	}
@@ -385,7 +385,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	if pm.walReceiverManuallyStopped.Load() {
 		return false
 	}
-	rp := pm.consensusMgr.Promises().GetReplicationPrimary()
+	rp := pm.consensusMgr.GetReplicationPrimary()
 	if rp == nil {
 		return false
 	}
@@ -556,7 +556,7 @@ func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, intende
 	if pm.getResignedLeaderAtTerm() != 0 {
 		return false
 	}
-	return !pm.consensusMgr.Promises().GetReplicationPrimary().GetRewindReady()
+	return !pm.consensusMgr.GetReplicationPrimary().GetRewindReady()
 }
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
@@ -662,7 +662,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionFixPrimaryConnInfo:
-		rp := pm.consensusMgr.Promises().GetReplicationPrimary()
+		rp := pm.consensusMgr.GetReplicationPrimary()
 		target := rp.GetPrimary()
 		targetHost := target.GetHost()
 		targetPort := target.GetPostgresPort()
@@ -742,8 +742,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// record names us at the term we observed and that the flag was not already
 		// set; broadcast on the false->true edge so a diverged follower's recovery
 		// sees it without waiting for the next periodic snapshot.
-		term := pm.consensusMgr.Promises().GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
-		if pm.consensusMgr.Promises().MarkSelfRewindReady(pm.serviceID, term) {
+		term := pm.consensusMgr.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, term) {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
 			pm.broadcastHealth()
 		}

@@ -116,7 +116,7 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary()), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary()), nil
 }
 
 // getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
@@ -131,7 +131,7 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() *clustermetadatapb.Cons
 		return nil
 	}
 	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary())
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary())
 }
 
 // getInconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres
@@ -150,7 +150,7 @@ func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context
 		return nil, err
 	}
 	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary()), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary()), nil
 }
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
@@ -631,7 +631,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
 	// new leadership immediately.
-	pm.consensusMgr.Promises().RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	pm.consensusMgr.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
 		Rule:    proposedRule,
 		Primary: proposalLeader,
 	})
@@ -745,7 +745,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	//   - Pooler-side reconciliation: reads last-known-primary to retry
 	//     ALTER SYSTEM SET primary_conninfo if this SetPrimary arrived while
 	//     postgres was unavailable.
-	pm.consensusMgr.Promises().RecordTermPrimary(rp)
+	pm.consensusMgr.RecordTermPrimary(rp)
 
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.

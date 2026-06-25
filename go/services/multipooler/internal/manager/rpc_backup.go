@@ -177,7 +177,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	// canonical source is consensusPromises.ReplicationPrimary, populated by
 	// every RPC that informs this pooler of a primary (SetPrimary and
 	// Promote's leader path for the rare self-as-primary case).
-	primary := pm.consensusMgr.Promises().GetReplicationPrimary().GetPrimary()
+	primary := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	primaryHost := primary.GetHost()
 	primaryPort := primary.GetPostgresPort()
 	primaryPoolerID := primary.GetId()

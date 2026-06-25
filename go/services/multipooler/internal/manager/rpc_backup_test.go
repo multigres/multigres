@@ -131,7 +131,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 }
 
 // setBackupPrimary seeds the ReplicationPrimary on the test manager so the
-// backup paths that read pm.consensusMgr.Promises().GetReplicationPrimary() see a
+// backup paths that read pm.consensusMgr.GetReplicationPrimary() see a
 // configured primary. Synthetic rule at term 1 is sufficient — no consumer
 // of rp.Rule reads cohort_members or durability_policy.
 func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int32) {
@@ -140,7 +140,7 @@ func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int
 		Cell:      "zone1",
 		Name:      primaryName,
 	}
-	pm.consensusMgr.Promises().RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	pm.consensusMgr.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
 		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   id,

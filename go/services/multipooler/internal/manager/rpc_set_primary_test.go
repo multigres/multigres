@@ -201,7 +201,7 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			// future redundant SetPrimary calls. The proof that the apply
 			// branch wasn't reached is that no apply-path postgres queries
 			// were issued (ExpectationsWereMet below).
-			highest := pm.consensusMgr.Promises().GetReplicationPrimary()
+			highest := pm.consensusMgr.GetReplicationPrimary()
 			require.NotNil(t, highest, "SetPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
@@ -270,7 +270,7 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
 		"rendered primary_conninfo should reference the new primary host")
 
-	recorded := pm.consensusMgr.Promises().GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded, "primary should be recorded after standby update")
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -342,7 +342,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		"rendered primary_conninfo should reference the new primary host")
 
 	// Manager state recorded the new primary.
-	recorded := pm.consensusMgr.Promises().GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded)
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -427,7 +427,7 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 			// RecordTermPrimary must not have run: the (rule, leader) tuple
 			// is not the substrate multiorch should read from a refused FYI.
 			// This is also the proof the apply branch wasn't reached.
-			highest := pm.consensusMgr.Promises().GetReplicationPrimary()
+			highest := pm.consensusMgr.GetReplicationPrimary()
 			assert.Nil(t, highest, "revoked SetPrimary should not be recorded")
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -471,7 +471,7 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	require.NotNil(t, resp.ConsensusStatus)
 
 	// Override fired → RecordTermPrimary ran → the rule + primary are observable.
-	highest := pm.consensusMgr.Promises().GetReplicationPrimary()
+	highest := pm.consensusMgr.GetReplicationPrimary()
 	require.NotNil(t, highest, "override should let RecordTermPrimary persist the rule")
 	require.NotNil(t, highest.GetPrimary())
 	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)

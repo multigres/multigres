@@ -742,7 +742,7 @@ func TestPromote(t *testing.T) {
 				// ReplicationPrimary should advertise this pooler as the primary
 				// at the proposalLeader's host/port. Coordinators reading this
 				// pooler's health stream see (self, host, port).
-				rp := pm.consensusMgr.Promises().GetReplicationPrimary()
+				rp := pm.consensusMgr.GetReplicationPrimary()
 				require.NotNil(t, rp)
 				require.NotNil(t, rp.GetPrimary())
 				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))

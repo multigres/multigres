@@ -31,6 +31,7 @@ type testManagerConfig struct {
 	record               *poolerRecord
 	promises             *consensus.ConsensusPromises
 	rules                consensus.RuleStorer
+	replicationPrimary   *clustermetadatapb.ReplicationPrimary
 	cohortEligibility    clustermetadatapb.CohortEligibilitySignal
 	resignedLeaderAtTerm int64
 }
@@ -53,6 +54,13 @@ func withPromises(promises *consensus.ConsensusPromises) testManagerOption {
 
 func withRuleStore(rules consensus.RuleStorer) testManagerOption {
 	return func(c *testManagerConfig) { c.rules = rules }
+}
+
+// withReplicationPrimary records a ReplicationPrimary on the manager at
+// construction (via RecordTermPrimary), seeding the recorded primary/leader the
+// consensus decision paths read.
+func withReplicationPrimary(rp *clustermetadatapb.ReplicationPrimary) testManagerOption {
+	return func(c *testManagerConfig) { c.replicationPrimary = rp }
 }
 
 func withCohortEligibility(signal clustermetadatapb.CohortEligibilitySignal) testManagerOption {
@@ -84,7 +92,11 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 }
 
 func (cfg *testManagerConfig) consensusManager() *consensus.ConsensusManager {
-	return consensus.NewConsensusManager(cfg.promises, cfg.rules)
+	cm := consensus.NewConsensusManager(cfg.promises, cfg.rules)
+	if cfg.replicationPrimary != nil {
+		cm.RecordTermPrimary(cfg.replicationPrimary)
+	}
+	return cm
 }
 
 // newTestManager builds a MultiPoolerManager for unit tests of the consensus
