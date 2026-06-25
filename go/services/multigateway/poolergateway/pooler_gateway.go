@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -39,7 +40,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -694,12 +694,36 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 
 // StreamReplication implements queryservice.QueryService.
 //
-// Routing the replication init to the correct (PRIMARY) pooler and pumping the
-// opaque byte stream are handled by separate, later work. This method exists so
-// PoolerGateway satisfies the QueryService interface; it is not wired up yet.
+// All replication routes to the shard's PRIMARY (consensus leader) in v1, so
+// the routing target is the init's target with PoolerType forced to PRIMARY.
+// The target proto is cloned rather than mutated in place — init belongs to the
+// caller and may be reused.
+//
+// Routes via loadBalancer.getConnection directly, NOT withBuffering: a
+// replication stream is pinned to one pooler for its lifetime, so there is
+// nothing to retry onto. A failover mid-stream is a connection-level failure
+// the caller handles by tearing the tunnel down, exactly as CopyOutStream
+// treats a live COPY stream.
 func (pg *PoolerGateway) StreamReplication(
-	_ context.Context,
-	_ *multipoolerpb.StreamReplicationInit,
+	ctx context.Context,
+	init *multipoolerpb.StreamReplicationInit,
 ) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
-	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "StreamReplication routing is not yet implemented in the gateway")
+	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
+	if target == nil {
+		target = &query.Target{}
+	}
+	target.PoolerType = clustermetadatapb.PoolerType_PRIMARY
+
+	conn, err := pg.loadBalancer.getConnection(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for replication target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().StreamReplication(ctx, init)
 }
