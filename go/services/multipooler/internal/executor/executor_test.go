@@ -147,6 +147,7 @@ type stubPoolManager struct {
 	reservedConnOK  bool
 	regularConn     regular.PooledConn
 	regularErr      error
+	newReservedConn *reserved.Conn
 	newReservedPool *reserved.Pool
 	newReservedErr  error
 }
@@ -171,6 +172,9 @@ func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string
 func (m *stubPoolManager) NewReservedConn(ctx context.Context, _ map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	if m.newReservedErr != nil {
 		return nil, m.newReservedErr
+	}
+	if m.newReservedConn != nil {
+		return m.newReservedConn, nil
 	}
 	if m.newReservedPool == nil {
 		return nil, errors.New("not implemented in test stub")
@@ -1107,6 +1111,39 @@ func TestStreamExecuteMaterializesExecuteSQLOnNewReservedConnection(t *testing.T
 
 	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
 	assert.Equal(t, "create temp table t as execute ppstmt0", server.QueryLog())
+}
+
+func TestStreamExecuteRollsBackNewReservedTransactionOnMaterializationError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			SqlPrefix: "EXECUTE ",
+		},
+	}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+	require.ErrorContains(t, err, "failed to materialize SQL EXECUTE prepared statement")
+
+	assert.Equal(t, "rollback", server.QueryLog())
 }
 
 // --- NewExecutor smoke test ---
