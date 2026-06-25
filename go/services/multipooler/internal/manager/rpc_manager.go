@@ -741,7 +741,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
 	// demote path) must run pg_rewind before trusting local WAL.
-	pm.consensusMgr.SetSuspectedDivergence(true)
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to set suspected divergence on emergency demote", "error", err)
+	}
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
@@ -799,7 +801,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
 	// pg_rewind dry-run. The caller (orch's FixReplicationAction) has already
 	// confirmed the source is rewind-ready before issuing this RPC.
-	pm.consensusMgr.SetSuspectedDivergence(true)
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to set suspected divergence in RewindToSource", "error", err)
+	}
 	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port)
 	if err != nil {
 		return nil, err
@@ -942,7 +946,9 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// dry-run detects no divergence and skips), so clearing as soon as
 		// pg_rewind returns is safe even if the restart or reconnect below
 		// fails: the next attempt will skip pg_rewind and just restart.
-		pm.consensusMgr.SetSuspectedDivergence(false)
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to clear suspected divergence after pg_rewind", "error", err)
+		}
 		// pg_rewind copies postgresql.auto.conf from source, baking source's
 		// own pooler paths into pgbackrest commands (restore_command,
 		// archive_command). Patch them back to this pooler's paths before

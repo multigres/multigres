@@ -93,30 +93,29 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 	return cfg
 }
 
-// consensusManager builds the ConsensusManager and seeds the lock-free state
-// (the recorded replication primary). A nil broadcaster means health broadcasts
-// are skipped in tests. Resignation/eligibility are seeded separately under the
-// action lock by seedLockedState, since their setters assert the action lock.
+// consensusManager builds the ConsensusManager. A nil broadcaster means health
+// broadcasts are skipped in tests. The recorded primary, resignation, and
+// eligibility are seeded separately under the action lock by seedLockedState,
+// since those setters assert the action lock.
 func (cfg *testManagerConfig) consensusManager() *consensus.ConsensusManager {
-	cm := consensus.NewConsensusManager(cfg.promises, cfg.rules, nil)
-	if cfg.replicationPrimary != nil {
-		cm.RecordTermPrimary(cfg.replicationPrimary)
-	}
-	return cm
+	return consensus.NewConsensusManager(cfg.promises, cfg.rules, nil)
 }
 
-// seedLockedState applies the resignation/eligibility overrides through the
-// action-lock-asserting setters, briefly acquiring the manager's action lock.
-// No-op when both are at their defaults.
+// seedLockedState applies the replication-primary / resignation / eligibility
+// overrides through the action-lock-asserting setters, briefly acquiring the
+// manager's action lock. No-op when all are at their defaults.
 func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManager) {
 	t.Helper()
 	eligibleDefault := clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE
-	if cfg.resignedLeaderAtTerm == 0 && cfg.cohortEligibility == eligibleDefault {
+	if cfg.replicationPrimary == nil && cfg.resignedLeaderAtTerm == 0 && cfg.cohortEligibility == eligibleDefault {
 		return
 	}
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
+	if cfg.replicationPrimary != nil {
+		require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, cfg.replicationPrimary))
+	}
 	if cfg.resignedLeaderAtTerm != 0 {
 		require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, cfg.resignedLeaderAtTerm))
 	}

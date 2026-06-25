@@ -430,7 +430,11 @@ func TestRecruit(t *testing.T) {
 		// quorum. The actual rewind happens at SetPrimary.
 		mockQueryService := mock.NewQueryService()
 		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
-		pm.consensusMgr.SetSuspectedDivergence(true)
+		seedLockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+		require.NoError(t, err)
+		_, err = pm.consensusMgr.SetSuspectedDivergence(seedLockCtx, true)
+		require.NoError(t, err)
+		pm.actionLock.Release(seedLockCtx)
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -440,7 +444,7 @@ func TestRecruit(t *testing.T) {
 				OutgoingRule:           &clustermetadatapb.RuleNumber{},
 			},
 		}
-		_, err := pm.Recruit(t.Context(), req)
+		_, err = pm.Recruit(t.Context(), req)
 		// We don't require success here (the minimal mock setup doesn't
 		// satisfy the full Recruit path); we only assert that suspectedDivergence
 		// is no longer the reason for rejection.
@@ -1012,7 +1016,11 @@ func TestAvailabilityStatus(t *testing.T) {
 	t.Run("suspectedDivergence is published", func(t *testing.T) {
 		pm := newTestManager(t)
 		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
-		pm.consensusMgr.SetSuspectedDivergence(true)
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+		require.NoError(t, err)
+		_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+		require.NoError(t, err)
+		pm.actionLock.Release(lockCtx)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
 }

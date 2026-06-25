@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,19 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
+
+// actionLockCtx returns a context holding a freshly-acquired action lock, for
+// tests that exercise ConsensusManager mutators (which assert the lock is held).
+func actionLockCtx(t *testing.T) context.Context {
+	t.Helper()
+	al := actionlock.NewActionLock()
+	ctx, err := al.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	t.Cleanup(func() { al.Release(ctx) })
+	return ctx
+}
 
 func ruleAt(term, subterm int64) *clustermetadatapb.ShardRule {
 	return &clustermetadatapb.ShardRule{
@@ -140,11 +153,12 @@ func TestRecordTermPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := actionLockCtx(t)
 			cm := NewConsensusManager(nil, nil, nil)
 			if tt.seedRule != nil {
-				cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary})
+				require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary}))
 			}
-			cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary})
+			require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary}))
 
 			got := cm.GetReplicationPrimary()
 			if tt.wantRule == nil && tt.wantPrimary == nil {
@@ -175,7 +189,7 @@ func TestRecordTermPrimary(t *testing.T) {
 // by holding the returned pointer.
 func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	cm := NewConsensusManager(nil, nil, nil)
-	cm.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)})
+	require.NoError(t, cm.RecordTermPrimary(actionLockCtx(t), &clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)}))
 
 	got := cm.GetReplicationPrimary()
 	require.NotNil(t, got)

@@ -169,10 +169,13 @@ func (cm *ConsensusManager) Rules() RuleStorer { return cm.rules }
 // Safe to call on no-op SetPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
-func (cm *ConsensusManager) RecordTermPrimary(rp *clustermetadatapb.ReplicationPrimary) {
+func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clustermetadatapb.ReplicationPrimary) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
 	rule := rp.GetRule()
 	if rule == nil {
-		return
+		return nil
 	}
 	primary := rp.GetPrimary()
 	rewindReady := rp.GetRewindReady()
@@ -180,12 +183,12 @@ func (cm *ConsensusManager) RecordTermPrimary(rp *clustermetadatapb.ReplicationP
 	defer cm.mu.Unlock()
 	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cm.replicationPrimary.GetRule().GetRuleNumber())
 	if cmp < 0 {
-		return
+		return nil
 	}
 	if cmp == 0 &&
 		(primary == nil || proto.Equal(primary, cm.replicationPrimary.GetPrimary())) &&
 		rewindReady == cm.replicationPrimary.GetRewindReady() {
-		return
+		return nil
 	}
 	// Build the next value by starting from the existing fields (via getters,
 	// which are nil-safe) and overlaying the updates we want to apply.
@@ -211,6 +214,7 @@ func (cm *ConsensusManager) RecordTermPrimary(rp *clustermetadatapb.ReplicationP
 		cm.leaderObservedAt = time.Now()
 	}
 	cm.replicationPrimary = next
+	return nil
 }
 
 // LeaderObservedAt returns when RecordTermPrimary last recorded a change of leader
@@ -252,6 +256,12 @@ func (cm *ConsensusManager) GetReplicationPrimary() *clustermetadatapb.Replicati
 // pooler currently holds non-resigned leadership is the caller's concern —
 // resignation state lives in the manager, not here.) No-op if no
 // ReplicationPrimary has been recorded yet.
+// Unlike the other mutators, MarkSelfRewindReady does NOT assert the action
+// lock: the async post-promotion checkpoint goroutine (see promoteStandbyToPrimary)
+// calls it without holding the lock. Its safety comes from mu plus the selfID /
+// expectedCoordinatorTerm guards, which ensure it only stamps the record it still
+// owns. This lock-free writer is also why replicationPrimary needs mu, not just
+// action-lock serialization.
 func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -329,8 +339,12 @@ func (cm *ConsensusManager) SuspectedDivergence() bool {
 
 // SetSuspectedDivergence sets or clears the suspected-divergence flag, returning
 // whether the value changed (so a caller clearing it can log the transition).
-func (cm *ConsensusManager) SetSuspectedDivergence(suspected bool) (changed bool) {
-	return cm.suspectedDivergence.Swap(suspected) != suspected
+// Requires the action lock (ctx must be an action-lock context).
+func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspected bool) (changed bool, err error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return false, err
+	}
+	return cm.suspectedDivergence.Swap(suspected) != suspected, nil
 }
 
 // RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric

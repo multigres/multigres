@@ -619,7 +619,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// diverged from the new leader; restartAsStandbyLocked runs pg_rewind
 		// (cheap when there's no divergence). The rewind-ready gate is enforced in
 		// staleStandbyDemoteTarget above, so by here it is safe to rewind.
-		pm.consensusMgr.SetSuspectedDivergence(true)
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set suspected divergence", "error", err)
+		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err)
 			return

@@ -1398,7 +1398,10 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
-				pm.consensusMgr.RecordTermPrimary(tt.seedRP)
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, tt.seedRP))
+				pm.actionLock.Release(lockCtx)
 			}
 			if tt.seedRevocation != nil {
 				consensustest.SeedTerm(t, tmpDir, tt.seedRevocation)

@@ -135,19 +135,23 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 // backup paths that read pm.consensusMgr.GetReplicationPrimary() see a
 // configured primary. Synthetic rule at term 1 is sufficient — no consumer
 // of rp.Rule reads cohort_members or durability_policy.
-func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int32) {
+func setBackupPrimary(t *testing.T, pm *MultiPoolerManager, primaryName, host string, port int32) {
+	t.Helper()
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
 		Name:      primaryName,
 	}
-	pm.consensusMgr.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, &clustermetadatapb.ReplicationPrimary{
 		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   id,
 		},
 		Primary: &clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
-	})
+	}))
 }
 
 // setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.
@@ -245,7 +249,7 @@ func TestBackup_Validation(t *testing.T) {
 
 			// Setup primary info for replica poolers (required for backup)
 			if tt.poolerType == clustermetadatapb.PoolerType_REPLICA {
-				setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+				setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 			}
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "", nil)
@@ -571,7 +575,7 @@ pg1-path=/tmp/pg_data
 	pm.backup.SetConfigPath(pgctldConfigPath)
 
 	// Setup primary info (required for replica backups)
-	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 
 	// Call Backup with pg2_path override for local mode
 	primaryDataPath := filepath.Join(poolerDir, "pg_data")
@@ -656,7 +660,7 @@ exit 0
 	configPath := setupMockPgBackRestConfig(t, poolerDir)
 	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 	pm.backup.SetConfigPath(configPath)
-	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 	overrides := map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")}
 
 	// First backup fails → streak 1, in-progress cleared.
@@ -702,7 +706,7 @@ exit 0
 	configPath := setupMockPgBackRestConfig(t, poolerDir)
 	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 	pm.backup.SetConfigPath(configPath)
-	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 
 	// Gauges start empty before any backup.
 	require.Zero(t, pm.backup.Health().Snapshot().CompleteCount)
@@ -899,7 +903,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 			// the "no primary info" case leaves ReplicationPrimary empty so
 			// GetPrimaryAsPg2Args returns FAILED_PRECONDITION.
 			if tt.primaryHost != "" && tt.primaryPort != 0 {
-				setBackupPrimary(pm, "test-primary", tt.primaryHost, tt.primaryPort)
+				setBackupPrimary(t, pm, "test-primary", tt.primaryHost, tt.primaryPort)
 			}
 
 			// Setup TLS certs if needed and create primary pooler in topology
@@ -987,7 +991,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-override", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-override", "primary.example.com", 5432)
 
 		// Matching primary id for the topology entry below.
 		primaryID := &clustermetadatapb.ID{
@@ -1028,7 +1032,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-no-datadir", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-no-datadir", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1059,7 +1063,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 	t.Run("local mode requires pg2_path override", func(t *testing.T) {
 		// Create manager without TLS certs (local mode)
 		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-		setBackupPrimary(pm, "test-primary-local", "localhost", 5432)
+		setBackupPrimary(t, pm, "test-primary-local", "localhost", 5432)
 
 		// Without override - should error
 		_, err := pm.GetPrimaryAsPg2Args(ctx, nil, false)
@@ -1081,7 +1085,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-override2", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-override2", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,

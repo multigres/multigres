@@ -1418,7 +1418,9 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// the consensus protocol picked this node as the new leader at a higher
 	// term, so its WAL is by definition the rule going forward. Clear the
 	// flag so the postgres monitor and other operations resume.
-	if pm.consensusMgr.SetSuspectedDivergence(false) {
+	if changed, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to clear suspected divergence before promotion", "error", err)
+	} else if changed {
 		pm.logger.InfoContext(ctx, "Cleared suspectedDivergence before promotion")
 	}
 

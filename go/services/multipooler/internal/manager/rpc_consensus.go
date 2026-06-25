@@ -568,10 +568,12 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
 	// new leadership immediately.
-	pm.consensusMgr.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
 		Rule:    proposedRule,
 		Primary: proposalLeader,
-	})
+	}); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to record replication primary after promote", "error", err)
+	}
 
 	pm.logger.InfoContext(ctx, "Promote complete",
 		"rule", commonconsensus.FormatRuleNumber(proposedRule.GetRuleNumber()),
@@ -682,7 +684,9 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	//   - Pooler-side reconciliation: reads last-known-primary to retry
 	//     ALTER SYSTEM SET primary_conninfo if this SetPrimary arrived while
 	//     postgres was unavailable.
-	pm.consensusMgr.RecordTermPrimary(rp)
+	if err := pm.consensusMgr.RecordTermPrimary(ctx, rp); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to record replication primary in SetPrimary", "error", err)
+	}
 
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
@@ -736,7 +740,9 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	if isPrimary {
-		pm.consensusMgr.SetSuspectedDivergence(true)
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
+		}
 	}
 
 	if pm.consensusMgr.SuspectedDivergence() {
