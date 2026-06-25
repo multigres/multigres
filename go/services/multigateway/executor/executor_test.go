@@ -51,7 +51,7 @@ type mockExec struct {
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	_ *querypb.PreparedStatement,
+	_ *querypb.ExecuteSqlPreparedStatement,
 	_ *handler.MultiGatewayConnectionState,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
