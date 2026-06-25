@@ -1,0 +1,91 @@
+# Known divergence: SQL PREPARE/EXECUTE uses gateway/multipooler consolidation.
+# PostgreSQL's per-session pg_prepared_statements plan counters and generic-vs-
+# custom plan transition are backend-local; Multigres may execute through a
+# canonical cached backend statement, so these observability/plan-shape outputs
+# differ while preserving query results.
+--- a
++++ b
+@@ -27,8 +27,12 @@
+ DROP TABLE pcachetest;
+ EXECUTE prepstmt;
+ ERROR: relation "pcachetest" does not exist
++LINE 1: EXECUTE prepstmt;
++^
+ EXECUTE prepstmt2(123);
+ ERROR: relation "pcachetest" does not exist
++LINE 1: EXECUTE prepstmt2(123);
++^
+ -- recreate the temp table (this demonstrates that the raw plan is
+ -- purely textual and doesn't depend on OIDs, for instance)
+ CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY 2;
+@@ -287,9 +291,8 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 0 | 0
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ -- up to 5 executions, custom plan is used
+ set plan_cache_mode to auto;
+@@ -304,9 +307,8 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 0 | 1
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ -- force generic plan
+ set plan_cache_mode to force_generic_plan;
+@@ -321,9 +323,8 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 1 | 1
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ -- get to generic plan by 5 executions
+ set plan_cache_mode to auto;
+@@ -354,9 +355,8 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 1 | 5
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ execute test_mode_pp(1); -- 5x
+ count
+@@ -367,9 +367,8 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 2 | 5
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ -- we should now get a really bad plan
+ explain (costs off) execute test_mode_pp(2);
+@@ -393,8 +392,7 @@
+ select name, generic_plans, custom_plans from pg_prepared_statements
+ where name = 'test_mode_pp';
+ name | generic_plans | custom_plans
+---------------+---------------+--------------
+-test_mode_pp | 3 | 6
+-(1 row)
++------+---------------+--------------
++(0 rows)
+ 
+ drop table test_mode;
