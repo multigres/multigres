@@ -93,8 +93,11 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		record:          newRecordFromProto(multiPooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
+		consensusMgr: consensus.NewConsensusManager(
+			consensus.NewConsensusPromises("", svcID),
+			consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}),
+		),
 	}
-	pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	return pm, mockQueryService
 }

@@ -132,7 +132,7 @@ func TestPrimaryPosition(t *testing.T) {
 			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
-			manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+			setTestRuleStore(manager, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
 
 			// Mark as initialized to skip auto-restore (not testing backup functionality)
 			err = manager.setInitialized()
@@ -212,7 +212,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+	setTestRuleStore(manager, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
 
 	// Start and wait for ready
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -390,8 +390,8 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"", "on", "5"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-		pm.rules = &fakeRuleStore{}
+		setTestRuleStore(pm, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
+		setTestRuleStore(pm, &fakeRuleStore{})
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -481,8 +481,8 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-		pm.rules = &fakeRuleStore{}
+		setTestRuleStore(pm, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
+		setTestRuleStore(pm, &fakeRuleStore{})
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -569,8 +569,8 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test", "streaming", nil, nil, nil}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-		pm.rules = &fakeRuleStore{}
+		setTestRuleStore(pm, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
+		setTestRuleStore(pm, &fakeRuleStore{})
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -640,8 +640,8 @@ func TestReplicationStatus(t *testing.T) {
 				[]string{"synchronous_standby_names", "synchronous_commit", "max_wal_senders"},
 				[][]any{{"", "on", "5"}}))
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-		pm.rules = &fakeRuleStore{
+		setTestRuleStore(pm, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
+		setTestRuleStore(pm, &fakeRuleStore{
 			pos: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -652,7 +652,7 @@ func TestReplicationStatus(t *testing.T) {
 				},
 				Lsn: "0/1000000",
 			},
-		}
+		})
 
 		status, err := pm.Status(ctx)
 		require.NoError(t, err)
@@ -727,8 +727,8 @@ func TestReplicationStatus(t *testing.T) {
 				[][]any{{"", "on", "5"}}))
 
 		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-		pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-		pm.rules = &fakeRuleStore{}
+		setTestRuleStore(pm, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
+		setTestRuleStore(pm, &fakeRuleStore{})
 
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
@@ -803,11 +803,11 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
-	manager.consensusPromises = consensus.NewConsensusPromises(poolerDir, serviceID)
+	setTestPromises(manager, consensus.NewConsensusPromises(poolerDir, serviceID))
 	manager.mu.Unlock()
 
 	// Load the term from file
-	_, err = manager.consensusPromises.Load()
+	_, err = manager.consensusMgr.Promises().Load()
 	require.NoError(t, err, "Failed to load consensus state")
 
 	// Set up mock query service
@@ -820,7 +820,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
 	// ObservePosition must succeed so UpdateCohortMembers reaches UpdateRule.
 	// updateErr simulates the history write timing out (the failure we're testing).
-	manager.rules = &fakeRuleStore{
+	setTestRuleStore(manager, &fakeRuleStore{
 		pos: &clustermetadatapb.PoolerPosition{
 			Rule: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
@@ -832,7 +832,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 			},
 		},
 		updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"),
-	}
+	})
 
 	err = manager.setInitialized()
 	require.NoError(t, err)
@@ -934,7 +934,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 
 	// Assign mock pooler controller BEFORE opening to avoid race conditions
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+	setTestRuleStore(manager, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
 
 	// Simulate the manager being open and ready (set internal state without starting goroutines)
 	manager.mu.Lock()
@@ -1056,7 +1056,7 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	require.NoError(t, manager.setInitialized())
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+	setTestRuleStore(manager, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
 
 	manager.mu.Lock()
 	manager.isOpen = true
@@ -1172,7 +1172,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	require.NoError(t, manager.setInitialized())
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
-	manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
+	setTestRuleStore(manager, consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}))
 
 	manager.mu.Lock()
 	manager.isOpen = true

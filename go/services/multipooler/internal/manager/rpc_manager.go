@@ -315,7 +315,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	poolerStatus.WalPosition = walPosition
 
 	// Get cohort members from the current rule (best-effort).
-	if pos, err := pm.rules.ObservePosition(ctx); err != nil {
+	if pos, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
 	} else if pos.Rule != nil {
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
@@ -441,7 +441,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// === Parse Current Configuration ===
 
 	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.rules.ObservePosition(ctx)
+	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return err
 	}
@@ -926,7 +926,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// seconds when we had to defer the rewind waiting for that checkpoint. Emit
 		// once per leader change so a rewind that fails and is re-attempted against
 		// the same leader is not double-counted.
-		if observedAt := pm.consensusPromises.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
+		if observedAt := pm.consensusMgr.Promises().LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
 			pm.rewindWaitEmittedFor = observedAt
 			waited := time.Since(observedAt)
 			pm.logger.InfoContext(ctx, "Proceeding with pg_rewind; leader is rewind-ready",

@@ -112,15 +112,14 @@ type MultiPoolerManager struct {
 	// exclusively written through record.Mutate (today only by StateManager);
 	// the remaining fields are immutable after construction and exposed via
 	// typed accessors that read without locking.
-	record            *poolerRecord
-	state             ManagerState
-	stateError        error
-	consensusPromises *consensus.ConsensusPromises
-	topoLoaded        bool
-	rules             consensus.RuleStorer
-	ctx               context.Context
-	cancel            context.CancelFunc
-	loadTimeout       time.Duration
+	record       *poolerRecord
+	state        ManagerState
+	stateError   error
+	consensusMgr *consensus.ConsensusManager
+	topoLoaded   bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	loadTimeout  time.Duration
 
 	// shutdownCtx is cancelled at the end of GracefulShutdown to signal
 	// long-lived subscribers (currently the health-stream gRPC handlers via
@@ -343,9 +342,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
-	pm.consensusPromises = consensus.NewConsensusPromises(pm.record.PoolerDir(), pm.serviceID)
+	promises := consensus.NewConsensusPromises(pm.record.PoolerDir(), pm.serviceID)
 	if config.ConsensusEnabled {
-		if _, err := pm.consensusPromises.Load(); err != nil {
+		if _, err := promises.Load(); err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
 		}
@@ -358,7 +357,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	pm.rules = consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
+	rules := consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
+	pm.consensusMgr = consensus.NewConsensusManager(promises, rules)
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -401,7 +401,7 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 func (pm *MultiPoolerManager) DoUpdateRule(ctx context.Context, update *consensus.RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	ruleWriteCtx, ruleWriteSpan := telemetry.Tracer().Start(ctx, "consensus/rule-write")
 	defer ruleWriteSpan.End()
-	return pm.rules.UpdateRule(ruleWriteCtx, update)
+	return pm.consensusMgr.Rules().UpdateRule(ruleWriteCtx, update)
 }
 
 // query executes a query using the internal query service and returns the result.
@@ -1434,7 +1434,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
-		if pm.consensusPromises.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
+		if pm.consensusMgr.Promises().MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
 			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
 			pm.broadcastHealth()
 		}

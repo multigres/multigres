@@ -107,16 +107,16 @@ func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replic
 // Returns an error if postgres is unreachable, since a partial status (term revocation
 // without current_position) could mislead callers about this pooler's rule position.
 func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	revocation, err := pm.consensusPromises.GetRevocation(ctx)
+	revocation, err := pm.consensusMgr.Promises().GetRevocation(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read consensus term: %w", err)
 	}
 
-	pos, err := pm.rules.ObservePosition(ctx)
+	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusPromises.GetReplicationPrimary()), nil
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary()), nil
 }
 
 // getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
@@ -126,12 +126,12 @@ func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clusterm
 // Returns nil if no position has been cached yet (i.e. ObservePosition or UpdateRule
 // has never been called).
 func (pm *MultiPoolerManager) getCachedConsensusStatus() *clustermetadatapb.ConsensusStatus {
-	pos := pm.rules.CachedPosition()
+	pos := pm.consensusMgr.Rules().CachedPosition()
 	if pos == nil {
 		return nil
 	}
-	revocation := pm.consensusPromises.GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusPromises.GetReplicationPrimary())
+	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary())
 }
 
 // getInconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres
@@ -145,12 +145,12 @@ func (pm *MultiPoolerManager) getCachedConsensusStatus() *clustermetadatapb.Cons
 // to derive the last-known position — rather than this returning stale data
 // silently.
 func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	pos, err := pm.rules.ObservePosition(ctx)
+	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return nil, err
 	}
-	revocation := pm.consensusPromises.GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusPromises.GetReplicationPrimary()), nil
+	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
+	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.Promises().GetReplicationPrimary()), nil
 }
 
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
@@ -401,7 +401,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	}
 	{
 		acceptCtx, acceptSpan := telemetry.Tracer().Start(ctx, "consensus/accept-revocation")
-		err = pm.consensusPromises.AcceptRevocation(acceptCtx, stableStatus, revocation)
+		err = pm.consensusMgr.Promises().AcceptRevocation(acceptCtx, stableStatus, revocation)
 		acceptSpan.End()
 	}
 	if err != nil {
@@ -631,7 +631,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
 	// new leadership immediately.
-	pm.consensusPromises.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	pm.consensusMgr.Promises().RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
 		Rule:    proposedRule,
 		Primary: proposalLeader,
 	})
@@ -725,7 +725,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	// the cohort will reconverge as it makes progress. Returning the cached
 	// status keeps the response shape consistent with the "incoming rule
 	// not higher" no-op below.
-	revocation, err := pm.consensusPromises.GetRevocation(ctx)
+	revocation, err := pm.consensusMgr.Promises().GetRevocation(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read revocation while validating SetPrimary")
 	}
@@ -745,11 +745,11 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	//   - Pooler-side reconciliation: reads last-known-primary to retry
 	//     ALTER SYSTEM SET primary_conninfo if this SetPrimary arrived while
 	//     postgres was unavailable.
-	pm.consensusPromises.RecordTermPrimary(rp)
+	pm.consensusMgr.Promises().RecordTermPrimary(rp)
 
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
-	selfPos, err := pm.rules.ObservePosition(ctx)
+	selfPos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to observe local position")
 	}
@@ -830,7 +830,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		// Route it through the rule store's SyncStandbyManager (not a direct
 		// ALTER SYSTEM) so the manager stays the sole writer and its cache stays
 		// coherent.
-		if err := pm.rules.ClearSyncStandby(ctx); err != nil {
+		if err := pm.consensusMgr.Rules().ClearSyncStandby(ctx); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to clear synchronous replication after demotion", "error", err)
 		}
 	} else {

@@ -177,7 +177,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	// canonical source is consensusPromises.ReplicationPrimary, populated by
 	// every RPC that informs this pooler of a primary (SetPrimary and
 	// Promote's leader path for the rare self-as-primary case).
-	primary := pm.consensusPromises.GetReplicationPrimary().GetPrimary()
+	primary := pm.consensusMgr.Promises().GetReplicationPrimary().GetPrimary()
 	primaryHost := primary.GetHost()
 	primaryPort := primary.GetPostgresPort()
 	primaryPoolerID := primary.GetId()
@@ -372,7 +372,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// re-established the query-service connection, so observe the position now
 	// rather than leaving the cache stale until the next monitor tick. A failure
 	// here is non-fatal — the next ObservePosition will refresh it.
-	if _, err := pm.rules.ObservePosition(ctx); err != nil {
+	if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
 	}
 

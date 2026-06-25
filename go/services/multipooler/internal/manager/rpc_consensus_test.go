@@ -97,7 +97,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	// Assign mock pooler controller and rule store BEFORE starting the manager
 	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = rules
+	setTestRuleStore(pm, rules)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -117,7 +117,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 
 	// Initialize consensus state
 	pm.mu.Lock()
-	pm.consensusPromises = consensus.NewConsensusPromises(tmpDir, serviceID)
+	setTestPromises(pm, consensus.NewConsensusPromises(tmpDir, serviceID))
 	pm.mu.Unlock()
 
 	return pm, tmpDir
@@ -390,7 +390,7 @@ func TestRecruit(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
 			consensustest.SeedTerm(t, tmpDir, tt.initialRevocation)
-			_, err := pm.consensusPromises.Load()
+			_, err := pm.consensusMgr.Promises().Load()
 			require.NoError(t, err)
 
 			if tt.makeFilesystemReadOnly {
@@ -416,7 +416,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted := pm.consensusPromises.GetInconsistentRevocation()
+			persisted := pm.consensusMgr.Promises().GetInconsistentRevocation()
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
@@ -742,7 +742,7 @@ func TestPromote(t *testing.T) {
 				// ReplicationPrimary should advertise this pooler as the primary
 				// at the proposalLeader's host/port. Coordinators reading this
 				// pooler's health stream see (self, host, port).
-				rp := pm.consensusPromises.GetReplicationPrimary()
+				rp := pm.consensusMgr.Promises().GetReplicationPrimary()
 				require.NotNil(t, rp)
 				require.NotNil(t, rp.GetPrimary())
 				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))
@@ -879,7 +879,7 @@ func TestPromote(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
 			consensustest.SeedTerm(t, tmpDir, tt.initialTerm)
-			_, err := pm.consensusPromises.Load()
+			_, err := pm.consensusMgr.Promises().Load()
 			require.NoError(t, err)
 
 			if tt.preRun != nil {
@@ -939,7 +939,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		setupMocks(m)
 		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
 		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
-		_, err := pm.consensusPromises.Load()
+		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
 		_, err = pm.Promote(t.Context(), req)
 		return m, err
