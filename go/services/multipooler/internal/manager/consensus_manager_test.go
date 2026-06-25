@@ -17,13 +17,59 @@ package manager
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 )
+
+// forTestOption configures NewMultiPoolerManagerForTesting.
+type forTestOption func(*forTestConfig)
+
+type forTestConfig struct {
+	qsc   poolerserver.PoolerController
+	rules consensus.RuleStorer
+}
+
+// withMockController injects a query-pooler controller (a mock query service)
+// instead of the one the constructor would build. The consensus rule store is
+// built over its InternalQueryService(), so this also points the rule store at
+// the mock.
+func withMockController(qsc poolerserver.PoolerController) forTestOption {
+	return func(c *forTestConfig) { c.qsc = qsc }
+}
+
+// withFakeRules injects a fake rule store: the manager is built through the real
+// constructor but its ConsensusManager uses this RuleStorer instead of a real
+// store over postgres.
+func withFakeRules(rules consensus.RuleStorer) forTestOption {
+	return func(c *forTestConfig) { c.rules = rules }
+}
+
+// NewMultiPoolerManagerForTesting builds a MultiPoolerManager through the real
+// constructor path (topology record, health streamer, lifecycle, etc.) while
+// letting a test inject a mock query-pooler controller and/or a fake rule store.
+// It replaces the old build-then-swap pattern (a manual pm.qsc assignment plus
+// setTestRuleStore/setTestPromises).
+func NewMultiPoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clustermetadatapb.MultiPooler, config *Config, opts ...forTestOption) (*MultiPoolerManager, error) {
+	t.Helper()
+	var c forTestConfig
+	for _, o := range opts {
+		o(&c)
+	}
+	ov := overrides{qsc: c.qsc}
+	if c.rules != nil {
+		// Build the ConsensusManager with the fake rule store. Promises is rooted
+		// at the pooler dir; no broadcaster (these tests don't assert broadcasts).
+		promises := consensus.NewConsensusPromises(mp.GetPoolerDir(), mp.GetId())
+		ov.consensusMgr = consensus.NewManagerForTesting(t, promises, c.rules, nil)
+	}
+	return newMultiPoolerManager(logger, mp, config, 5*time.Minute, ov)
+}
 
 // testManagerConfig collects the consensus-related inputs a test wants to inject
 // into a MultiPoolerManager. Defaults are filled in by newTestManager, so a test
@@ -141,20 +187,4 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	}
 	cfg.seedLockedState(t, pm)
 	return pm
-}
-
-// setTestRuleStore swaps the rule store of an already-constructed manager,
-// preserving its promises. Used by tests that build a manager via the real
-// NewMultiPoolerManager and then point the rule store at a mock query service.
-// (The rebuilt manager drops the broadcaster — acceptable since these tests
-// don't assert health broadcasts; this bridge goes away with the deferred
-// dependency-injection refactor.)
-func setTestRuleStore(t *testing.T, pm *MultiPoolerManager, rules consensus.RuleStorer) {
-	pm.consensusMgr = consensus.NewManagerForTesting(t, pm.consensusMgr.Promises(), rules, nil)
-}
-
-// setTestPromises swaps the durable-promise store of an already-constructed
-// manager, preserving its rule store.
-func setTestPromises(t *testing.T, pm *MultiPoolerManager, promises *consensus.ConsensusPromises) {
-	pm.consensusMgr = consensus.NewManagerForTesting(t, promises, pm.consensusMgr.Rules(), nil)
 }

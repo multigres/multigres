@@ -226,6 +226,25 @@ func NewMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
+	return newMultiPoolerManager(logger, multiPooler, config, loadTimeout, overrides{})
+}
+
+// overrides carries test-only injections for the constructor core. Its zero
+// value is the production path; tests populate it via NewMultiPoolerManagerForTesting.
+type overrides struct {
+	// qsc, when non-nil, replaces the query-pooler server the constructor would
+	// otherwise build (so tests can supply a mock query service). The consensus
+	// rule store is built over qsc.InternalQueryService(), so injecting a mock
+	// here also points the rule store at the mock.
+	qsc poolerserver.PoolerController
+	// consensusMgr, when non-nil, replaces the ConsensusManager the constructor
+	// would otherwise build (so tests can supply one with a fake rule store).
+	consensusMgr *consensus.ConsensusManager
+}
+
+// newMultiPoolerManager is the constructor core shared by the production
+// constructors and the test constructor. ov is the zero value in production.
+func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration, ov overrides) (*MultiPoolerManager, error) {
 	// Validate required multiPooler fields
 	if multiPooler == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multiPooler is required")
@@ -320,23 +339,32 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
+	if ov.qsc != nil {
+		pm.qsc = ov.qsc
+	} else {
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
+	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
 	// sync-standby manager). LoadPromises loads the persisted term from disk on
 	// the consensus-enabled path; a missing file means term=0 (new node), and
-	// only an actual read/parse error fails the constructor.
-	pm.consensusMgr, err = consensus.NewConsensusManager(consensus.Deps{
-		Logger:       pm.logger,
-		QueryService: pm.qsc.InternalQueryService(),
-		PoolerDir:    pm.record.PoolerDir(),
-		ID:           multiPooler.Id,
-		Broadcaster:  pm.healthStreamer,
-		LoadPromises: config.ConsensusEnabled,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
+	// only an actual read/parse error fails the constructor. A test may inject a
+	// pre-built ConsensusManager (e.g. with a fake rule store) instead.
+	if ov.consensusMgr != nil {
+		pm.consensusMgr = ov.consensusMgr
+	} else {
+		pm.consensusMgr, err = consensus.NewConsensusManager(consensus.Deps{
+			Logger:       pm.logger,
+			QueryService: pm.qsc.InternalQueryService(),
+			PoolerDir:    pm.record.PoolerDir(),
+			ID:           multiPooler.Id,
+			Broadcaster:  pm.healthStreamer,
+			LoadPromises: config.ConsensusEnabled,
+		})
+		if err != nil {
+			cancel()
+			return nil, err
+		}
 	}
 
 	// The health streamer must wait for the query server to update its type before

@@ -53,11 +53,10 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 		},
 		PoolerDir: t.TempDir(),
 	}
-	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
-	require.NoError(t, err)
-	// Swap in a fake rule store so tests that exercise ObservePosition /
+	// Inject a fake rule store so tests that exercise ObservePosition /
 	// CachedPosition don't crash on the real store's nil query service.
-	setTestRuleStore(t, pm, &fakeRuleStore{})
+	pm, err := NewMultiPoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(&fakeRuleStore{}))
+	require.NoError(t, err)
 	return pm
 }
 

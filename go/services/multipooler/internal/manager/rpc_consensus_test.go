@@ -90,14 +90,15 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		TopoClient: ts,
 		PgctldAddr: pgctldAddr,
 	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
+	// Build through the real constructor with the mock query service and fake
+	// rule store injected, so the consensus manager (promises rooted at tmpDir
+	// via PoolerDir, rule store = the fake) is wired correctly from the start.
+	pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(rules),
+	)
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
-
-	// Assign mock pooler controller and rule store BEFORE starting the manager
-	// to avoid race conditions.
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	setTestRuleStore(t, pm, rules)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -114,11 +115,6 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-
-	// Initialize consensus state
-	pm.mu.Lock()
-	setTestPromises(t, pm, consensus.NewConsensusPromises(tmpDir, serviceID))
-	pm.mu.Unlock()
 
 	return pm, tmpDir
 }
