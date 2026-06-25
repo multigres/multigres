@@ -157,10 +157,6 @@ type RecoveryAction interface {
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
 
-	// Priority returns the priority of this recovery action.
-	// Higher priority actions are attempted first.
-	Priority() Priority
-
 	// GracePeriod returns the grace period configuration for this action.
 	// Returns nil if no grace period is needed (action executes immediately).
 	GracePeriod() *GracePeriodConfig
