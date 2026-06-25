@@ -1414,6 +1414,15 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
 
+	// TODO: Kicking off a checkpoint here is useful, but there's still a race condition where attempting
+	// to pg_rewind against a new primary before the checkpoint completes could crash the replica.
+	// There will be a follow-up PR soon to wait until the new primary is ready to be rewound against.
+	go func() {
+		if err := pm.exec(pm.ctx, "CHECKPOINT"); err != nil {
+			pm.logger.WarnContext(pm.ctx, "Async post-promotion checkpoint failed", "error", err)
+		}
+	}()
+
 	// Wait for promotion to complete: pg_is_in_recovery()=false AND postgres_ready=true.
 	// Keeping promotionInProgress set until postgres_ready ensures multiorch suppresses
 	// PrimaryIsDead for the full window — including the gap between pg_is_in_recovery()=false
