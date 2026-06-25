@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 
@@ -751,6 +752,67 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	return nil
+}
+
+// StreamReplication opens a bidi replication tunnel to the multipooler, sends
+// the Init message, and waits for the backend to be opened. On the first
+// server message it either returns the live stream (Ready) for the caller to
+// pump opaque replication bytes through, or surfaces the backend's structured
+// PG error (Error). The actual byte-pumping and routing are the caller's
+// responsibility — this method only performs the open handshake.
+func (g *grpcQueryService) StreamReplication(
+	ctx context.Context,
+	init *multipoolerservice.StreamReplicationInit,
+) (multipoolerservice.MultiPoolerService_StreamReplicationClient, error) {
+	g.logger.DebugContext(ctx, "opening replication stream",
+		"pooler_id", g.poolerID,
+		"mode", init.GetMode().String(),
+		"user", init.GetUser())
+
+	stream, err := g.client.StreamReplication(ctx)
+	if err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to open replication stream")
+	}
+
+	// Tear the stream down on any error before we hand it back to the caller.
+	success := false
+	defer func() {
+		if !success {
+			_ = stream.CloseSend()
+			// Drain a pending response to let the server clean up.
+			_, _ = stream.Recv()
+		}
+	}()
+
+	// The Init message MUST be the first message on the stream.
+	if err := stream.Send(&multipoolerservice.StreamReplicationRequest{
+		Msg: &multipoolerservice.StreamReplicationRequest_Init{Init: init},
+	}); err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send replication Init")
+	}
+
+	// Await the backend-opened handshake.
+	resp, err := stream.Recv()
+	if err != nil {
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive replication Ready")
+	}
+
+	// A structured backend error: surface the PgDiagnostic directly so the
+	// gateway re-emits a verbatim ErrorResponse to the client.
+	if replErr := resp.GetError(); replErr != nil {
+		if diag := replErr.GetDiagnostic(); diag != nil {
+			return nil, mterrors.PgDiagnosticFromProto(diag)
+		}
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication stream returned an error without a diagnostic")
+	}
+
+	if resp.GetReady() == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "expected Ready as the first replication response")
+	}
+
+	success = true
+	g.logger.DebugContext(ctx, "replication stream ready", "pooler_id", g.poolerID)
+	return stream, nil
 }
 
 // copyErrorFromResp builds an error from a CopyBidiExecuteResponse_ERROR

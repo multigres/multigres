@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -689,4 +690,16 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+}
+
+// StreamReplication implements queryservice.QueryService.
+//
+// Routing the replication init to the correct (PRIMARY) pooler and pumping the
+// opaque byte stream are handled by separate, later work. This method exists so
+// PoolerGateway satisfies the QueryService interface; it is not wired up yet.
+func (pg *PoolerGateway) StreamReplication(
+	_ context.Context,
+	_ *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "StreamReplication routing is not yet implemented in the gateway")
 }

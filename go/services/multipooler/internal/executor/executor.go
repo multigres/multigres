@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -2031,6 +2032,18 @@ func (e *Executor) ReleaseReservedConnection(
 		"cleanup_failed", cleanupFailed)
 
 	return nil
+}
+
+// StreamReplication implements queryservice.QueryService.
+//
+// Replication is served as a dedicated bidi RPC by the pooler's gRPC service,
+// not through the executor's query path. The executor satisfies the interface
+// only so callers can treat it uniformly; this method is never invoked here.
+func (e *Executor) StreamReplication(
+	_ context.Context,
+	_ *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "StreamReplication is not served via the executor")
 }
 
 // Ensure Executor implements queryservice.QueryService
