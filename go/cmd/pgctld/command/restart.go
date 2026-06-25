@@ -170,6 +170,7 @@ func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	config.PostgresConfigTemplate = r.pgCtlCmd.postgresConfigTmpl.Get()
 	result, err := RestartPostgreSQLWithResult(r.pgCtlCmd.lg.GetLogger(), config, r.mode.Get(), r.asStandby.Get())
 	if err != nil {
 		return err

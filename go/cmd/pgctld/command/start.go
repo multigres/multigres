@@ -111,6 +111,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	config.Password = password
+	config.PostgresConfigTemplate = s.pgCtlCmd.postgresConfigTmpl.Get()
 
 	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
@@ -143,6 +144,13 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		}
 
 		return result, nil
+	}
+
+	// Re-render postgresql.conf from the configured template (no-op unless
+	// --postgres-config-template is set). The data directory persists across
+	// restarts, so this is how updated template/ConfigMap values get applied.
+	if err := pgctld.RegenerateConfigFromTemplate(config.PostgresConfigTemplate, config.User); err != nil {
+		return nil, fmt.Errorf("failed to re-render postgresql.conf from template: %w", err)
 	}
 
 	// Ensure Unix socket directory exists before starting PostgreSQL

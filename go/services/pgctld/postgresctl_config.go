@@ -34,6 +34,10 @@ type PostgresCtlConfig struct {
 	PoolerDir             string
 	ListenAddresses       string
 	UnixSocketDirectories string
+	// PostgresConfigTemplate is the path passed to --postgres-config-template, or
+	// "" when unset. When non-empty, postgresql.conf is re-rendered from this file
+	// on every start so template/ConfigMap changes are applied on restart.
+	PostgresConfigTemplate string
 }
 
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
