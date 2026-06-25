@@ -797,7 +797,8 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 
 	// RewindToSource is an explicit "this WAL is suspect, rewind it" request from
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
-	// pg_rewind dry-run.
+	// pg_rewind dry-run. The caller (orch's FixReplicationAction) has already
+	// confirmed the source is rewind-ready before issuing this RPC.
 	pm.suspectedDivergence.Store(true)
 	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port)
 	if err != nil {
@@ -898,6 +899,15 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
+	// Callers must only reach here once the source (the new leader) is
+	// rewind-ready — it has checkpointed onto its current timeline. See the
+	// rewind_ready gates in setPrimaryLocked, the monitor's demote-stale-primary
+	// path, and FixReplicationAction. This matters because restarting a diverged
+	// node as a standby of the source without first rewinding would FATAL on the
+	// node's own un-replicated WAL (it forked off the old timeline past where the
+	// surviving timeline branched), so we never restart-without-rewind here; the
+	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
+	// is suspected.
 	wantRewind := pm.suspectedDivergence.Load()
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
@@ -909,6 +919,21 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	}
 
 	if wantRewind {
+		// Record how long this rewind waited for the source leader to become
+		// rewind-ready, measured from when we learned of this leader
+		// (RecordTermPrimary). ~0 when the leader was already rewind-ready by the
+		// time we learned of it (its post-promotion checkpoint had completed);
+		// seconds when we had to defer the rewind waiting for that checkpoint. Emit
+		// once per leader change so a rewind that fails and is re-attempted against
+		// the same leader is not double-counted.
+		if observedAt := pm.consensusState.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
+			pm.rewindWaitEmittedFor = observedAt
+			waited := time.Since(observedAt)
+			pm.logger.InfoContext(ctx, "Proceeding with pg_rewind; leader is rewind-ready",
+				"waited_for_rewind_ready", waited.String(),
+				"source_host", sourceHost, "source_port", sourcePort)
+			pm.metrics.recordRewindCheckpointWait(ctx, waited)
+		}
 		rewindPerformed, err = pm.runPgRewind(ctx, sourceHost, sourcePort)
 		if err != nil {
 			return false, mterrors.Wrap(err, "pg_rewind")

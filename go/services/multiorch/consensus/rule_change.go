@@ -365,8 +365,10 @@ func (r *coordinatorLedRuleChange) promote(
 	}
 	proposal := req.GetProposal()
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetPrimaryRequest{
-		Leader: proposal.GetProposalLeader(),
-		Rule:   proposal.GetProposedRule(),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    proposal.GetProposedRule(),
+			Primary: proposal.GetProposalLeader(),
+		},
 	})
 	return err
 }

@@ -237,14 +237,16 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					// the standby branch fires.
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-						Leader: &clustermetadatapb.PoolerAddress{
-							Id:           primaryID,
-							Host:         "localhost",
-							PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-						},
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
-							LeaderId:   primaryID,
+						ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+							Rule: &clustermetadatapb.ShardRule{
+								RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
+								LeaderId:   primaryID,
+							},
+							Primary: &clustermetadatapb.PoolerAddress{
+								Id:           primaryID,
+								Host:         "localhost",
+								PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+							},
 						},
 					})
 					require.NoError(t, err, "Should be able to configure replication after restore")
@@ -650,14 +652,16 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
 				_, err = standbyRestoreConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-					Leader: &clustermetadatapb.PoolerAddress{
-						Id:           primaryID,
-						Host:         "localhost",
-						PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-					},
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-						LeaderId:   primaryID,
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+							LeaderId:   primaryID,
+						},
+						Primary: &clustermetadatapb.PoolerAddress{
+							Id:           primaryID,
+							Host:         "localhost",
+							PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+						},
 					},
 				})
 				require.NoError(t, err, "Should be able to configure replication after restore")

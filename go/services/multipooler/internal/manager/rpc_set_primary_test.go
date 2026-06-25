@@ -61,20 +61,22 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 	}{
 		{
 			name:           "NilLeader",
-			req:            &consensusdatapb.SetPrimaryRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
-			expectErrMatch: "leader is required",
+			req:            &consensusdatapb.SetPrimaryRequest{ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Rule: ruleAtTermForLeader(validLeader, 5)}},
+			expectErrMatch: "replication_primary.primary is required",
 		},
 		{
 			name:           "NilRule",
-			req:            &consensusdatapb.SetPrimaryRequest{Leader: validLeader},
-			expectErrMatch: "rule is required",
+			req:            &consensusdatapb.SetPrimaryRequest{ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Primary: validLeader}},
+			expectErrMatch: "replication_primary.rule is required",
 		},
 		{
 			name: "RuleMissingLeaderId",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: validLeader,
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					},
+					Primary: validLeader,
 				},
 			},
 			expectErrMatch: "rule.leader_id is required",
@@ -82,12 +84,14 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 		{
 			name: "LeaderIdMismatchesRule",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: validLeader,
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-					LeaderId: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "different",
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+						LeaderId: &clustermetadatapb.ID{
+							Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "different",
+						},
 					},
+					Primary: validLeader,
 				},
 			},
 			expectErrMatch: "does not match rule.leader_id",
@@ -95,16 +99,20 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 		{
 			name: "MissingHost",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
-				Rule:   ruleAtTermForLeader(validLeader, 5),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(validLeader, 5),
+					Primary: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
+				},
 			},
 			expectErrMatch: "leader host is required",
 		},
 		{
 			name: "MissingPostgresPort",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
-				Rule:   ruleAtTermForLeader(validLeader, 5),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(validLeader, 5),
+					Primary: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
+				},
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
@@ -121,8 +129,10 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 			req: func() *consensusdatapb.SetPrimaryRequest {
 				selfLeader := newLeaderAddress("test-pooler", "host", 5432)
 				return &consensusdatapb.SetPrimaryRequest{
-					Leader: selfLeader,
-					Rule:   ruleAtTermForLeader(selfLeader, 5),
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Rule:    ruleAtTermForLeader(selfLeader, 5),
+						Primary: selfLeader,
+					},
 				}
 			}(),
 			expectErrMatch: "leader is self; designated leaders are appointed via Promote",
@@ -176,8 +186,10 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			incomingRule := tt.incomingPos.GetRule()
 			incomingRule.LeaderId = leader.GetId()
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   incomingRule,
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    incomingRule,
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.NoError(t, err)
@@ -242,8 +254,13 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 10),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 10),
+			Primary: leader,
+			// Leader is rewind-ready, so a stale-primary demote proceeds rather than
+			// deferring the pg_rewind (no-op for the standby-update path).
+			RewindReady: true,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -307,8 +324,13 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 10),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 10),
+			Primary: leader,
+			// Leader is rewind-ready, so a stale-primary demote proceeds rather than
+			// deferring the pg_rewind (no-op for the standby-update path).
+			RewindReady: true,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -392,8 +414,10 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(leader, tt.incomingTerm),
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.NoError(t, err, "SetPrimary should silently ignore revoked rules")
@@ -436,8 +460,10 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 3),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 3),
+			Primary: leader,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -532,8 +558,10 @@ func TestSetPrimary_ApplyPathErrors(t *testing.T) {
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   ruleAtTermForLeader(leader, 10),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(leader, 10),
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.Error(t, err)
