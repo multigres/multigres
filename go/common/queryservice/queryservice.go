@@ -241,6 +241,8 @@ type QueryService interface {
 	//     pin on the reserved connection (historical "release all" semantics).
 	//     When false, only the named pins in releasePortalNames are released.
 	//     Ignored on COMMIT.
+	//   chain: when true, execute COMMIT/ROLLBACK AND CHAIN and keep the
+	//     transaction reservation active on the same backend.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
 	ConcludeTransaction(
@@ -250,6 +252,7 @@ type QueryService interface {
 		conclusion multipoolerpb.TransactionConclusion,
 		releasePortalNames []string,
 		releaseAllPortals bool,
+		chain bool,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes

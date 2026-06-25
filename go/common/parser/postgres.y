@@ -11997,10 +11997,23 @@ set_rest_more:
 					}
 					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "client_encoding", args, false)
 				}
-		|	ROLE NonReservedWord_or_Sconst
+		|	ROLE DEFAULT
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "role", nil, false)
+				}
+		|	ROLE Sconst
 				{
 					args := ast.NewNodeList(ast.NewString($2))
 					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "role", args, false)
+				}
+		|	ROLE NonReservedWord
+				{
+					if strings.EqualFold($2, "none") {
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "role", nil, false)
+					} else {
+						args := ast.NewNodeList(ast.NewString($2))
+						$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "role", args, false)
+					}
 				}
 		|	SESSION AUTHORIZATION NonReservedWord_or_Sconst
 				{

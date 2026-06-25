@@ -119,7 +119,7 @@ func (g *GatewaySessionState) StreamExecute(
 	// Without this guard, isLocalSet would persist for the lifetime of the
 	// connection because no COMMIT/ROLLBACK ever fires to clear it.
 	if g.isLocal && !conn.IsInTransaction() {
-		warning := mterrors.NewPgNotice("WARNING", "25P01",
+		warning := mterrors.NewPgNotice("WARNING", mterrors.PgSSNoActiveTransaction,
 			"SET LOCAL can only be used in transaction blocks", "")
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: commandTag,

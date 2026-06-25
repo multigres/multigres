@@ -328,7 +328,7 @@
   {
     "comment": "psql - Statement 70",
     "query": "set role to default",
-    "expected": "SET role = DEFAULT"
+    "expected": "SET ROLE DEFAULT"
   },
   {
     "comment": "psql - Statement 71",
