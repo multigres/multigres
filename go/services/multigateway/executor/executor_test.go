@@ -113,6 +113,10 @@ func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, 
 	return nil, nil
 }
 
+func (m *mockExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func newTestExecutor(mock *mockExec) *Executor {
 	logger := slog.Default()
 	txnMetrics, _ := engine.NewTransactionMetrics()

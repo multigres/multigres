@@ -97,6 +97,10 @@ func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, stri
 	return nil, nil
 }
 
+func (m *mockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
@@ -125,6 +129,10 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 
 func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockHandlerExecutor) StreamReplication(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // testSetup bundles the objects needed for prepared statement planner tests.

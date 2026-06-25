@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -342,6 +343,24 @@ func (e *Executor) Describe(
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
+}
+
+// StreamReplication routes a logical-replication connection to the PRIMARY
+// pooler for the default tablegroup/shard and returns the live bidi stream.
+// Replication bypasses query planning entirely, so this just forwards to the
+// execution backend with the default routing target.
+func (e *Executor) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	e.logger.DebugContext(ctx, "stream replication",
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	return e.exec.StreamReplication(ctx, conn, e.planner.GetDefaultTableGroup(), constants.DefaultShard, state, init)
 }
 
 // ReleaseAll releases all reserved connections, regardless of reservation reason.

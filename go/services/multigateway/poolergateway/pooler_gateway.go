@@ -53,6 +53,12 @@ type Gateway interface {
 
 	// QueryServiceByID returns a QueryService
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
+
+	// StreamReplication opens a pinned replication tunnel to the PRIMARY pooler
+	// for the init's target, sends the Init, awaits Ready, and returns the live
+	// bidi stream. Unlike the query path it is not buffered across failover: a
+	// replication stream is pinned to one pooler for its lifetime.
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error)
 }
 
 // errorAction classifies whether an error should trigger buffering.

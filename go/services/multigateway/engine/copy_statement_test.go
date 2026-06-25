@@ -201,6 +201,17 @@ func (m *mockIExecute) CopyOutStream(
 	return m.copyOutStreamResult, nil
 }
 
+func (m *mockIExecute) StreamReplication(
+	context.Context,
+	*server.Conn,
+	string,
+	string,
+	*handler.MultiGatewayConnectionState,
+	*multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) ConcludeTransaction(
 	context.Context,
 	*server.Conn,

@@ -773,6 +773,19 @@ func (c *Conn) serve() error {
 		}
 	}
 
+	// A logical-replication (replication=database) connection is tunneled
+	// byte-for-byte to the PRIMARY pooler rather than processed as a stream
+	// of SQL commands. If the handler exposes the replication capability,
+	// hand the authenticated socket over to it now. Physical replication
+	// (ReplicationPhysical) is intentionally left to the command loop.
+	if c.replicationMode == ReplicationLogical {
+		if rh, ok := c.handler.(ReplicationHandler); ok {
+			return rh.HandleReplicationStream(c.ctx, c)
+		}
+		// No replication handler installed: fall through to the existing
+		// command loop.
+	}
+
 	// Main command loop.
 	for {
 		// Check if connection is closed.
