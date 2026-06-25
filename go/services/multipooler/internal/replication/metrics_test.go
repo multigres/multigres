@@ -66,13 +66,13 @@ func collectAggregation(t *testing.T, reader *sdkmetric.ManualReader, name strin
 // classic OTel footgun of building a fresh attribute set on every Record.
 func TestMetrics_RecordIsAllocationFree(t *testing.T) {
 	m := newTestStream(t)
-	avg := testing.AllocsPerRun(1000, func() { m.recordDownstream(4096) })
+	avg := testing.AllocsPerRun(1000, func() { m.RecordDownstream(4096) })
 	if avg > 0 {
-		t.Fatalf("recordDownstream allocates %.1f times/op, want 0", avg)
+		t.Fatalf("RecordDownstream allocates %.1f times/op, want 0", avg)
 	}
-	avg = testing.AllocsPerRun(1000, func() { m.recordUpstream(4096) })
+	avg = testing.AllocsPerRun(1000, func() { m.RecordUpstream(4096) })
 	if avg > 0 {
-		t.Fatalf("recordUpstream allocates %.1f times/op, want 0", avg)
+		t.Fatalf("RecordUpstream allocates %.1f times/op, want 0", avg)
 	}
 	avg = testing.AllocsPerRun(1000, func() { m.recordDownstreamLatency(0.5) })
 	if avg > 0 {
@@ -85,8 +85,8 @@ func TestMetrics_RecordIsAllocationFree(t *testing.T) {
 func TestMetrics_NilReceiverIsNoop(t *testing.T) {
 	var m *Stream
 	require.NotPanics(t, func() {
-		m.recordDownstream(1)
-		m.recordUpstream(1)
+		m.RecordDownstream(1)
+		m.RecordUpstream(1)
 		m.recordDownstreamLatency(1)
 		m.recordUpstreamLatency(1)
 		m.IncActive()
@@ -102,9 +102,9 @@ func TestMetrics_NilReceiverIsNoop(t *testing.T) {
 func TestMetrics_RecordsBytesAndChunksPerDirection(t *testing.T) {
 	m, reader := setupReplStream(t)
 
-	m.recordDownstream(100)
-	m.recordDownstream(40)
-	m.recordUpstream(7)
+	m.RecordDownstream(100)
+	m.RecordDownstream(40)
+	m.RecordUpstream(7)
 
 	agg := collectAggregation(t, reader, "mg.pooler.replication.bytes")
 	require.NotNil(t, agg, "bytes counter not emitted")

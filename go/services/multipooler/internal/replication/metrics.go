@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package replication holds the multipooler-internal per-stream metrics
+// recorder for the protocol-blind replication tunnel. The reusable tunnel core
+// lives in go/common/replication; this package supplies the OpenTelemetry
+// instruments and a Stream recorder that satisfies its TunnelMetrics interface.
 package replication
 
 import (
@@ -205,9 +209,9 @@ func (m *Metrics) NewStream(user string) *Stream {
 	}
 }
 
-// recordDownstream records n bytes (one chunk) flowing backend -> client.
-// Hot path: must stay allocation-free.
-func (s *Stream) recordDownstream(n int) {
+// RecordDownstream records n bytes (one chunk) flowing backend -> client.
+// Hot path: must stay allocation-free. Satisfies replication.TunnelMetrics.
+func (s *Stream) RecordDownstream(n int) {
 	if s == nil {
 		return
 	}
@@ -215,9 +219,9 @@ func (s *Stream) recordDownstream(n int) {
 	s.m.chunksCounter.Add(s.ctx, 1, s.downBytesOpts...)
 }
 
-// recordUpstream records n bytes (one chunk) flowing client -> backend.
-// Hot path: must stay allocation-free.
-func (s *Stream) recordUpstream(n int) {
+// RecordUpstream records n bytes (one chunk) flowing client -> backend.
+// Hot path: must stay allocation-free. Satisfies replication.TunnelMetrics.
+func (s *Stream) RecordUpstream(n int) {
 	if s == nil {
 		return
 	}

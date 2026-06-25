@@ -19,9 +19,20 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// fakeMetrics is a tiny TunnelMetrics that records per-direction byte totals,
+// exercising the non-nil metrics path.
+type fakeMetrics struct {
+	down atomic.Int64
+	up   atomic.Int64
+}
+
+func (f *fakeMetrics) RecordDownstream(n int) { f.down.Add(int64(n)) }
+func (f *fakeMetrics) RecordUpstream(n int)   { f.up.Add(int64(n)) }
 
 func TestTunnel_CopiesBothDirections(t *testing.T) {
 	backendA, backendB := net.Pipe() // backendB stands in for postgres
@@ -30,7 +41,8 @@ func TestTunnel_CopiesBothDirections(t *testing.T) {
 	sendCh := make(chan []byte, 8) // server->client (from backend)
 	recvCh := make(chan []byte, 8) // client->server (to backend)
 
-	tun := NewTunnel(backendA, nil, // metrics nil = no-op
+	fm := &fakeMetrics{}
+	tun := NewTunnel(backendA, fm,
 		func(b []byte) error { sendCh <- append([]byte(nil), b...); return nil },
 		func() ([]byte, error) {
 			b, ok := <-recvCh
@@ -59,6 +71,20 @@ func TestTunnel_CopiesBothDirections(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for server->client byte")
+	}
+
+	// Each direction records its metric in the copy goroutine just after the
+	// transfer completes, and Run() intentionally does not wait for those
+	// goroutines (no WaitGroup — see Run's doc). Reading the counters once would
+	// race the RecordUpstream/RecordDownstream call, so poll until both
+	// directions are observed (4 bytes each).
+	deadline := time.After(2 * time.Second)
+	for fm.up.Load() != 4 || fm.down.Load() != 4 {
+		select {
+		case <-deadline:
+			t.Fatalf("metrics not recorded: up=%d down=%d, want 4/4", fm.up.Load(), fm.down.Load())
+		case <-time.After(5 * time.Millisecond):
+		}
 	}
 }
 

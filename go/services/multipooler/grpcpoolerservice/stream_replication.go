@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	commonrepl "github.com/multigres/multigres/go/common/replication"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
@@ -151,7 +152,7 @@ func (s *poolerService) runReplicationTunnel(
 		return req.GetData(), nil
 	}
 
-	runErr := replication.NewTunnel(backend, metrics, send, recv).Run(ctx)
+	runErr := commonrepl.NewTunnel(backend, metrics, send, recv).Run(ctx)
 
 	metrics.DecActive()
 	metrics.RecordDuration(time.Since(start).Seconds())

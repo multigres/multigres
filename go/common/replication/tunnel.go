@@ -13,9 +13,10 @@
 // limitations under the License.
 
 // Package replication implements the protocol-blind byte tunnel that bridges a
-// gRPC StreamReplication and a pinned postgres replication backend. The tunnel
+// gRPC replication stream and a pinned postgres replication backend. The tunnel
 // never interprets the replication sub-protocol; bytes flow verbatim in both
-// directions.
+// directions. It lives in go/common so both multipooler and multigateway can
+// reuse it without crossing service-internal boundaries.
 package replication
 
 import (
@@ -33,19 +34,25 @@ type SendFunc func([]byte) error
 // or io.EOF when the client half-closes.
 type RecvFunc func() ([]byte, error)
 
+// TunnelMetrics receives per-direction byte counts. May be nil.
+type TunnelMetrics interface {
+	RecordDownstream(n int)
+	RecordUpstream(n int)
+}
+
 // Tunnel copies opaque bytes between a postgres backend and a pair of
 // send/recv callbacks over a gRPC stream. It is transport-agnostic so it can
 // be unit-tested with in-memory pipes.
 type Tunnel struct {
 	backend io.ReadWriteCloser
-	metrics *Stream // may be nil
+	metrics TunnelMetrics // may be nil
 	send    SendFunc
 	recv    RecvFunc
 }
 
 // NewTunnel builds a tunnel over the given backend and stream callbacks. A nil
 // metrics value disables metrics recording.
-func NewTunnel(backend io.ReadWriteCloser, m *Stream, send SendFunc, recv RecvFunc) *Tunnel {
+func NewTunnel(backend io.ReadWriteCloser, m TunnelMetrics, send SendFunc, recv RecvFunc) *Tunnel {
 	return &Tunnel{backend: backend, metrics: m, send: send, recv: recv}
 }
 
@@ -72,7 +79,9 @@ func (t *Tunnel) Run(ctx context.Context) error {
 					errc <- serr
 					return
 				}
-				t.metrics.recordDownstream(n)
+				if t.metrics != nil {
+					t.metrics.RecordDownstream(n)
+				}
 			}
 			if rerr != nil {
 				errc <- ignoreEOF(rerr)
@@ -90,7 +99,9 @@ func (t *Tunnel) Run(ctx context.Context) error {
 					errc <- werr
 					return
 				}
-				t.metrics.recordUpstream(len(chunk))
+				if t.metrics != nil {
+					t.metrics.RecordUpstream(len(chunk))
+				}
 			}
 			if rerr != nil {
 				errc <- ignoreEOF(rerr)
