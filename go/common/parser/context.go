@@ -138,6 +138,22 @@ func (pe *ParseError) Error() string {
 	return fmt.Sprintf("%s: %s", pe.Severity, pe.Message)
 }
 
+// CursorPosition returns the 1-based character offset of the error in the
+// source text, the value PostgreSQL reports in the ErrorResponse "P" field.
+// Position is tracked internally as a byte offset; PostgreSQL counts characters
+// (parser_errposition uses pg_mbstrlen_with_len), so multi-byte input ahead of
+// the error shifts the character count below the byte count. Returns 0 when no
+// position is available, which tells the wire layer to omit the field.
+func (pe *ParseError) CursorPosition() int32 {
+	if pe.Position < 0 {
+		return 0
+	}
+	if pe.Position > len(pe.SourceText) {
+		return int32(utf8.RuneCountInString(pe.SourceText) + 1)
+	}
+	return int32(utf8.RuneCountInString(pe.SourceText[:pe.Position]) + 1)
+}
+
 // ParseOptions contains unified configuration options for both lexer and parser
 // Combines configuration from both original contexts
 type ParseOptions struct {
@@ -641,6 +657,47 @@ func (ctx *ParseContext) AddErrorWithHint(message string, location int, hint str
 	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
 }
 
+// SetLastToken records the most recent token handed to the parser. The goyacc
+// Error hook reads it to report the token the parse failed at, matching
+// PostgreSQL's "syntax error at or near" wording. A nil token signals end of
+// input.
+func (ctx *ParseContext) SetLastToken(token *Token) {
+	ctx.lastToken = token
+}
+
+// AddSyntaxError records a parser (goyacc) error, shaping it like PostgreSQL.
+//
+// The error location is the start of the token the parse failed at (or the end
+// of input), mirroring PostgreSQL's scanner_yyerror, which reports the position
+// via errposition and the offending token text via "%s at or near \"%s\"". The
+// generic goyacc message "syntax error" is decorated with the same "at or near"
+// / "at end of input" wording; messages raised explicitly by grammar actions
+// (PostgreSQL emits these with their own errmsg + parser_errposition) are kept
+// verbatim and only carry the position.
+func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
+	// The lexer signals end of input either as a nil token or as an EOF-typed
+	// token with empty text; treat both as EOF so the message matches
+	// PostgreSQL's "at end of input" rather than reporting an empty token.
+	location := len(ctx.sourceText)
+	atEOF := ctx.lastToken == nil || ctx.lastToken.Type == EOF
+	if !atEOF {
+		location = ctx.lastToken.Position
+	}
+
+	if message == "syntax error" {
+		if atEOF {
+			message = "syntax error at end of input"
+		} else {
+			// PostgreSQL wraps the raw token text in double quotes without
+			// escaping (errmsg("%s at or near \"%s\"", ...)), so use plain
+			// concatenation rather than %q which would add Go escaping.
+			message = "syntax error at or near \"" + ctx.lastToken.Text + "\""
+		}
+	}
+
+	return ctx.AddError(message, location)
+}
+
 // AddWarning adds a parsing warning to the context
 func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
 	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "")
@@ -673,8 +730,22 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 	return parseError
 }
 
-// addLexerError adds a lexer-specific error with enhanced context
+// addLexerError adds a lexer-specific error with enhanced context.
+//
+// PostgreSQL routes scanner (lexer) errors through the same scanner_yyerror as
+// syntax errors, so it reports the position at the start of the offending
+// lexeme and appends `at or near "<lexeme>"` (or `at end of input`) to the
+// message. Mirror that here: savePosition tracks the start of the token being
+// scanned, so the lexeme is the source text between it and the error location.
 func (ctx *ParseContext) addLexerError(errorType LexerErrorType, message string, location int) *ParseError {
+	tokenStart := ctx.savePosition
+	if tokenStart < 0 || tokenStart > location {
+		tokenStart = location
+	}
+	message = ctx.appendAtOrNear(message, tokenStart, location)
+	// Report at the lexeme start, matching PostgreSQL's caret.
+	location = tokenStart
+
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -695,6 +766,23 @@ func (ctx *ParseContext) addLexerError(errorType LexerErrorType, message string,
 
 	ctx.errors = append(ctx.errors, *parseError)
 	return parseError
+}
+
+// appendAtOrNear appends PostgreSQL's scanner-error suffix to message: `at or
+// near "<lexeme>"` for the source text in [tokenStart, errPos), or `at end of
+// input` when that span is empty (the error sits at end of input). Messages
+// that already carry the suffix are returned unchanged so the decoration is not
+// applied twice.
+func (ctx *ParseContext) appendAtOrNear(message string, tokenStart, errPos int) string {
+	if strings.Contains(message, " at or near ") || strings.HasSuffix(message, " at end of input") {
+		return message
+	}
+	end := min(errPos, len(ctx.sourceText))
+	if tokenStart < 0 || tokenStart >= end {
+		return message + " at end of input"
+	}
+	// PostgreSQL wraps the raw lexeme in double quotes without escaping.
+	return message + " at or near \"" + ctx.sourceText[tokenStart:end] + "\""
 }
 
 // calculateLineColumn calculates line and column numbers from byte offset

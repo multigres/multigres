@@ -196,6 +196,28 @@ func (c *Conn) Commit(ctx context.Context) error {
 	return nil
 }
 
+// CommitAndChain commits the current transaction and immediately starts the
+// next transaction on the same backend, inheriting PostgreSQL's transaction
+// characteristics (isolation level, read-only flag, deferrable flag). The
+// transaction reservation remains active.
+func (c *Conn) CommitAndChain(ctx context.Context) error {
+	if !c.IsInTransaction() {
+		return errors.New("no active transaction")
+	}
+
+	_, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction and chain: %w", err)
+	}
+
+	// The committed changes are durable. PostgreSQL is already inside the chained
+	// transaction; capture that transaction's rollback baseline from the current
+	// committed connstate.
+	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.AddReservationReason(protoutil.ReasonTransaction)
+	return nil
+}
+
 // Rollback rolls back the current transaction.
 func (c *Conn) Rollback(ctx context.Context) error {
 	if !c.IsInTransaction() {
@@ -219,6 +241,28 @@ func (c *Conn) Rollback(ctx context.Context) error {
 
 	c.recordTxnOutcome(ctx, txnOutcomeRollback)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
+	return nil
+}
+
+// RollbackAndChain rolls back the current transaction and immediately starts
+// the next transaction on the same backend, inheriting PostgreSQL's transaction
+// characteristics. The transaction reservation remains active.
+func (c *Conn) RollbackAndChain(ctx context.Context) error {
+	if !c.IsInTransaction() {
+		return errors.New("no active transaction")
+	}
+
+	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
+	if err != nil {
+		return fmt.Errorf("failed to rollback transaction and chain: %w", err)
+	}
+
+	if c.txnSnapshot != nil {
+		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+	}
+	c.ClearSessionStateUntrusted()
+	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 

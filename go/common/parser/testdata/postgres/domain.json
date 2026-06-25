@@ -752,7 +752,7 @@
   {
     "comment": "domain - Statement 151",
     "query": "update dposintatable set (f1[2])[1] = array[98]",
-    "error": "parse error at position 33: syntax error"
+    "error": "syntax error at or near \"[\""
   },
   {
     "comment": "domain - Statement 152",

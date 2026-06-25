@@ -176,6 +176,8 @@ type IExecute interface {
 	//   releaseAllPortals: when true on ROLLBACK, drops every pin on the
 	//     reserved connection (historical behavior). When false, only the
 	//     names listed in releasePortalNames are released. Ignored on COMMIT.
+	//   chain: when true, execute COMMIT/ROLLBACK AND CHAIN and keep the
+	//     transaction reservation active on the same backend.
 	//   callback: Function called with the result of the COMMIT/ROLLBACK
 	ConcludeTransaction(
 		ctx context.Context,
@@ -184,6 +186,7 @@ type IExecute interface {
 		conclusion multipoolerpb.TransactionConclusion,
 		releasePortalNames []string,
 		releaseAllPortals bool,
+		chain bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

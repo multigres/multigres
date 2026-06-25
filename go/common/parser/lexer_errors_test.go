@@ -305,6 +305,10 @@ func TestSanitizeNearText(t *testing.T) {
 // TestAddError tests the error addition to context
 func TestAddError(t *testing.T) {
 	ctx := NewLexerContext("SELECT 'unterminated string")
+	// The string literal starts at the quote (offset 7); record it as the token
+	// start the way the lexer does, then advance one char into the literal.
+	ctx.SetCurrentPosition2(7)
+	ctx.SaveCurrentPosition()
 	ctx.SetCurrentPosition2(8)
 	ctx.SetLineNumber2(1)
 	ctx.SetColumnNumber2(9)
@@ -312,12 +316,13 @@ func TestAddError(t *testing.T) {
 	// Add an error (now always returns the error)
 	err := ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 
-	// Verify error properties
+	// Verify error properties. Like PostgreSQL's scanner_yyerror, the message
+	// gains an `at or near "<lexeme>"` suffix and the position points at the
+	// start of the offending lexeme (the quote at offset 7).
 	assert.Equal(t, UnterminatedString, err.Type)
-	assert.Equal(t, "unterminated quoted string", err.Message)
-	assert.Equal(t, 8, err.Position)
+	assert.Contains(t, err.Message, "unterminated quoted string")
+	assert.Equal(t, 7, err.Position)
 	assert.Equal(t, 1, err.Line)
-	assert.Equal(t, 9, err.Column)
 	assert.False(t, err.AtEOF)
 	assert.NotEmpty(t, err.NearText)
 

@@ -364,6 +364,45 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testi
 	require.Contains(t, commandTags[1], "COPY")
 }
 
+func TestExecuteWithImplicitTransaction_AndChainInImplicitBlockRollsBack(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	conn := newImplicitTxTestConn()
+	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COMMIT AND CHAIN")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), conn, state,
+		"INSERT INTO t VALUES(1); COMMIT AND CHAIN", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "COMMIT AND CHAIN can only be used in transaction blocks")
+	require.Equal(t, []string{"BEGIN", "OTHER", "ROLLBACK"}, stmtDescriptions(mock.executedStmts))
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+}
+
+func TestExecuteWithImplicitTransaction_AndChainAfterExplicitBeginKeepsTransactionActive(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	conn := newImplicitTxTestConn()
+	stmts := parseStmts(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; SELECT 1; COMMIT AND CHAIN; SELECT 2")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), conn, state,
+		"START TRANSACTION ISOLATION LEVEL REPEATABLE READ; SELECT 1; COMMIT AND CHAIN; SELECT 2", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.NoError(t, err)
+	// The user START adopts the synthetic BEGIN. COMMIT AND CHAIN keeps the
+	// transaction active, so no new synthetic BEGIN is injected before SELECT 2.
+	require.Equal(t, []string{"BEGIN", "OTHER", "COMMIT", "OTHER"}, stmtDescriptions(mock.executedStmts))
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+}
+
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)

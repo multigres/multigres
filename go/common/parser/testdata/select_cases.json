@@ -501,7 +501,7 @@
   {
     "comment": "Invalid SELECT - should error",
     "query": "SELECT FROM WHERE",
-    "error": "parse error at position 17: syntax error"
+    "error": "syntax error at or near \"WHERE\""
   },
   {
     "comment": "Basic GROUP BY",
@@ -2233,12 +2233,12 @@
   {
     "comment": "deprecated limit comma syntax",
     "query": "SELECT * FROM users LIMIT 10, 5",
-    "error": "parse error at position 31: LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
+    "error": "LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
   },
   {
     "comment": "Chained IS NULL is a syntax error: the %nonassoc conflict on IS is resolved by shift, which would silently produce a doubly-nested NullTest; caught by semantic action in postgres.y",
     "query": "SELECT a IS NULL IS NULL",
-    "error": "parse error at position 24: syntax error: IS NULL / IS NOT NULL cannot be chained"
+    "error": "syntax error: IS NULL / IS NOT NULL cannot be chained"
   },
   {
     "comment": "Boolean test IS TRUE",

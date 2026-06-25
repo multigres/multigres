@@ -1879,3 +1879,37 @@ func (l *Lexer) GetErrors() []error {
 	}
 	return result
 }
+
+// ParseSyntaxError is the error returned by ParseSQL for a parse/syntax
+// failure. It carries the PostgreSQL-shaped message plus the error position, so
+// callers that serve PostgreSQL clients can populate the ErrorResponse "P"
+// field. It carries no SQLSTATE: the standalone parser must not depend on the
+// mterrors vocabulary (enforced by the parser-isolation lint rule); the serving
+// boundary maps it to a 42601 syntax_error diagnostic.
+type ParseSyntaxError struct {
+	// Message is the PostgreSQL-compatible error text (e.g.
+	// `syntax error at or near "FROM"`).
+	Message string
+	// Position is the 0-based byte offset of the error in the source text.
+	Position int
+	// CursorPosition is the 1-based character offset PostgreSQL reports in the
+	// ErrorResponse "P" field. Zero means no position is available.
+	CursorPosition int32
+}
+
+func (e *ParseSyntaxError) Error() string { return e.Message }
+
+// FirstError returns the first recorded error as a *ParseSyntaxError, or nil
+// when there are none. It preserves the position information GetErrors discards.
+func (l *Lexer) FirstError() *ParseSyntaxError {
+	errors := l.context.GetErrors()
+	if len(errors) == 0 {
+		return nil
+	}
+	e := errors[0]
+	return &ParseSyntaxError{
+		Message:        e.Message,
+		Position:       e.Position,
+		CursorPosition: e.CursorPosition(),
+	}
+}

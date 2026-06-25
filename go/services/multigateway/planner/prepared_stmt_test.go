@@ -65,7 +65,7 @@ func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *
 	return nil, nil
 }
 
-func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -222,11 +222,16 @@ func TestPlanExecuteStmt(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1")
 	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.True(t, s.exec.portalStreamExecuteCalled, "PortalStreamExecute should be called")
+	assert.False(t, s.exec.portalStreamExecuteCalled, "top-level SQL EXECUTE should route as SQL, not bind a portal")
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.Equal(t, "EXECUTE "+psi.Name, s.exec.streamExecuteCalls[0].sql)
+	assert.Equal(t, psi.PreparedStatement, s.exec.streamExecuteCalls[0].preparedStatement)
 }
 
 func TestPlanExecuteStmtWithParams(t *testing.T) {
@@ -234,11 +239,33 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "PREPARE myplan (int) AS SELECT $1")
 	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(42)")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.True(t, s.exec.portalStreamExecuteCalled)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.Equal(t, "EXECUTE "+psi.Name+" ( 42 )", s.exec.streamExecuteCalls[0].sql)
+	assert.Equal(t, psi.PreparedStatement, s.exec.streamExecuteCalls[0].preparedStatement)
+}
+
+func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan (int, int[]) AS SELECT $1, $2")
+	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
+
+	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.Contains(t, s.exec.streamExecuteCalls[0].sql, "EXECUTE "+psi.Name)
+	assert.Contains(t, s.exec.streamExecuteCalls[0].sql, "SMALLINT")
+	assert.Contains(t, s.exec.streamExecuteCalls[0].sql, "ARRAY")
+	assert.Equal(t, psi.PreparedStatement, s.exec.streamExecuteCalls[0].preparedStatement)
 }
 
 func TestPlanExecuteStmtNonExistent(t *testing.T) {

@@ -1189,12 +1189,12 @@
   {
     "comment": "with - Statement 246",
     "query": "create table foo (with baz)",
-    "error": "parse error at position 22: syntax error"
+    "error": "syntax error at or near \"with\""
   },
   {
     "comment": "with - Statement 247",
     "query": "create table foo (with ordinality)",
-    "error": "parse error at position 22: syntax error"
+    "error": "syntax error at or near \"with\""
   },
   {
     "comment": "with - Statement 248",

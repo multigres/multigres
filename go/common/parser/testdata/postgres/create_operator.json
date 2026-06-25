@@ -52,7 +52,7 @@
   {
     "comment": "create_operator - Statement 11",
     "query": "CREATE OPERATOR => ( rightarg = int8, procedure = factorial )",
-    "error": "parse error at position 18: syntax error"
+    "error": "syntax error at or near \"=>\""
   },
   {
     "comment": "create_operator - Statement 12",
@@ -67,7 +67,7 @@
   {
     "comment": "create_operator - Statement 14",
     "query": "SELECT 10 !=-",
-    "error": "parse error at position 13: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "create_operator - Statement 15",

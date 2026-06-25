@@ -81,7 +81,7 @@
   {
     "comment": "event_trigger - Statement 18",
     "query": "create event trigger regress_event_trigger2 on ddl_command_start execute procedure test_event_trigger('argument not allowed')",
-    "error": "parse error at position 124: syntax error"
+    "error": "syntax error at or near \"'argument not allowed'\""
   },
   {
     "comment": "event_trigger - Statement 19",

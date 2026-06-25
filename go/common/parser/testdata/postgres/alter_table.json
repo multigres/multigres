@@ -1910,7 +1910,7 @@
   {
     "comment": "alter_table - Statement 403",
     "query": "alter table atacc1 SET WITH OIDS",
-    "error": "parse error at position 27: syntax error"
+    "error": "syntax error at or near \"WITH\""
   },
   {
     "comment": "alter_table - Statement 404",
