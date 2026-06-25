@@ -249,9 +249,7 @@ func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
 // demotion or graceful shutdown of a leader). Nil means this node has not
 // recently held or resigned from primary leadership.
 func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
-	pm.mu.Lock()
-	resignedTerm := pm.resignedLeaderAtTerm
-	pm.mu.Unlock()
+	resignedTerm := pm.getResignedLeaderAtTerm()
 
 	if resignedTerm == 0 {
 		return nil
@@ -294,6 +292,15 @@ func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) err
 	pm.resignedLeaderAtTerm = 0
 	pm.mu.Unlock()
 	return nil
+}
+
+// getResignedLeaderAtTerm returns the term at which this node requested demotion as
+// primary, or 0 if it has not resigned. Reads under pm.mu so callers don't reach
+// into the field directly.
+func (pm *MultiPoolerManager) getResignedLeaderAtTerm() int64 {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.resignedLeaderAtTerm
 }
 
 // Recruit handles a coordinator's request to stop replication participation and
