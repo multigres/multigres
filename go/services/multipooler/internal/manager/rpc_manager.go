@@ -901,7 +901,11 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	wantRewind := pm.suspectedDivergence.Load()
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
-	resume := pm.Pause(ctx)
+	// Pause without stopping the monitor: every caller either runs inside the
+	// monitor callback (backpressure prevents a concurrent iteration, and
+	// self-stopping would deadlock) or holds the action lock (the monitor blocks on
+	// it before acting), so there is nothing to stop.
+	resume := pm.Pause(ctx, false /* stopMonitor */)
 	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
 
 	if err := pm.pgctldStopWithEscalation(ctx); err != nil {
@@ -913,11 +917,15 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		if err != nil {
 			return false, mterrors.Wrap(err, "pg_rewind")
 		}
-		// pg_rewind is idempotent on an already-rewound target (a re-run's
-		// dry-run detects no divergence and skips), so clearing as soon as
-		// pg_rewind returns is safe even if the restart or reconnect below
-		// fails: the next attempt will skip pg_rewind and just restart.
-		pm.suspectedDivergence.Store(false)
+		// suspectedDivergence is intentionally NOT cleared here. It is cleared only
+		// after postgres restarts and is verified in recovery mode below, because a
+		// rewind that returns success can still leave an un-startable node: an early
+		// rewind from a not-yet-checkpointed leader stamps minRecoveryPoint onto the
+		// wrong timeline, and postgres FATALs on startup. Clearing here would let the
+		// next attempt skip the rewind (wantRewind=false) and merely retry the doomed
+		// start; keeping it set means the retry re-runs pg_rewind against the
+		// (by-then-checkpointed) leader and actually recovers.
+		//
 		// pg_rewind copies postgresql.auto.conf from source, baking source's
 		// own pooler paths into pgbackrest commands (restore_command,
 		// archive_command). Patch them back to this pooler's paths before
@@ -969,6 +977,14 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	// automatically once postgres reads the new conninfo.
 	if err := pm.setPrimaryConnInfoLocked(ctx, sourceHost, sourcePort, false, false); err != nil {
 		return false, mterrors.Wrap(err, "set primary_conninfo after restart as standby")
+	}
+
+	// Postgres restarted, verified in recovery mode, and primary_conninfo points at
+	// the source: a working standby. Only now do we consider any suspected
+	// divergence resolved (see the note on the rewind path above for why clearing
+	// is deferred to here rather than right after pg_rewind returns).
+	if wantRewind {
+		pm.suspectedDivergence.Store(false)
 	}
 
 	return rewindPerformed, nil

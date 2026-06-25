@@ -24,6 +24,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -166,6 +167,14 @@ const (
 	// is running as a standby. We do not self-promote; signal resignation so the
 	// coordinator re-elects.
 	remedialActionResignLeadership
+	// remedialActionRewindToLeader means postgres cannot come up as a healthy
+	// standby and we suspect our WAL diverged from a different known leader (e.g. an
+	// early pg_rewind stamped minRecoveryPoint onto the wrong timeline, so postgres
+	// FATALs on startup). A plain start just loops on the FATAL; instead re-run the
+	// rewind against the recorded leader (restartAsStandbyLocked crash-recovers and
+	// rewinds before bringing postgres back as a standby). Rate-limited with
+	// exponential backoff so we don't thrash disruptive restarts.
+	remedialActionRewindToLeader
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -503,13 +512,79 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 		return pm.determineReplicationSettingsAction(ctx, currentState)
 	}
 
-	// Postgres is not running: start it, restore from backup, or bootstrap.
-	return determinePostgresNotRunningAction(currentState)
+	// Postgres is not running: start it, rewind-then-start (on suspected
+	// divergence), restore from backup, or bootstrap.
+	return pm.determinePostgresNotRunningAction(currentState)
+}
+
+// divergenceRewindBackoffMin/Max bound the exponential backoff between
+// monitor-driven divergence rewinds.
+const (
+	divergenceRewindBackoffMin = 5 * time.Second
+	divergenceRewindBackoffMax = 5 * time.Minute
+)
+
+// divergenceRewindTarget returns the recorded leader (host, port) to rewind
+// toward, with ok=false when no leader is known or the recorded leader is
+// ourselves (then there is nothing to diverge from).
+func (pm *MultiPoolerManager) divergenceRewindTarget() (host string, port int32, ok bool) {
+	rp := pm.consensusState.GetReplicationPrimary()
+	target := rp.GetPrimary()
+	if target == nil || target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return "", 0, false
+	}
+	leader := rp.GetRule().GetLeaderId()
+	if leader == nil {
+		return "", 0, false
+	}
+	if pm.serviceID != nil &&
+		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return "", 0, false
+	}
+	return target.GetHost(), target.GetPostgresPort(), true
+}
+
+// shouldRewindForDivergence reports whether a not-running postgres should be
+// rewound to the recorded leader rather than plainly restarted: we suspect our WAL
+// diverged (suspectedDivergence), a different leader is known to rewind toward, and
+// the backoff between attempts has elapsed.
+func (pm *MultiPoolerManager) shouldRewindForDivergence() bool {
+	if !pm.suspectedDivergence.Load() {
+		return false
+	}
+	if _, _, ok := pm.divergenceRewindTarget(); !ok {
+		return false
+	}
+	return pm.rewindReadyAt.IsZero() || !time.Now().Before(pm.rewindReadyAt)
+}
+
+// recordDivergenceRewindAttempt stamps the next time a rewind may be attempted,
+// advancing the exponential backoff. Touched only by the monitor goroutine.
+func (pm *MultiPoolerManager) recordDivergenceRewindAttempt() {
+	if pm.rewindBackoff == nil {
+		pm.rewindBackoff = retry.NewExponentialBackoff(divergenceRewindBackoffMin, divergenceRewindBackoffMax)
+	}
+	// Floor the delay at the minimum. The backoff uses full jitter, which can
+	// return a near-zero delay; a rewind is a heavy stop+rewind+restart, so we want
+	// a guaranteed gap between attempts to avoid thrashing. The exponential growth
+	// (with jitter) still applies above the floor. (A configurable equal/fractional
+	// jitter in the retry package would give this floor natively — see the TODO on
+	// retry.NewExponentialBackoff.)
+	delay := max(pm.rewindBackoff.NextDelay(), divergenceRewindBackoffMin)
+	pm.rewindReadyAt = time.Now().Add(delay)
+}
+
+// resetDivergenceRewindBackoff clears the backoff after a successful rewind.
+func (pm *MultiPoolerManager) resetDivergenceRewindBackoff() {
+	if pm.rewindBackoff != nil {
+		pm.rewindBackoff.Reset()
+	}
+	pm.rewindReadyAt = time.Time{}
 }
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
 // not running.
-func determinePostgresNotRunningAction(state postgresState) remedialAction {
+func (pm *MultiPoolerManager) determinePostgresNotRunningAction(state postgresState) remedialAction {
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
 	// mid-flight. Any on-disk pg_data is stale — force the create-first-backup
 	// path so createFirstBackupAndInitializeLocked can clean up and retry.
@@ -518,6 +593,15 @@ func determinePostgresNotRunningAction(state postgresState) remedialAction {
 	}
 	// Postgres not running: Try to start or restore
 	if state.dirInitialized {
+		// If we suspect our WAL diverged from a different known leader, a plain
+		// start just FATAL-loops — an early pg_rewind can stamp minRecoveryPoint
+		// onto the wrong timeline, so postgres can't come up as a standby until it
+		// is rewound again (crash recovery alone leaves it on its old timeline).
+		// Re-run the rewind against the recorded leader instead, rate-limited by
+		// exponential backoff so we don't thrash disruptive restarts.
+		if pm.shouldRewindForDivergence() {
+			return remedialActionRewindToLeader
+		}
 		return remedialActionStartPostgres
 	}
 	if state.backupsAvailable {
@@ -643,6 +727,33 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 
+	case remedialActionRewindToLeader:
+		// Honour the in-memory flag set by tests and demos to suppress auto-restart.
+		if pm.postgresRestartsDisabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled")
+			return
+		}
+		host, port, ok := pm.divergenceRewindTarget()
+		if !ok {
+			return
+		}
+		// Stamp the backoff before attempting, so a failed rewind is rate-limited
+		// regardless of how it fails.
+		pm.recordDivergenceRewindAttempt()
+		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: suspected divergence; rewinding to leader before restart")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
+		pm.logger.InfoContext(ctx, "MonitorPostgres: postgres can't start as a standby and divergence is suspected; rewinding to recorded leader",
+			"target_host", host, "target_port", port)
+		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err)
+			return
+		}
+		// Success: postgres is back as a standby (suspectedDivergence cleared in
+		// restartAsStandbyLocked). Reset the backoff for any future incident.
+		pm.resetDivergenceRewindBackoff()
+
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
@@ -724,9 +835,29 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 		return errors.New("pgctld client not available")
 	}
 
-	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
+	// Allow crash recovery: a standby that was not cleanly shut down can't be
+	// started normally (a standby.signal blocks the postmaster from recovering
+	// it), so pgctld forces single-user crash recovery first when needed.
+	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AllowCrashRecovery: true})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
+	}
+
+	// If pgctld had to force crash recovery, this standby was not cleanly shut
+	// down. When a *different* node is the known consensus leader, the recovered
+	// local WAL may have diverged from the leader's timeline, so mark
+	// suspectedDivergence: the next standby transition routes through pg_rewind
+	// before trusting this node's WAL. If we are (or no one is) the leader, the
+	// local WAL is authoritative and there is nothing to diverge from.
+	if resp.GetCrashRecoveryRan() {
+		leader := pm.consensusState.GetReplicationPrimary().GetRule().GetLeaderId()
+		differentLeaderKnown := leader != nil && pm.serviceID != nil &&
+			(leader.GetCell() != pm.serviceID.GetCell() || leader.GetName() != pm.serviceID.GetName())
+		if differentLeaderKnown {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence",
+				"leader", leader.GetName())
+			pm.suspectedDivergence.Store(true)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")

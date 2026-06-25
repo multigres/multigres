@@ -539,6 +539,96 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 	}
 }
 
+// TestDetermineRemedialAction_RewindToLeaderOnDivergence verifies that a
+// not-running postgres is routed to remedialActionRewindToLeader (rather than a
+// plain start) only when divergence is suspected, a *different* leader is known to
+// rewind toward, and the backoff between attempts has elapsed. Otherwise it falls
+// back to a plain start.
+func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	selfAddr := &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}
+
+	// Postgres is initialized but not running: the choice is between a plain start
+	// (remedialActionStartPostgres) and a rewind-then-start.
+	notRunning := postgresState{pgctldAvailable: true, dirInitialized: true, postgresRunning: false}
+
+	recordedPrimary := func(leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *consensus.ConsensusState {
+		cs := consensus.NewConsensusState("", selfID)
+		if addr != nil {
+			cs.RecordTermPrimary(&clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   leader,
+			}, addr)
+		}
+		return cs
+	}
+
+	tests := []struct {
+		name              string
+		consensusState    *consensus.ConsensusState
+		suspectDivergence bool
+		readyAt           time.Time // zero value = backoff elapsed (ready)
+		expectedAction    remedialAction
+	}{
+		{
+			// All conditions met: re-run the rewind against the recorded leader.
+			name:              "divergence_with_different_leader_rewinds",
+			consensusState:    recordedPrimary(otherID, otherAddr),
+			suspectDivergence: true,
+			expectedAction:    remedialActionRewindToLeader,
+		},
+		{
+			// No divergence suspected: a plain start is correct.
+			name:              "no_divergence_plain_start",
+			consensusState:    recordedPrimary(otherID, otherAddr),
+			suspectDivergence: false,
+			expectedAction:    remedialActionStartPostgres,
+		},
+		{
+			// The recorded leader is us: nothing to diverge from, so just start.
+			name:              "recorded_leader_is_self_plain_start",
+			consensusState:    recordedPrimary(selfID, selfAddr),
+			suspectDivergence: true,
+			expectedAction:    remedialActionStartPostgres,
+		},
+		{
+			// No recorded leader to rewind toward: wait and start normally.
+			name:              "no_recorded_leader_plain_start",
+			consensusState:    recordedPrimary(otherID, nil),
+			suspectDivergence: true,
+			expectedAction:    remedialActionStartPostgres,
+		},
+		{
+			// Backoff has not elapsed: don't thrash; fall back to a plain start.
+			name:              "backoff_not_elapsed_plain_start",
+			consensusState:    recordedPrimary(otherID, otherAddr),
+			suspectDivergence: true,
+			readyAt:           time.Now().Add(time.Hour),
+			expectedAction:    remedialActionStartPostgres,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm := &MultiPoolerManager{
+				serviceID: selfID,
+				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+					Id:   selfID,
+					Type: clustermetadatapb.PoolerType_REPLICA,
+				}),
+			}
+			pm.consensusState = tt.consensusState
+			pm.suspectedDivergence.Store(tt.suspectDivergence)
+			pm.rewindReadyAt = tt.readyAt
+
+			got := pm.determineRemedialAction(t.Context(), notRunning)
+			require.Equal(t, tt.expectedAction, got)
+		})
+	}
+}
+
 // TestStaleStandbyDemoteTarget verifies the gating for monitor-driven
 // self-demotion: a stale primary restarts as a standby only when consensus has
 // genuinely, non-revocably named another leader at a rule that outranks our
