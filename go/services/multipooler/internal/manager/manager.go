@@ -314,16 +314,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// long-lived stream subscribers can keep watching it.
 	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(ctxutil.Detach(ctx))
 
-	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
-	// Only actual read/parse errors fail the constructor.
-	promises := consensus.NewConsensusPromises(pm.record.PoolerDir(), pm.serviceID)
-	if config.ConsensusEnabled {
-		if _, err := promises.Load(); err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
-		}
-	}
-
 	// Create the query service controller with the pool manager.
 	// Get the drain grace period from connpool config (0 means use default).
 	var drainGracePeriod time.Duration
@@ -331,8 +321,23 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	rules := consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
-	pm.consensusMgr = consensus.NewConsensusManager(promises, rules, pm.healthStreamer)
+
+	// ConsensusManager owns its own wiring (durable promise store + rule store +
+	// sync-standby manager). LoadPromises loads the persisted term from disk on
+	// the consensus-enabled path; a missing file means term=0 (new node), and
+	// only an actual read/parse error fails the constructor.
+	pm.consensusMgr, err = consensus.NewConsensusManager(consensus.Deps{
+		Logger:       pm.logger,
+		QueryService: pm.qsc.InternalQueryService(),
+		PoolerDir:    pm.record.PoolerDir(),
+		ID:           multiPooler.Id,
+		Broadcaster:  pm.healthStreamer,
+		LoadPromises: config.ConsensusEnabled,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new

@@ -97,7 +97,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	// Assign mock pooler controller and rule store BEFORE starting the manager
 	// to avoid race conditions.
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	setTestRuleStore(pm, rules)
+	setTestRuleStore(t, pm, rules)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -117,7 +117,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 
 	// Initialize consensus state
 	pm.mu.Lock()
-	setTestPromises(pm, consensus.NewConsensusPromises(tmpDir, serviceID))
+	setTestPromises(t, pm, consensus.NewConsensusPromises(tmpDir, serviceID))
 	pm.mu.Unlock()
 
 	return pm, tmpDir
@@ -1038,7 +1038,7 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 		serviceID:      id,
 		healthStreamer: streamer,
 		actionLock:     actionlock.NewActionLock(),
-		consensusMgr:   consensus.NewConsensusManager(consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
+		consensusMgr:   consensus.NewManagerForTesting(t, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
 	}
 
 	// Subscribe so we can observe broadcasts.

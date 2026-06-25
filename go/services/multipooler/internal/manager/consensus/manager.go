@@ -16,6 +16,8 @@ package consensus
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
@@ -123,11 +126,41 @@ type ConsensusManager struct {
 	suspectedDivergence atomic.Bool
 }
 
-// NewConsensusManager builds a ConsensusManager over an already-constructed
-// durable-promise store and rule store. broadcaster (the manager's health
-// streamer) is notified after a change the coordinator should see promptly; it
-// may be nil, in which case broadcasts are skipped.
-func NewConsensusManager(promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
+// Deps are the lower-level dependencies a production ConsensusManager builds its
+// components from. ID is this pooler's identity (used to root the durable promise
+// store and the sync-standby manager). LoadPromises asks the constructor to load
+// the persisted term from disk (the consensus-enabled path). Broadcaster — the
+// manager's health streamer — may be nil, in which case broadcasts are skipped.
+type Deps struct {
+	Logger       *slog.Logger
+	QueryService executor.InternalQueryService
+	PoolerDir    string
+	ID           *clustermetadatapb.ID
+	Broadcaster  Broadcaster
+	LoadPromises bool
+}
+
+// NewConsensusManager builds a ConsensusManager and the components it owns — the
+// durable promise store and the rule store (with its sync-standby manager) — from
+// deps, so the consensus package owns its own wiring. When deps.LoadPromises is
+// set it loads the persisted term from disk, returning an error on a read/parse
+// failure. Tests that need to inject fakes use NewManagerForTesting.
+func NewConsensusManager(deps Deps) (*ConsensusManager, error) {
+	promises := NewConsensusPromises(deps.PoolerDir, deps.ID)
+	if deps.LoadPromises {
+		if _, err := promises.Load(); err != nil {
+			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
+		}
+	}
+	rules := NewRuleStore(deps.Logger, deps.QueryService, NewSyncStandbyManager(deps.Logger, deps.QueryService, deps.ID))
+	return newConsensusManager(promises, rules, deps.Broadcaster), nil
+}
+
+// newConsensusManager wires a ConsensusManager over already-constructed
+// components. Shared by NewConsensusManager (production) and NewManagerForTesting
+// (tests, which inject fakes). broadcaster may be nil, in which case broadcasts
+// are skipped.
+func newConsensusManager(promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
 	cm := &ConsensusManager{promises: promises, rules: rules, broadcaster: broadcaster}
 	// Default to ELIGIBLE — a fresh node is willing to join the cohort. (The
 	// atomic's zero value is the proto's UNSPECIFIED, so set it explicitly.)

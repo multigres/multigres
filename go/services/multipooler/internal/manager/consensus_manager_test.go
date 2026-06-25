@@ -97,8 +97,8 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 // broadcasts are skipped in tests. The recorded primary, resignation, and
 // eligibility are seeded separately under the action lock by seedLockedState,
 // since those setters assert the action lock.
-func (cfg *testManagerConfig) consensusManager() *consensus.ConsensusManager {
-	return consensus.NewConsensusManager(cfg.promises, cfg.rules, nil)
+func (cfg *testManagerConfig) consensusManager(t *testing.T) *consensus.ConsensusManager {
+	return consensus.NewManagerForTesting(t, cfg.promises, cfg.rules, nil)
 }
 
 // seedLockedState applies the replication-primary / resignation / eligibility
@@ -137,7 +137,7 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 		actionLock:   actionlock.NewActionLock(),
 		serviceID:    cfg.serviceID,
 		record:       cfg.record,
-		consensusMgr: cfg.consensusManager(),
+		consensusMgr: cfg.consensusManager(t),
 	}
 	cfg.seedLockedState(t, pm)
 	return pm
@@ -149,12 +149,12 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 // (The rebuilt manager drops the broadcaster — acceptable since these tests
 // don't assert health broadcasts; this bridge goes away with the deferred
 // dependency-injection refactor.)
-func setTestRuleStore(pm *MultiPoolerManager, rules consensus.RuleStorer) {
-	pm.consensusMgr = consensus.NewConsensusManager(pm.consensusMgr.Promises(), rules, nil)
+func setTestRuleStore(t *testing.T, pm *MultiPoolerManager, rules consensus.RuleStorer) {
+	pm.consensusMgr = consensus.NewManagerForTesting(t, pm.consensusMgr.Promises(), rules, nil)
 }
 
 // setTestPromises swaps the durable-promise store of an already-constructed
 // manager, preserving its rule store.
-func setTestPromises(pm *MultiPoolerManager, promises *consensus.ConsensusPromises) {
-	pm.consensusMgr = consensus.NewConsensusManager(promises, pm.consensusMgr.Rules(), nil)
+func setTestPromises(t *testing.T, pm *MultiPoolerManager, promises *consensus.ConsensusPromises) {
+	pm.consensusMgr = consensus.NewManagerForTesting(t, promises, pm.consensusMgr.Rules(), nil)
 }

@@ -64,7 +64,7 @@ func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return ni
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
 // newTestManagerWithMock creates a test MultiPoolerManager with a mock query service
-func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
+func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
 	logger := slog.New(slog.DiscardHandler)
 	mockQueryService := mock.NewQueryService()
 
@@ -93,7 +93,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		record:          newRecordFromProto(multiPooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
-		consensusMgr: consensus.NewConsensusManager(
+		consensusMgr: consensus.NewManagerForTesting(t,
 			consensus.NewConsensusPromises("", svcID),
 			consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}),
 			nil,
@@ -199,7 +199,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, constants.DefaultShard)
+			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, constants.DefaultShard)
 
 			tt.setupMock(mockQueryService)
 
@@ -293,7 +293,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, tt.shard)
+			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, tt.shard)
 
 			tt.setupMock(mockQueryService)
 

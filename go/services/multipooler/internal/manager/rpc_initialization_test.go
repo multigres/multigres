@@ -57,7 +57,7 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	require.NoError(t, err)
 	// Swap in a fake rule store so tests that exercise ObservePosition /
 	// CachedPosition don't crash on the real store's nil query service.
-	setTestRuleStore(pm, &fakeRuleStore{})
+	setTestRuleStore(t, pm, &fakeRuleStore{})
 	return pm
 }
 
@@ -279,7 +279,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		serviceID:    multipooler.Id,
 		topoClient:   ts,
 		servingState: NewStateManager(slog.Default(), record),
-		consensusMgr: cfg.consensusManager(),
+		consensusMgr: cfg.consensusManager(t),
 	}
 	cfg.seedLockedState(t, pm)
 	return pm
