@@ -1155,6 +1155,9 @@ const (
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
 	token := l.NextToken()
+	// Remember the token handed to the parser so Error can report the token the
+	// parse failed at (PostgreSQL's "at or near"). A nil token signals EOF.
+	l.context.SetLastToken(token)
 	if token == nil {
 		return EOF // EOF = 0, exactly what yacc expects
 	}
@@ -1169,9 +1172,12 @@ func (l *Lexer) Lex(lval *yySymType) int {
 	return token.Type
 }
 
-// Error implements the error interface for goyacc
+// Error implements the error interface for goyacc. It shapes the message and
+// position to match PostgreSQL's scanner_yyerror ("syntax error at or near
+// \"<token>\"" / "at end of input", with the position pointing at the offending
+// token).
 func (l *Lexer) Error(s string) {
-	l.RecordError(fmt.Errorf("parse error at position %d: %s", l.GetPosition(), s))
+	l.context.AddSyntaxError(s)
 }
 
 var parserPool = sync.Pool{
@@ -1186,7 +1192,10 @@ func ParseSQL(input string) ([]ast.Stmt, error) {
 	parserPool.Put(parser)
 
 	if lexer.HasErrors() {
-		return nil, lexer.GetErrors()[0]
+		// Return the structured error so PostgreSQL-serving callers can read the
+		// position for the ErrorResponse "P" field. Error() still yields the same
+		// message string, so plain error consumers are unaffected.
+		return nil, lexer.FirstError()
 	}
 
 	return lexer.GetParseTree(), nil

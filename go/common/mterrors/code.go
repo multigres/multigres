@@ -231,6 +231,16 @@ func NewParseError(message string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSyntaxError, message, "")
 }
 
+// NewParseErrorAt is NewParseError with a cursor position. position is the
+// 1-based character offset PostgreSQL reports in the ErrorResponse "P" field so
+// clients (psql, ORMs) can render the caret under the offending token. A
+// position of 0 is omitted from the wire message, matching NewParseError.
+func NewParseErrorAt(message string, position int32) *PgDiagnostic {
+	d := NewParseError(message)
+	d.Position = position
+	return d
+}
+
 // NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse
 // ('N') rather than an ErrorResponse ('E'). Use this for non-fatal diagnostics
 // (WARNING, NOTICE, INFO, LOG, DEBUG) that PostgreSQL surfaces alongside a

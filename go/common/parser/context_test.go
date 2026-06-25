@@ -247,7 +247,8 @@ func TestParseContextUnifiedErrors(t *testing.T) {
 	errors = ctx.GetErrors()
 	assert.Len(t, errors, 2)
 	assert.Equal(t, UnterminatedString, errors[1].Type)
-	assert.Equal(t, "unterminated string", errors[1].Message)
+	// Lexer errors now carry PostgreSQL's `at or near`/`at end of input` suffix.
+	assert.Contains(t, errors[1].Message, "unterminated string")
 
 	// Add a warning
 	_ = ctx.AddWarning("deprecated syntax", 5)

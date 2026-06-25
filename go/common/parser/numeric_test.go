@@ -300,7 +300,9 @@ func TestNumericFailPatterns(t *testing.T) {
 			// Check that error was recorded in context
 			errors := lexer.GetContext().GetErrors()
 			assert.Len(t, errors, 1)
-			assert.Equal(t, tt.errorMsg, errors[0].Message)
+			// Match PostgreSQL's scanner_yyerror: the recorded message carries an
+			// `at or near "<lexeme>"` suffix, so assert on the message class.
+			assert.Contains(t, errors[0].Message, tt.errorMsg)
 		})
 	}
 }
@@ -354,7 +356,9 @@ func TestNumericJunkPatterns(t *testing.T) {
 			// Check that error was recorded in context
 			errors := lexer.GetContext().GetErrors()
 			assert.Len(t, errors, 1)
-			assert.Equal(t, tt.errorMsg, errors[0].Message)
+			// Match PostgreSQL's scanner_yyerror: the recorded message carries an
+			// `at or near "<lexeme>"` suffix, so assert on the message class.
+			assert.Contains(t, errors[0].Message, tt.errorMsg)
 		})
 	}
 }

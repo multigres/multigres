@@ -266,7 +266,7 @@
   {
     "comment": "numerology - Statement 62",
     "query": "SELECT _1_000.5",
-    "error": "parse error at position 15: syntax error"
+    "error": "syntax error at or near \".5\""
   },
   {
     "comment": "numerology - Statement 63",

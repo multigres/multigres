@@ -217,6 +217,6 @@
   {
     "comment": "tuplesort - Statement 50",
     "query": "EXPLAIN (COSTS OFF) 1",
-    "error": "parse error at position 21: syntax error"
+    "error": "syntax error at or near \"1\""
   }
 ]

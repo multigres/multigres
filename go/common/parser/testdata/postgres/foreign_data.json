@@ -126,7 +126,7 @@
   {
     "comment": "foreign_data - Statement 31",
     "query": "ALTER FOREIGN DATA WRAPPER foo",
-    "error": "parse error at position 30: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "foreign_data - Statement 32",
@@ -291,7 +291,7 @@
   {
     "comment": "foreign_data - Statement 71",
     "query": "ALTER SERVER s0",
-    "error": "parse error at position 15: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "foreign_data - Statement 72",
@@ -511,7 +511,7 @@
   {
     "comment": "foreign_data - Statement 120",
     "query": "CREATE FOREIGN TABLE ft1 ()",
-    "error": "parse error at position 27: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "foreign_data - Statement 121",

@@ -89,47 +89,47 @@
   {
     "comment": "merge - Statement 21",
     "query": "MERGE INTO target t RANDOMWORD USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0",
-    "error": "parse error at position 30: syntax error"
+    "error": "syntax error at or near \"RANDOMWORD\""
   },
   {
     "comment": "merge - Statement 22",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN INSERT DEFAULT VALUES",
-    "error": "parse error at position 79: syntax error"
+    "error": "syntax error at or near \"INSERT\""
   },
   {
     "comment": "merge - Statement 23",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN INSERT DEFAULT VALUES",
-    "error": "parse error at position 93: syntax error"
+    "error": "syntax error at or near \"INSERT\""
   },
   {
     "comment": "merge - Statement 24",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT INTO target DEFAULT VALUES",
-    "error": "parse error at position 88: syntax error"
+    "error": "syntax error at or near \"INTO\""
   },
   {
     "comment": "merge - Statement 25",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1,1), (2,2)",
-    "error": "parse error at position 97: syntax error"
+    "error": "syntax error at or near \",\""
   },
   {
     "comment": "merge - Statement 26",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT SELECT (1, 1)",
-    "error": "parse error at position 90: syntax error"
+    "error": "syntax error at or near \"SELECT\""
   },
   {
     "comment": "merge - Statement 27",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN UPDATE SET balance = 0",
-    "error": "parse error at position 83: syntax error"
+    "error": "syntax error at or near \"UPDATE\""
   },
   {
     "comment": "merge - Statement 28",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY TARGET THEN UPDATE SET balance = 0",
-    "error": "parse error at position 93: syntax error"
+    "error": "syntax error at or near \"UPDATE\""
   },
   {
     "comment": "merge - Statement 29",
     "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE target SET balance = 0",
-    "error": "parse error at position 86: syntax error"
+    "error": "syntax error at or near \"target\""
   },
   {
     "comment": "merge - Statement 30",

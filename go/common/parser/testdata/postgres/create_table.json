@@ -118,7 +118,7 @@
   {
     "comment": "create_table - Statement 27",
     "query": "CREATE TABLE withoid() WITH OIDS",
-    "error": "parse error at position 32: syntax error"
+    "error": "syntax error at or near \"OIDS\""
   },
   {
     "comment": "create_table - Statement 28",
@@ -515,7 +515,7 @@
   {
     "comment": "create_table - Statement 109",
     "query": "CREATE TABLE fail_part PARTITION OF list_parted FOR VALUES IN ()",
-    "error": "parse error at position 64: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "create_table - Statement 110",

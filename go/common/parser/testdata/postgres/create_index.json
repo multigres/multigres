@@ -7,7 +7,7 @@
   {
     "comment": "create_index - Statement 2",
     "query": "CREATE INDEX IF NOT EXISTS ON onek USING btree(unique1 int4_ops)",
-    "error": "parse error at position 29: syntax error"
+    "error": "syntax error at or near \"ON\""
   },
   {
     "comment": "create_index - Statement 3",
@@ -1988,7 +1988,7 @@
   {
     "comment": "create_index - Statement 434",
     "query": "REINDEX SCHEMA CONCURRENTLY 1",
-    "error": "parse error at position 29: syntax error"
+    "error": "syntax error at or near \"1\""
   },
   {
     "comment": "create_index - Statement 435",
