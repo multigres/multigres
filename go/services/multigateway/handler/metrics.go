@@ -42,6 +42,9 @@ type HandlerMetrics struct {
 	queryErrors   *QueryErrors
 	rowsReturned  *RowsReturned
 	tableQueries  *TableQueries
+	parseDuration *PhaseDuration
+	planDuration  *PlanDuration
+	execDuration  *PhaseDuration
 	queryLogEmits QueryLogEmits
 }
 
@@ -68,6 +71,14 @@ type rowsReturnedKey struct {
 
 type tableQueriesKey struct {
 	db, table, op string
+}
+
+type phaseDurationKey struct {
+	db, op string
+}
+
+type planDurationKey struct {
+	db, op, planType string
 }
 
 // QueryDuration wraps a Float64Histogram for recording query durations.
@@ -191,6 +202,64 @@ func (m *RowsReturned) optionFor(key rowsReturnedKey) metric.MeasurementOption {
 	return actual.(metric.MeasurementOption)
 }
 
+// PhaseDuration wraps a Float64Histogram for recording a single query-execution
+// phase (parse or downstream exec) keyed by (db, operation). Used for the
+// mg.gateway.query.{parse,exec}.duration breakdown that complements the
+// total-time mg.gateway.query.duration histogram.
+type PhaseDuration struct {
+	metric.Float64Histogram
+	optsCache sync.Map // phaseDurationKey -> metric.MeasurementOption
+}
+
+// Record records a phase duration with (db.namespace, db.operation.name) attrs.
+func (m *PhaseDuration) Record(ctx context.Context, val float64, dbNamespace, operationName string) {
+	key := phaseDurationKey{db: dbNamespace, op: operationName}
+	opt := m.optionFor(key)
+	m.Float64Histogram.Record(ctx, val, opt)
+}
+
+func (m *PhaseDuration) optionFor(key phaseDurationKey) metric.MeasurementOption {
+	if v, ok := m.optsCache.Load(key); ok {
+		return v.(metric.MeasurementOption)
+	}
+	set := attribute.NewSet(
+		attribute.String("db.namespace", key.db),
+		attribute.String("db.operation.name", key.op),
+	)
+	opt := metric.WithAttributeSet(set)
+	actual, _ := m.optsCache.LoadOrStore(key, opt)
+	return actual.(metric.MeasurementOption)
+}
+
+// PlanDuration wraps a Float64Histogram for the planning phase, keyed by
+// (db, operation, plan_type) so operators can see which plan types are slow.
+type PlanDuration struct {
+	metric.Float64Histogram
+	optsCache sync.Map // planDurationKey -> metric.MeasurementOption
+}
+
+// Record records a planning duration with (db.namespace, db.operation.name,
+// plan_type) attrs.
+func (m *PlanDuration) Record(ctx context.Context, val float64, dbNamespace, operationName, planType string) {
+	key := planDurationKey{db: dbNamespace, op: operationName, planType: planType}
+	opt := m.optionFor(key)
+	m.Float64Histogram.Record(ctx, val, opt)
+}
+
+func (m *PlanDuration) optionFor(key planDurationKey) metric.MeasurementOption {
+	if v, ok := m.optsCache.Load(key); ok {
+		return v.(metric.MeasurementOption)
+	}
+	set := attribute.NewSet(
+		attribute.String("db.namespace", key.db),
+		attribute.String("db.operation.name", key.op),
+		attribute.String("plan_type", key.planType),
+	)
+	opt := metric.WithAttributeSet(set)
+	actual, _ := m.optsCache.LoadOrStore(key, opt)
+	return actual.(metric.MeasurementOption)
+}
+
 // QueryLogEmits wraps an Int64Counter for counting per-query log records
 // emitted by emitQueryLog. The `level` attribute distinguishes WARN (errored
 // or slow) emissions from normal-path DEBUG emissions, so operators can size
@@ -247,6 +316,9 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		queryErrors:   &QueryErrors{},
 		rowsReturned:  &RowsReturned{},
 		tableQueries:  &TableQueries{},
+		parseDuration: &PhaseDuration{},
+		planDuration:  &PlanDuration{},
+		execDuration:  &PhaseDuration{},
 	}
 	var errs []error
 
@@ -298,6 +370,51 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		m.tableQueries.Int64Counter = noop.Int64Counter{}
 	} else {
 		m.tableQueries.Int64Counter = tq
+	}
+
+	// Phase-latency histograms decompose mg.gateway.query.duration into parse,
+	// plan, and downstream-exec phases so "is it planning or execution that's
+	// slow?" is answerable. Same bucket boundaries as the total duration so the
+	// phases are directly comparable.
+	phaseBuckets := metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10)
+
+	parseDur, err := meter.Float64Histogram(
+		"mg.gateway.query.parse.duration",
+		metric.WithDescription("SQL parse time at the gateway"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.parse.duration histogram: %w", err))
+		m.parseDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.parseDuration.Float64Histogram = parseDur
+	}
+
+	planDur, err := meter.Float64Histogram(
+		"mg.gateway.query.plan.duration",
+		metric.WithDescription("Query planning time at the gateway"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.plan.duration histogram: %w", err))
+		m.planDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.planDuration.Float64Histogram = planDur
+	}
+
+	execDur, err := meter.Float64Histogram(
+		"mg.gateway.query.exec.duration",
+		metric.WithDescription("Downstream execution time (the gateway's view of the pooler hop)"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.exec.duration histogram: %w", err))
+		m.execDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.execDuration.Float64Histogram = execDur
 	}
 
 	qle, err := meter.Int64Counter(

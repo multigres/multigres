@@ -274,6 +274,47 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 	})
 }
 
+func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
+	ctx := t.Context()
+	ts := memorytopo.NewServer(ctx, "cell1")
+	server := NewMultiAdminServer(ts, slog.Default(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer server.backupJobTracker.Stop()
+
+	replicaPooler := &clustermetadatapb.MultiPooler{
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"},
+		Hostname: "replica-pooler.cell1",
+		PortMap:  map[string]int32{"grpc": 8081},
+		ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default"},
+		Type:     clustermetadatapb.PoolerType_REPLICA,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
+
+	fakeClient := rpcclient.NewFakeClient()
+	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
+	fakeClient.GetBackupsResponses[poolerKey] = &multipoolermanagerdata.GetBackupsResponse{
+		Backups: []*multipoolermanagerdata.BackupMetadata{{
+			BackupId:   "20250104-100000F",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       "full",
+			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
+			StartLsn:   "0/21000028",
+			StopLsn:    "0/21000100",
+			PgVersion:  "16.2",
+		}},
+	}
+	server.SetRPCClient(fakeClient)
+
+	resp, err := server.GetBackups(ctx, &multiadminpb.GetBackupsRequest{
+		Database: "testdb", TableGroup: "default", Shard: "0",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Backups, 1)
+	require.Equal(t, "0/21000028", resp.Backups[0].StartLsn)
+	require.Equal(t, "0/21000100", resp.Backups[0].StopLsn)
+	require.Equal(t, "16.2", resp.Backups[0].PgVersion)
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")

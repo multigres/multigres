@@ -97,6 +97,10 @@ type Pool struct {
 	timeoutCount    atomic.Int64
 	txCommitCount   atomic.Int64
 	txRollbackCount atomic.Int64
+
+	// txnMetrics publishes transaction outcomes (commit/rollback/abort) and
+	// durations as OTel metrics.
+	txnMetrics *txnMetrics
 }
 
 // NewPool creates a new reserved connection pool.
@@ -119,12 +123,13 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	regularPool.Open()
 
 	p := &Pool{
-		config: config,
-		logger: logger,
-		conns:  regularPool,
-		active: make(map[int64]*Conn),
-		ctx:    poolCtx,
-		cancel: cancel,
+		config:     config,
+		logger:     logger,
+		conns:      regularPool,
+		active:     make(map[int64]*Conn),
+		ctx:        poolCtx,
+		cancel:     cancel,
+		txnMetrics: newTxnMetrics(),
 	}
 
 	// Initialize lastID with current Unix nanoseconds to prevent ID collisions
@@ -351,6 +356,20 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
+
+	// A connection still flagged in-transaction here was never concluded by a
+	// successful Commit/Rollback (both remove the transaction reason), so it
+	// ended via error/timeout/kill — count it as an abort. This single check
+	// covers every scattered ReleaseError path without instrumenting each.
+	if rc.IsInTransaction() {
+		var d time.Duration
+		if !rc.txnStartTime.IsZero() {
+			d = time.Since(rc.txnStartTime)
+		}
+		// p.ctx is the pool's lifecycle context, matching the pool's other OTel
+		// calls; metric recording is synchronous and unaffected by cancellation.
+		p.txnMetrics.record(p.ctx, txnOutcomeAbort, d)
+	}
 
 	// Update metrics based on reason.
 	switch reason {

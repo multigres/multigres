@@ -68,11 +68,15 @@ type healthStreamer struct {
 	// replicationLagNs holds the most recent replication lag in nanoseconds.
 	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
 	replicationLagNs atomic.Int64
+
+	// metrics publishes replication lag and serving-state transitions as OTel
+	// metrics. Always non-nil after newHealthStreamer.
+	metrics *healthMetrics
 }
 
 // newHealthStreamer creates a new health streamer with the given identity.
 func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tableGroup, shard string) *healthStreamer {
-	return &healthStreamer{
+	hs := &healthStreamer{
 		logger:                      logger,
 		poolerID:                    poolerID,
 		tableGroup:                  tableGroup,
@@ -81,6 +85,15 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 		recommendedStalenessTimeout: defaultRecommendedStalenessTimeout,
 		servingStatus:               clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 	}
+
+	// The observable gauge samples the lag atomic at collection time.
+	metrics, err := newHealthMetrics(func() int64 { return hs.replicationLagNs.Load() })
+	if err != nil && logger != nil {
+		logger.Warn("failed to initialise some health metrics", "error", err)
+	}
+	hs.metrics = metrics
+
+	return hs
 }
 
 // SetQueryServer sets the query server that the healthStreamer waits on before
@@ -116,9 +129,13 @@ func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clusterm
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
+	prev := hs.servingStatus
 	hs.poolerType = poolerType
 	hs.servingStatus = servingStatus
 	hs.broadcastLocked()
+	if prev != servingStatus {
+		hs.metrics.recordTransition(ctx, prev, servingStatus)
+	}
 	return nil
 }
 

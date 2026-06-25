@@ -78,27 +78,29 @@ func TestBackupSettings(t *testing.T) {
 	t.Run("maps the three settings", func(t *testing.T) {
 		qs := mock.NewQueryService()
 		qs.AddQueryPattern("current_setting", mock.MakeQueryResult(
-			[]string{"archive_command", "archive_mode", "restore_command"},
-			[][]any{{"pgbackrest archive-push %p", "on", "pgbackrest archive-get %f %p"}}))
+			[]string{"archive_command", "archive_mode", "restore_command", "server_version"},
+			[][]any{{"pgbackrest archive-push %p", "on", "pgbackrest archive-get %f %p", "16.2"}}))
 
 		s, err := managerWithMockQuery(qs).backupSettings(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, "pgbackrest archive-push %p", s.ArchiveCommand)
 		assert.Equal(t, "on", s.ArchiveMode)
 		assert.Equal(t, "pgbackrest archive-get %f %p", s.RestoreCommand)
+		assert.Equal(t, "16.2", s.ServerVersion)
 	})
 
 	t.Run("empty settings pass through", func(t *testing.T) {
 		qs := mock.NewQueryService()
 		qs.AddQueryPattern("current_setting", mock.MakeQueryResult(
-			[]string{"archive_command", "archive_mode", "restore_command"},
-			[][]any{{"", "off", ""}}))
+			[]string{"archive_command", "archive_mode", "restore_command", "server_version"},
+			[][]any{{"", "off", "", ""}}))
 
 		s, err := managerWithMockQuery(qs).backupSettings(t.Context())
 		require.NoError(t, err)
 		assert.Empty(t, s.ArchiveCommand)
 		assert.Equal(t, "off", s.ArchiveMode)
 		assert.Empty(t, s.RestoreCommand)
+		assert.Empty(t, s.ServerVersion)
 	})
 
 	t.Run("query error is wrapped", func(t *testing.T) {

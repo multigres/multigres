@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -47,6 +48,7 @@ type Executor struct {
 	poolManager        connpoolmanager.PoolManager
 	poolerConsolidator *preparedstatement.PoolerConsolidator
 	poolerID           *clustermetadatapb.ID
+	metrics            *queryStats
 
 	// vpidStampEnabled toggles the multigres_vpid:<id> stamping on PostgreSQL
 	// backends and the matching application_name filter in
@@ -145,6 +147,7 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 		poolManager:        poolManager,
 		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
 		poolerID:           poolerID,
+		metrics:            newQueryStats(),
 		vpidStampEnabled:   vpidStampEnabled,
 	}
 }
@@ -170,10 +173,22 @@ func (e *Executor) buildReservedStateFromAPI(rc reservedConnAPI) *query.Reserved
 // It executes a query using a pooled connection for the specified user.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
 // Returns ReservedState with the authoritative reservation state from the multipooler.
-func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (result *sqltypes.Result, reservedState *query.ReservedState, err error) {
 	if target == nil {
 		target = &query.Target{}
 	}
+
+	// poolType is updated to "reserved" once we know the query runs on a
+	// reserved connection; the deferred record reads its final value.
+	poolType := poolTypeRegular
+	start := time.Now()
+	defer func() {
+		var rows int64
+		if result != nil {
+			rows = int64(len(result.Rows))
+		}
+		e.metrics.recordQuery(ctx, poolType, time.Since(start), rows, err)
+	}()
 
 	user := e.getUserFromOptions(options)
 	e.logger.DebugContext(ctx, "executing query",
@@ -185,6 +200,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Check if we should use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
+		poolType = poolTypeReserved
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
@@ -226,7 +242,9 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acqStart := time.Now()
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -276,10 +294,26 @@ func (e *Executor) StreamExecute(
 	options *query.ExecuteOptions,
 	reservationOptions *query.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (*query.ReservedState, error) {
+) (reservedState *query.ReservedState, err error) {
 	if target == nil {
 		target = &query.Target{}
 	}
+
+	// Wrap the caller's callback to count rows streamed for mg.pooler.query.rows.
+	// Reassigning the param routes every downstream path through the counter.
+	poolType := poolTypeRegular
+	start := time.Now()
+	var rowsStreamed int64
+	origCallback := callback
+	callback = func(ctx context.Context, r *sqltypes.Result) error {
+		if r != nil {
+			rowsStreamed += int64(len(r.Rows))
+		}
+		return origCallback(ctx, r)
+	}
+	defer func() {
+		e.metrics.recordQuery(ctx, poolType, time.Since(start), rowsStreamed, err)
+	}()
 
 	user := e.getUserFromOptions(options)
 	reasons := protoutil.GetReasons(reservationOptions)
@@ -294,6 +328,7 @@ func (e *Executor) StreamExecute(
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
+		poolType = poolTypeReserved
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
@@ -326,6 +361,7 @@ func (e *Executor) StreamExecute(
 
 	// Case 2: Create a new reserved connection
 	if reasons != 0 {
+		poolType = poolTypeReserved
 		return e.reserveAndStreamExecute(ctx, sql, options, reservationOptions, callback)
 	}
 
@@ -337,7 +373,9 @@ func (e *Executor) StreamExecute(
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acqStart := time.Now()
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
@@ -432,7 +470,9 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Create a reserved connection
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acqStart := time.Now()
 	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, reservedOpts...)
+	e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
