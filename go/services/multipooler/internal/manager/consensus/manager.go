@@ -15,14 +15,25 @@
 package consensus
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
+
+// Broadcaster pushes an immediate health snapshot to subscribers. It is
+// satisfied by the manager's health streamer. ConsensusManager calls it after a
+// change the coordinator should see without waiting for the next heartbeat
+// (e.g. a resignation or cohort-eligibility flip).
+type Broadcaster interface {
+	Broadcast()
+}
 
 // ConsensusManager owns the pooler's consensus state. It composes the two
 // lower-level pieces in this package:
@@ -42,36 +53,81 @@ import (
 // way (via the manager package's test builder), so neither the fields nor a
 // setter need to be exported.
 //
-// Locking: the observational fields use mu, which is deliberately separate from
-// ConsensusPromises's own lock. ConsensusPromises's lock wraps disk writes, and
-// GetReplicationPrimary is read on nearly every monitor tick; sharing one lock
-// would serialize the latency-sensitive monitor loop behind term persistence.
+// Concurrency — each field documents its own access rule; in summary:
+//
+//   - promises, rules: set once at construction, immutable thereafter. Each has
+//     its own internal synchronization (ConsensusPromises wraps a disk lock;
+//     RuleStorer guards its cache), so callers just use the returned value.
+//   - replicationPrimary, leaderObservedAt: guarded by mu. mu is deliberately
+//     NOT shared with ConsensusPromises's lock: that lock wraps disk writes, and
+//     GetReplicationPrimary is read on nearly every monitor tick — sharing would
+//     serialize the latency-sensitive monitor loop behind term persistence.
+//   - resignedLeaderAtTerm, cohortEligibility: atomics, NOT under mu. Production
+//     writes go through the manager under the action lock (so writers are
+//     serialized there); the lock-free readers (Status/health snapshot, monitor
+//     decision phase) load them without any lock. The atomic makes those reads
+//     safe; the action lock orders the writers. They are independent scalars and
+//     never need to be read consistently with each other or with mu's fields.
+//
+// Nothing here holds mu (or any lock) across a health broadcast: the Set* methods
+// return whether the value changed and the manager broadcasts afterward.
 //
 // Later steps fold the remaining consensus state still scattered across the
-// manager (leader resignation, cohort eligibility, suspected divergence, and
-// the rewind backoff) into this type.
+// manager (suspected divergence and the rewind backoff) into this type.
 type ConsensusManager struct {
+	// promises and rules are immutable after construction (see Concurrency above).
 	promises *ConsensusPromises
 	rules    RuleStorer
+	// broadcaster pushes an immediate health snapshot after a change the
+	// coordinator should see promptly. Immutable after construction; may be nil
+	// (then broadcasts are skipped — used by unit tests with no health stream).
+	broadcaster Broadcaster
 
+	// mu guards replicationPrimary and leaderObservedAt only.
 	mu sync.Mutex
 	// replicationPrimary is held in memory only — see HighestKnownRule's proto
 	// comment. Populated by RPCs that inform this pooler about the cluster state
 	// (SetPrimary today; Promote via the same RecordTermPrimary entry point).
-	// Restarts reset it to nil; coordinators re-inform the pooler.
+	// Restarts reset it to nil; coordinators re-inform the pooler. Guarded by mu.
 	replicationPrimary *clustermetadatapb.ReplicationPrimary
 	// leaderObservedAt is when RecordTermPrimary last saw the leader ID change (a
 	// new primary was recorded). Zero until the first leader is recorded. Used to
 	// measure how long a diverged follower's pg_rewind waited for that leader to
 	// become rewind-ready: the delay is (rewind start) - leaderObservedAt, which
 	// is ~0 when the same SetPrimary that learned the new leader could also rewind.
+	// Guarded by mu.
 	leaderObservedAt time.Time
+
+	// resignedLeaderAtTerm is the consensus term at which this node voluntarily
+	// resigned as primary (via emergency-demote or graceful shutdown), or 0 if it
+	// has not resigned. A non-zero value tells the coordinator to trigger an
+	// immediate election. Cleared when this node is elected primary again. Atomic;
+	// production writes are serialized by the action lock (see Concurrency above).
+	resignedLeaderAtTerm atomic.Int64
+	// cohortEligibility is this node's self-reported willingness to be a member of
+	// the consensus cohort, holding a clustermetadatapb.CohortEligibilitySignal.
+	// Atomic; production writes are serialized by the action lock.
+	cohortEligibility atomic.Int32
 }
 
 // NewConsensusManager builds a ConsensusManager over an already-constructed
-// durable-promise store and rule store.
-func NewConsensusManager(promises *ConsensusPromises, rules RuleStorer) *ConsensusManager {
-	return &ConsensusManager{promises: promises, rules: rules}
+// durable-promise store and rule store. broadcaster (the manager's health
+// streamer) is notified after a change the coordinator should see promptly; it
+// may be nil, in which case broadcasts are skipped.
+func NewConsensusManager(promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
+	cm := &ConsensusManager{promises: promises, rules: rules, broadcaster: broadcaster}
+	// Default to ELIGIBLE — a fresh node is willing to join the cohort. (The
+	// atomic's zero value is the proto's UNSPECIFIED, so set it explicitly.)
+	cm.cohortEligibility.Store(int32(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
+	return cm
+}
+
+// broadcast pushes an immediate health snapshot, if a broadcaster is wired.
+// Never call while holding cm.mu: the snapshot build reads mu-guarded fields.
+func (cm *ConsensusManager) broadcast() {
+	if cm.broadcaster != nil {
+		cm.broadcaster.Broadcast()
+	}
 }
 
 // Promises returns the durable term-revocation store.
@@ -199,4 +255,55 @@ func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, ex
 	next.RewindReady = true
 	cm.replicationPrimary = next
 	return true
+}
+
+// ResignedLeaderAtTerm returns the term at which this node requested demotion as
+// primary, or 0 if it has not resigned.
+func (cm *ConsensusManager) ResignedLeaderAtTerm() int64 {
+	return cm.resignedLeaderAtTerm.Load()
+}
+
+// SetResignedLeaderAtTerm records that this node is requesting demotion as
+// primary for the given term. When the value changes it pushes an immediate
+// health broadcast so the coordinator can trigger an election without waiting
+// for the next heartbeat. Requires the action lock (ctx must be an action-lock
+// context), which serializes writers.
+func (cm *ConsensusManager) SetResignedLeaderAtTerm(ctx context.Context, term int64) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	if cm.resignedLeaderAtTerm.Swap(term) != term {
+		cm.broadcast()
+	}
+	return nil
+}
+
+// ClearResignedLeaderAtTerm clears the leadership-demotion request (sets it to
+// 0). Called when this node is appointed primary at a new term; that promotion
+// flow broadcasts, so this does not. Requires the action lock.
+func (cm *ConsensusManager) ClearResignedLeaderAtTerm(ctx context.Context) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	cm.resignedLeaderAtTerm.Store(0)
+	return nil
+}
+
+// CohortEligibility returns this node's self-reported cohort eligibility.
+func (cm *ConsensusManager) CohortEligibility() clustermetadatapb.CohortEligibilitySignal {
+	return clustermetadatapb.CohortEligibilitySignal(cm.cohortEligibility.Load())
+}
+
+// SetCohortEligibility records this node's cohort eligibility. When the value
+// changes it pushes an immediate health broadcast so the coordinator sees the
+// new value without waiting for the next heartbeat. Requires the action lock
+// (ctx must be an action-lock context), which serializes writers.
+func (cm *ConsensusManager) SetCohortEligibility(ctx context.Context, signal clustermetadatapb.CohortEligibilitySignal) error {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	if cm.cohortEligibility.Swap(int32(signal)) != int32(signal) {
+		cm.broadcast()
+	}
+	return nil
 }

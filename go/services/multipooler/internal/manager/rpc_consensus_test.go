@@ -564,7 +564,7 @@ func TestPromote(t *testing.T) {
 		ruleStore         *fakeRuleStore
 		req               *consensusdatapb.PromoteRequest
 		setupMocks        func(*mock.QueryService)
-		preRun            func(*MultiPoolerManager)
+		preRun            func(*testing.T, *MultiPoolerManager)
 		expectError       bool
 		expectErrContains string
 		postCheck         func(*testing.T, *MultiPoolerManager, *fakeRuleStore)
@@ -712,11 +712,12 @@ func TestPromote(t *testing.T) {
 			},
 			// Verify the promotion was recorded with the right coordinator term and WAL
 			// position, and that the health streamer was updated for write traffic.
-			preRun: func(pm *MultiPoolerManager) {
+			preRun: func(t *testing.T, pm *MultiPoolerManager) {
 				// Pre-set so we can verify clearResignedLeaderAtTerm ran.
-				pm.mu.Lock()
-				pm.resignedLeaderAtTerm = 7
-				pm.mu.Unlock()
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
+				pm.actionLock.Release(lockCtx)
 			},
 			postCheck: func(t *testing.T, pm *MultiPoolerManager, rs *fakeRuleStore) {
 				update := rs.assertPromoteRecorded(t)
@@ -735,9 +736,7 @@ func TestPromote(t *testing.T) {
 				assert.True(t, proto.Equal(selfID, state.LeaderObservation.LeaderID))
 				assert.Equal(t, int64(7), state.LeaderObservation.LeaderTerm)
 
-				pm.mu.Lock()
-				assert.Equal(t, int64(0), pm.resignedLeaderAtTerm, "clearResignedLeaderAtTerm should have cleared the term")
-				pm.mu.Unlock()
+				assert.Equal(t, int64(0), pm.consensusMgr.ResignedLeaderAtTerm(), "clearResignedLeaderAtTerm should have cleared the term")
 
 				// ReplicationPrimary should advertise this pooler as the primary
 				// at the proposalLeader's host/port. Coordinators reading this
@@ -883,7 +882,7 @@ func TestPromote(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.preRun != nil {
-				tt.preRun(pm)
+				tt.preRun(t, pm)
 			}
 
 			resp, err := pm.Promote(ctx, tt.req)
@@ -971,7 +970,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 
 func TestAvailabilityStatus(t *testing.T) {
 	t.Run("buildAvailabilityStatus publishes cohort eligibility with no leadership status when no resignation is set", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newTestManager(t)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
@@ -980,8 +979,7 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("resignedLeaderAtTerm set adds a LeadershipStatus alongside cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.resignedLeaderAtTerm = 7
+		pm := newTestManager(t, withResignedLeaderAtTerm(7))
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
@@ -991,19 +989,20 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
 
-	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.resignedLeaderAtTerm = 3
-		pm.resignedLeaderAtTerm = 0
+	t.Run("no resignation -> no LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
+		pm := newTestManager(t)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
 	})
 
-	t.Run("setCohortEligibility flips the signal", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
+	t.Run("SetCohortEligibility flips the signal", func(t *testing.T) {
+		pm := newTestManager(t)
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+		require.NoError(t, err)
+		require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE))
+		pm.actionLock.Release(lockCtx)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
@@ -1011,7 +1010,7 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("suspectedDivergence is published", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newTestManager(t)
 		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
 		pm.suspectedDivergence.Store(true)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
@@ -1031,6 +1030,7 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 		serviceID:      id,
 		healthStreamer: streamer,
 		actionLock:     actionlock.NewActionLock(),
+		consensusMgr:   consensus.NewConsensusManager(consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
 	}
 
 	// Subscribe so we can observe broadcasts.
@@ -1052,15 +1052,15 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
 	assert.Equal(t, 1, drain(), "first call should broadcast on change from 0 to 5")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
 	assert.Equal(t, 0, drain(), "repeating the same value should NOT broadcast")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 7))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
 	assert.Equal(t, 1, drain(), "changing to a new term should broadcast")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 0))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 0))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
 }

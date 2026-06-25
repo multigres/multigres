@@ -724,7 +724,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	// sees leadership_status.REQUESTING_DEMOTION before the next periodic
 	// health stream interval fires.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
-		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
 			return mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 	}

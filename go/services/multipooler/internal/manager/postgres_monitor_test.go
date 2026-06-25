@@ -874,7 +874,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			defer pm.actionLock.Release(lockCtx)
 
 			if tc.resignedBefore != 0 {
-				require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
 			}
 
 			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})

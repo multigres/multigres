@@ -272,16 +272,17 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	// Default the recorded service identity to this pooler unless an option
 	// overrode it, so the promises default is rooted at the right ID.
 	cfg := resolveTestManagerConfig(t, append([]testManagerOption{withServiceID(multipooler.Id)}, opts...)...)
-	return &MultiPoolerManager{
-		logger:            slog.Default(),
-		actionLock:        actionlock.NewActionLock(),
-		record:            record,
-		serviceID:         multipooler.Id,
-		topoClient:        ts,
-		servingState:      NewStateManager(slog.Default(), record),
-		cohortEligibility: cfg.cohortEligibility,
-		consensusMgr:      cfg.consensusManager(),
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		actionLock:   actionlock.NewActionLock(),
+		record:       record,
+		serviceID:    multipooler.Id,
+		topoClient:   ts,
+		servingState: NewStateManager(slog.Default(), record),
+		consensusMgr: cfg.consensusManager(),
 	}
+	cfg.seedLockedState(t, pm)
+	return pm
 }
 
 // TestUpdateTopologyAfterPromotion_PublishesSelfLeadership verifies the

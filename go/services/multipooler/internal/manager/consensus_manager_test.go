@@ -18,6 +18,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
@@ -91,12 +93,36 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 	return cfg
 }
 
+// consensusManager builds the ConsensusManager and seeds the lock-free state
+// (the recorded replication primary). A nil broadcaster means health broadcasts
+// are skipped in tests. Resignation/eligibility are seeded separately under the
+// action lock by seedLockedState, since their setters assert the action lock.
 func (cfg *testManagerConfig) consensusManager() *consensus.ConsensusManager {
-	cm := consensus.NewConsensusManager(cfg.promises, cfg.rules)
+	cm := consensus.NewConsensusManager(cfg.promises, cfg.rules, nil)
 	if cfg.replicationPrimary != nil {
 		cm.RecordTermPrimary(cfg.replicationPrimary)
 	}
 	return cm
+}
+
+// seedLockedState applies the resignation/eligibility overrides through the
+// action-lock-asserting setters, briefly acquiring the manager's action lock.
+// No-op when both are at their defaults.
+func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManager) {
+	t.Helper()
+	eligibleDefault := clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE
+	if cfg.resignedLeaderAtTerm == 0 && cfg.cohortEligibility == eligibleDefault {
+		return
+	}
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	if cfg.resignedLeaderAtTerm != 0 {
+		require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, cfg.resignedLeaderAtTerm))
+	}
+	if cfg.cohortEligibility != eligibleDefault {
+		require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx, cfg.cohortEligibility))
+	}
 }
 
 // newTestManager builds a MultiPoolerManager for unit tests of the consensus
@@ -107,26 +133,29 @@ func (cfg *testManagerConfig) consensusManager() *consensus.ConsensusManager {
 func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager {
 	t.Helper()
 	cfg := resolveTestManagerConfig(t, opts...)
-	return &MultiPoolerManager{
-		logger:               slog.Default(),
-		actionLock:           actionlock.NewActionLock(),
-		serviceID:            cfg.serviceID,
-		record:               cfg.record,
-		cohortEligibility:    cfg.cohortEligibility,
-		resignedLeaderAtTerm: cfg.resignedLeaderAtTerm,
-		consensusMgr:         cfg.consensusManager(),
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		actionLock:   actionlock.NewActionLock(),
+		serviceID:    cfg.serviceID,
+		record:       cfg.record,
+		consensusMgr: cfg.consensusManager(),
 	}
+	cfg.seedLockedState(t, pm)
+	return pm
 }
 
 // setTestRuleStore swaps the rule store of an already-constructed manager,
 // preserving its promises. Used by tests that build a manager via the real
 // NewMultiPoolerManager and then point the rule store at a mock query service.
+// (The rebuilt manager drops the broadcaster — acceptable since these tests
+// don't assert health broadcasts; this bridge goes away with the deferred
+// dependency-injection refactor.)
 func setTestRuleStore(pm *MultiPoolerManager, rules consensus.RuleStorer) {
-	pm.consensusMgr = consensus.NewConsensusManager(pm.consensusMgr.Promises(), rules)
+	pm.consensusMgr = consensus.NewConsensusManager(pm.consensusMgr.Promises(), rules, nil)
 }
 
 // setTestPromises swaps the durable-promise store of an already-constructed
 // manager, preserving its rule store.
 func setTestPromises(pm *MultiPoolerManager, promises *consensus.ConsensusPromises) {
-	pm.consensusMgr = consensus.NewConsensusManager(promises, pm.consensusMgr.Rules())
+	pm.consensusMgr = consensus.NewConsensusManager(promises, pm.consensusMgr.Rules(), nil)
 }

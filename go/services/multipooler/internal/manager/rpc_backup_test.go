@@ -118,6 +118,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		consensusMgr: consensus.NewConsensusManager(
 			consensus.NewConsensusPromises(poolerDir, multipoolerID),
 			&fakeRuleStore{},
+			nil,
 		),
 	}
 

@@ -457,7 +457,7 @@ func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.Poo
 	// postgres) from promote (newly elected). Embedding the leader host/port in the
 	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
 	if intended == clustermetadatapb.PoolerType_PRIMARY && !state.isPrimary {
-		if pm.getResignedLeaderAtTerm() == 0 {
+		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
 			return remedialActionResignLeadership
 		}
 		return remedialActionNone
@@ -553,7 +553,7 @@ func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, intende
 	if !state.rewindSourceReady || intended != clustermetadatapb.PoolerType_PRIMARY {
 		return false
 	}
-	if pm.getResignedLeaderAtTerm() != 0 {
+	if pm.consensusMgr.ResignedLeaderAtTerm() != 0 {
 		return false
 	}
 	return !pm.consensusMgr.GetReplicationPrimary().GetRewindReady()
@@ -656,7 +656,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning",
 			"primary_term", state.primaryTerm)
 		if state.primaryTerm != 0 {
-			if err := pm.setResignedLeaderAtTerm(ctx, state.primaryTerm); err != nil {
+			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, state.primaryTerm); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 			}
 		}

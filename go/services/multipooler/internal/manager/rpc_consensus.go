@@ -29,7 +29,6 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -176,26 +175,7 @@ func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.
 			Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
 		}
 	}
-	pm.mu.Lock()
-	signal := pm.cohortEligibility
-	pm.mu.Unlock()
-	return &clustermetadatapb.CohortEligibilityStatus{Signal: signal}
-}
-
-// setCohortEligibility records this pooler's cohort eligibility. If the
-// signal actually changed, an immediate health broadcast is pushed so the
-// coordinator sees the new value without waiting for the next heartbeat —
-// otherwise a transition INELIGIBLE → cohort removal could be delayed by up
-// to a heartbeat interval. Currently test-only — there is no operator/admin
-// RPC to flip it yet.
-func (pm *MultiPoolerManager) setCohortEligibility(signal clustermetadatapb.CohortEligibilitySignal) {
-	pm.mu.Lock()
-	changed := pm.cohortEligibility != signal
-	pm.cohortEligibility = signal
-	pm.mu.Unlock()
-	if changed {
-		pm.broadcastHealth()
-	}
+	return &clustermetadatapb.CohortEligibilityStatus{Signal: pm.consensusMgr.CohortEligibility()}
 }
 
 // markPoolerActive performs the STARTING → ACTIVE transition once postgres
@@ -245,12 +225,11 @@ func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
 }
 
 // buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
-// when resignedLeaderAtTerm is set (i.e. after a Recruit-driven emergency
+// when the node has resigned leadership (i.e. after a Recruit-driven emergency
 // demotion or graceful shutdown of a leader). Nil means this node has not
 // recently held or resigned from primary leadership.
 func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
-	resignedTerm := pm.getResignedLeaderAtTerm()
-
+	resignedTerm := pm.consensusMgr.ResignedLeaderAtTerm()
 	if resignedTerm == 0 {
 		return nil
 	}
@@ -259,48 +238,6 @@ func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.Leaders
 		LeaderTerm: resignedTerm,
 		Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
 	}
-}
-
-// setResignedLeaderAtTerm records that this node is requesting demotion as primary
-// for the given term. The signal is included in subsequent StatusResponses so the
-// coordinator can trigger an immediate election. Broadcasts to health stream
-// subscribers when the value actually changes, so the coordinator sees the new
-// signal without waiting for the next periodic snapshot.
-// Requires the action lock (ctx must be an action-lock context).
-func (pm *MultiPoolerManager) setResignedLeaderAtTerm(ctx context.Context, term int64) error {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	pm.mu.Lock()
-	changed := pm.resignedLeaderAtTerm != term
-	pm.resignedLeaderAtTerm = term
-	pm.mu.Unlock()
-	if changed {
-		pm.broadcastHealth()
-	}
-	return nil
-}
-
-// clearResignedLeaderAtTerm clears the leadership demotion request. Called when
-// this node is appointed as primary at a new term.
-// Requires the action lock (ctx must be an action-lock context).
-func (pm *MultiPoolerManager) clearResignedLeaderAtTerm(ctx context.Context) error {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	pm.mu.Lock()
-	pm.resignedLeaderAtTerm = 0
-	pm.mu.Unlock()
-	return nil
-}
-
-// getResignedLeaderAtTerm returns the term at which this node requested demotion as
-// primary, or 0 if it has not resigned. Reads under pm.mu so callers don't reach
-// into the field directly.
-func (pm *MultiPoolerManager) getResignedLeaderAtTerm() int64 {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.resignedLeaderAtTerm
 }
 
 // Recruit handles a coordinator's request to stop replication participation and
@@ -606,7 +543,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		WithAcceptedMembers(req.GetAcceptedNodeIds()).
 		WithWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
 		WithPromotionHook(func(hookCtx context.Context) error {
-			if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+			if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
 			}
 			return pm.promoteStandbyToPrimary(hookCtx, state, proposedRule.GetRuleNumber().GetCoordinatorTerm())
@@ -868,7 +805,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		LeaderTerm: consensusTerm,
 	})
 
-	if err := pm.clearResignedLeaderAtTerm(ctx); err != nil {
+	if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after promote", "error", err)
 	}
 

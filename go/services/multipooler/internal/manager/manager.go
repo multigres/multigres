@@ -148,17 +148,8 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
-	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
-	// (via Recruit's emergency-demote path or graceful shutdown). The value is
-	// the consensus term at which the primary resigned. A non-zero value signals
-	// the coordinator to trigger an immediate election. Protected by mu. Cleared
-	// when this node is elected primary again.
-	resignedLeaderAtTerm int64
-
-	// cohortEligibility is this node's self-reported willingness to be a member
-	// of the consensus cohort. Defaults to ELIGIBLE; published in every health
-	// snapshot via AvailabilityStatus.CohortEligibilityStatus. Protected by mu.
-	cohortEligibility clustermetadatapb.CohortEligibilitySignal
+	// Leader-resignation and cohort-eligibility state now live on consensusMgr
+	// (consensus.ConsensusManager), alongside the term promises and rule store.
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
@@ -326,7 +317,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
 		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()),
-		cohortEligibility:      clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -358,7 +348,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
 	rules := consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
-	pm.consensusMgr = consensus.NewConsensusManager(promises, rules)
+	pm.consensusMgr = consensus.NewConsensusManager(promises, rules, pm.healthStreamer)
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
