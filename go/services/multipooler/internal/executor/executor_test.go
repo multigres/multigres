@@ -951,6 +951,42 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
+func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	first := &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
+		SqlPrefix:         "EXECUTE ",
+		SqlSuffix:         " ( 1 )",
+	}
+	second := &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{Name: "stmt99", Query: "SELECT $1", ParamTypes: []uint32{23}},
+		SqlPrefix:         "EXPLAIN EXECUTE ",
+		SqlSuffix:         " ( 2 )",
+	}
+
+	sql1, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, first)
+	require.NoError(t, err)
+	sql2, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, second)
+	require.NoError(t, err)
+
+	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
+	assert.Equal(t, "EXPLAIN EXECUTE ppstmt0 ( 2 )", sql2)
+	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"))
+	assert.Nil(t, conn.State().GetPreparedStatement("stmt0"))
+	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
+}
+
 // --- NewExecutor smoke test ---
 
 func TestNewExecutor(t *testing.T) {
