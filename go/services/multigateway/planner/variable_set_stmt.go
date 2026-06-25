@@ -43,6 +43,31 @@ func (p *Planner) planVariableSetStmt(
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
+	// Transaction-only variables are backend state, not replayable session GUCs.
+	// In particular, RESET transaction_isolation/read_only/deferrable must reach
+	// PostgreSQL so it can raise "parameter ... cannot be reset", and SET
+	// TRANSACTION SNAPSHOT must use PostgreSQL's transaction-snapshot machinery
+	// instead of set_config validation (where it looks like an unrecognized GUC).
+	if isTransactionOnlyVariable(stmt.Name) {
+		p.logger.Debug("transaction-only variable detected, passing through",
+			"kind", stmt.Kind, "variable", stmt.Name)
+		return p.planDefault(sql, stmt, conn, PlanOptions{})
+	}
+
+	// Role/session authorization are replayable session state, but they are not
+	// ordinary GUCs for validation/replay purposes. Keep them on the local
+	// tracking path (so pooled backends don't get mutated behind connstate), and
+	// let ApplySettings replay them as SET SESSION AUTHORIZATION / SET ROLE in
+	// PostgreSQL-compatible order.
+	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
+		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
+			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
+			p.logger.Debug("created role/session authorization reset plan",
+				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+	}
+
 	// Gateway-managed variables are handled locally without routing to PostgreSQL,
 	// regardless of whether SET or SET LOCAL is used. This check must come before
 	// the IsLocal pass-through so SET LOCAL on a gateway-managed variable updates
@@ -121,6 +146,27 @@ func (p *Planner) planVariableSetStmt(
 
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
+	}
+}
+
+// isTransactionOnlyVariable reports variables whose SET/RESET forms must be
+// executed by PostgreSQL against the current transaction. They are not durable
+// session settings and must not enter MultiGatewayConnectionState.SessionSettings.
+func isTransactionOnlyVariable(name string) bool {
+	switch strings.ToLower(name) {
+	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRoleAuthVariable(name string) bool {
+	switch strings.ToLower(name) {
+	case "role", "session_authorization":
+		return true
+	default:
+		return false
 	}
 }
 

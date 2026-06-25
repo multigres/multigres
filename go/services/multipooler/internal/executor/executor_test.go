@@ -1005,6 +1005,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 		0, // TRANSACTION_CONCLUSION_UNSPECIFIED — unused on the not-found path
 		nil,
 		false,
+		false,
 	)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)

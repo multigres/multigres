@@ -176,12 +176,15 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // pg_isolation_regress, so postgres is also the dbname the harness opens.
 //
 // The shim mirrors the upstream builtin: returns true if check_pid is
-// waiting on any pid in blocked_by, considering both heavyweight lock
-// waits (pg_blocking_pids) and SSI safe-snapshot waits
+// waiting on any pid in blocked_by for heavyweight lock waits
+// (pg_blocking_pids). For SSI safe-snapshot waits
 // (pg_safe_snapshot_blocking_pids — required for SERIALIZABLE READ ONLY
-// DEFERRABLE specs such as read-only-anomaly-3). Both inputs are
-// multigateway virtual pids; we map them to real PostgreSQL backend pids
-// via pg_stat_activity.application_name (the multipooler stamps each
+// DEFERRABLE specs such as read-only-anomaly-3), PostgreSQL deliberately
+// returns true when any safe-snapshot blocker exists; those blockers are
+// never autovacuum/background workers, so no blocked_by intersection is
+// needed. Both inputs are multigateway virtual pids; we map them to real
+// PostgreSQL backend pids via pg_stat_activity.application_name (the
+// multipooler stamps each
 // backend with `multigres_vpid:<id>` per query). A given vpid can map to
 // multiple PG backends in flight (a leftover stamp on a pool conn after
 // a regular query, plus the live reserved conn) so the wait-check
@@ -233,6 +236,8 @@ DECLARE
     v_real_check_pid int4;
     v_real_blocked_by int4[];
     v_blocking_pids int4[];
+    v_heavyweight_blocking_pids int4[];
+    v_safe_snapshot_blocking_pids int4[];
     v_vpid_entries text[];
     v_all_backends text[];
     v_stamp_found boolean;
@@ -280,36 +285,53 @@ BEGIN
     v_real_check_pid := COALESCE(v_real_check_pid, check_pid);
     v_real_blocked_by := COALESCE(v_real_blocked_by, blocked_by);
 
-    -- Aggregate heavyweight lock blockers and SSI safe-snapshot blockers
-    -- across every PG backend currently stamped for this vpid. SSI
-    -- safe-snapshot wait is required for SERIALIZABLE READ ONLY
-    -- DEFERRABLE specs (e.g. read-only-anomaly-3). Aggregation handles
-    -- the duplicate-stamp case where one backend is the live reserved
-    -- conn (potentially blocked) and another is a leaked pool conn
-    -- (idle).
+    -- Aggregate heavyweight lock blockers across every PG backend currently
+    -- stamped for this vpid. Aggregation handles the duplicate-stamp case
+    -- where one backend is the live reserved conn (potentially blocked) and
+    -- another is a leaked pool conn (idle).
     --
     -- The direct-pid fallback only fires when no stamp was found for
     -- check_pid. vpids occupy the full 31-bit signed int32 space, so a
     -- vpid value can coincidentally equal an unrelated real PG backend
     -- PID; probing check_pid as a real pid unconditionally would surface
     -- that unrelated backend's blockers and risk a false positive.
-    SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_blocking_pids
+    SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_heavyweight_blocking_pids
     FROM (
         SELECT unnest(pg_blocking_pids(sa.pid)) AS b
         FROM pg_stat_activity sa
         WHERE sa.application_name = 'multigres_vpid:' || check_pid
         UNION ALL
+        SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
+    ) sub
+    WHERE b IS NOT NULL;
+
+    -- Mirror pg_isolation_test_session_is_blocked's safe-snapshot behavior:
+    -- any safe-snapshot blocker means the isolation step is blocked. PostgreSQL
+    -- intentionally does not intersect these pids with the interesting session
+    -- list because safe-snapshot waits are not caused by autovacuum/background
+    -- workers. This matters for SERIALIZABLE READ ONLY DEFERRABLE specs such as
+    -- read-only-anomaly-3: if a writer's vpid stamp is momentarily ambiguous,
+    -- requiring an overlap can make isolationtester miss the wait and cancel.
+    SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_safe_snapshot_blocking_pids
+    FROM (
         SELECT unnest(pg_safe_snapshot_blocking_pids(sa.pid)) AS b
         FROM pg_stat_activity sa
         WHERE sa.application_name = 'multigres_vpid:' || check_pid
-        UNION ALL
-        SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
         UNION ALL
         SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
     ) sub
     WHERE b IS NOT NULL;
 
-    v_result := v_blocking_pids && v_real_blocked_by;
+    SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_blocking_pids
+    FROM (
+        SELECT unnest(v_heavyweight_blocking_pids) AS b
+        UNION ALL
+        SELECT unnest(v_safe_snapshot_blocking_pids) AS b
+    ) sub
+    WHERE b IS NOT NULL;
+
+    v_result := (v_heavyweight_blocking_pids && v_real_blocked_by)
+        OR cardinality(v_safe_snapshot_blocking_pids) > 0;
 
     UPDATE public.isolation_debug_log
     SET real_check_pid = v_real_check_pid,

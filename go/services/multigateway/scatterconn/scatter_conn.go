@@ -236,12 +236,15 @@ func (sc *ScatterConn) StreamExecute(
 		// existing reserved connection.
 		var reservationOpts *querypb.ReservationOptions
 
-		// For reserved connections with temp tables and a deferred BEGIN:
-		// set reservation options so the multipooler executes BEGIN on the
-		// reserved connection before the query.
-		if state.PendingBeginQuery != "" && protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+		// For any already-reserved backend and a deferred BEGIN, promote the
+		// reservation to a transaction before running the user's first statement.
+		// Temp-table reservations were the original case, but session advisory locks
+		// and holdable portals also pin a backend; once the client sends BEGIN, the
+		// transaction must start on that same reserved backend.
+		if state.PendingBeginQuery != "" && !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
-				"pending_begin", state.PendingBeginQuery)
+				"pending_begin", state.PendingBeginQuery,
+				"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
 			reservationOpts = &querypb.ReservationOptions{
 				Reasons:    protoutil.ReasonTransaction,
 				BeginQuery: state.PendingBeginQuery,
@@ -659,6 +662,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	releaseAllPortals bool,
+	chain bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
@@ -721,11 +725,14 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
-			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
-			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK {
+			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
+			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
+			// new transaction on the same backend, so losing that backend must fail
+			// closed rather than silently moving the chained transaction elsewhere.
+			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK && !chain {
 				callbackResult = &sqltypes.Result{CommandTag: "ROLLBACK"}
 				continue
 			}
