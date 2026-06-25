@@ -207,7 +207,7 @@ func newPoolerConnection(
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
-	// Initialize health state to NOT_SERVING until health stream provides data.
+	// Initialize health state to DISABLED until health stream provides data.
 	// PoolerType is left UNKNOWN until the health stream reports it — the gateway
 	// derives role from consensus observations, not the topology Type label.
 	initialTarget := &query.Target{

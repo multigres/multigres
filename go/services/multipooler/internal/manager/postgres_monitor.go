@@ -508,7 +508,9 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 		intended := pm.intendedRole()
 		if intended == clustermetadatapb.PoolerType_UNKNOWN {
 			// No rule-bearing position observed yet; wait rather than act on the
-			// observed postgres state.
+			// observed postgres state. This also defers DRAINING -> SERVING recovery:
+			// a node only re-enables serving once it knows its rule-derived role,
+			// matching the "healthy and role-aligned" contract on PoolerServingStatus.
 			return remedialActionNone
 		}
 		if action := pm.determineRoleAction(intended, currentState, lastAppliedPrimary); action != remedialActionNone {
@@ -583,16 +585,17 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err)
 			return
 		}
-		// Republish the role label immediately so the gateway and stale-leader
-		// analyzer stop treating us as a primary, rather than waiting a monitor
-		// cycle for reconcileState. Only the role changes here — the rule named
-		// another leader (that is why we demoted), so this resolves to REPLICA (nil
-		// self-leadership). Serving status and physical primary-ness are left to the
-		// next tick's reconcileState, which fires on the primary drift caused by
-		// restarting as a standby.
+		// Republish the role label and physical primary-ness immediately so the
+		// gateway and stale-leader analyzer stop treating us as a primary, and the
+		// published writable signal reflects reality, rather than waiting a monitor
+		// cycle for reconcileState. The rule named another leader (that is why we
+		// demoted), so the role resolves to REPLICA (nil self-leadership); we just
+		// restarted as a standby, so postgres is no longer primary. Serving status
+		// is unchanged (a healthy standby keeps serving reads).
 		_, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.SelfLeadership = obs
+			s.PostgresPrimary = false
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err)
 		}

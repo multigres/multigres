@@ -615,7 +615,7 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 // startHeartbeat starts the replication tracker and syncs it to the current serving state.
 // The heartbeat writer/reader mode is determined by the multipooler record (the source of truth),
 // not by querying the database directly. If the type later changes (e.g., via promotion or
-// topology load), StateManager.SetState will notify the replTracker.
+// topology load), StateManager.Mutate will notify the replTracker.
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
 	// Create the replication tracker using the executor's InternalQueryService
 	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
@@ -1553,7 +1553,7 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 // reports PRIMARY. That can happen on re-promotion of the same pooler at a
 // higher term: demoteToStandbyLocked left the topology Type=PRIMARY (only
 // stale-primary demote updates topology) but transitioned serving status to
-// DRAINING. Skipping the SetState call left the pooler stuck at
+// DRAINING. Skipping the Mutate call left the pooler stuck at
 // PRIMARY/DRAINING, which prevented the multigateway buffer from draining
 // after the failover.
 func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState, rule *clustermetadatapb.ShardRule) error {

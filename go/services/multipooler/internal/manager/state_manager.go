@@ -47,7 +47,7 @@ type StateAware interface {
 // The current state lives in the poolerRecord (Type and ServingStatus),
 // which is the source of truth for topology.
 //
-// On SetState, the manager fans out OnStateChange to all registered components
+// On Mutate, the manager fans out OnStateChange to all registered components
 // in parallel, waits for completion, then updates the record via Mutate. The
 // Mutate also schedules an asynchronous publish so callers cannot forget to
 // reflect the new state to etcd.
@@ -60,8 +60,8 @@ type StateManager struct {
 	record *poolerRecord
 
 	// postgresPrimary is the physical recovery state (!pg_is_in_recovery), fed by
-	// the postgres monitor via SetPostgresPrimary. Unlike Type/ServingStatus it is
-	// local-only and never published to topology. Guarded by mu.
+	// the postgres monitor via Mutate's PostgresPrimary field. Unlike
+	// Type/ServingStatus it is local-only and never published to topology. Guarded by mu.
 	postgresPrimary bool
 
 	// lastFannedOut is the effective state most recently delivered to components,
@@ -99,7 +99,7 @@ func NewStateManager(
 
 // Register adds a component to be notified on state changes.
 // This is used for components created after the manager (e.g., ReplTracker).
-// Must not be called concurrently with SetState.
+// Must not be called concurrently with Mutate.
 func (ssm *StateManager) Register(component StateAware) {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()

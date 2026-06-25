@@ -88,7 +88,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 
 	// Transition to DISABLED so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
-	// --connpool-drain-grace-period). SetState fans out OnStateChange to the
+	// --connpool-drain-grace-period). Mutate fans out OnStateChange to the
 	// in-process components (query service, connection pool, heartbeat,
 	// health streamer) and routes the topology update through record.Mutate
 	// so the publisher reflects DISABLED during the drain window —

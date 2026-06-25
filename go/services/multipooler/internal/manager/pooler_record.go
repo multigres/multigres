@@ -178,7 +178,7 @@ func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
 // ctx must carry an action lock (see actionlock.AssertActionLockHeld). The action lock
 // serialises state transitions across the whole manager — RPC handlers
 // (promotion, demotion, type change) and lifecycle paths (Open, closeLocked)
-// all reach Mutate via StateManager.SetState with an action-locked ctx
+// all reach StateManager.Mutate with an action-locked ctx
 // threaded through from the caller. Mutate returns the assertion error
 // without applying fn if the lock is not held.
 //
