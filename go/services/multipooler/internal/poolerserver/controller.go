@@ -28,7 +28,7 @@ import (
 // This follows the Vitess Controller pattern (see vitess/go/vt/vttablet/tabletserver/controller.go)
 //
 // The controller is responsible for:
-// - Managing query serving state (SERVING, NOT_SERVING)
+// - Managing query serving state (SERVING, not-serving)
 // - Handling query execution through the executor
 // - Providing health status
 //
@@ -49,7 +49,7 @@ type PoolerController interface {
 	//
 	// The servingStatus determines whether queries are accepted at all:
 	//   - SERVING: Accept queries
-	//   - NOT_SERVING: Reject all queries
+	//   - not-serving: Reject all queries
 	//
 	// Returns error if the transition fails.
 	OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error

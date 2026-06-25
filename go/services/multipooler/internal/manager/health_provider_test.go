@@ -355,7 +355,7 @@ func TestHealthStreamer_WaitsForQueryServerOnServing(t *testing.T) {
 	}
 }
 
-// TestHealthStreamer_DoesNotWaitOnNotServing verifies that NOT_SERVING
+// TestHealthStreamer_DoesNotWaitOnNotServing verifies that DISABLED
 // transitions broadcast immediately without waiting for the query server.
 func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -369,7 +369,7 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	ch := make(chan *poolerserver.HealthState, 10)
 	hs.clients[ch] = struct{}{}
 
-	// NOT_SERVING should broadcast immediately, even though qps is still PRIMARY/SERVING.
+	// DISABLED should broadcast immediately, even though qps is still PRIMARY/SERVING.
 	hsDone := make(chan struct{})
 	go func() {
 		_ = hs.OnStateChange(t.Context(), false, false, clustermetadatapb.PoolerServingStatus_DISABLED)
@@ -379,6 +379,6 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	select {
 	case <-hsDone:
 	case <-time.After(time.Second):
-		t.Fatal("NOT_SERVING transition should not wait for query server")
+		t.Fatal("DISABLED transition should not wait for query server")
 	}
 }

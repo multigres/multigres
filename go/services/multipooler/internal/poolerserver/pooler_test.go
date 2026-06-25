@@ -444,7 +444,7 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 }
 
 // TestOnStateChange_WaitsForInflightRequests verifies that OnStateChange blocks
-// until all lent connections are returned before completing the NOT_SERVING transition.
+// until all lent connections are returned before completing the DISABLED transition.
 func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
@@ -481,7 +481,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 		t.Fatal("drain did not complete after all connections returned")
 	}
 
-	// Should be NOT_SERVING now
+	// Should be DISABLED now
 	assert.False(t, pooler.IsServing())
 }
 
@@ -514,21 +514,21 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 		t.Fatal("drain did not complete after grace period")
 	}
 
-	// Should be NOT_SERVING even though connection is still in-flight
+	// Should be DISABLED even though connection is still in-flight
 	assert.False(t, pooler.IsServing())
 
 	// Clean up
 	mock.regularAdd(-1)
 }
 
-// TestOnStateChange_BackToServing verifies the SERVING → NOT_SERVING → SERVING round-trip.
+// TestOnStateChange_BackToServing verifies the SERVING → DISABLED → SERVING round-trip.
 func TestOnStateChange_BackToServing(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()
 
-	// SERVING → NOT_SERVING → SERVING
+	// SERVING → DISABLED → SERVING
 	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 	assert.True(t, pooler.IsServing())
 
@@ -545,7 +545,7 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 }
 
 // TestOnStateChange_ConcurrentRequests verifies drain behavior with many
-// concurrent simulated connections during a NOT_SERVING transition.
+// concurrent simulated connections during a DISABLED transition.
 func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
@@ -574,7 +574,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	// Give goroutines time to start
 	time.Sleep(10 * time.Millisecond)
 
-	// Transition to NOT_SERVING while connections are in-flight
+	// Transition to DISABLED while connections are in-flight
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
@@ -617,7 +617,7 @@ func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
 	s := newStartRequestTestServer()
 	ctx := t.Context()
 
-	// Start as NOT_SERVING (default)
+	// Start as DISABLED (default)
 	done := make(chan struct{})
 	go func() {
 		s.AwaitStateChange(ctx, true, clustermetadatapb.PoolerServingStatus_SERVING)

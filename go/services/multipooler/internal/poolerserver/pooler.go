@@ -63,7 +63,7 @@ type QueryPoolerServer struct {
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
 
-	// drainPhase tracks the graceful-drain stage during a NOT_SERVING transition.
+	// drainPhase tracks the graceful-drain stage during a not-serving transition.
 	// See drainPhase constants and StartRequest for the admission rules per stage.
 	drainPhase drainPhase
 
@@ -80,13 +80,13 @@ type QueryPoolerServer struct {
 	drainStats *drainStats
 }
 
-// drainPhase is the stage of a graceful NOT_SERVING transition. The drain runs
+// drainPhase is the stage of a graceful not-serving transition. The drain runs
 // in two stages so single autocommit queries keep flowing while transactions
-// finish, and the pooler reports NOT_SERVING only once nothing is in flight.
+// finish, and the pooler reports not-serving only once nothing is in flight.
 type drainPhase int
 
 const (
-	// drainNone: not draining. Normal serving (or already NOT_SERVING).
+	// drainNone: not draining. Normal serving (or already not-serving).
 	drainNone drainPhase = iota
 	// drainReserved: stage 1 — waiting for reserved connections (transactions)
 	// to finish. New reservations are rejected; single queries are still served;
@@ -122,7 +122,7 @@ const (
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
-// during NOT_SERVING transitions before force-closing reserved connections.
+// during not-serving transitions before force-closing reserved connections.
 func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, vpidStampEnabled bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
@@ -149,7 +149,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // This method is only called by the StateManager, which serializes calls behind
 // a mutex. Concurrent calls are not possible or expected.
 //
-// For NOT_SERVING transitions, this performs a two-stage graceful drain under a
+// For not-serving transitions, this performs a two-stage graceful drain under a
 // single gracePeriod deadline:
 //  1. drainReserved — reject new transactions/reservations, keep serving single
 //     autocommit queries, and wait for in-flight transactions (reserved
@@ -157,7 +157,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 //  2. drainRegular — also reject single queries, and wait for the remaining
 //     in-flight ones to finish, so the cutover happens with zero in-flight work
 //     and the subsequent postgres demotion kills nothing.
-//  3. Set servingStatus=NOT_SERVING.
+//  3. Set servingStatus to the not-serving target.
 //
 // If the shared deadline expires in either stage, all reserved connections are
 // force-closed (their transactions surface 40001) and the transition completes;
@@ -180,7 +180,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader
 		return nil
 	}
 
-	// NOT_SERVING: begin stage 1 of the graceful drain.
+	// not-serving: begin stage 1 of the graceful drain.
 	// The leader role is NOT updated yet — in-flight requests on reserved
 	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
@@ -217,7 +217,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader
 				"grace_period", s.gracePeriod)
 			// Force-close all reserved connections so no transaction survives into
 			// a non-serving state. In-flight single queries (if any) are killed by
-			// the postgres demotion that follows the NOT_SERVING transition.
+			// the postgres demotion that follows the not-serving transition.
 			killed := s.poolManager.CloseReservedConnections(ctx)
 			s.drainStats.recordForceClosed(ctx, killed)
 			if killed > 0 {
@@ -254,7 +254,7 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 //
 // Admission matrix:
 //
-//	kind \ state      | SERVING | drainReserved | drainRegular | NOT_SERVING
+//	kind \ state      | SERVING | drainReserved | drainRegular | not-serving
 //	------------------+---------+---------------+--------------+------------
 //	ExistingReserved  | allow   | allow         | allow        | allow¹
 //	SingleQuery       | allow   | allow         | reject MTF01 | reject MTF01
@@ -292,7 +292,7 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 
 	switch s.drainPhase {
 	case drainNone:
-		// Not draining: admit while serving, reject once NOT_SERVING.
+		// Not draining: admit while serving, reject once not-serving.
 		if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING {
 			return mterrors.MTF01.New()
 		}

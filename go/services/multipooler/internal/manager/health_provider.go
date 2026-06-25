@@ -120,7 +120,7 @@ func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObserv
 // For SERVING transitions, it waits for the query server (via queryReadyGate)
 // to finish updating before broadcasting. This prevents the gateway from
 // discovering the new primary before the pooler can actually serve that type.
-// NOT_SERVING transitions broadcast immediately so the gateway can start
+// not-serving transitions broadcast immediately so the gateway can start
 // buffering without delay.
 func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {

@@ -86,12 +86,12 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 			"error", err)
 	}
 
-	// Transition to NOT_SERVING so the gateway sees a clean rejection for new
+	// Transition to DISABLED so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
 	// --connpool-drain-grace-period). SetState fans out OnStateChange to the
 	// in-process components (query service, connection pool, heartbeat,
 	// health streamer) and routes the topology update through record.Mutate
-	// so the publisher reflects NOT_SERVING during the drain window —
+	// so the publisher reflects DISABLED during the drain window —
 	// without it, the entry would still read SERVING in topology until the
 	// OnClose StopTopoRegistration runs at the very end of shutdown.
 	//
@@ -100,7 +100,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	if err := pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	}); err != nil {
-		pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
+		pm.logger.WarnContext(lockCtx, "transition to DISABLED returned error; proceeding with shutdown",
 			"error", err)
 	}
 

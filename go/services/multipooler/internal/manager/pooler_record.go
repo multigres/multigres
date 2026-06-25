@@ -286,7 +286,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 // published state, and cancels the toporeg retry goroutine.
 //
 // finalize lets the caller stamp a shutdown state (e.g. Type=UNKNOWN,
-// ServingStatus=NOT_SERVING). The callback receives a MutablePoolerRecordState
+// ServingStatus=DISABLED). The callback receives a MutablePoolerRecordState
 // populated with current values; modifications become the new desired state.
 // Pass nil to just publish whatever the publisher hadn't yet written. The
 // record stays agnostic about what the shutdown state means — that's the

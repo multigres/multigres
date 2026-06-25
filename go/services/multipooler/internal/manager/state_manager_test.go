@@ -162,8 +162,8 @@ func TestStateManager_SetState_ComponentError(t *testing.T) {
 
 func TestStateManager_DemotionFlow(t *testing.T) {
 	// Simulate the demotion flow:
-	// Step 1: (PRIMARY, SERVING) -> (PRIMARY, NOT_SERVING)
-	// Step 2: (PRIMARY, NOT_SERVING) -> (REPLICA, SERVING)
+	// Step 1: (PRIMARY, SERVING) -> (PRIMARY, DISABLED)
+	// Step 2: (PRIMARY, DISABLED) -> (REPLICA, SERVING)
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
@@ -179,7 +179,7 @@ func TestStateManager_DemotionFlow(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, r.ServingStatus())
 	assert.Equal(t, 1, comp.callCount)
 
-	// Step 1b: Retry NOT_SERVING (idempotent — should be a no-op)
+	// Step 1b: Retry DISABLED (idempotent — should be a no-op)
 	err = ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED

@@ -443,7 +443,7 @@ func (pm *MultiPoolerManager) Open(ctx context.Context) {
 // caller-supplied target serving status. Open uses SERVING; resume passes
 // the serving status that was current immediately before the Pause so the
 // pre-Pause state is restored faithfully (important for stale-primary
-// demote, which Pauses while the pooler is intentionally NOT_SERVING and
+// demote, which Pauses while the pooler is intentionally DISABLED and
 // must not be flipped back to SERVING by resume).
 func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatus clustermetadatapb.PoolerServingStatus) {
 	pm.mu.Lock()
@@ -533,7 +533,7 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 //
 // Pause records the serving status at the time of the call and resume
 // restores it. This matters during stale-primary demote, which Pauses
-// while the pooler is intentionally NOT_SERVING: a hard-coded
+// while the pooler is intentionally DISABLED: a hard-coded
 // "resume → SERVING" would publish a transient (PRIMARY, SERVING) to etcd
 // between the Pause and the subsequent ChangeType to REPLICA, which the
 // gateway would briefly cache as the new primary.
@@ -583,7 +583,7 @@ func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
 // Caller should NOT hold pm.mu - this function acquires it.
 // Always cancels the context - Open() will create a fresh one if reopened.
 //
-// ctx must carry an action lock. The state transition (NOT_SERVING) publishes
+// ctx must carry an action lock. The state transition (DISABLED) publishes
 // through pm.record.Mutate.
 func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string) bool {
 	pm.mu.Lock()
@@ -592,16 +592,16 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 		return false
 	}
 
-	// Transition to NOT_SERVING before closing resources. This notifies all
+	// Transition to DISABLED before closing resources. This notifies all
 	// components: query service rejects queries, heartbeat stops, health
-	// streamer broadcasts NOT_SERVING to subscribers. The publisher (if
-	// running) picks up the Mutate and writes NOT_SERVING to etcd —
+	// streamer broadcasts DISABLED to subscribers. The publisher (if
+	// running) picks up the Mutate and writes DISABLED to etcd —
 	// pausing the manager intentionally still reflects in topology so
 	// callers see the pooler is not serving queries.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to transition to NOT_SERVING during close", "error", err)
+		pm.logger.WarnContext(ctx, "Failed to transition to DISABLED during close", "error", err)
 	}
 
 	pm.pgMonitor.Stop()
@@ -1553,8 +1553,8 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 // reports PRIMARY. That can happen on re-promotion of the same pooler at a
 // higher term: demoteToStandbyLocked left the topology Type=PRIMARY (only
 // stale-primary demote updates topology) but transitioned serving status to
-// NOT_SERVING. Skipping the SetState call left the pooler stuck at
-// PRIMARY/NOT_SERVING, which prevented the multigateway buffer from draining
+// DRAINING. Skipping the SetState call left the pooler stuck at
+// PRIMARY/DRAINING, which prevented the multigateway buffer from draining
 // after the failover.
 func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState, rule *clustermetadatapb.ShardRule) error {
 	if state.isPrimaryInTopology {
@@ -1701,7 +1701,7 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 }
 
 // StopTopoRegistration transitions the pooler to its shutdown topology
-// state (Type=UNKNOWN, ServingStatus=NOT_SERVING, LifecycleStatus=SHUTDOWN),
+// state (Type=UNKNOWN, ServingStatus=DISABLED, LifecycleStatus=SHUTDOWN),
 // stops the publisher with a final publish, and cancels the toporeg retry
 // goroutine. Safe to call even if StartTopoRegistration was never invoked.
 //
