@@ -101,7 +101,7 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		pgctldClient:   pgctldClient,
 		healthStreamer: hs,
 		actionLock:     actionlock.NewActionLock(),
-		consensusMgr:   consensus.NewManagerForTesting(t, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, hs),
+		consensusMgr:   consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, hs),
 		// Match the production default set by topoclient.NewMultiPooler so
 		// the record's LifecycleStatus reads as STARTING from the start.
 		// (Real boot wires this in via NewMultiPoolerManager(multiPooler).)

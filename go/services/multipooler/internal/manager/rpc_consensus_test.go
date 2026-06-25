@@ -1030,11 +1030,8 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
 	streamer := newHealthStreamer(logger, id, "tg", "0")
 	pm := &MultiPoolerManager{
-		logger:         logger,
-		serviceID:      id,
-		healthStreamer: streamer,
-		actionLock:     actionlock.NewActionLock(),
-		consensusMgr:   consensus.NewManagerForTesting(t, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
+		actionLock:   actionlock.NewActionLock(),
+		consensusMgr: consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
 	}
 
 	// Subscribe so we can observe broadcasts.

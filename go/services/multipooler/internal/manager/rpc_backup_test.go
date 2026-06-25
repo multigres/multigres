@@ -115,7 +115,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 		// consensus.ConsensusPromises is the canonical home for the recorded primary
 		// (replacing the former pm.primaryHost/Port/PoolerID fields). Backup
 		// tests seed it via setBackupPrimary below.
-		consensusMgr: consensus.NewManagerForTesting(t,
+		consensusMgr: consensus.NewManagerForTesting(t, multipoolerID,
 			consensus.NewConsensusPromises(poolerDir, multipoolerID),
 			&fakeRuleStore{},
 			nil,

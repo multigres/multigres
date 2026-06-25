@@ -66,7 +66,7 @@ func NewMultiPoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 		// Build the ConsensusManager with the fake rule store. Promises is rooted
 		// at the pooler dir; no broadcaster (these tests don't assert broadcasts).
 		promises := consensus.NewConsensusPromises(mp.GetPoolerDir(), mp.GetId())
-		ov.consensusMgr = consensus.NewManagerForTesting(t, promises, c.rules, nil)
+		ov.consensusMgr = consensus.NewManagerForTesting(t, mp.GetId(), promises, c.rules, nil)
 	}
 	return newMultiPoolerManager(logger, mp, config, 5*time.Minute, ov)
 }
@@ -111,10 +111,6 @@ func withReplicationPrimary(rp *clustermetadatapb.ReplicationPrimary) testManage
 	return func(c *testManagerConfig) { c.replicationPrimary = rp }
 }
 
-func withCohortEligibility(signal clustermetadatapb.CohortEligibilitySignal) testManagerOption {
-	return func(c *testManagerConfig) { c.cohortEligibility = signal }
-}
-
 func withResignedLeaderAtTerm(term int64) testManagerOption {
 	return func(c *testManagerConfig) { c.resignedLeaderAtTerm = term }
 }
@@ -144,7 +140,7 @@ func resolveTestManagerConfig(t *testing.T, opts ...testManagerOption) *testMana
 // eligibility are seeded separately under the action lock by seedLockedState,
 // since those setters assert the action lock.
 func (cfg *testManagerConfig) consensusManager(t *testing.T) *consensus.ConsensusManager {
-	return consensus.NewManagerForTesting(t, cfg.promises, cfg.rules, nil)
+	return consensus.NewManagerForTesting(t, cfg.serviceID, cfg.promises, cfg.rules, nil)
 }
 
 // seedLockedState applies the replication-primary / resignation / eligibility

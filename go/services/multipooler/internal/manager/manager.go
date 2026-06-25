@@ -965,9 +965,9 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
 		// leader, so publishing serviceID here is safe. Fall back to the cached
 		// position if postgres is unreachable.
-		cs, err := pm.getInconsistentConsensusStatus(pm.ctx)
+		cs, err := pm.consensusMgr.InconsistentConsensusStatus(pm.ctx)
 		if err != nil {
-			cs = pm.getCachedConsensusStatus()
+			cs = pm.consensusMgr.CachedConsensusStatus()
 		}
 		if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
 			pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{

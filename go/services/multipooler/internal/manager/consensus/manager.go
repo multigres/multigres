@@ -78,6 +78,9 @@ type Broadcaster interface {
 // broadcast through the injected Broadcaster on a real change (the coordinator
 // must see those promptly); nothing holds mu or any lock across that broadcast.
 type ConsensusManager struct {
+	// id is this pooler's identity, stamped into the ConsensusStatus this manager
+	// builds. Immutable after construction.
+	id *clustermetadatapb.ID
 	// promises and rules are immutable after construction (see Concurrency above).
 	promises *ConsensusPromises
 	rules    RuleStorer
@@ -153,15 +156,15 @@ func NewConsensusManager(deps Deps) (*ConsensusManager, error) {
 		}
 	}
 	rules := NewRuleStore(deps.Logger, deps.QueryService, NewSyncStandbyManager(deps.Logger, deps.QueryService, deps.ID))
-	return newConsensusManager(promises, rules, deps.Broadcaster), nil
+	return newConsensusManager(deps.ID, promises, rules, deps.Broadcaster), nil
 }
 
 // newConsensusManager wires a ConsensusManager over already-constructed
 // components. Shared by NewConsensusManager (production) and NewManagerForTesting
 // (tests, which inject fakes). broadcaster may be nil, in which case broadcasts
 // are skipped.
-func newConsensusManager(promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
-	cm := &ConsensusManager{promises: promises, rules: rules, broadcaster: broadcaster}
+func newConsensusManager(id *clustermetadatapb.ID, promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
+	cm := &ConsensusManager{id: id, promises: promises, rules: rules, broadcaster: broadcaster}
 	// Default to ELIGIBLE — a fresh node is willing to join the cohort. (The
 	// atomic's zero value is the proto's UNSPECIFIED, so set it explicitly.)
 	cm.cohortEligibility.Store(int32(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
@@ -181,6 +184,120 @@ func (cm *ConsensusManager) Promises() *ConsensusPromises { return cm.promises }
 
 // Rules returns the rule store.
 func (cm *ConsensusManager) Rules() RuleStorer { return cm.rules }
+
+// ConsensusStatus builds a ConsensusStatus snapshot using a consistent disk read
+// of the term and a fresh postgres read of the current rule position. The caller
+// must hold the action lock (GetRevocation asserts it). Returns an error if
+// postgres is unreachable, since a partial status (term without position) could
+// mislead callers about this pooler's rule position.
+func (cm *ConsensusManager) ConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
+	revocation, err := cm.promises.GetRevocation(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read consensus term: %w", err)
+	}
+	pos, err := cm.rules.ObservePosition(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read current rule position: %w", err)
+	}
+	return cm.buildStatus(revocation, pos), nil
+}
+
+// CachedConsensusStatus builds a ConsensusStatus from the in-memory term cache and
+// the rule store's cached position; it never queries postgres or disk. The action
+// lock must be held by the caller (it prevents concurrent term updates). Returns
+// nil if no position has been cached yet.
+func (cm *ConsensusManager) CachedConsensusStatus() *clustermetadatapb.ConsensusStatus {
+	pos := cm.rules.CachedPosition()
+	if pos == nil {
+		return nil
+	}
+	return cm.buildStatus(cm.promises.GetInconsistentRevocation(), pos)
+}
+
+// InconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres
+// position read without holding the action lock; it may observe partially-updated
+// state during a concurrent Recruit, so it is suitable for observability only.
+// Returns an error if postgres is unreachable.
+func (cm *ConsensusManager) InconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
+	pos, err := cm.rules.ObservePosition(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return cm.buildStatus(cm.promises.GetInconsistentRevocation(), pos), nil
+}
+
+// buildStatus assembles a ConsensusStatus from a pre-resolved revocation and
+// position plus the recorded replication primary. Any input may be nil; the
+// corresponding field is left unset. Never performs I/O.
+//
+// The published HighestKnownRule reflects best knowledge from any source: the
+// rule is the max of the observed position's rule and the rule from the most
+// recent SetPrimary/Promote RPC, and the primary is the contact info from that
+// RPC (ObservePosition cannot carry it).
+func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+	status := &clustermetadatapb.ConsensusStatus{Id: cm.id}
+	if revocation != nil {
+		status.TermRevocation = revocation
+	}
+	if pos != nil {
+		status.CurrentPosition = pos
+	}
+	if highest := statusReplicationPrimary(pos, cm.GetReplicationPrimary()); highest != nil {
+		status.ReplicationPrimary = highest
+	}
+	return status
+}
+
+// statusReplicationPrimary returns the HighestKnownRule to publish given the most
+// recent observed position and the most recent rule+primary heard via RPC.
+func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
+	// ruleStoreRule is read fresh from the rule store (the current_rule row in
+	// postgres, replicated through WAL). highestKnownRule is the rule last recorded
+	// via a SetPrimary/Promote RPC, which can lead the rule store before the write
+	// has been observed locally.
+	ruleStoreRule := pos.GetRule()
+	highestKnownRule := replicationPrimary.GetRule()
+	rpcPrimary := replicationPrimary.GetPrimary()
+	if ruleStoreRule == nil && highestKnownRule == nil && rpcPrimary == nil {
+		return nil
+	}
+	rule := ruleStoreRule
+	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
+	// it is the self-report ("checkpointed onto my current timeline"); on a
+	// follower it is the value last relayed via SetPrimary about its leader.
+	// Republishing a relayed value is harmless — the leader's own status is the
+	// authority orch reads.
+	//
+	// Use the recorded rule and rewind_ready whenever it is at least as high as the
+	// rule-store observation — including a tie, the steady state for a leader. Only
+	// a strictly-higher rule-store rule means the recorded rewind_ready no longer
+	// describes the rule we publish, so we fall back to false there.
+	rewindReady := false
+	if consensus.CompareRuleNumbers(highestKnownRule.GetRuleNumber(), ruleStoreRule.GetRuleNumber()) >= 0 {
+		rule = highestKnownRule
+		rewindReady = replicationPrimary.GetRewindReady()
+	}
+	return &clustermetadatapb.ReplicationPrimary{
+		Rule:        rule,
+		Primary:     rpcPrimary,
+		RewindReady: rewindReady,
+	}
+}
+
+// LeadershipStatus returns the LeadershipStatus for this node. Non-nil only when
+// the node has resigned leadership (after a Recruit-driven emergency demotion or
+// graceful shutdown of a leader). Nil means it has not recently held or resigned
+// from primary leadership.
+func (cm *ConsensusManager) LeadershipStatus() *clustermetadatapb.LeadershipStatus {
+	resignedTerm := cm.ResignedLeaderAtTerm()
+	if resignedTerm == 0 {
+		return nil
+	}
+	return &clustermetadatapb.LeadershipStatus{
+		LeaderTerm: resignedTerm,
+		Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+	}
+}
 
 // RecordTermPrimary updates the highest-known (rule, primary, rewind_ready)
 // based on what this pooler has been told. A nil argument (or nil rule) is a

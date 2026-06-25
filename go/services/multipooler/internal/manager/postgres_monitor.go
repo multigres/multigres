@@ -65,7 +65,7 @@ func deriveTypeAndObs(rule *clustermetadatapb.ShardRule, selfID *clustermetadata
 // differently.
 func (pm *MultiPoolerManager) latestRule() *clustermetadatapb.ShardRule {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
-		pm.getCachedConsensusStatus(),
+		pm.consensusMgr.CachedConsensusStatus(),
 	})
 }
 
@@ -309,9 +309,9 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		// Lock-free first pass from the monitor: prefer a fresh read, fall back to
 		// the cached rule when postgres is unreachable so we keep the last-known
 		// primary term across postgres restarts and crashes.
-		cs, err := pm.getInconsistentConsensusStatus(ctx)
+		cs, err := pm.consensusMgr.InconsistentConsensusStatus(ctx)
 		if err != nil {
-			cs = pm.getCachedConsensusStatus()
+			cs = pm.consensusMgr.CachedConsensusStatus()
 		}
 		state.primaryTerm = commonconsensus.LeaderTerm(cs)
 	}
@@ -344,7 +344,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 // getInconsistentConsensusStatus themselves and pass the result to
 // consensus.LeaderTerm.
 func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
-	cs, err := pm.getConsensusStatus(ctx)
+	cs, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read consensus status: %w", err)
 	}

@@ -14,18 +14,23 @@
 
 package consensus
 
-import "testing"
+import (
+	"testing"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+)
 
 // NewManagerForTesting builds a ConsensusManager over already-constructed
 // components, for tests that inject fakes (a fake RuleStorer, an in-memory
 // ConsensusPromises). Production code uses NewConsensusManager, which builds the
-// real components from its dependencies.
+// real components from its dependencies. id is the pooler identity stamped into
+// the ConsensusStatus this manager builds.
 //
 // It takes a testing.TB to mark it test-only — it must live in this package (not
 // a _test.go file) because the manager package's tests, in a different package,
 // construct a ConsensusManager with a fake RuleStorer, and only this package can
 // set the unexported fields.
-func NewManagerForTesting(t testing.TB, promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
+func NewManagerForTesting(t testing.TB, id *clustermetadatapb.ID, promises *ConsensusPromises, rules RuleStorer, broadcaster Broadcaster) *ConsensusManager {
 	t.Helper()
-	return newConsensusManager(promises, rules, broadcaster)
+	return newConsensusManager(id, promises, rules, broadcaster)
 }

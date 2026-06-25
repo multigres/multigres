@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -34,130 +33,12 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// buildConsensusStatus constructs a ConsensusStatus from a pre-resolved revocation,
-// position, and the highest-known RPC-told (rule, primary). Any argument may be
-// nil; the corresponding field is left unset. Never performs I/O.
-//
-// The published HighestKnownRule reflects best knowledge from any source:
-//   - rule: max of the observed position's rule and the rule from the most
-//     recent SetPrimary/Promote RPC.
-//   - primary: the contact info from the most recent SetPrimary/Promote, since
-//     ObservePosition cannot carry it.
-//
-// Result is left nil only when neither source has any information.
-func buildConsensusStatus(id *clustermetadatapb.ID, revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
-	status := &clustermetadatapb.ConsensusStatus{Id: id}
-	if revocation != nil {
-		status.TermRevocation = revocation
-	}
-	if pos != nil {
-		status.CurrentPosition = pos
-	}
-	if highest := buildStatusReplicationPrimary(pos, replicationPrimary); highest != nil {
-		status.ReplicationPrimary = highest
-	}
-	return status
-}
-
-// buildStatusReplicationPrimary returns the HighestKnownRule to publish given the most
-// recent observed position and the most recent rule+primary heard via RPC.
-// See buildConsensusStatus for the merge semantics.
-func buildStatusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
-	// ruleStoreRule is read fresh from the rule store (the current_rule row in
-	// postgres, replicated through WAL). highestKnownRule is the rule last recorded
-	// via a SetPrimary/Promote RPC, which can lead the rule store before the write
-	// has been observed locally.
-	ruleStoreRule := pos.GetRule()
-	highestKnownRule := replicationPrimary.GetRule()
-	rpcPrimary := replicationPrimary.GetPrimary()
-	if ruleStoreRule == nil && highestKnownRule == nil && rpcPrimary == nil {
-		return nil
-	}
-	rule := ruleStoreRule
-	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
-	// it is the self-report ("checkpointed onto my current timeline", maintained
-	// by the postgres monitor / async-checkpoint completion); on a follower it is
-	// the value last relayed via SetPrimary about its leader. Republishing a
-	// relayed value is harmless — the leader's own status is the authority orch
-	// reads.
-	//
-	// Use the recorded rule and rewind_ready whenever it is at least as high as the
-	// rule-store observation — including a tie, which is the steady state for a
-	// leader (its rule-store rule catches up to the rule it recorded at promotion).
-	// Only a strictly-higher rule-store rule means the recorded rewind_ready no
-	// longer describes the rule we publish, so we fall back to false there.
-	rewindReady := false
-	if commonconsensus.CompareRuleNumbers(highestKnownRule.GetRuleNumber(), ruleStoreRule.GetRuleNumber()) >= 0 {
-		rule = highestKnownRule
-		rewindReady = replicationPrimary.GetRewindReady()
-	}
-	return &clustermetadatapb.ReplicationPrimary{
-		Rule:        rule,
-		Primary:     rpcPrimary,
-		RewindReady: rewindReady,
-	}
-}
-
-// getConsensusStatus builds a ConsensusStatus snapshot while holding the action lock.
-// Callers must already hold the action lock (i.e. this is called from Recruit or
-// executeRevoke). Uses a consistent disk read for the term and a fresh postgres query
-// for the current position.
-//
-// Returns an error if postgres is unreachable, since a partial status (term revocation
-// without current_position) could mislead callers about this pooler's rule position.
-func (pm *MultiPoolerManager) getConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	revocation, err := pm.consensusMgr.Promises().GetRevocation(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read consensus term: %w", err)
-	}
-
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read current rule position: %w", err)
-	}
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary()), nil
-}
-
-// getCachedConsensusStatus builds a ConsensusStatus using the in-memory term cache and
-// the ruleStore's cached position. Never queries postgres or disk.
-//
-// The action lock must be held by the caller, which prevents concurrent term updates.
-// Returns nil if no position has been cached yet (i.e. ObservePosition or UpdateRule
-// has never been called).
-func (pm *MultiPoolerManager) getCachedConsensusStatus() *clustermetadatapb.ConsensusStatus {
-	pos := pm.consensusMgr.Rules().CachedPosition()
-	if pos == nil {
-		return nil
-	}
-	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary())
-}
-
-// getInconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres
-// position read, without holding the action lock. Like GetInconsistentTerm, it
-// may observe a partially-updated state during a concurrent Recruit, so it is
-// suitable for observability (StatusResponse, health monitors) but not for
-// decisions that require a consistent view.
-//
-// Returns an error if postgres is unreachable (ObservePosition fails). Callers
-// decide what to do with that — typically fall back to getCachedConsensusStatus
-// to derive the last-known position — rather than this returning stale data
-// silently.
-func (pm *MultiPoolerManager) getInconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
-	if err != nil {
-		return nil, err
-	}
-	revocation := pm.consensusMgr.Promises().GetInconsistentRevocation()
-	return buildConsensusStatus(pm.serviceID, revocation, pos, pm.consensusMgr.GetReplicationPrimary()), nil
-}
-
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
 // Leaders that have resigned publish a LeadershipStatus. Every pooler publishes
 // its cohort eligibility, so the result is non-nil.
 func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
 	return &clustermetadatapb.AvailabilityStatus{
-		LeadershipStatus:        pm.buildLeadershipStatus(),
+		LeadershipStatus:        pm.consensusMgr.LeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
 		SuspectedDivergence:     pm.consensusMgr.SuspectedDivergence(),
 	}
@@ -167,8 +48,8 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 // to be a cohort member. Defaults to ELIGIBLE; downgraded to INELIGIBLE when
 // the WAL receiver was manually stopped (StopReplication cleared
 // primary_conninfo), so the coordinator does not try to re-include this node
-// while the admin signal is in effect. setCohortEligibility (currently
-// test-only) sets the base value the dynamic downgrade applies on top of.
+// while the admin signal is in effect. ConsensusManager.SetCohortEligibility
+// sets the base value the dynamic downgrade applies on top of.
 func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
 	if pm.walReceiverManuallyStopped.Load() {
 		return &clustermetadatapb.CohortEligibilityStatus{
@@ -224,22 +105,6 @@ func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
 	}
 }
 
-// buildLeadershipStatus returns the LeadershipStatus for this node. Non-nil only
-// when the node has resigned leadership (i.e. after a Recruit-driven emergency
-// demotion or graceful shutdown of a leader). Nil means this node has not
-// recently held or resigned from primary leadership.
-func (pm *MultiPoolerManager) buildLeadershipStatus() *clustermetadatapb.LeadershipStatus {
-	resignedTerm := pm.consensusMgr.ResignedLeaderAtTerm()
-	if resignedTerm == 0 {
-		return nil
-	}
-
-	return &clustermetadatapb.LeadershipStatus{
-		LeaderTerm: resignedTerm,
-		Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
-	}
-}
-
 // Recruit handles a coordinator's request to stop replication participation and
 // record a TermRevocation, returning the node's stable position afterward.
 //
@@ -277,7 +142,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	// State check — reject immediately if the node's committed WAL
 	// rule or stored revocation already conflicts with this request.
 	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
-	preStatus, _ := pm.getConsensusStatus(ctx)
+	preStatus, _ := pm.consensusMgr.ConsensusStatus(ctx)
 	if err := commonconsensus.ValidateRevocation(preStatus, revocation); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
@@ -331,7 +196,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	// Re-check against the stable position and persist atomically.
 	// AcceptRevocation combines the observed WAL position with the locked stored
 	// revocation so ValidateRevocation sees authoritative state for both checks.
-	stableStatus, err := pm.getConsensusStatus(ctx)
+	stableStatus, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
@@ -362,7 +227,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 	// Step 5: Return ConsensusStatus with the stable post-revoke position.
 	// Uses the cached position warmed by the getConsensusStatus call in step 3.
-	return &consensusdatapb.RecruitResponse{ConsensusStatus: pm.getCachedConsensusStatus()}, nil
+	return &consensusdatapb.RecruitResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
 }
 
 // recruitDrainTimeout is the drain window when recruiting a primary.
@@ -476,7 +341,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Step 1: Validate the term revocation.
 	// ValidateRevocation ensures the WAL position is safe and the coordinator is consistent.
 	// Fails open on I/O error (nil status passes safely).
-	beforeStatus, err := pm.getConsensusStatus(ctx)
+	beforeStatus, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
@@ -581,7 +446,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 
 	// Step 4: Return ConsensusStatus. The cache was warmed by getConsensusStatus in step 1
 	// and updated by UpdateRule (leader path); the replica position is unchanged.
-	return &consensusdatapb.PromoteResponse{ConsensusStatus: pm.getCachedConsensusStatus()}, nil
+	return &consensusdatapb.PromoteResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
 }
 
 // SetPrimary updates this pooler's replication settings to point at the supplied
@@ -673,7 +538,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 			"incoming_rule", rule.GetRuleNumber(),
 			"revoked_below_term", revocation.GetRevokedBelowTerm(),
 			"outgoing_rule", revocation.GetOutgoingRule())
-		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.getCachedConsensusStatus()}, nil
+		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
 	}
 
 	// Record what we've been told, even if we don't end up applying the change.
@@ -701,7 +566,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		pm.logger.InfoContext(ctx, "SetPrimary: incoming rule not higher, no-op",
 			"incoming_rule", rule.GetRuleNumber(),
 			"self_rule", selfPos.GetRule().GetRuleNumber())
-		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.getCachedConsensusStatus()}, nil
+		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
 	}
 
 	// Both no-op gates passed — this call will actually reconfigure replication.
@@ -817,7 +682,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 
 	pm.broadcastHealth()
 
-	cs, err := pm.getConsensusStatus(ctx)
+	cs, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to build consensus status after SetPrimary")
 	}

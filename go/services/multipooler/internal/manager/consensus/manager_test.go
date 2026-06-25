@@ -154,7 +154,7 @@ func TestRecordTermPrimary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := actionLockCtx(t)
-			cm := NewManagerForTesting(t, nil, nil, nil)
+			cm := NewManagerForTesting(t, nil, nil, nil, nil)
 			if tt.seedRule != nil {
 				require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary}))
 			}
@@ -188,7 +188,7 @@ func TestRecordTermPrimary(t *testing.T) {
 // TestRecordTermPrimary_ReturnsCopies guards against callers mutating internal state
 // by holding the returned pointer.
 func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
-	cm := NewManagerForTesting(t, nil, nil, nil)
+	cm := NewManagerForTesting(t, nil, nil, nil, nil)
 	require.NoError(t, cm.RecordTermPrimary(actionLockCtx(t), &clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)}))
 
 	got := cm.GetReplicationPrimary()
