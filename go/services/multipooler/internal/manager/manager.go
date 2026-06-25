@@ -112,15 +112,15 @@ type MultiPoolerManager struct {
 	// exclusively written through record.Mutate (today only by StateManager);
 	// the remaining fields are immutable after construction and exposed via
 	// typed accessors that read without locking.
-	record         *poolerRecord
-	state          ManagerState
-	stateError     error
-	consensusState *consensus.ConsensusState
-	topoLoaded     bool
-	rules          consensus.RuleStorer
-	ctx            context.Context
-	cancel         context.CancelFunc
-	loadTimeout    time.Duration
+	record            *poolerRecord
+	state             ManagerState
+	stateError        error
+	consensusPromises *consensus.ConsensusPromises
+	topoLoaded        bool
+	rules             consensus.RuleStorer
+	ctx               context.Context
+	cancel            context.CancelFunc
+	loadTimeout       time.Duration
 
 	// shutdownCtx is cancelled at the end of GracefulShutdown to signal
 	// long-lived subscribers (currently the health-stream gRPC handlers via
@@ -177,7 +177,7 @@ type MultiPoolerManager struct {
 	//     this, but in the future a pooler could self-detect it.
 	suspectedDivergence atomic.Bool
 
-	// rewindWaitEmittedFor is the ConsensusState.LeaderObservedAt() value the
+	// rewindWaitEmittedFor is the ConsensusPromises.LeaderObservedAt() value the
 	// rewind-wait metric was last emitted for, so a rewind that fails and is
 	// re-attempted against the same leader is counted once. Only read/written from
 	// restartAsStandbyLocked, which always holds the action lock, so it needs no
@@ -343,9 +343,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
 	// Only actual read/parse errors fail the constructor.
-	pm.consensusState = consensus.NewConsensusState(pm.record.PoolerDir(), pm.serviceID)
+	pm.consensusPromises = consensus.NewConsensusPromises(pm.record.PoolerDir(), pm.serviceID)
 	if config.ConsensusEnabled {
-		if _, err := pm.consensusState.Load(); err != nil {
+		if _, err := pm.consensusPromises.Load(); err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
 		}
@@ -878,7 +878,7 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 
 // getCurrentTermNumber returns the current consensus term number.
 func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
-	return pm.consensusState.GetCurrentTermNumber(ctx)
+	return pm.consensusPromises.GetCurrentTermNumber(ctx)
 }
 
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
@@ -1127,7 +1127,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 			"service_id", pm.serviceID.String())
 
 		// Update term atomically (resets accepted leader)
-		if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
+		if err := pm.consensusPromises.UpdateTermAndSave(ctx, requestTerm); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
 			return mterrors.Wrap(err, "failed to update consensus term")
 		}
@@ -1484,7 +1484,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
-		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
+		if pm.consensusPromises.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
 			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
 			pm.broadcastHealth()
 		}

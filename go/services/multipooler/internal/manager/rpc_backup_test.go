@@ -112,10 +112,10 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		actionLock: actionlock.NewActionLock(),
 		logger:     slog.Default(),
 		pgMonitor:  monitorRunner,
-		// consensus.ConsensusState is the canonical home for the recorded primary
+		// consensus.ConsensusPromises is the canonical home for the recorded primary
 		// (replacing the former pm.primaryHost/Port/PoolerID fields). Backup
 		// tests seed it via setBackupPrimary below.
-		consensusState: consensus.NewConsensusState(poolerDir, multipoolerID),
+		consensusPromises: consensus.NewConsensusPromises(poolerDir, multipoolerID),
 	}
 
 	// Build the backup engine the way the production constructor does, feeding
@@ -128,7 +128,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 }
 
 // setBackupPrimary seeds the ReplicationPrimary on the test manager so the
-// backup paths that read pm.consensusState.GetReplicationPrimary() see a
+// backup paths that read pm.consensusPromises.GetReplicationPrimary() see a
 // configured primary. Synthetic rule at term 1 is sufficient — no consumer
 // of rp.Rule reads cohort_members or durability_policy.
 func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int32) {
@@ -137,7 +137,7 @@ func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int
 		Cell:      "zone1",
 		Name:      primaryName,
 	}
-	pm.consensusState.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
+	pm.consensusPromises.RecordTermPrimary(&clustermetadatapb.ReplicationPrimary{
 		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   id,

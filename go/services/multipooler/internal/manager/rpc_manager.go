@@ -926,7 +926,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// seconds when we had to defer the rewind waiting for that checkpoint. Emit
 		// once per leader change so a rewind that fails and is re-attempted against
 		// the same leader is not double-counted.
-		if observedAt := pm.consensusState.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
+		if observedAt := pm.consensusPromises.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
 			pm.rewindWaitEmittedFor = observedAt
 			waited := time.Since(observedAt)
 			pm.logger.InfoContext(ctx, "Proceeding with pg_rewind; leader is rewind-ready",

@@ -201,7 +201,7 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			// future redundant SetPrimary calls. The proof that the apply
 			// branch wasn't reached is that no apply-path postgres queries
 			// were issued (ExpectationsWereMet below).
-			highest := pm.consensusState.GetReplicationPrimary()
+			highest := pm.consensusPromises.GetReplicationPrimary()
 			require.NotNil(t, highest, "SetPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
@@ -270,7 +270,7 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
 		"rendered primary_conninfo should reference the new primary host")
 
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusPromises.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded, "primary should be recorded after standby update")
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -319,7 +319,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// Seed an initial revocation so we can verify SetPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
 	consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
-	_, err := pm.consensusState.Load()
+	_, err := pm.consensusPromises.Load()
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
@@ -342,7 +342,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		"rendered primary_conninfo should reference the new primary host")
 
 	// Manager state recorded the new primary.
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusPromises.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded)
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -350,7 +350,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetPrimary.
-	rev := pm.consensusState.GetInconsistentRevocation()
+	rev := pm.consensusPromises.GetInconsistentRevocation()
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 
@@ -409,7 +409,7 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 				RevokedBelowTerm: tt.revokedBelow,
 				OutgoingRule:     tt.outgoing,
 			})
-			_, err := pm.consensusState.Load()
+			_, err := pm.consensusPromises.Load()
 			require.NoError(t, err)
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
@@ -427,7 +427,7 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 			// RecordTermPrimary must not have run: the (rule, leader) tuple
 			// is not the substrate multiorch should read from a refused FYI.
 			// This is also the proof the apply branch wasn't reached.
-			highest := pm.consensusState.GetReplicationPrimary()
+			highest := pm.consensusPromises.GetReplicationPrimary()
 			assert.Nil(t, highest, "revoked SetPrimary should not be recorded")
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -455,7 +455,7 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 		RevokedBelowTerm: 5,
 		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 	})
-	_, err := pm.consensusState.Load()
+	_, err := pm.consensusPromises.Load()
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
@@ -471,7 +471,7 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	require.NotNil(t, resp.ConsensusStatus)
 
 	// Override fired → RecordTermPrimary ran → the rule + primary are observable.
-	highest := pm.consensusState.GetReplicationPrimary()
+	highest := pm.consensusPromises.GetReplicationPrimary()
 	require.NotNil(t, highest, "override should let RecordTermPrimary persist the rule")
 	require.NotNil(t, highest.GetPrimary())
 	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)

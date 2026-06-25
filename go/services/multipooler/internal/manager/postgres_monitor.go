@@ -51,7 +51,7 @@ func deriveTypeAndObs(rule *clustermetadatapb.ShardRule, selfID *clustermetadata
 
 // latestRule returns the highest-numbered rule this pooler knows of, combining
 // the rule it has applied into its own position with the rule it was most
-// recently told to follow via SetPrimary/Promote (consensusState's recorded
+// recently told to follow via SetPrimary/Promote (consensusPromises's recorded
 // ReplicationPrimary). A standby told of a newer leader before its own position
 // advances still reads the newer rule. Returns nil if neither source carries a
 // rule.
@@ -87,7 +87,7 @@ func (pm *MultiPoolerManager) intendedRole() clustermetadatapb.PoolerType {
 // diverged primary as a standby of a not-yet-checkpointed leader would FATAL on
 // our own un-replicated WAL).
 func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.PoolerAddress {
-	rp := pm.consensusState.GetReplicationPrimary()
+	rp := pm.consensusPromises.GetReplicationPrimary()
 	if rp == nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 		return nil
 	}
 	// Don't race a mid-flight Recruit/Propose: skip a revoked rule.
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusState.GetInconsistentRevocation()) {
+	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusPromises.GetInconsistentRevocation()) {
 		return nil
 	}
 	return target
@@ -162,7 +162,7 @@ const (
 	remedialActionReconcileGUC
 	// remedialActionFixPrimaryConnInfo means postgres is in recovery and the
 	// topology says REPLICA, but primary_conninfo doesn't match the primary
-	// recorded in consensus.ConsensusState.ReplicationPrimary (the most recent
+	// recorded in consensus.ConsensusPromises.ReplicationPrimary (the most recent
 	// SetPrimary/Promote). Reconciles the GUC so this replica points at the right
 	// primary regardless of how it got out of sync (failed SetPrimary apply,
 	// hand edit, snapshot restore, etc.).
@@ -385,7 +385,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	if pm.walReceiverManuallyStopped.Load() {
 		return false
 	}
-	rp := pm.consensusState.GetReplicationPrimary()
+	rp := pm.consensusPromises.GetReplicationPrimary()
 	if rp == nil {
 		return false
 	}
@@ -402,7 +402,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	// Skip if the recorded rule is revoked. The cached primary is from before
 	// the current revocation took effect; restoring conninfo to it would race
 	// the Recruit/Promote flow that's mid-flight (see function doc).
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusState.GetInconsistentRevocation()) {
+	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusPromises.GetInconsistentRevocation()) {
 		return false
 	}
 	targetHost := target.GetHost()
@@ -556,7 +556,7 @@ func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, intende
 	if pm.getResignedLeaderAtTerm() != 0 {
 		return false
 	}
-	return !pm.consensusState.GetReplicationPrimary().GetRewindReady()
+	return !pm.consensusPromises.GetReplicationPrimary().GetRewindReady()
 }
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
@@ -662,7 +662,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionFixPrimaryConnInfo:
-		rp := pm.consensusState.GetReplicationPrimary()
+		rp := pm.consensusPromises.GetReplicationPrimary()
 		target := rp.GetPrimary()
 		targetHost := target.GetHost()
 		targetPort := target.GetPostgresPort()
@@ -742,8 +742,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// record names us at the term we observed and that the flag was not already
 		// set; broadcast on the false->true edge so a diverged follower's recovery
 		// sees it without waiting for the next periodic snapshot.
-		term := pm.consensusState.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
-		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, term) {
+		term := pm.consensusPromises.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
+		if pm.consensusPromises.MarkSelfRewindReady(pm.serviceID, term) {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
 			pm.broadcastHealth()
 		}
@@ -862,7 +862,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
-	revokedBelowTerm, _ := pm.consensusState.GetInconsistentCurrentTermNumber()
+	revokedBelowTerm, _ := pm.consensusPromises.GetInconsistentCurrentTermNumber()
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),

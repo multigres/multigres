@@ -803,11 +803,11 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
-	manager.consensusState = consensus.NewConsensusState(poolerDir, serviceID)
+	manager.consensusPromises = consensus.NewConsensusPromises(poolerDir, serviceID)
 	manager.mu.Unlock()
 
 	// Load the term from file
-	_, err = manager.consensusState.Load()
+	_, err = manager.consensusPromises.Load()
 	require.NoError(t, err, "Failed to load consensus state")
 
 	// Set up mock query service

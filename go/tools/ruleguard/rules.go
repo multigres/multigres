@@ -243,7 +243,7 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 //     DSL can't distinguish an assignment target from a read.
 //   - test files.
 //
-// The unrelated ConsensusState.GetReplicationPrimary() (the multipooler's
+// The unrelated ConsensusPromises.GetReplicationPrimary() (the multipooler's
 // in-memory holder) is a different receiver type and is not matched.
 func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")

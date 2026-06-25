@@ -28,10 +28,10 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
-// ConsensusState manages the in-memory and on-disk consensus state for this node.
+// ConsensusPromises manages the in-memory and on-disk consensus state for this node.
 // It provides thread-safe access to consensus state and ensures that memory is only
 // updated after successful disk writes (pessimistic approach).
-type ConsensusState struct {
+type ConsensusPromises struct {
 	poolerDir string
 	serviceID *clustermetadatapb.ID
 
@@ -52,10 +52,10 @@ type ConsensusState struct {
 	leaderObservedAt time.Time
 }
 
-// NewConsensusState creates a new ConsensusState manager.
+// NewConsensusPromises creates a new ConsensusPromises manager.
 // It does not load state from disk - call Load() to initialize.
-func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *ConsensusState {
-	return &ConsensusState{
+func NewConsensusPromises(poolerDir string, serviceID *clustermetadatapb.ID) *ConsensusPromises {
+	return &ConsensusPromises{
 		poolerDir:  poolerDir,
 		serviceID:  serviceID,
 		revocation: nil,
@@ -82,7 +82,7 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 // Safe to call on no-op SetPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
-func (cs *ConsensusState) RecordTermPrimary(rp *clustermetadatapb.ReplicationPrimary) {
+func (cs *ConsensusPromises) RecordTermPrimary(rp *clustermetadatapb.ReplicationPrimary) {
 	rule := rp.GetRule()
 	if rule == nil {
 		return
@@ -128,7 +128,7 @@ func (cs *ConsensusState) RecordTermPrimary(rp *clustermetadatapb.ReplicationPri
 
 // LeaderObservedAt returns when RecordTermPrimary last recorded a change of leader
 // identity, or the zero time if no leader has been recorded yet.
-func (cs *ConsensusState) LeaderObservedAt() time.Time {
+func (cs *ConsensusPromises) LeaderObservedAt() time.Time {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	return cs.leaderObservedAt
@@ -137,7 +137,7 @@ func (cs *ConsensusState) LeaderObservedAt() time.Time {
 // GetReplicationPrimary returns a copy of the primary + rule this pooler has
 // been told to use, or nil if it has never been informed. The returned message
 // is the same one exposed in ConsensusStatus.
-func (cs *ConsensusState) GetReplicationPrimary() *clustermetadatapb.ReplicationPrimary {
+func (cs *ConsensusPromises) GetReplicationPrimary() *clustermetadatapb.ReplicationPrimary {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	if cs.replicationPrimary == nil {
@@ -165,7 +165,7 @@ func (cs *ConsensusState) GetReplicationPrimary() *clustermetadatapb.Replication
 // pooler currently holds non-resigned leadership is the caller's concern —
 // resignation state lives in the manager, not here.) No-op if no
 // ReplicationPrimary has been recorded yet.
-func (cs *ConsensusState) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
+func (cs *ConsensusPromises) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	if cs.replicationPrimary == nil || cs.replicationPrimary.GetRewindReady() {
@@ -186,7 +186,7 @@ func (cs *ConsensusState) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expe
 // Load loads consensus state from disk into memory.
 // If the file doesn't exist, initializes with default values (term 0, no accepted coordinator).
 // This method is idempotent - subsequent calls will reload from disk.
-func (cs *ConsensusState) Load() (int64, error) {
+func (cs *ConsensusPromises) Load() (int64, error) {
 	revocation, err := cs.getRevocation()
 	if err != nil {
 		return 0, fmt.Errorf("failed to load consensus term: %w", err)
@@ -201,7 +201,7 @@ func (cs *ConsensusState) Load() (int64, error) {
 
 // GetCurrentTermNumber returns the current term.
 // Returns 0 if state has not been loaded.
-func (cs *ConsensusState) GetCurrentTermNumber(ctx context.Context) (int64, error) {
+func (cs *ConsensusPromises) GetCurrentTermNumber(ctx context.Context) (int64, error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return 0, err
 	}
@@ -213,7 +213,7 @@ func (cs *ConsensusState) GetCurrentTermNumber(ctx context.Context) (int64, erro
 // be outdated by the time it's used. Use GetCurrentTermNumber() as part of
 // any action workflow to protect against race conditions.
 // Returns 0 if state has not been loaded.
-func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
+func (cs *ConsensusPromises) GetInconsistentCurrentTermNumber() (int64, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -228,7 +228,7 @@ func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 // be outdated by the time it's used. Use GetRevocation() as part of any action
 // workflow to protect against race conditions.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetInconsistentRevocation() *clustermetadatapb.TermRevocation {
+func (cs *ConsensusPromises) GetInconsistentRevocation() *clustermetadatapb.TermRevocation {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (cs *ConsensusState) GetInconsistentRevocation() *clustermetadatapb.TermRev
 
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
 // Returns empty string if no coordinator was accepted.
-func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error) {
+func (cs *ConsensusPromises) GetAcceptedLeader(ctx context.Context) (string, error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
@@ -257,7 +257,7 @@ func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error)
 
 // GetRevocation returns a copy of the current term revocation.
 // Returns nil if state has not been loaded.
-func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb.TermRevocation, error) {
+func (cs *ConsensusPromises) GetRevocation(ctx context.Context) (*clustermetadatapb.TermRevocation, error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (cs *ConsensusState) GetRevocation(ctx context.Context) (*clustermetadatapb
 // It builds the validation status from the observed position in status combined
 // with the current in-memory revocation (read under the mutex), so the check
 // reflects the actual locked state rather than a potentially stale snapshot.
-func (cs *ConsensusState) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
+func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -298,7 +298,7 @@ func (cs *ConsensusState) AcceptRevocation(ctx context.Context, status *clusterm
 // This is called when discovering a newer term from another node.
 // Returns error if newTerm < currentTerm.
 // Idempotent: succeeds without changes if newTerm == currentTerm.
-func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) error {
+func (cs *ConsensusPromises) UpdateTermAndSave(ctx context.Context, newTerm int64) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 // MUST be called with cs.mu held.
 // This is the key method that ensures memory never diverges from disk.
 // If the save fails, memory remains unchanged and the error is returned.
-func (cs *ConsensusState) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
+func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
 	if err := cs.setRevocation(newRevocation); err != nil {
 		// Save failed - don't update memory, propagate error
