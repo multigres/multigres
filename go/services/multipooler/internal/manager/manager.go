@@ -154,25 +154,9 @@ type MultiPoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
-	// suspectedDivergence marks that this node's WAL may have diverged from the
-	// cluster's chosen history, so the next restart-as-standby or SetPrimary should
-	// run pg_rewind to remove potential phantom / non-durable WAL entries.
-	//
-	// We suspect divergence when:
-	//   - a primary learns its term was ended by a failover — it may have local
-	//     WAL the new leader's history never adopted. Set by emergencyDemoteLocked,
-	//     SetPrimary's stale-primary branch, and the monitor's stale-primary demote.
-	//   - a replica cannot replicate despite successfully connecting to the leader,
-	//     implying its timeline diverged. Set via RewindToSource; today orch detects
-	//     this, but in the future a pooler could self-detect it.
-	suspectedDivergence atomic.Bool
-
-	// rewindWaitEmittedFor is the ConsensusPromises.LeaderObservedAt() value the
-	// rewind-wait metric was last emitted for, so a rewind that fails and is
-	// re-attempted against the same leader is counted once. Only read/written from
-	// restartAsStandbyLocked, which always holds the action lock, so it needs no
-	// separate synchronization.
-	rewindWaitEmittedFor time.Time
+	// Suspected-divergence and rewind-wait bookkeeping now live on consensusMgr
+	// (consensus.ConsensusManager). promotionInProgress stays here: it tracks
+	// pg_promote() transition mechanics, not consensus state.
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -1434,7 +1418,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// the consensus protocol picked this node as the new leader at a higher
 	// term, so its WAL is by definition the rule going forward. Clear the
 	// flag so the postgres monitor and other operations resume.
-	if pm.suspectedDivergence.Swap(false) {
+	if pm.consensusMgr.SetSuspectedDivergence(false) {
 		pm.logger.InfoContext(ctx, "Cleared suspectedDivergence before promotion")
 	}
 

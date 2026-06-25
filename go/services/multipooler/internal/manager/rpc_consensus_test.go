@@ -430,7 +430,7 @@ func TestRecruit(t *testing.T) {
 		// quorum. The actual rewind happens at SetPrimary.
 		mockQueryService := mock.NewQueryService()
 		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
-		pm.suspectedDivergence.Store(true)
+		pm.consensusMgr.SetSuspectedDivergence(true)
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -1012,7 +1012,7 @@ func TestAvailabilityStatus(t *testing.T) {
 	t.Run("suspectedDivergence is published", func(t *testing.T) {
 		pm := newTestManager(t)
 		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
-		pm.suspectedDivergence.Store(true)
+		pm.consensusMgr.SetSuspectedDivergence(true)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
 }

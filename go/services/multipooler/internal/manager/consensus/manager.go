@@ -97,6 +97,12 @@ type ConsensusManager struct {
 	// is ~0 when the same SetPrimary that learned the new leader could also rewind.
 	// Guarded by mu.
 	leaderObservedAt time.Time
+	// rewindWaitEmittedFor is the leaderObservedAt value the rewind-wait metric
+	// was last emitted for, so a rewind that fails and is re-attempted against the
+	// same leader is counted once. Touched only on the restart-as-standby path
+	// under the action lock; guarded by mu for safe publication alongside
+	// leaderObservedAt.
+	rewindWaitEmittedFor time.Time
 
 	// resignedLeaderAtTerm is the consensus term at which this node voluntarily
 	// resigned as primary (via emergency-demote or graceful shutdown), or 0 if it
@@ -108,6 +114,13 @@ type ConsensusManager struct {
 	// the consensus cohort, holding a clustermetadatapb.CohortEligibilitySignal.
 	// Atomic; production writes are serialized by the action lock.
 	cohortEligibility atomic.Int32
+	// suspectedDivergence marks that this node's WAL may have diverged from the
+	// cluster's chosen history, so the next restart-as-standby should run
+	// pg_rewind to drop potential phantom / non-durable WAL. Set when consensus
+	// ends this node's term (failover) or a replica can't replicate despite
+	// connecting. Atomic; production writes happen on action-lock paths, and the
+	// lock-free health-status reader loads it.
+	suspectedDivergence atomic.Bool
 }
 
 // NewConsensusManager builds a ConsensusManager over an already-constructed
@@ -306,4 +319,32 @@ func (cm *ConsensusManager) SetCohortEligibility(ctx context.Context, signal clu
 		cm.broadcast()
 	}
 	return nil
+}
+
+// SuspectedDivergence reports whether this node's WAL may have diverged from the
+// cluster's chosen history (so the next restart-as-standby should pg_rewind).
+func (cm *ConsensusManager) SuspectedDivergence() bool {
+	return cm.suspectedDivergence.Load()
+}
+
+// SetSuspectedDivergence sets or clears the suspected-divergence flag, returning
+// whether the value changed (so a caller clearing it can log the transition).
+func (cm *ConsensusManager) SetSuspectedDivergence(suspected bool) (changed bool) {
+	return cm.suspectedDivergence.Swap(suspected) != suspected
+}
+
+// RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric
+// was last emitted for.
+func (cm *ConsensusManager) RewindWaitEmittedFor() time.Time {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.rewindWaitEmittedFor
+}
+
+// SetRewindWaitEmittedFor records the leaderObservedAt value the rewind-wait
+// metric was just emitted for, so the same leader is not double-counted.
+func (cm *ConsensusManager) SetRewindWaitEmittedFor(t time.Time) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.rewindWaitEmittedFor = t
 }

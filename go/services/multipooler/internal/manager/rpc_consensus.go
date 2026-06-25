@@ -159,7 +159,7 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 	return &clustermetadatapb.AvailabilityStatus{
 		LeadershipStatus:        pm.buildLeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
-		SuspectedDivergence:     pm.suspectedDivergence.Load(),
+		SuspectedDivergence:     pm.consensusMgr.SuspectedDivergence(),
 	}
 }
 
@@ -736,10 +736,10 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
 
 	if isPrimary {
-		pm.suspectedDivergence.Store(true)
+		pm.consensusMgr.SetSuspectedDivergence(true)
 	}
 
-	if pm.suspectedDivergence.Load() {
+	if pm.consensusMgr.SuspectedDivergence() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
