@@ -303,6 +303,14 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if health.Target.GetPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
 		return
 	}
+	// Gate write-resume on writability, not just leadership. PoolerType tracks the
+	// consensus term, so a leader can report PoolerType==PRIMARY and SERVING (it can
+	// answer reads) before it has finished promoting, while postgres is still in
+	// recovery. Draining the failover buffer then would route buffered writes to a
+	// read-only node ("cannot ... during recovery" / read-only transaction).
+	if !health.isWritable() {
+		return
+	}
 	lb.onPrimaryServing(summary.shardKey.GetTableGroup(), summary.shardKey.GetShard())
 }
 

@@ -45,6 +45,10 @@ type HealthState struct {
 	// ReplicationLagNs is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64
+
+	// Writable reports whether postgres can accept writes (!pg_is_in_recovery).
+	// A consensus leader mid-promotion is SERVING (reads) but not yet Writable.
+	Writable bool
 }
 
 // LeaderObservation represents a pooler's view of who the consensus leader is.

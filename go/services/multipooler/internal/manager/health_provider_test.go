@@ -382,3 +382,31 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 		t.Fatal("DISABLED transition should not wait for query server")
 	}
 }
+
+// TestHealthStreamer_PublishesWritability verifies the health stream publishes
+// Writable from postgresPrimary, independent of PoolerType/serving: a consensus
+// leader still in recovery is PRIMARY + SERVING but not yet Writable, and flips to
+// Writable only once postgres leaves recovery. This is what lets the gateway hold
+// write traffic for a leader mid-promotion.
+func TestHealthStreamer_PublishesWritability(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	hs := newHealthStreamer(logger, nil, "tg1", "0")
+	ch := make(chan *poolerserver.HealthState, 10)
+	hs.clients[ch] = struct{}{}
+
+	// Leader, SERVING (can answer reads), but postgres still in recovery: not writable.
+	require.NoError(t, hs.OnStateChange(t.Context(),
+		true /* isConsensusLeader */, false, /* postgresPrimary */
+		clustermetadatapb.PoolerServingStatus_SERVING))
+	st := <-ch
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, st.Target.GetPoolerType(), "leader reports PRIMARY routing label")
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, st.ServingStatus)
+	assert.False(t, st.Writable, "leader still in recovery must not advertise writable")
+
+	// Promotion completes (out of recovery): now writable.
+	require.NoError(t, hs.OnStateChange(t.Context(),
+		true /* isConsensusLeader */, true, /* postgresPrimary */
+		clustermetadatapb.PoolerServingStatus_SERVING))
+	st = <-ch
+	assert.True(t, st.Writable, "writable once postgres leaves recovery")
+}

@@ -60,6 +60,12 @@ type healthStreamer struct {
 	poolerType        clustermetadatapb.PoolerType
 	leaderObservation *poolerserver.LeaderObservation
 
+	// writable reports whether postgres can accept writes (!pg_is_in_recovery).
+	// Published separately from poolerType (which tracks the consensus term, not
+	// writability) so the gateway can hold write traffic for a leader that is
+	// SERVING but still mid-promotion.
+	writable bool
+
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
 
@@ -122,7 +128,7 @@ func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObserv
 // discovering the new primary before the pooler can actually serve that type.
 // not-serving transitions broadcast immediately so the gateway can start
 // buffering without delay.
-func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
 		hs.queryServer.AwaitStateChange(ctx, isConsensusLeader, servingStatus)
 	}
@@ -131,10 +137,14 @@ func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, 
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// The health stream still reports the PoolerType routing label to the gateway
-	// (its buffer-drain gate keys off PoolerType == PRIMARY). Translate the leader
-	// fact back to the wire label: a non-leader is a read replica for routing.
+	// The health stream still reports the PoolerType routing label to the gateway.
+	// PoolerType tracks the consensus term (leadership), not postgres writability —
+	// a leader can be the term leader before it has finished promoting. Translate
+	// the leader fact to the wire label: a non-leader is a read replica for routing.
 	hs.poolerType = poolerTypeForLeader(isConsensusLeader)
+	// writable is published separately so the gateway gates write traffic on actual
+	// write-readiness (postgres out of recovery), not on leadership.
+	hs.writable = postgresPrimary
 	hs.servingStatus = servingStatus
 	hs.broadcastLocked()
 	if prev != servingStatus {
@@ -181,6 +191,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		LeaderObservation:           hs.leaderObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
+		Writable:                    hs.writable,
 	}
 }
 

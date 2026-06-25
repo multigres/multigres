@@ -63,6 +63,11 @@ type poolerHealth struct {
 	// Zero on the primary or when not yet measured.
 	ReplicationLagNs int64
 
+	// Writable reports whether the pooler can accept writes (postgres out of
+	// recovery). A consensus leader mid-promotion is SERVING (reads) but not yet
+	// Writable; the failover buffer holds write traffic until this is true.
+	Writable bool
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -76,6 +81,12 @@ func (h *poolerHealth) isServing() bool {
 		return false
 	}
 	return h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING
+}
+
+// isWritable returns true if the pooler can accept writes (postgres out of
+// recovery). The failover buffer drains write traffic only once this is true.
+func (h *poolerHealth) isWritable() bool {
+	return h != nil && h.Writable
 }
 
 // simpleCopy returns a shallow copy of the poolerHealth.
@@ -93,6 +104,7 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		ServingStatus:     h.ServingStatus,
 		LeaderObservation: h.LeaderObservation,
 		ReplicationLagNs:  h.ReplicationLagNs,
+		Writable:          h.Writable,
 		LastError:         h.LastError,
 		LastResponse:      h.LastResponse,
 	}
@@ -438,6 +450,7 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 		ServingStatus:     response.ServingStatus,
 		LeaderObservation: response.LeaderObservation,
 		ReplicationLagNs:  response.ReplicationLagNs,
+		Writable:          response.Writable,
 		LastError:         nil,
 		LastResponse:      time.Now(),
 	}

@@ -1766,8 +1766,13 @@ type StreamPoolerHealthResponse struct {
 	// replication_lag_ns is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on a leader or when unknown.
 	ReplicationLagNs int64 `protobuf:"varint,6,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// writable reports whether this pooler can accept writes — i.e. postgres is
+	// out of recovery (!pg_is_in_recovery). A consensus leader mid-promotion is
+	// SERVING (can answer reads) but not yet writable, so clients must gate write
+	// traffic on this rather than on pooler_type/serving_status alone.
+	Writable      bool `protobuf:"varint,7,opt,name=writable,proto3" json:"writable,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -1840,6 +1845,13 @@ func (x *StreamPoolerHealthResponse) GetReplicationLagNs() int64 {
 		return x.ReplicationLagNs
 	}
 	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetWritable() bool {
+	if x != nil {
+		return x.Writable
+	}
+	return false
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
@@ -2054,14 +2066,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"#\n" +
 	"!ReleaseReservedConnectionResponse\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xa2\x03\n" +
+	"\x19StreamPoolerHealthRequest\"\xbe\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12Q\n" +
 	"\x12leader_observation\x18\x04 \x01(\v2\".clustermetadata.LeaderObservationR\x11leaderObservation\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
-	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"_\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\x12\x1a\n" +
+	"\bwritable\x18\a \x01(\bR\bwritable\"_\n" +
 	"\x1aStreamNotificationsRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12\x1a\n" +
 	"\bchannels\x18\x02 \x03(\tR\bchannels\"X\n" +

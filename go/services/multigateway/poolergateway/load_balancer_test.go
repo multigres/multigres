@@ -239,6 +239,48 @@ func simulateHealthUpdate(conn *poolerConnection, status clustermetadatapb.Poole
 	})
 }
 
+// TestLoadBalancer_WriteResumeWaitsForWritable verifies the buffer-drain gate
+// (notifyLeaderServingFromSummary → onPrimaryServing) does NOT resume write
+// traffic for a leader that is the observed leader, SERVING, and reporting
+// PoolerType==PRIMARY but not yet writable (still in recovery mid-promotion). It
+// resumes only once the leader reports writable.
+func TestLoadBalancer_WriteResumeWaitsForWritable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	var resumed int
+	lb.onPrimaryServing = func(_, _ string) { resumed++ }
+
+	p := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, p)
+	conn := connForTest(t, lb, p)
+
+	obs := &clustermetadatapb.LeaderObservation{
+		LeaderId:         p.Id,
+		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+	}
+	injectHealth := func(writable bool) {
+		conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
+			Target: &query.Target{
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      "0",
+				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+			},
+			PoolerId:          p.Id,
+			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			LeaderObservation: obs,
+			Writable:          writable,
+		})
+	}
+
+	// Observed leader, SERVING, PoolerType==PRIMARY, but still in recovery: hold.
+	injectHealth(false)
+	assert.Equal(t, 0, resumed, "write traffic must stay buffered until the leader is writable")
+
+	// Out of recovery: writable → resume.
+	injectHealth(true)
+	assert.Equal(t, 1, resumed, "resume once the leader reports writable")
+}
+
 func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("highest term wins", func(t *testing.T) {
 		lb := newTestLB(t, "zone1")
