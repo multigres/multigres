@@ -69,11 +69,11 @@ type Broadcaster interface {
 //     safe; the action lock orders the writers. They are independent scalars and
 //     never need to be read consistently with each other or with mu's fields.
 //
-// Nothing here holds mu (or any lock) across a health broadcast: the Set* methods
-// return whether the value changed and the manager broadcasts afterward.
-//
-// Later steps fold the remaining consensus state still scattered across the
-// manager (suspected divergence and the rewind backoff) into this type.
+// The mutating methods assert the action lock is held (writes are serialized by
+// it), with one exception documented on MarkSelfRewindReady.
+// SetResignedLeaderAtTerm and SetCohortEligibility push an immediate health
+// broadcast through the injected Broadcaster on a real change (the coordinator
+// must see those promptly); nothing holds mu or any lock across that broadcast.
 type ConsensusManager struct {
 	// promises and rules are immutable after construction (see Concurrency above).
 	promises *ConsensusPromises
