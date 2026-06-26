@@ -27,18 +27,12 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -255,154 +249,6 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, manager)
 	assert.Contains(t, err.Error(), "MultiPooler.Id is required")
-}
-
-func TestValidateAndUpdateTerm(t *testing.T) {
-	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	tests := []struct {
-		name          string
-		currentTerm   int64
-		requestTerm   int64
-		force         bool
-		expectError   bool
-		expectedCode  mtrpcpb.Code
-		errorContains string
-	}{
-		{
-			name:        "Equal term should accept",
-			currentTerm: 5,
-			requestTerm: 5,
-			force:       false,
-			expectError: false,
-		},
-		{
-			name:        "Higher term should update and accept",
-			currentTerm: 5,
-			requestTerm: 10,
-			force:       false,
-			expectError: false,
-		},
-		{
-			name:          "Lower term should reject",
-			currentTerm:   10,
-			requestTerm:   5,
-			force:         false,
-			expectError:   true,
-			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
-			errorContains: "consensus term too old",
-		},
-		{
-			name:        "Force flag bypasses validation",
-			currentTerm: 10,
-			requestTerm: 5,
-			force:       true,
-			expectError: false,
-		},
-		{
-			// Term 0 means uninitialized (consensus_term.json not yet written, e.g. on a fresh
-			// standby after poolerDir was wiped by a restore). A positive request term is
-			// accepted and initializes the local term.
-			name:        "Zero cached term accepts higher request term (initializes standby)",
-			currentTerm: 0,
-			requestTerm: 5,
-			force:       false,
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-			defer ts.Close()
-
-			// Create temp directory for pooler-dir
-			poolerDir := t.TempDir()
-
-			// Create a minimal data directory structure to satisfy IsDataDirInitialized check
-			dataDir := filepath.Join(poolerDir, "pg_data")
-			t.Setenv(constants.PgDataDirEnvVar, dataDir)
-			require.NoError(t, os.MkdirAll(dataDir, 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("15\n"), 0o644))
-
-			// Set initial consensus term on disk if currentTerm > 0
-			if tt.currentTerm > 0 {
-				initialTerm := &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm: tt.currentTerm,
-				}
-				consensustest.SeedTerm(t, poolerDir, initialTerm)
-			}
-
-			// Create the database in topology with backup location
-			database := "testdb"
-			addDatabaseToTopo(t, ts, database)
-
-			multipooler := &clustermetadatapb.MultiPooler{
-				Id:            serviceID,
-				Hostname:      "localhost",
-				PortMap:       map[string]int32{"grpc": 8080},
-				Type:          clustermetadatapb.PoolerType_PRIMARY,
-				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				// A PRIMARY record must name itself as leader (the record invariant).
-				SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
-				ShardKey: &clustermetadatapb.ShardKey{
-					Database:   database,
-					TableGroup: constants.DefaultTableGroup,
-					Shard:      constants.DefaultShard,
-				},
-				PoolerDir: poolerDir,
-			}
-			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-			config := &Config{
-				TopoClient:       ts,
-				ConsensusEnabled: true,
-			}
-			manager, err := NewMultiPoolerManager(logger, multipooler, config)
-			require.NoError(t, err)
-			defer manager.ShutdownForTest(t.Context())
-
-			// Set up mock query service for isInRecovery check during startup
-			mockQueryService := mock.NewQueryService()
-			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-			manager.qsc = &mockPoolerController{queryService: mockQueryService}
-			manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-
-			// Start and wait for ready
-			senv := servenv.NewServEnv(viperutil.NewRegistry())
-			go manager.Start(senv)
-			require.Eventually(t, func() bool {
-				return manager.GetState() == ManagerStateReady
-			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-			// Acquire action lock before calling validateAndUpdateTerm
-			ctx, err := manager.actionLock.Acquire(ctx, "test")
-			require.NoError(t, err)
-			defer manager.actionLock.Release(ctx)
-
-			// Call validateAndUpdateTerm
-			err = manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
-
-				if tt.expectedCode != 0 {
-					code := mterrors.Code(err)
-					assert.Equal(t, tt.expectedCode, code)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
 }
 
 func TestGetBackupLocation(t *testing.T) {

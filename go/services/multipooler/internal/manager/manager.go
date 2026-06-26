@@ -112,15 +112,14 @@ type MultiPoolerManager struct {
 	// exclusively written through record.Mutate (today only by StateManager);
 	// the remaining fields are immutable after construction and exposed via
 	// typed accessors that read without locking.
-	record         *poolerRecord
-	state          ManagerState
-	stateError     error
-	consensusState *consensus.ConsensusState
-	topoLoaded     bool
-	rules          consensus.RuleStorer
-	ctx            context.Context
-	cancel         context.CancelFunc
-	loadTimeout    time.Duration
+	record       *poolerRecord
+	state        ManagerState
+	stateError   error
+	consensusMgr *consensus.ConsensusManager
+	topoLoaded   bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	loadTimeout  time.Duration
 
 	// shutdownCtx is cancelled at the end of GracefulShutdown to signal
 	// long-lived subscribers (currently the health-stream gRPC handlers via
@@ -149,40 +148,15 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
-	// resignedLeaderAtTerm is set when this node voluntarily resigns as primary
-	// (via Recruit's emergency-demote path or graceful shutdown). The value is
-	// the consensus term at which the primary resigned. A non-zero value signals
-	// the coordinator to trigger an immediate election. Protected by mu. Cleared
-	// when this node is elected primary again.
-	resignedLeaderAtTerm int64
-
-	// cohortEligibility is this node's self-reported willingness to be a member
-	// of the consensus cohort. Defaults to ELIGIBLE; published in every health
-	// snapshot via AvailabilityStatus.CohortEligibilityStatus. Protected by mu.
-	cohortEligibility clustermetadatapb.CohortEligibilitySignal
+	// Leader-resignation and cohort-eligibility state now live on consensusMgr
+	// (consensus.ConsensusManager), alongside the term promises and rule store.
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner
 
-	// suspectedDivergence marks that this node's WAL may have diverged from the
-	// cluster's chosen history, so the next restart-as-standby or SetPrimary should
-	// run pg_rewind to remove potential phantom / non-durable WAL entries.
-	//
-	// We suspect divergence when:
-	//   - a primary learns its term was ended by a failover — it may have local
-	//     WAL the new leader's history never adopted. Set by emergencyDemoteLocked,
-	//     SetPrimary's stale-primary branch, and the monitor's stale-primary demote.
-	//   - a replica cannot replicate despite successfully connecting to the leader,
-	//     implying its timeline diverged. Set via RewindToSource; today orch detects
-	//     this, but in the future a pooler could self-detect it.
-	suspectedDivergence atomic.Bool
-
-	// rewindWaitEmittedFor is the ConsensusState.LeaderObservedAt() value the
-	// rewind-wait metric was last emitted for, so a rewind that fails and is
-	// re-attempted against the same leader is counted once. Only read/written from
-	// restartAsStandbyLocked, which always holds the action lock, so it needs no
-	// separate synchronization.
-	rewindWaitEmittedFor time.Time
+	// Suspected-divergence and rewind-wait bookkeeping now live on consensusMgr
+	// (consensus.ConsensusManager). promotionInProgress stays here: it tracks
+	// pg_promote() transition mechanics, not consensus state.
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -252,6 +226,25 @@ func NewMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
+	return newMultiPoolerManager(logger, multiPooler, config, loadTimeout, overrides{})
+}
+
+// overrides carries test-only injections for the constructor core. Its zero
+// value is the production path; tests populate it via NewMultiPoolerManagerForTesting.
+type overrides struct {
+	// qsc, when non-nil, replaces the query-pooler server the constructor would
+	// otherwise build (so tests can supply a mock query service). The consensus
+	// rule store is built over qsc.InternalQueryService(), so injecting a mock
+	// here also points the rule store at the mock.
+	qsc poolerserver.PoolerController
+	// consensusMgr, when non-nil, replaces the ConsensusManager the constructor
+	// would otherwise build (so tests can supply one with a fake rule store).
+	consensusMgr *consensus.ConsensusManager
+}
+
+// newMultiPoolerManager is the constructor core shared by the production
+// constructors and the test constructor. ov is the zero value in production.
+func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration, ov overrides) (*MultiPoolerManager, error) {
 	// Validate required multiPooler fields
 	if multiPooler == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multiPooler is required")
@@ -327,7 +320,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
 		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard()),
-		cohortEligibility:      clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -341,24 +333,39 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// long-lived stream subscribers can keep watching it.
 	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(ctxutil.Detach(ctx))
 
-	// Load consensus state from disk. Missing file means term=0 (new node), which is fine.
-	// Only actual read/parse errors fail the constructor.
-	pm.consensusState = consensus.NewConsensusState(pm.record.PoolerDir(), pm.serviceID)
-	if config.ConsensusEnabled {
-		if _, err := pm.consensusState.Load(); err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to load consensus state from disk: %w", err)
-		}
-	}
-
 	// Create the query service controller with the pool manager.
 	// Get the drain grace period from connpool config (0 means use default).
 	var drainGracePeriod time.Duration
 	if config.ConnPoolConfig != nil {
 		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
 	}
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
-	pm.rules = consensus.NewRuleStore(pm.logger, pm.qsc.InternalQueryService(), consensus.NewSyncStandbyManager(pm.logger, pm.qsc.InternalQueryService(), multiPooler.Id))
+	if ov.qsc != nil {
+		pm.qsc = ov.qsc
+	} else {
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
+	}
+
+	// ConsensusManager owns its own wiring (durable promise store + rule store +
+	// sync-standby manager). LoadPromises loads the persisted term from disk on
+	// the consensus-enabled path; a missing file means term=0 (new node), and
+	// only an actual read/parse error fails the constructor. A test may inject a
+	// pre-built ConsensusManager (e.g. with a fake rule store) instead.
+	if ov.consensusMgr != nil {
+		pm.consensusMgr = ov.consensusMgr
+	} else {
+		pm.consensusMgr, err = consensus.NewConsensusManager(consensus.Deps{
+			Logger:       pm.logger,
+			QueryService: pm.qsc.InternalQueryService(),
+			PoolerDir:    pm.record.PoolerDir(),
+			ID:           multiPooler.Id,
+			Broadcaster:  pm.healthStreamer,
+			LoadPromises: config.ConsensusEnabled,
+		})
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+	}
 
 	// The health streamer must wait for the query server to update its type before
 	// broadcasting SERVING transitions, so the gateway doesn't discover the new
@@ -401,7 +408,7 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 func (pm *MultiPoolerManager) DoUpdateRule(ctx context.Context, update *consensus.RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	ruleWriteCtx, ruleWriteSpan := telemetry.Tracer().Start(ctx, "consensus/rule-write")
 	defer ruleWriteSpan.End()
-	return pm.rules.UpdateRule(ruleWriteCtx, update)
+	return pm.consensusMgr.Rules().UpdateRule(ruleWriteCtx, update)
 }
 
 // query executes a query using the internal query service and returns the result.
@@ -876,11 +883,6 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	return nil
 }
 
-// getCurrentTermNumber returns the current consensus term number.
-func (pm *MultiPoolerManager) getCurrentTermNumber(ctx context.Context) (int64, error) {
-	return pm.consensusState.GetCurrentTermNumber(ctx)
-}
-
 // checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
 // This is a common guardrail for replication-related operations on standby servers
 func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
@@ -963,9 +965,9 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
 		// leader, so publishing serviceID here is safe. Fall back to the cached
 		// position if postgres is unreachable.
-		cs, err := pm.getInconsistentConsensusStatus(pm.ctx)
+		cs, err := pm.consensusMgr.InconsistentConsensusStatus(pm.ctx)
 		if err != nil {
-			cs = pm.getCachedConsensusStatus()
+			cs = pm.consensusMgr.CachedConsensusStatus()
 		}
 		if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
 			pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
@@ -1091,51 +1093,6 @@ func (pm *MultiPoolerManager) loadShardConfigFromGlobalTopo() {
 		pm.checkAndSetReady()
 		return
 	}
-}
-
-// validateAndUpdateTerm validates the request term against the current term following Consensus rules.
-// Returns an error if the request term is stale (less than current term).
-// If the request term is higher, it updates the term in pgctld and the cache.
-// If force is true, validation is skipped.
-func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, requestTerm int64, force bool) error {
-	if force {
-		return nil // Skip validation if force is set
-	}
-
-	currentTerm, err := pm.getCurrentTermNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current term: %w", err)
-	}
-
-	// If request term == current term: ACCEPT (same term, execute)
-	// If request term < current term: REJECT (stale request)
-	// If request term > current term: UPDATE term and ACCEPT (new term discovered)
-	if requestTerm < currentTerm {
-		// Request has stale term, reject
-		pm.logger.ErrorContext(ctx, "Consensus term too old, rejecting request",
-			"request_term", requestTerm,
-			"current_term", currentTerm,
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
-				requestTerm, currentTerm))
-	} else if requestTerm > currentTerm {
-		// Request has newer term, update our term
-		pm.logger.InfoContext(ctx, "Discovered newer term, updating",
-			"request_term", requestTerm,
-			"old_term", currentTerm,
-			"service_id", pm.serviceID.String())
-
-		// Update term atomically (resets accepted leader)
-		if err := pm.consensusState.UpdateTermAndSave(ctx, requestTerm); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to update term", "error", err)
-			return mterrors.Wrap(err, "failed to update consensus term")
-		}
-
-		pm.logger.InfoContext(ctx, "Consensus term updated successfully", "new_term", requestTerm)
-	}
-	// If requestTerm == currentCachedTerm, just continue (same term is OK)
-	return nil
 }
 
 // checkDemotionState checks the current state to determine what steps remain
@@ -1484,7 +1441,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
-		if pm.consensusState.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
 			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
 			pm.broadcastHealth()
 		}
@@ -1494,7 +1451,9 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// the consensus protocol picked this node as the new leader at a higher
 	// term, so its WAL is by definition the rule going forward. Clear the
 	// flag so the postgres monitor and other operations resume.
-	if pm.suspectedDivergence.Swap(false) {
+	if changed, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to clear suspected divergence before promotion", "error", err)
+	} else if changed {
 		pm.logger.InfoContext(ctx, "Cleared suspectedDivergence before promotion")
 	}
 

@@ -266,12 +266,13 @@ func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
 // commonconsensus.ReplicationPrimaryOrNil, which returns nil for a 0/0 entry.
 //
 // Excluded:
-//   - go/common/consensus: implements the safe accessor (reads the field itself).
-//   - rpc_consensus.go: builds a ConsensusStatus and must assign the field; the
-//     DSL can't distinguish an assignment target from a read.
+//   - any .../consensus package: go/common/consensus implements the safe accessor
+//     (reads the field itself), and the multipooler's manager/consensus package
+//     builds a ConsensusStatus and must assign the field — the DSL can't
+//     distinguish an assignment target from a read.
 //   - test files.
 //
-// The unrelated ConsensusState.GetReplicationPrimary() (the multipooler's
+// The unrelated ConsensusPromises.GetReplicationPrimary() (the multipooler's
 // in-memory holder) is a different receiver type and is not matched.
 func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
@@ -279,8 +280,7 @@ func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 	m.Match(`$x.GetReplicationPrimary()`, `$x.ReplicationPrimary`).
 		Where(
 			m["x"].Type.Is("*clustermetadata.ConsensusStatus") &&
-				!m.File().PkgPath.Matches(`common/consensus`) &&
-				!m.File().Name.Matches(`rpc_consensus\.go$`) &&
+				!m.File().PkgPath.Matches(`/consensus$`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
 }
