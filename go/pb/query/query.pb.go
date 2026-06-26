@@ -1550,7 +1550,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xdf\x03\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xd9\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1561,7 +1561,7 @@ const file_query_proto_rawDesc = "" +
 	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x06\x10\a\"R\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
 	"\bUserAuth\x12\"\n" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +

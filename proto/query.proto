@@ -323,8 +323,6 @@ message ExecuteOptions {
   // connection to use for executing this query.
   uint64 reserved_connection_id = 5;
 
-  reserved 6;
-
   // user_auth carries SCRAM-SHA-256 passthrough keys captured during the
   // client's authentication handshake at the multigateway. When the
   // multipooler has SCRAM passthrough enabled, it uses these keys to
