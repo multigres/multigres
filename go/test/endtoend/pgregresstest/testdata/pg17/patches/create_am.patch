@@ -1,34 +1,9 @@
-# Known divergences:
-#  1. Some malformed table-AM statements are rejected by multigateway's parser,
-#     producing different syntax wording/source cursors.
-#  2. Foreign-data wrapper/server/table operations are blocked through the
-#     connection pooler; cascaded transaction-aborted output is a direct result
-#     of that accepted policy.
+# Known divergence (by design): foreign-data wrapper/server/table operations are
+# blocked through the connection pooler; cascaded transaction-aborted output is a
+# direct result of that accepted policy.
 --- a
 +++ b
-@@ -156,18 +156,12 @@
- -- SELECT INTO doesn't support USING
- SELECT INTO tableam_tblselectinto_heap2 USING heap2 FROM tableam_tbl_heap2;
--ERROR: syntax error at or near "USING"
--LINE 1: SELECT INTO tableam_tblselectinto_heap2 USING heap2 FROM tab...
--^
-+ERROR: parse error at position 45: syntax error
- -- CREATE VIEW doesn't support USING
- CREATE VIEW tableam_view_heap2 USING heap2 AS SELECT * FROM tableam_tbl_heap2;
--ERROR: syntax error at or near "USING"
--LINE 1: CREATE VIEW tableam_view_heap2 USING heap2 AS SELECT * FROM ...
--^
-+ERROR: parse error at position 36: syntax error
- -- CREATE SEQUENCE doesn't support USING
- CREATE SEQUENCE tableam_seq_heap2 USING heap2;
--ERROR: syntax error at or near "USING"
--LINE 1: CREATE SEQUENCE tableam_seq_heap2 USING heap2;
--^
-+ERROR: parse error at position 39: syntax error
- -- CREATE MATERIALIZED VIEW does support USING
- CREATE MATERIALIZED VIEW tableam_tblmv_heap2 USING heap2 AS SELECT * FROM tableam_tbl_heap2;
- SELECT f1 FROM tableam_tblmv_heap2 ORDER BY f1;
-@@ -518,8 +512,11 @@
+@@ -518,8 +518,11 @@
  CREATE VIEW tableam_view_heapx AS SELECT * FROM tableam_tbl_heapx;
  CREATE SEQUENCE tableam_seq_heapx;
  CREATE FOREIGN DATA WRAPPER fdw_heap2 VALIDATOR postgresql_fdw_validator;
@@ -40,7 +15,7 @@
  -- Verify that new AM was used for tables, matviews, but not for sequences, views and fdws
  SELECT
  pc.relkind,
-@@ -533,28 +530,13 @@
+@@ -533,20 +536,7 @@
  LEFT JOIN pg_am AS pa ON (pa.oid = pc.relam)
  WHERE pc.relname LIKE 'tableam_%_heapx'
  ORDER BY 3, 1, 2;
@@ -62,12 +37,3 @@
  -- don't want to keep those tables, nor the default
  ROLLBACK;
  -- Third, check that we can neither create a table using a nonexistent
- -- AM, nor using an index AM
- CREATE TABLE i_am_a_failure() USING "";
--ERROR: zero-length delimited identifier at or near """"
--LINE 1: CREATE TABLE i_am_a_failure() USING "";
--^
-+ERROR: zero-length delimited identifier
- CREATE TABLE i_am_a_failure() USING i_do_not_exist_am;
- ERROR: access method "i_do_not_exist_am" does not exist
- CREATE TABLE i_am_a_failure() USING "I do not exist AM";
