@@ -172,6 +172,10 @@ func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Tar
 	return nil, nil, nil
 }
 
+func (m *mockGateway) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 // newTestConn creates a test server.Conn for ScatterConn tests.
 func newTestConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn

@@ -26,12 +26,12 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
-	"github.com/multigres/multigres/go/common/parser/replparser"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
@@ -84,6 +84,13 @@ type Executor interface {
 	// Any remaining reserved connections are force-cleared.
 	// Used for connection cleanup when a client disconnects.
 	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
+
+	// StreamReplication routes a logical-replication (replication=database)
+	// connection to the PRIMARY pooler, performs the Init/Ready handshake, and
+	// returns the live bidi stream the handler tunnels raw replication bytes
+	// through. The init's User/UserAuth/Mode are populated by the caller; the
+	// executor fills in the routing Target.
+	StreamReplication(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultiPoolerService_StreamReplicationClient, error)
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -194,13 +201,6 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
-
-	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
-		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
-			return err
-		}
-		// SHOW falls through to the regular SQL path below.
-	}
 
 	parseStart := time.Now()
 	asts, err := parser.ParseSQL(queryStr)

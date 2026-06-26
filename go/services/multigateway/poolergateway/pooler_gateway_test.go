@@ -15,13 +15,20 @@
 package poolergateway
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -122,4 +129,93 @@ func TestIsSingleQuery(t *testing.T) {
 			assert.Equal(t, tt.want, isSingleQuery(tt.reservedConnID, tt.willReserve))
 		})
 	}
+}
+
+// fakeStreamReplicationQueryService records the init passed to
+// StreamReplication and returns a canned stream/error. It embeds
+// queryservice.QueryService so the other (unused) methods satisfy the
+// interface without explicit stubs.
+type fakeStreamReplicationQueryService struct {
+	queryservice.QueryService
+
+	gotInit *multipoolerservice.StreamReplicationInit
+	stream  multipoolerservice.MultiPoolerService_StreamReplicationClient
+	err     error
+}
+
+func (f *fakeStreamReplicationQueryService) StreamReplication(
+	_ context.Context,
+	init *multipoolerservice.StreamReplicationInit,
+) (multipoolerservice.MultiPoolerService_StreamReplicationClient, error) {
+	f.gotInit = init
+	return f.stream, f.err
+}
+
+// Close overrides the embedded (nil) QueryService so the cache's OnGone
+// Shutdown does not panic on cleanup.
+func (f *fakeStreamReplicationQueryService) Close() error { return nil }
+
+// TestPoolerGateway_StreamReplication_RoutesToPrimary verifies that the
+// gateway forces PRIMARY routing for replication, resolves the leader's
+// connection, and delegates to that connection's QueryService — returning
+// whatever stream the connection returned and leaving the caller's target
+// untouched.
+func TestPoolerGateway_StreamReplication_RoutesToPrimary(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+
+	// Add a primary and mark it the leader so PRIMARY routing resolves.
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	setLeaderForTest(t, lb, constants.DefaultTableGroup, "0",
+		&clustermetadatapb.LeaderObservation{LeaderId: primary.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}})
+
+	// Swap the cached connection's QueryService for a fake that records the init.
+	conn := connForTest(t, lb, primary)
+	require.NotNil(t, conn)
+	wantStream := multipoolerservice.MultiPoolerService_StreamReplicationClient(nil)
+	fake := &fakeStreamReplicationQueryService{stream: wantStream}
+	conn.queryService = fake
+
+	// The caller's target carries a non-PRIMARY type; the gateway must force
+	// PRIMARY for routing without mutating the caller's proto.
+	callerTarget := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	init := &multipoolerservice.StreamReplicationInit{Target: callerTarget}
+
+	stream, err := pg.StreamReplication(t.Context(), init)
+	require.NoError(t, err)
+	assert.Equal(t, wantStream, stream, "should return the connection's stream")
+
+	// The connection's QueryService received the init.
+	require.NotNil(t, fake.gotInit)
+
+	// The caller's target proto was not mutated in place.
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, callerTarget.PoolerType,
+		"caller's target must not be mutated")
+}
+
+// TestPoolerGateway_StreamReplication_NoLeaderPropagatesError verifies that
+// when no leader is observed (load balancer returns UNAVAILABLE), the error
+// is propagated and no stream is returned.
+func TestPoolerGateway_StreamReplication_NoLeaderPropagatesError(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+
+	init := &multipoolerservice.StreamReplicationInit{
+		Target: &query.Target{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		},
+	}
+
+	stream, err := pg.StreamReplication(t.Context(), init)
+	require.Error(t, err)
+	assert.Nil(t, stream)
+	assert.True(t, mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE,
+		"no-leader error should be UNAVAILABLE, got %v", err)
 }

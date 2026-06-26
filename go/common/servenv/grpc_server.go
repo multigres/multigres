@@ -370,6 +370,15 @@ func (g *GrpcServer) Create() error {
 	}
 	opts = append(opts, grpc.KeepaliveEnforcementPolicy(ep))
 
+	// These defaults are tuned to keep long-lived, low-traffic streams (e.g. the
+	// StreamReplication tunnel) alive indefinitely:
+	//   - MaxConnectionAge / MaxConnectionAgeGrace default to ~infinite, so the
+	//     server never sends a GoAway that would tear down an active replication
+	//     stream mid-flight.
+	//   - MaxConnectionIdle is intentionally left unset (0 = no limit); an idle
+	//     replication stream waiting on WAL must not be reaped for inactivity.
+	//   - Time/Timeout (10s/10s) ping idle peers so dead connections are still
+	//     detected promptly.
 	ka := keepalive.ServerParameters{
 		MaxConnectionAge:      g.maxConnectionAge.Get(),
 		MaxConnectionAgeGrace: g.maxConnectionAgeGrace.Get(),

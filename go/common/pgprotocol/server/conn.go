@@ -363,6 +363,76 @@ func (c *Conn) Handler() Handler {
 	return c.handler
 }
 
+// DetachConn detaches the underlying network connection from this Conn and
+// returns it along with any bytes the read buffer had already read ahead.
+// After a successful call the Conn is closed for protocol use: a later Close()
+// will not touch the returned socket, which the caller now owns.
+//
+// The caller MUST treat `buffered` as bytes that arrived before any subsequent
+// socket read: prepend them to the read stream (e.g.
+// io.MultiReader(bytes.NewReader(buffered), raw)). The write buffer is flushed
+// before detaching, so writes may go straight to raw.
+//
+// The ordering here mirrors Close()'s teardown so detaching does not leak or
+// double-free pooled buffers: the buffered read-ahead is captured before the
+// reader is returned to the pool (the pool Resets readers to nil, discarding
+// their buffer), and `closed` is set to true so a later Close() short-circuits
+// on its CompareAndSwap before it can re-return the same pooled buffers or
+// close the now-nil socket. The caller owns and must close `raw`.
+func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
+	if c.closed.Load() {
+		return nil, nil, errors.New("pgwire: DetachConn on closed connection")
+	}
+	if err := c.flush(); err != nil {
+		return nil, nil, fmt.Errorf("pgwire: flush before hijack: %w", err)
+	}
+	// Capture any read-ahead bytes before returning the reader to the pool;
+	// returnReader Resets the reader to nil, which discards its buffer.
+	if c.bufferedReader != nil {
+		if n := c.bufferedReader.Buffered(); n > 0 {
+			peeked, peekErr := c.bufferedReader.Peek(n)
+			if peekErr != nil {
+				return nil, nil, fmt.Errorf("pgwire: peek buffered bytes: %w", peekErr)
+			}
+			buffered = append([]byte(nil), peeked...) // copy; reader memory is reused
+			if _, discardErr := c.bufferedReader.Discard(n); discardErr != nil {
+				return nil, nil, fmt.Errorf("pgwire: discard buffered bytes: %w", discardErr)
+			}
+		}
+	}
+
+	// Return pooled resources, matching Close()'s teardown so the pools
+	// recycle these buffers and a later Close() (short-circuited by the
+	// closed flag below) can't double-return them.
+	c.returnReader()
+	c.returnReadBuffer()
+	c.returnOutboundBuffer()
+	// Flushes (already a no-op after the flush above) and returns the writer
+	// to the pool. Errors during teardown are uninteresting here.
+	_ = c.endWriterBuffering()
+
+	raw = c.conn
+	c.conn = nil         // prevent Close() from closing the hijacked socket
+	c.closed.Store(true) // Conn is no longer usable for protocol I/O
+	c.cancel()           // release the connection's context
+
+	// Mirror Close()'s credential hygiene: setting closed=true above makes the
+	// later Close() short-circuit before it can wipe these, so do it here. The
+	// caller has already read any keys it needs (e.g. for SCRAM passthrough)
+	// before detaching; they are not needed for the raw byte stream.
+	c.state = nil
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
+
+	return raw, buffered, nil
+}
+
 // User returns the authenticated user.
 func (c *Conn) User() string {
 	return c.user
@@ -701,6 +771,19 @@ func (c *Conn) serve() error {
 				"error", err)
 			return fmt.Errorf("clear startup deadline: %w", err)
 		}
+	}
+
+	// A logical-replication (replication=database) connection is tunneled
+	// byte-for-byte to the PRIMARY pooler rather than processed as a stream
+	// of SQL commands. If the handler exposes the replication capability,
+	// hand the authenticated socket over to it now. Physical replication
+	// (ReplicationPhysical) is intentionally left to the command loop.
+	if c.replicationMode == ReplicationLogical {
+		if rh, ok := c.handler.(ReplicationHandler); ok {
+			return rh.HandleReplicationStream(c.ctx, c)
+		}
+		// No replication handler installed: fall through to the existing
+		// command loop.
 	}
 
 	// Main command loop.

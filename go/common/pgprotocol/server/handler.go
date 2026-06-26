@@ -129,6 +129,12 @@ type Handler interface {
 	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
 }
 
+// ReplicationHandler is an optional capability: a Handler that can take over a
+// logical-replication connection as a raw byte stream after authentication.
+type ReplicationHandler interface {
+	HandleReplicationStream(ctx context.Context, conn *Conn) error
+}
+
 // ConnectionEstablishedHandler is an optional interface a Handler may
 // implement to be notified when a client connection completes the startup
 // phase (authentication and any post-auth role-attribute gates have passed).

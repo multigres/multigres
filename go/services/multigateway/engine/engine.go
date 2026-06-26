@@ -297,6 +297,19 @@ type IExecute interface {
 		state *handler.MultiGatewayConnectionState,
 		onMessage func(pgClient.CopyOutMessage) error,
 	) (*sqltypes.Result, error)
+
+	// StreamReplication routes a logical-replication (replication=database)
+	// connection to the PRIMARY pooler for the given tablegroup/shard, fills the
+	// init's Target from the connection state, sends the Init, awaits Ready, and
+	// returns the live bidi stream for the handler to tunnel raw bytes through.
+	StreamReplication(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
+		init *multipoolerpb.StreamReplicationInit,
+	) (multipoolerpb.MultiPoolerService_StreamReplicationClient, error)
 }
 
 // Primitive is the building block of the query execution plan.
