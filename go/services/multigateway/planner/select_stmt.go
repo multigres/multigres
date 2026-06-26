@@ -30,14 +30,13 @@ import (
 //
 // With set_configs present the plan is always
 //
-//	Sequence[ApplySessionState per call, Route(original SQL)]
+//	Sequence[Route(original SQL), ApplySessionState per call]
 //
-// The ApplySessionState primitive runs silently — it updates the tracker
-// without emitting anything to the client; the Route then sends the
-// unmodified query to PG, which executes set_config normally and streams
-// the result back. The extra round-trip matters less than keeping the
-// planning logic uniform — we don't try to short-circuit the bare
-// `SELECT set_config(...)` case.
+// The Route sends the unmodified query to PG, which executes set_config
+// normally and streams the result back. Only after that succeeds do the silent
+// ApplySessionState primitives update the gateway tracker. This preserves
+// PostgreSQL semantics on statement errors: a rejected SELECT must not leave a
+// session GUC recorded in the gateway when the backend never applied it.
 //
 // For literal-arg calls the primitive carries the value directly. For
 // calls with one or more bound-parameter args (extended-protocol shape
@@ -62,6 +61,12 @@ func (p *Planner) planSelectStmt(
 	}
 
 	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
+	// The leading route runs the SELECT itself. Advisory-lock pinning rides on
+	// the plan's ExecInfo (set below); Sequence forwards it to this Route, so a
+	// `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend for
+	// the lock and, if the SELECT succeeds, tracks the session setting via the
+	// silent ApplySessionState primitives below.
+	primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
 	for _, sc := range setConfigs {
 		base := syntheticSetStmt(sc)
 		if sc.hasBoundParams() {
@@ -75,12 +80,6 @@ func (p *Planner) planSelectStmt(
 			primitives = append(primitives, engine.NewApplySessionStateSilent(sql, base))
 		}
 	}
-	// The trailing route runs the SELECT itself. Advisory-lock pinning rides on
-	// the plan's ExecInfo (set below); Sequence forwards it to this trailing
-	// Route, so a `SELECT set_config(...), pg_advisory_lock(...)` both tracks the
-	// session setting (via the ApplySessionState primitives above) and pins the
-	// backend for the lock.
-	primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
 	plan := engine.NewPlan(sql, engine.NewSequence(primitives))
 	plan.ExecInfo = advisoryExecInfo(opts)
 	return plan, nil
@@ -95,10 +94,11 @@ func (p *Planner) planSelectStmt(
 //     target replaced by its three arguments a, b, c — once, to learn the
 //     concrete (name, value, is_local) tuples per row (pure read, no
 //     set_config side effect);
-//  2. tracks the session-scoped (is_local=false) tuples in SessionSettings so
-//     they survive pool rotation;
+//  2. prepares and validates gateway tracking actions without mutating state;
 //  3. applies all tuples with literals (a synthesized set_config(...) over the
-//     captured values) and forwards that authoritative result to the client.
+//     captured values) and forwards that authoritative result to the client;
+//  4. records the prepared tracking actions only after PostgreSQL accepts the
+//     synthesized apply query.
 //
 // Running the projection once is essential: re-running the original dynamic
 // query could resolve to different rows/values (concurrent catalog change,

@@ -498,7 +498,7 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		if isLocal {
 			// is_local literal true. For an ordinary variable we do not track
 			// it: PostgreSQL executes the call transaction-scoped via the
-			// trailing Route and the gateway holds no state (which also keeps
+			// paired Route and the gateway holds no state (which also keeps
 			// the plan cache compact for hot PostgREST set_config(...,true)
 			// patterns). For a gateway-managed variable we DO track it as a
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`

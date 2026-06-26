@@ -129,11 +129,9 @@ type ProcessInstance struct {
 
 	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
 	// PostgreSQL backends get tagged with `multigres_vpid:<id>` in
-	// application_name. Required by the isolation-test harness shim
-	// (public.multigres_test_session_is_blocked) to resolve a multigateway
-	// virtual PID back to its real backend PID via pg_stat_activity. Default
-	// false matches the multipooler's production default; only the pgregress
-	// isolation suite flips it on via shardsetup.WithVpidStamping.
+	// application_name. Default false matches the multipooler's production
+	// default; tests may opt in via shardsetup.WithVpidStamping when they need
+	// compatibility with virtual-PID based pg_stat_activity lookups.
 	VpidStampEnabled bool
 }
 

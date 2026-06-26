@@ -38,20 +38,68 @@ func NewSequence(primitives []Primitive) *Sequence {
 	return &Sequence{Primitives: primitives}
 }
 
+type silentTrackingPreparer interface {
+	prepareStreamSilentTrackingAction(*server.Conn, *handler.MultiGatewayConnectionState, []*ast.A_Const) (func(), bool, error)
+	preparePortalSilentTrackingAction(*server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo) (func(), bool, error)
+}
+
+func (s *Sequence) prepareStreamSilentTrackingActions(
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	bindVars []*ast.A_Const,
+) (map[int]func(), error) {
+	prepared := make(map[int]func())
+	for i, p := range s.Primitives {
+		preparer, ok := p.(silentTrackingPreparer)
+		if !ok {
+			continue
+		}
+		action, handled, err := preparer.prepareStreamSilentTrackingAction(conn, state, bindVars)
+		if err != nil {
+			return nil, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
+		}
+		if handled {
+			prepared[i] = action
+		}
+	}
+	return prepared, nil
+}
+
+func (s *Sequence) preparePortalSilentTrackingActions(
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+) (map[int]func(), error) {
+	prepared := make(map[int]func())
+	for i, p := range s.Primitives {
+		preparer, ok := p.(silentTrackingPreparer)
+		if !ok {
+			continue
+		}
+		action, handled, err := preparer.preparePortalSilentTrackingAction(conn, state, portalInfo)
+		if err != nil {
+			return nil, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
+		}
+		if handled {
+			prepared[i] = action
+		}
+	}
+	return prepared, nil
+}
+
 // StreamExecute executes each primitive in order, stopping on first error.
 //
 // bindVars are forwarded to every child. The current Sequence shape used by
-// planSelectStmt is [silent ApplySessionState..., Route]: all-literal silent
-// steps ignore bindVars (their VariableSetStmt is fully synthesized at plan
-// time from the literal set_config args), BindRefs steps resolve their bound
-// set_config slots from bindVars (the normalizer parameterizes the value of
-// a gateway-managed set_config(..., true) — see
-// ApplySessionState.executeSetWithNormalizedBinds), and the trailing Route
-// uses bindVars + its NormalizedAST to reconstruct the original literals
-// before sending the query to the backend. Dropping bindVars here breaks
-// both: the tracker would record a `__bind_$N__` placeholder, and the
-// normalized `$N` placeholders would reach PG unbound and fail with "there
-// is no parameter $N".
+// planSelectStmt is [Route, silent ApplySessionState...]: the Route uses
+// bindVars + its NormalizedAST to reconstruct the original literals before
+// sending the query to the backend; all-literal silent steps ignore bindVars
+// (their VariableSetStmt is fully synthesized at plan time from the literal
+// set_config args), and BindRefs steps resolve their bound set_config slots
+// from bindVars (the normalizer parameterizes the value of a gateway-managed
+// set_config(..., true) — see ApplySessionState.executeSetWithNormalizedBinds).
+// Dropping bindVars here breaks both: the tracker would record a `__bind_$N__`
+// placeholder, and the normalized `$N` placeholders would reach PG unbound and
+// fail with "there is no parameter $N".
 func (s *Sequence) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -61,12 +109,22 @@ func (s *Sequence) StreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// info is forwarded to every child; only the routing child (the trailing
-	// Route) forwards it onward to IExecute. The auxiliary children (silent
-	// ApplySessionState / ResolveTrackSetConfig set_config steps) ignore it and
+	prepared, err := s.prepareStreamSilentTrackingActions(conn, state, bindVars)
+	if err != nil {
+		return err
+	}
+
+	// info is forwarded to every child; only the routing child (the leading
+	// Route in planSelectStmt's Sequence) forwards it onward to IExecute. The
+	// auxiliary children (silent ApplySessionState / ResolveTrackSetConfig
+	// set_config steps) ignore it and
 	// issue their own backend calls with the zero value, so the plan's
 	// reservation directives apply exactly once, on the query that warrants them.
 	for i, p := range s.Primitives {
+		if action, ok := prepared[i]; ok {
+			action()
+			continue
+		}
 		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, info, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
@@ -75,9 +133,9 @@ func (s *Sequence) StreamExecute(
 }
 
 // PortalStreamExecute runs each child's PortalStreamExecute in order. The
-// dispatch lives on each child — silent ApplySessionState steps that compose
-// with a Route in this Sequence simply ignore portalInfo and update tracker
-// state, while the trailing Route reissues the portal to the backend.
+// dispatch lives on each child — the Route reissues the portal to the backend,
+// while silent ApplySessionState steps that compose with it use portalInfo only
+// to resolve bound set_config slots and update tracker state after success.
 //
 // Stops on the first error and reports which child failed.
 func (s *Sequence) PortalStreamExecute(
@@ -91,7 +149,16 @@ func (s *Sequence) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	prepared, err := s.preparePortalSilentTrackingActions(conn, state, portalInfo)
+	if err != nil {
+		return err
+	}
+
 	for i, p := range s.Primitives {
+		if action, ok := prepared[i]; ok {
+			action()
+			continue
+		}
 		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, info, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}

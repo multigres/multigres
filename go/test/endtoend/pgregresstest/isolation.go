@@ -40,15 +40,14 @@ import (
 //     concatenates the session name client-side, escapes via
 //     PQescapeLiteral, and sends a simple-protocol PQexec.
 //
-//  2. Lock-wait probe function name. Upstream prepares
-//     `pg_catalog.pg_isolation_test_session_is_blocked(...)`. Replacing
-//     that builtin C function with a PL/pgSQL shim via CREATE OR REPLACE
-//     proved unreliable (fresh backends were observed to still bind the
-//     C entry, returning false for every probe and hanging every
-//     blocking spec at max_step_wait). We point the harness at our own
+//  2. Lock-wait probe function and arguments. Upstream prepares
+//     `pg_catalog.pg_isolation_test_session_is_blocked(...)` with backend
+//     PIDs. Through multigateway those PIDs are virtual, while PostgreSQL lock
+//     tables expose real backend PIDs. We point the harness at our own
 //     function `public.multigres_test_session_is_blocked` (installed by
-//     installPIDMappingFunction) with explicit arg casts so PG resolves
-//     it under extended-protocol Parse with paramTypes=NULL.
+//     installPIDMappingFunction) and pass the per-session application_name
+//     values instead; the shim maps those names to real backend PIDs via
+//     pg_stat_activity.
 //
 // Idempotent: source is reset via `git checkout` before patching, so
 // repeat invocations against the cached checkout produce the same
@@ -81,7 +80,8 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 		"\t\t * and send it via the simple protocol. The multigateway planner\n" +
 		"\t\t * rejects set_config() when the value is a non-literal expression\n" +
 		"\t\t * or bound parameter (the pooler tracks the literal value), so we\n" +
-		"\t\t * cannot use PQexecParams + current_setting() here.\n" +
+		"\t\t * cannot use PQexecParams + current_setting() here. Keep the\n" +
+		"\t\t * combined value for the multigres wait-detection shim too.\n" +
 		"\t\t */\n" +
 		"\t\t{\n" +
 		"\t\t\tconst char *appname_prefix = getenv(\"PGAPPNAME\");\n" +
@@ -92,8 +92,8 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 		"\t\t\tif (appname_prefix == NULL)\n" +
 		"\t\t\t\tappname_prefix = \"\";\n" +
 		"\t\t\tcombined = psprintf(\"%s/%s\", appname_prefix, sessionname);\n" +
+		"\t\t\tconns[i].application_name = combined;\n" +
 		"\t\t\tescaped = PQescapeLiteral(conns[i].conn, combined, strlen(combined));\n" +
-		"\t\t\tfree(combined);\n" +
 		"\t\t\tif (escaped == NULL)\n" +
 		"\t\t\t{\n" +
 		"\t\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
@@ -112,25 +112,70 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 	}
 	patched := bytes.Replace(src, []byte(appNameOrig), []byte(appNameReplacement), 1)
 
-	// Add explicit type casts on both args. isolationtester PQprepares the
-	// wait-query with paramTypes=NULL so $1 enters parse as UNKNOWN, and the
-	// '{...}' literal is also UNKNOWN. PG resolves this for the pg_catalog
-	// C builtin via implicit catalog priority but fails for a public
-	// PL/pgSQL function with "function public.X(unknown, unknown) does not
-	// exist". Casting to int4 / int4[] removes the ambiguity.
-	waitFnOrig := "\"SELECT pg_catalog.pg_isolation_test_session_is_blocked($1, '{\""
-	waitFnReplacement := "\"SELECT public.multigres_test_session_is_blocked($1::int4, '{\""
-	if !bytes.Contains(patched, []byte(waitFnOrig)) {
-		return fmt.Errorf("%s: wait-query function reference not found (PG version drift?)", rel)
+	structOrig := "\t/* Name of the associated session. */\n" +
+		"\tconst char *sessionname;\n" +
+		"\t/* Active step on this connection, or NULL if idle. */\n"
+	structReplacement := "\t/* Name of the associated session. */\n" +
+		"\tconst char *sessionname;\n" +
+		"\t/* Full application_name assigned to this connection. */\n" +
+		"\tconst char *application_name;\n" +
+		"\t/* Active step on this connection, or NULL if idle. */\n"
+	if !bytes.Contains(patched, []byte(structOrig)) {
+		return fmt.Errorf("%s: IsoConnInfo sessionname block not found (PG version drift?)", rel)
 	}
-	patched = bytes.Replace(patched, []byte(waitFnOrig), []byte(waitFnReplacement), 1)
+	patched = bytes.Replace(patched, []byte(structOrig), []byte(structReplacement), 1)
 
-	waitFnSuffixOrig := "appendPQExpBufferStr(&wait_query, \"}')\");"
-	waitFnSuffixReplacement := "appendPQExpBufferStr(&wait_query, \"}'::int4[])\");"
-	if !bytes.Contains(patched, []byte(waitFnSuffixOrig)) {
-		return fmt.Errorf("%s: wait-query suffix not found (PG version drift?)", rel)
+	waitQueryOrig := "\tinitPQExpBuffer(&wait_query);\n" +
+		"\tappendPQExpBufferStr(&wait_query,\n" +
+		"\t\t\t\t\t\t \"SELECT pg_catalog.pg_isolation_test_session_is_blocked($1, '{\");\n" +
+		"\t/* The spec syntax requires at least one session; assume that here. */\n" +
+		"\tappendPQExpBufferStr(&wait_query, conns[1].backend_pid_str);\n" +
+		"\tfor (i = 2; i < nconns; i++)\n" +
+		"\t\tappendPQExpBuffer(&wait_query, \",%s\", conns[i].backend_pid_str);\n" +
+		"\tappendPQExpBufferStr(&wait_query, \"}')\");"
+	waitQueryReplacement := "\tinitPQExpBuffer(&wait_query);\n" +
+		"\tappendPQExpBufferStr(&wait_query,\n" +
+		"\t\t\t\t\t\t \"SELECT public.multigres_test_session_is_blocked($1::text, ARRAY[\");\n" +
+		"\t/* The spec syntax requires at least one session; assume that here. */\n" +
+		"\t{\n" +
+		"\t\tchar\t   *escaped;\n" +
+		"\n" +
+		"\t\tescaped = PQescapeLiteral(conns[0].conn, conns[1].application_name,\n" +
+		"\t\t\t\t\t\t\t\t  strlen(conns[1].application_name));\n" +
+		"\t\tif (escaped == NULL)\n" +
+		"\t\t{\n" +
+		"\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
+		"\t\t\t\t\tPQerrorMessage(conns[0].conn));\n" +
+		"\t\t\texit(1);\n" +
+		"\t\t}\n" +
+		"\t\tappendPQExpBufferStr(&wait_query, escaped);\n" +
+		"\t\tPQfreemem(escaped);\n" +
+		"\t\tfor (i = 2; i < nconns; i++)\n" +
+		"\t\t{\n" +
+		"\t\t\tescaped = PQescapeLiteral(conns[0].conn, conns[i].application_name,\n" +
+		"\t\t\t\t\t\t\t\t  strlen(conns[i].application_name));\n" +
+		"\t\t\tif (escaped == NULL)\n" +
+		"\t\t\t{\n" +
+		"\t\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
+		"\t\t\t\t\t\tPQerrorMessage(conns[0].conn));\n" +
+		"\t\t\t\texit(1);\n" +
+		"\t\t\t}\n" +
+		"\t\t\tappendPQExpBuffer(&wait_query, \",%s\", escaped);\n" +
+		"\t\t\tPQfreemem(escaped);\n" +
+		"\t\t}\n" +
+		"\t}\n" +
+		"\tappendPQExpBufferStr(&wait_query, \"]::text[])\");"
+	if !bytes.Contains(patched, []byte(waitQueryOrig)) {
+		return fmt.Errorf("%s: wait-query construction block not found (PG version drift?)", rel)
 	}
-	patched = bytes.Replace(patched, []byte(waitFnSuffixOrig), []byte(waitFnSuffixReplacement), 1)
+	patched = bytes.Replace(patched, []byte(waitQueryOrig), []byte(waitQueryReplacement), 1)
+
+	waitParamOrig := "&conns[step->session + 1].backend_pid_str"
+	waitParamReplacement := "&conns[step->session + 1].application_name"
+	if !bytes.Contains(patched, []byte(waitParamOrig)) {
+		return fmt.Errorf("%s: wait-query parameter reference not found (PG version drift?)", rel)
+	}
+	patched = bytes.Replace(patched, []byte(waitParamOrig), []byte(waitParamReplacement), 1)
 
 	if err := os.WriteFile(abs, patched, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", abs, err)
@@ -175,20 +220,17 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // full-suite via the make installcheck target) force --dbname=postgres on
 // pg_isolation_regress, so postgres is also the dbname the harness opens.
 //
-// The shim mirrors the upstream builtin: returns true if check_pid is
-// waiting on any pid in blocked_by for heavyweight lock waits
+// The shim mirrors the upstream builtin: returns true if check_session is
+// waiting on any session in blocked_by for heavyweight lock waits
 // (pg_blocking_pids). For SSI safe-snapshot waits
 // (pg_safe_snapshot_blocking_pids — required for SERIALIZABLE READ ONLY
 // DEFERRABLE specs such as read-only-anomaly-3), PostgreSQL deliberately
 // returns true when any safe-snapshot blocker exists; those blockers are
 // never autovacuum/background workers, so no blocked_by intersection is
-// needed. Both inputs are multigateway virtual pids; we map them to real
-// PostgreSQL backend pids via pg_stat_activity.application_name (the
-// multipooler stamps each
-// backend with `multigres_vpid:<id>` per query). A given vpid can map to
-// multiple PG backends in flight (a leftover stamp on a pool conn after
-// a regular query, plus the live reserved conn) so the wait-check
-// aggregates over every matching backend rather than picking one
+// needed. Inputs are application_name values assigned by the patched
+// isolationtester. A given application_name can map to multiple PG backends in
+// flight (a stale pooled backend plus the live reserved conn), so the
+// wait-check aggregates over every matching backend rather than picking one
 // non-deterministically.
 func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
 	t.Helper()
@@ -203,29 +245,25 @@ func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, p
 	db.SetMaxIdleConns(1)
 
 	stmts := []string{
+		`DROP TABLE IF EXISTS public.isolation_debug_log`,
 		// Debug table: every shim invocation logs its inputs/outputs and a
 		// snapshot of every backend in this DB so failures can be diagnosed
-		// post-hoc by querying isolation_debug_log (see
-		// dumpIsolationDebugLog).
-		`CREATE TABLE IF NOT EXISTS public.isolation_debug_log (
+		// post-hoc by querying isolation_debug_log (see dumpIsolationDebugLog).
+		`CREATE TABLE public.isolation_debug_log (
 			id serial PRIMARY KEY,
 			ts timestamptz DEFAULT now(),
-			check_pid int4,
-			blocked_by int4[],
-			real_check_pid int4,
+			check_session text,
+			blocked_by text[],
+			real_check_pids int4[],
 			real_blocked_by int4[],
 			blocking_pids int4[],
-			vpid_entries text[],
+			session_entries text[],
 			all_pg_backends text[],
 			result boolean
 		)`,
-		// Non-destructive add for runs against a pre-existing table from an
-		// earlier shim version that lacked all_pg_backends.
-		`ALTER TABLE public.isolation_debug_log
-		   ADD COLUMN IF NOT EXISTS all_pg_backends text[]`,
-		`TRUNCATE public.isolation_debug_log`,
 		`DROP FUNCTION IF EXISTS public.multigres_test_session_is_blocked(int4, int4[])`,
-		`CREATE FUNCTION public.multigres_test_session_is_blocked(check_pid int4, blocked_by int4[])
+		`DROP FUNCTION IF EXISTS public.multigres_test_session_is_blocked(text, text[])`,
+		`CREATE FUNCTION public.multigres_test_session_is_blocked(check_session text, blocked_by text[])
 RETURNS boolean
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -233,75 +271,62 @@ AS $$
 <<fn>>
 DECLARE
     v_log_id int4;
-    v_real_check_pid int4;
+    v_real_check_pids int4[];
     v_real_blocked_by int4[];
-    v_blocking_pids int4[];
     v_heavyweight_blocking_pids int4[];
     v_safe_snapshot_blocking_pids int4[];
-    v_vpid_entries text[];
+    v_blocking_pids int4[];
+    v_session_entries text[];
     v_all_backends text[];
-    v_stamp_found boolean;
     v_result boolean;
 BEGIN
     -- Capture the inserted id directly so the later UPDATE targets THIS
     -- invocation's row even under concurrent shim calls (parallel groups
     -- in the isolation schedule, or multiple sessions polling at once).
-    -- max(id) would race against any concurrent INSERT in between.
     INSERT INTO public.isolation_debug_log
-        (check_pid, blocked_by, result)
+        (check_session, blocked_by, result)
     VALUES
-        (check_pid, blocked_by, NULL)
+        (check_session, blocked_by, NULL)
     RETURNING id INTO v_log_id;
 
     SELECT array_agg(sa.application_name || '=' || sa.pid)
-    INTO v_vpid_entries
+    INTO v_session_entries
     FROM pg_stat_activity sa
-    WHERE sa.application_name LIKE 'multigres_vpid:%';
+    WHERE sa.datname = current_database()
+      AND (sa.application_name = check_session OR sa.application_name = ANY(blocked_by));
 
     SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
     INTO v_all_backends
     FROM pg_stat_activity sa
     WHERE sa.datname = current_database();
 
-    -- A client vpid can map to multiple PG backends (a leftover stamp on
-    -- a pool conn after the client ran a regular query, plus the live
-    -- reserved conn). Picking one non-deterministically risks probing the
-    -- idle one and missing the wait. real_check_pid is kept for
-    -- diagnostic display only; the actual block check below aggregates
-    -- over every matching backend.
-    SELECT sa.pid INTO v_real_check_pid
+    -- A session application_name can map to multiple PG backends (a stale
+    -- pooled backend after the client ran a regular query, plus the live
+    -- reserved conn). Aggregate over every matching backend rather than
+    -- choosing one non-deterministically.
+    SELECT array_agg(sa.pid) INTO v_real_check_pids
     FROM pg_stat_activity sa
-    WHERE sa.application_name = 'multigres_vpid:' || check_pid
-    LIMIT 1;
+    WHERE sa.datname = current_database()
+      AND sa.application_name = check_session;
 
     SELECT array_agg(sa.pid) INTO v_real_blocked_by
     FROM pg_stat_activity sa
-    WHERE sa.application_name = ANY(
-        SELECT 'multigres_vpid:' || unnest(blocked_by)
-    );
+    WHERE sa.datname = current_database()
+      AND sa.application_name = ANY(blocked_by);
 
-    -- Direct connections (no multigateway) hand us real pids; preserve them.
-    v_stamp_found := v_real_check_pid IS NOT NULL;
-    v_real_check_pid := COALESCE(v_real_check_pid, check_pid);
-    v_real_blocked_by := COALESCE(v_real_blocked_by, blocked_by);
+    v_real_check_pids := COALESCE(v_real_check_pids, '{}'::int4[]);
+    v_real_blocked_by := COALESCE(v_real_blocked_by, '{}'::int4[]);
 
     -- Aggregate heavyweight lock blockers across every PG backend currently
-    -- stamped for this vpid. Aggregation handles the duplicate-stamp case
-    -- where one backend is the live reserved conn (potentially blocked) and
-    -- another is a leaked pool conn (idle).
-    --
-    -- The direct-pid fallback only fires when no stamp was found for
-    -- check_pid. vpids occupy the full 31-bit signed int32 space, so a
-    -- vpid value can coincidentally equal an unrelated real PG backend
-    -- PID; probing check_pid as a real pid unconditionally would surface
-    -- that unrelated backend's blockers and risk a false positive.
+    -- carrying check_session's application_name. Aggregation handles the
+    -- duplicate mapping case where one backend is the live reserved conn
+    -- (potentially blocked) and another is a stale pooled conn (idle).
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_heavyweight_blocking_pids
     FROM (
         SELECT unnest(pg_blocking_pids(sa.pid)) AS b
         FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
-        UNION ALL
-        SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
+        WHERE sa.datname = current_database()
+          AND sa.application_name = check_session
     ) sub
     WHERE b IS NOT NULL;
 
@@ -310,15 +335,13 @@ BEGIN
     -- intentionally does not intersect these pids with the interesting session
     -- list because safe-snapshot waits are not caused by autovacuum/background
     -- workers. This matters for SERIALIZABLE READ ONLY DEFERRABLE specs such as
-    -- read-only-anomaly-3: if a writer's vpid stamp is momentarily ambiguous,
-    -- requiring an overlap can make isolationtester miss the wait and cancel.
+    -- read-only-anomaly-3.
     SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_safe_snapshot_blocking_pids
     FROM (
         SELECT unnest(pg_safe_snapshot_blocking_pids(sa.pid)) AS b
         FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
-        UNION ALL
-        SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
+        WHERE sa.datname = current_database()
+          AND sa.application_name = check_session
     ) sub
     WHERE b IS NOT NULL;
 
@@ -334,10 +357,10 @@ BEGIN
         OR cardinality(v_safe_snapshot_blocking_pids) > 0;
 
     UPDATE public.isolation_debug_log
-    SET real_check_pid = v_real_check_pid,
+    SET real_check_pids = v_real_check_pids,
         real_blocked_by = v_real_blocked_by,
         blocking_pids = v_blocking_pids,
-        vpid_entries = v_vpid_entries,
+        session_entries = v_session_entries,
         all_pg_backends = v_all_backends,
         result = v_result
     WHERE id = v_log_id;
@@ -385,7 +408,7 @@ func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, passw
 	defer db.Close()
 
 	var total int
-	if err := db.QueryRow(`SELECT count(*) FROM public.isolation_debug_log WHERE check_pid > 0`).Scan(&total); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM public.isolation_debug_log WHERE check_session IS NOT NULL`).Scan(&total); err != nil {
 		t.Logf("isolation_debug_log dump: count failed: %v", err)
 		return
 	}
@@ -396,10 +419,10 @@ func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, passw
 	}
 
 	rows, err := db.Query(`
-		SELECT id, check_pid, blocked_by, real_check_pid, real_blocked_by,
-		       blocking_pids, vpid_entries, all_pg_backends, result
+		SELECT id, check_session, blocked_by, real_check_pids, real_blocked_by,
+		       blocking_pids, session_entries, all_pg_backends, result
 		FROM public.isolation_debug_log
-		WHERE check_pid > 0
+		WHERE check_session IS NOT NULL
 		ORDER BY id DESC
 		LIMIT 30`)
 	if err != nil {
@@ -408,16 +431,15 @@ func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, passw
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, checkPid int
-		var blockedBy, realBlockedBy, blockingPids, vpidEntries, allBackends sql.NullString
-		var realCheckPid sql.NullInt32
+		var id int
+		var checkSession, blockedBy, realCheckPids, realBlockedBy, blockingPids, sessionEntries, allBackends sql.NullString
 		var result sql.NullBool
-		if err := rows.Scan(&id, &checkPid, &blockedBy, &realCheckPid, &realBlockedBy, &blockingPids, &vpidEntries, &allBackends, &result); err != nil {
+		if err := rows.Scan(&id, &checkSession, &blockedBy, &realCheckPids, &realBlockedBy, &blockingPids, &sessionEntries, &allBackends, &result); err != nil {
 			t.Logf("isolation_debug_log dump: scan failed: %v", err)
 			continue
 		}
-		t.Logf("isolation_debug_log id=%d check_pid=%d blocked_by=%s real_check=%v real_blocked=%s blocking=%s vpids=%s all=%s result=%v",
-			id, checkPid, blockedBy.String, realCheckPid, realBlockedBy.String, blockingPids.String, vpidEntries.String, allBackends.String, result)
+		t.Logf("isolation_debug_log id=%d check_session=%s blocked_by=%s real_check=%s real_blocked=%s blocking=%s sessions=%s all=%s result=%v",
+			id, checkSession.String, blockedBy.String, realCheckPids.String, realBlockedBy.String, blockingPids.String, sessionEntries.String, allBackends.String, result)
 	}
 }
 
@@ -443,7 +465,7 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 	// construction below), and multipooler routes every query to the
 	// postgres DB anyway, so the shim only needs to live there.
 	if err := pb.installPIDMappingFunction(t, directPgPort, password); err != nil {
-		t.Logf("Warning: Failed to install PID mapping function: %v", err)
+		t.Logf("Warning: Failed to install isolation lock-detection shim: %v", err)
 		t.Logf("Isolation tests that rely on lock detection (deadlock, etc.) may fail")
 	}
 
