@@ -856,7 +856,6 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 // healthStateToProto converts internal health state to proto response.
 func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
 	resp := &multipoolerpb.StreamPoolerHealthResponse{
-		Target:        state.Target,
 		PoolerId:      state.PoolerID,
 		ServingStatus: state.ServingStatus,
 	}

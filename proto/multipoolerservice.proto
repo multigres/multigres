@@ -495,9 +495,6 @@ message StreamPoolerHealthRequest {
 // StreamPoolerHealthResponse contains the current health state of the multipooler.
 // Sent immediately on connection, on state changes, and periodically as heartbeats.
 message StreamPoolerHealthResponse {
-  // target identifies the tablegroup, shard, and pooler type this pooler serves.
-  query.Target target = 1;
-
   // pooler_id identifies this multipooler instance.
   clustermetadata.ID pooler_id = 2;
 

@@ -28,8 +28,12 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// NewMultiPooler creates a new MultiPooler record with the given name, cell, hostname, and tableGroup.
-func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadatapb.MultiPooler {
+// NewMultiPooler creates a new MultiPooler record with the given name, cell,
+// and hostname. The caller is responsible for setting ShardKey before
+// registering the record — leaving it partially filled here invited subtle
+// bugs (a missing Database lets two databases collide on the same
+// tableGroup/shard pair).
+func NewMultiPooler(name, cell, host string) *clustermetadatapb.MultiPooler {
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -37,10 +41,7 @@ func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadata
 			Name:      name,
 		},
 		Hostname: host,
-		ShardKey: &clustermetadatapb.ShardKey{
-			TableGroup: tableGroup,
-		},
-		PortMap: make(map[string]int32),
+		PortMap:  make(map[string]int32),
 		// The pooler process is up but postgres readiness has not yet been
 		// confirmed; the manager transitions this to ACTIVE once the
 		// pgMonitor observes postgres responding. The timestamp is set at

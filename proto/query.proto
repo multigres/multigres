@@ -187,22 +187,44 @@ message ParameterDescription {
   uint32 data_type_oid = 1;
 }
 
-// Target identifies the target for query execution.
-// It specifies which tablegroup, shard, and pooler type to route the query to.
-// - Route to PRIMARY for writes
-// - Route to REPLICA for reads
-// - Route to specific shards (future)
+// Mode is what the caller wants from a query, expressed as a writability /
+// consistency constraint. The gateway translates this into a specific pooler
+// at routing time based on current consensus state.
+//
+// Why a mode rather than a pooler-type axis: callers care about "can I
+// write?" and "is the read consistent?", not about which fleet (PRIMARY vs
+// REPLICA) the underlying pooler belongs to. Decoupling lets the gateway
+// take advantage of cluster shape — e.g. routing CONSISTENT reads to a
+// caught-up sync standby — without callers having to know.
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  // WRITABLE: must be the consensus leader. Reads here are also strongly
+  // consistent. This is the only mode that accepts writes.
+  MODE_WRITABLE = 1;
+  // CONSISTENT: a read that must reflect all completed writes. Today this
+  // resolves to "leader in read-only mode" — the gateway routes to the
+  // leader and the pooler rejects DDL/DML server-side. Future routing
+  // work may downgrade to a sync standby caught up to the leader's LSN
+  // without changing this API contract.
+  MODE_CONSISTENT = 2;
+  // INCONSISTENT: any healthy follower within the configured lag
+  // tolerance, falling back to the leader if none qualify. Cheapest
+  // option; reads may be stale.
+  MODE_INCONSISTENT = 3;
+}
+
+// Target identifies the destination for query execution: which shard, and
+// what mode (writability / consistency) the caller needs. The gateway
+// translates the mode into a specific pooler at routing time.
 message Target {
-  // table_group is the target tablegroup name
-  string table_group = 1;
+  // shard_key identifies the destination shard (database, table_group, shard).
+  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // same across the topology and routing layers.
+  clustermetadata.ShardKey shard_key = 4;
 
-  // shard is the target shard name (empty for unsharded or to route to any shard)
-  string shard = 2;
-
-  // pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
-  // If not specified (UNKNOWN), defaults to PRIMARY
-  // TODO: Change from PoolerType something else, like a TargetType or ServingType enum.
-  clustermetadata.PoolerType pooler_type = 3;
+  // mode expresses the caller's writability / consistency needs.
+  // See Mode for the semantics of each value.
+  Mode mode = 5;
 }
 
 // PreparedStatement represents a prepared statement in the extended query protocol.

@@ -198,10 +198,7 @@ func TestMultiGatewayConnectionState_MultiplePortals(t *testing.T) {
 
 // newTestTarget creates a test Target for the given tableGroup.
 func newTestTarget(tableGroup string) *query.Target {
-	return &query.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	return protoutil.NewTarget("", tableGroup, "", query.Mode_MODE_WRITABLE)
 }
 
 func TestIsInTransaction(t *testing.T) {

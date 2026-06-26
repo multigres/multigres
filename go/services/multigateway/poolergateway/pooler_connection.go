@@ -31,7 +31,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -45,13 +44,13 @@ var errPoolerUninitialized = errors.New("pooler health not initialized")
 // This is a snapshot of health state that can be safely passed around
 // without synchronization.
 type poolerHealth struct {
-	// Target identifies the tablegroup, shard, and pooler type.
-	Target *query.Target
-
 	// PoolerID identifies the multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
-	// ServingStatus is the serving state reported by the pooler.
+	// ServingStatus is the serving state reported by the pooler. Buffer
+	// drain (notifyIfLeaderServing) requires both SERVING and the
+	// broadcast's LeaderObservation naming this pooler — see that function
+	// for the race the dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
 	// LeaderObservation contains the pooler's view of who the consensus leader
@@ -88,7 +87,6 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		return nil
 	}
 	return &poolerHealth{
-		Target:            h.Target,
 		PoolerID:          h.PoolerID,
 		ServingStatus:     h.ServingStatus,
 		LeaderObservation: h.LeaderObservation,
@@ -195,15 +193,9 @@ func newPoolerConnection(
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
-	// Initialize health state to NOT_SERVING until health stream provides data.
-	// PoolerType is left UNKNOWN until the health stream reports it — the gateway
-	// derives role from consensus observations, not the topology Type label.
-	initialTarget := &query.Target{
-		TableGroup: pooler.GetShardKey().GetTableGroup(),
-		Shard:      pooler.GetShardKey().GetShard(),
-		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
-	}
-
+	// Initialize health state to NOT_SERVING until the health stream
+	// provides data. Shard identity is available via poolerInfo; the
+	// gateway derives role from consensus observations.
 	pc := &poolerConnection{
 		conn:           conn,
 		client:         multipoolerservice.NewMultiPoolerServiceClient(conn),
@@ -214,7 +206,6 @@ func newPoolerConnection(
 		checkConnDone:  make(chan struct{}),
 		onHealthUpdate: onHealthUpdate,
 		health: &poolerHealth{
-			Target:        initialTarget,
 			PoolerID:      pooler.Id,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 			LastError:     errPoolerUninitialized,
@@ -433,7 +424,6 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 
 	// Build new health snapshot from the response.
 	newHealth := &poolerHealth{
-		Target:            response.Target,
 		PoolerID:          response.PoolerId,
 		ServingStatus:     response.ServingStatus,
 		LeaderObservation: response.LeaderObservation,

@@ -29,7 +29,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/test/utils"
@@ -1154,48 +1153,42 @@ func TestInitMultiPooler(t *testing.T) {
 // TestNewMultiPooler tests the factory function
 func TestNewMultiPooler(t *testing.T) {
 	tests := []struct {
-		testName   string
-		name       string
-		cell       string
-		host       string
-		tableGroup string
-		expected   *clustermetadatapb.MultiPooler
+		testName string
+		name     string
+		cell     string
+		host     string
+		expected *clustermetadatapb.MultiPooler
 	}{
 		{
-			testName:   "basic creation",
-			name:       "100",
-			cell:       "zone1",
-			host:       "host.example.com",
-			tableGroup: constants.DefaultTableGroup,
+			testName: "basic creation",
+			name:     "100",
+			cell:     "zone1",
+			host:     "host.example.com",
 			expected: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "100",
 				},
 				Hostname: "host.example.com",
-				ShardKey: &clustermetadatapb.ShardKey{
-					TableGroup: constants.DefaultTableGroup,
-					Database:   "", // Default empty database
-				},
-				PortMap: map[string]int32{},
+				PortMap:  map[string]int32{},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-			result := topoclient.NewMultiPooler(tt.name, tt.cell, tt.host, tt.tableGroup)
+			result := topoclient.NewMultiPooler(tt.name, tt.cell, tt.host)
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
-			require.Equal(t, tt.expected.ShardKey.TableGroup, result.ShardKey.TableGroup)
+			require.Nil(t, result.ShardKey, "factory leaves ShardKey unset; caller fills it")
 			require.NotNil(t, result.PortMap)
 		})
 	}
 
 	// Test that empty name is passed through as-is (caller is responsible for generating IDs)
 	t.Run("empty name is passed through", func(t *testing.T) {
-		result := topoclient.NewMultiPooler("", "zone2", "host2.example.com", constants.DefaultTableGroup)
+		result := topoclient.NewMultiPooler("", "zone2", "host2.example.com")
 
 		// Verify basic properties
 		require.Equal(t, "zone2", result.Id.Cell)

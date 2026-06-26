@@ -22,7 +22,6 @@ import (
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 )
 
@@ -159,11 +158,6 @@ func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
-		Target: &querypb.Target{
-			TableGroup: hs.tableGroup,
-			Shard:      hs.shard,
-			PoolerType: hs.poolerType,
-		},
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
 		LeaderObservation:           hs.leaderObservation,
