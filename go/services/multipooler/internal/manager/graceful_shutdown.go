@@ -67,6 +67,18 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	}
 	defer pm.actionLock.Release(lockCtx)
 
+	// Stop the postgres monitor before tearing anything down. Otherwise, once we
+	// release the action lock on return, the still-running monitor could observe
+	// postgres stopped and take remedialActionStartPostgres — restarting the very
+	// database we are shutting down — in the window before the process exits.
+	// Safe to call here: we are not holding pm.mu, and Stop() cancels the
+	// callback's ctx, so a monitor iteration parked on the action lock we hold
+	// unblocks and bails rather than waiting on us. Nil guard: some unit tests
+	// construct MultiPoolerManager via struct literal without a monitor.
+	if pm.pgMonitor != nil {
+		pm.pgMonitor.Stop()
+	}
+
 	// Announce STOPPING in topology before any blocking work. Operators see
 	// the announcement immediately; the actual teardown happens in the rest
 	// of this function and in the StopTopoRegistration call that follows in
