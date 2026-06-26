@@ -204,7 +204,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
-		pm.logger.InfoContext(pm.ctx, "MonitorPostgres: manager not ready yet")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: manager not ready yet")
 		return postgresState{}, err
 	}
 
@@ -394,7 +394,7 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 //
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
-func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState) bool {
+func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context) bool {
 	// Don't detect drift we can't fix: when StopReplication has set the
 	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
 	// rewrite until StartReplication clears it. Detecting drift anyway would
@@ -430,7 +430,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(_ postgresState
 	}
 
 	// Use a short deadline so a slow query never blocks the monitor tick.
-	ctx, cancel := context.WithTimeout(pm.ctx, 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	connInfoStr, err := pm.readPrimaryConnInfo(ctx)
 	if err != nil {
@@ -515,7 +515,7 @@ func (pm *MultiPoolerManager) determineReplicationSettingsAction(ctx context.Con
 	// ReplicationPrimary when it has drifted from what we've been told via
 	// SetPrimary/Promote.
 	if !state.isPrimary {
-		if pm.primaryConnInfoDiffersFromRecorded(state) {
+		if pm.primaryConnInfoDiffersFromRecorded(ctx) {
 			return remedialActionFixPrimaryConnInfo
 		}
 		// TODO: self-rewind detection. A replica may need pg_rewind even

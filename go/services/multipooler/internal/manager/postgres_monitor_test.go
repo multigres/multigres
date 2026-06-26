@@ -1520,7 +1520,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				pm.walReceiverManuallyStopped.Store(true)
 			}
 
-			got := pm.primaryConnInfoDiffersFromRecorded(postgresState{})
+			got := pm.primaryConnInfoDiffersFromRecorded(t.Context())
 			assert.Equal(t, tt.want, got)
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
