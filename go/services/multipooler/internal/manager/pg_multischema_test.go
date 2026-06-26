@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -43,7 +44,7 @@ func (m *mockPoolerController) Open(context.Context) error { return nil }
 func (m *mockPoolerController) Close() error               { return nil }
 func (m *mockPoolerController) IsHealthy() error           { return nil }
 func (m *mockPoolerController) IsServing() bool            { return true }
-func (m *mockPoolerController) OnStateChange(context.Context, bool, bool, clustermetadatapb.PoolerServingStatus) error {
+func (m *mockPoolerController) OnStateChange(context.Context, servingstate.State) error {
 	return nil
 }
 

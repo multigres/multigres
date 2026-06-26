@@ -22,6 +22,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -156,9 +157,11 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 			wantPrimary:       false,
 		},
 		{
-			name:              "writable but not leader -> writer stays off",
+			// A non-leader is never writable (Writable encodes committed
+			// leadership), so the not-writable gate keeps the writer off.
+			name:              "not leader, not writable -> writer stays off",
 			isConsensusLeader: false,
-			postgresPrimary:   true,
+			postgresPrimary:   false,
 			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
 			wantPrimary:       false,
 		},
@@ -190,7 +193,7 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
 			defer rt.Close()
 
-			err := rt.OnStateChange(context.Background(), tt.isConsensusLeader, tt.postgresPrimary, tt.servingStatus)
+			err := rt.OnStateChange(context.Background(), servingstate.State{IsHighestKnownLeader: tt.isConsensusLeader, Writable: tt.postgresPrimary, ServingStatus: tt.servingStatus})
 			assert.NoError(t, err)
 			assert.Equal(t, tt.wantPrimary, rt.IsPrimary())
 			assert.Equal(t, tt.wantPrimary, rt.hw.IsOpen(), "writer open state must match primary mode")

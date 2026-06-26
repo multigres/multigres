@@ -362,6 +362,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 				pgctldAvailable: true,
 				postgresRunning: true,
 				isPrimary:       true,
+				writable:        true,
 			},
 			poolerType:      clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:       selfPos(5, selfID),
@@ -389,6 +390,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 				pgctldAvailable: true,
 				postgresRunning: true,
 				isPrimary:       true,
+				writable:        true,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:      selfPos(5, selfID),
@@ -474,10 +476,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			)
 			tt.state.primaryTerm = tt.primaryTerm
 
-			// lastAppliedPrimary == state.isPrimary: this table exercises role,
-			// demote, resign and GUC decisions, not physical-primary drift (covered
+			// lastAppliedWritable == state.writable: this table exercises role,
+			// demote, resign and GUC decisions, not writable drift (covered
 			// separately), so pass no drift here.
-			got := pm.determineRemedialAction(t.Context(), tt.state, tt.state.isPrimary)
+			got := pm.determineRemedialAction(t.Context(), tt.state, tt.state.writable)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}
@@ -511,20 +513,21 @@ func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
 		)
 	}
 
-	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true}
+	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true, writable: true}
 
 	t.Run("primary drift reconciles", func(t *testing.T) {
 		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
-		// Components last saw a standby (false) but postgres is now a primary (true).
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, false /* lastAppliedPrimary */)
+		// Components last saw a non-writable backend (false) but postgres is now
+		// writable (true): the writable drift must reconcile.
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, false /* lastAppliedWritable */)
 		require.Equal(t, remedialActionReconcileState, got)
 	})
 
 	t.Run("draining reconciles", func(t *testing.T) {
-		// Role and primary aligned, but serving was left DRAINING (e.g. a demotion
+		// Role and writability aligned, but serving was left DRAINING (e.g. a demotion
 		// that errored before re-serving). The monitor re-enables it.
 		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DRAINING)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedWritable */)
 		require.Equal(t, remedialActionReconcileState, got)
 	})
 
@@ -532,13 +535,13 @@ func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
 		// DISABLED is a deliberate non-serving state (stopping/paused/operator);
 		// the monitor must NOT auto-re-enable it.
 		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DISABLED)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedWritable */)
 		require.Equal(t, remedialActionNone, got)
 	})
 
 	t.Run("no drift is a no-op", func(t *testing.T) {
 		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
+		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedWritable */)
 		require.Equal(t, remedialActionNone, got)
 	})
 }
@@ -638,7 +641,9 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 				withRuleStore(&fakeRuleStore{pos: tt.cachedPos}),
 			)
 
-			got := pm.determineRemedialAction(t.Context(), runningPrimary, runningPrimary.isPrimary)
+			// No writable drift here: pass the state's own writable so this table
+			// isolates the demote-vs-wait decision (covered by writable drift separately).
+			got := pm.determineRemedialAction(t.Context(), runningPrimary, runningPrimary.writable)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}

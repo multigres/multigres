@@ -277,7 +277,7 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		record:       record,
 		serviceID:    multipooler.Id,
 		topoClient:   ts,
-		stateManager: NewStateManager(slog.Default(), record),
+		stateManager: NewStateManager(slog.Default(), record, func() bool { return true }),
 		consensusMgr: cfg.consensusManager(t),
 	}
 	cfg.seedLockedState(t, pm)

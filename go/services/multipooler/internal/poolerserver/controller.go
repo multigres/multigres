@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // PoolerController defines the control interface for query serving.
@@ -39,20 +40,20 @@ type PoolerController interface {
 	// OnStateChange transitions the query service to match the new serving state.
 	// This is called by StateManager during state transitions.
 	//
-	// isConsensusLeader determines query behavior:
+	// state.IsHighestKnownLeader determines query behavior:
 	//   - leader: Accept reads + writes
 	//   - non-leader (replica): Accept reads only
 	//
-	// postgresPrimary reports the physical recovery state; the query server does
-	// not gate admission on it today (writability surfaces via the leader role and
-	// serving status), but it is part of the uniform StateAware signature.
+	// state.Writable reports write-safety; the query server does not gate
+	// admission on it today (it routes on highest-known leadership, matching the
+	// gateway's PoolerType), but it is part of the uniform state.
 	//
-	// The servingStatus determines whether queries are accepted at all:
+	// state.ServingStatus determines whether queries are accepted at all:
 	//   - SERVING: Accept queries
 	//   - not-serving: Reject all queries
 	//
 	// Returns error if the transition fails.
-	OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error
+	OnStateChange(ctx context.Context, state servingstate.State) error
 
 	// StartRequest checks whether a request should be admitted, based on its
 	// RequestKind and the pooler's drain phase. It returns MTF01 (which the

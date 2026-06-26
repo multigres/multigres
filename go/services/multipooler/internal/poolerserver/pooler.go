@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -53,12 +54,12 @@ type QueryPoolerServer struct {
 	shard      string
 
 	mu sync.Mutex
-	// isConsensusLeader reports whether this pooler is the consensus-elected
+	// isHighestKnownLeader reports whether this pooler is the consensus-elected
 	// leader (the shard's write target). Set from OnStateChange; replaces the
 	// PoolerType label, which the gateway no longer routes on.
-	isConsensusLeader bool
-	servingStatus     clustermetadatapb.PoolerServingStatus
-	healthProvider    HealthProvider
+	isHighestKnownLeader bool
+	servingStatus        clustermetadatapb.PoolerServingStatus
+	healthProvider       HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
@@ -164,15 +165,17 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // any still-running single queries are killed by the postgres demotion that
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
-func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
+	isHighestKnownLeader := state.IsHighestKnownLeader
+	servingStatus := state.ServingStatus
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"leader_from", s.isConsensusLeader, "leader_to", isConsensusLeader,
+		"leader_from", s.isHighestKnownLeader, "leader_to", isHighestKnownLeader,
 		"status_from", s.servingStatus, "status_to", servingStatus)
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.isConsensusLeader = isConsensusLeader
+		s.isHighestKnownLeader = isHighestKnownLeader
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -231,7 +234,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader
 	// Complete the transition. The leader role is set here (after drain) so that
 	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
-	s.isConsensusLeader = isConsensusLeader
+	s.isHighestKnownLeader = isHighestKnownLeader
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -350,11 +353,18 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-leader means the
 	// gateway thinks this pooler is still the primary, but it was demoted. Return
 	// MTF01 to trigger buffering. Target side uses the Mode enum (#1183); pooler
-	// side uses the consensus-leadership observation, not the topology PoolerType
-	// label (PR 1184 — the gateway derives role from consensus observations).
+	// side uses highest-known leadership (the routing signal), not the topology
+	// PoolerType label.
+	//
+	// TODO: split this gate by mode. WRITABLE should reject unless we are writable
+	// (out of recovery AND the highest non-revoked *committed* leader), not merely
+	// the highest *known* leader — otherwise a mid-promote or deposed-but-running
+	// node could accept a write before consensus committed. CONSISTENT (a read)
+	// correctly stays on highest-known leadership. The Writable signal is already
+	// delivered via OnStateChange (servingstate.State).
 	mode := target.GetMode()
 	if (mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT) &&
-		!s.isConsensusLeader {
+		!s.isHighestKnownLeader {
 		return mterrors.MTF01.New()
 	}
 
@@ -372,10 +382,10 @@ func (s *QueryPoolerServer) notifyStateChangedLocked() {
 // AwaitStateChange blocks until the pooler's type and serving status match
 // the given targets, or ctx is cancelled. Used by the health streamer to
 // ensure the query server is ready before broadcasting the new state.
-func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus) {
+func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, isHighestKnownLeader bool, servingStatus clustermetadatapb.PoolerServingStatus) {
 	for {
 		s.mu.Lock()
-		if s.isConsensusLeader == isConsensusLeader && s.servingStatus == servingStatus {
+		if s.isHighestKnownLeader == isHighestKnownLeader && s.servingStatus == servingStatus {
 			s.mu.Unlock()
 			return
 		}
@@ -429,7 +439,11 @@ func (s *QueryPoolerServer) RegisterGRPCServices() {
 func (s *QueryPoolerServer) StartServiceForTests() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	return s.OnStateChange(ctx, true /* isConsensusLeader */, true /* postgresPrimary */, clustermetadatapb.PoolerServingStatus_SERVING)
+	return s.OnStateChange(ctx, servingstate.State{
+		IsHighestKnownLeader: true,
+		Writable:             true,
+		ServingStatus:        clustermetadatapb.PoolerServingStatus_SERVING,
+	})
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.

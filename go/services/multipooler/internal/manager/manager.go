@@ -369,7 +369,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.stateManager = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
+	pm.stateManager = NewStateManager(logger, pm.record, pm.isHighestNonRevokedCommittedLeader, pm.qsc, pm.healthStreamer)
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
@@ -1577,7 +1577,7 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	// it. Mutate is idempotent — if already at this state it short-circuits.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.SelfLeadership = pm.leaderObs(rule)
-		s.PostgresPrimary = true
+		s.InRecovery = false // promotion already waited for postgres to leave recovery
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}); err != nil {
 		return mterrors.Wrap(err, "failed to set serving state for promotion")

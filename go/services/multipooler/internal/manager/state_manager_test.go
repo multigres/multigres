@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // testComponent records state transitions for testing.
@@ -36,15 +37,15 @@ type testComponent struct {
 	err         error // if set, OnStateChange returns this error
 }
 
-func (c *testComponent) OnStateChange(_ context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (c *testComponent) OnStateChange(_ context.Context, state servingstate.State) error {
 	c.callCount++
 	if c.err != nil {
 		return c.err
 	}
 	// Record the derived PoolerType so existing assertions keep reading lastType.
-	c.lastType = poolerTypeForLeader(isConsensusLeader)
-	c.lastPrimary = postgresPrimary
-	c.lastStatus = servingStatus
+	c.lastType = poolerTypeForLeader(state.IsHighestKnownLeader)
+	c.lastPrimary = state.Writable
+	c.lastStatus = state.ServingStatus
 	return nil
 }
 
@@ -53,7 +54,7 @@ type slowComponent struct {
 	called atomic.Bool
 }
 
-func (c *slowComponent) OnStateChange(_ context.Context, _, _ bool, _ clustermetadatapb.PoolerServingStatus) error {
+func (c *slowComponent) OnStateChange(_ context.Context, _ servingstate.State) error {
 	c.called.Store(true)
 	return nil
 }
@@ -105,7 +106,7 @@ func TestStateManager_SetState_PrimaryServing(t *testing.T) {
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(newTestLogger(), r, comp)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
@@ -127,7 +128,7 @@ func TestStateManager_SetState_NotServing(t *testing.T) {
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewStateManager(newTestLogger(), r, comp)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
@@ -146,7 +147,7 @@ func TestStateManager_SetState_ComponentError(t *testing.T) {
 	comp := &testComponent{err: errors.New("transition failed")}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewStateManager(newTestLogger(), r, comp)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = nil
@@ -167,7 +168,7 @@ func TestStateManager_DemotionFlow(t *testing.T) {
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewStateManager(newTestLogger(), r, comp)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp)
 
 	// Step 1: Stop serving
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
@@ -205,7 +206,7 @@ func TestStateManager_MultipleComponents(t *testing.T) {
 	comp2 := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(newTestLogger(), r, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp1, comp2)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
@@ -225,7 +226,7 @@ func TestStateManager_MultipleComponents_OneError(t *testing.T) {
 	comp2 := &testComponent{err: errors.New("comp2 failed")}
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewStateManager(newTestLogger(), r, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp1, comp2)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = nil
@@ -244,7 +245,7 @@ func TestStateManager_Register(t *testing.T) {
 	comp2 := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(newTestLogger(), r, comp1)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp1)
 
 	// Register a second component after creation.
 	ssm.Register(comp2)
@@ -264,7 +265,7 @@ func TestStateManager_RegisterAndSync(t *testing.T) {
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
 	// Create manager with no components, then transition state.
-	ssm := NewStateManager(newTestLogger(), r)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true })
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
@@ -286,6 +287,7 @@ func TestStateManager_RegisterAndSync(t *testing.T) {
 	// A subsequent SetState should notify both the constructor components and the late one.
 	ssm2 := NewStateManager(newTestLogger(),
 		newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED),
+		func() bool { return true },
 		comp1)
 	comp3 := &testComponent{}
 	err = ssm2.RegisterAndSync(context.Background(), comp3)
@@ -296,7 +298,7 @@ func TestStateManager_RegisterAndSync(t *testing.T) {
 
 func TestStateManager_RegisterAndSync_Error(t *testing.T) {
 	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
-	ssm := NewStateManager(newTestLogger(), r)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true })
 
 	comp := &testComponent{err: errors.New("sync failed")}
 	err := ssm.RegisterAndSync(context.Background(), comp)
@@ -307,7 +309,7 @@ func TestStateManager_RegisterAndSync_Error(t *testing.T) {
 func TestStateManager_NoComponents(t *testing.T) {
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(newTestLogger(), r)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true })
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
@@ -333,7 +335,7 @@ func TestStateManager_HealthStreamerIntegration(t *testing.T) {
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(logger, r, comp, hs)
+	ssm := NewStateManager(logger, r, func() bool { return true }, comp, hs)
 
 	// Subscribe to health stream before state change
 	_, ch := hs.subscribe()
@@ -369,7 +371,7 @@ func TestStateManager_ParallelExecution(t *testing.T) {
 	comp2 := &slowComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
 
-	ssm := NewStateManager(newTestLogger(), r, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp1, comp2)
 
 	err := ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
 		s.SelfLeadership = primaryObs()
@@ -384,7 +386,7 @@ func TestStateManager_ParallelExecution(t *testing.T) {
 func TestStateManager_SetState_RequiresActionLock(t *testing.T) {
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED)
-	ssm := NewStateManager(newTestLogger(), r, comp)
+	ssm := NewStateManager(newTestLogger(), r, func() bool { return true }, comp)
 
 	// No action lock on the context: SetState must reject before doing anything.
 	err := ssm.Mutate(t.Context(), func(s *servingStateMutation) {

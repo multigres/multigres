@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,9 +71,11 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 			wantRunning:       false,
 		},
 		{
-			name:              "writable but not leader -> listener stays off",
+			// A non-leader is never writable (Writable encodes committed
+			// leadership), so the not-writable gate keeps the listener off.
+			name:              "not leader, not writable -> listener stays off",
 			isConsensusLeader: false,
-			postgresPrimary:   true,
+			postgresPrimary:   false,
 			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
 			wantRunning:       false,
 		},
@@ -95,7 +98,7 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := newTestListener(t)
-			err := l.OnStateChange(context.Background(), tt.isConsensusLeader, tt.postgresPrimary, tt.servingStatus)
+			err := l.OnStateChange(context.Background(), servingstate.State{IsHighestKnownLeader: tt.isConsensusLeader, Writable: tt.postgresPrimary, ServingStatus: tt.servingStatus})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantRunning, running(l))
 		})
@@ -108,11 +111,11 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 func TestListenerOnStateChangeStopsOnDemotion(t *testing.T) {
 	l := newTestListener(t)
 
-	require.NoError(t, l.OnStateChange(context.Background(), true, true, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{IsHighestKnownLeader: true, Writable: true, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	require.True(t, running(l), "listener should run while leader+writable+serving")
 
 	// Postgres falls back into recovery (demoted to standby) while still nominally
 	// the leader: the listener must stop.
-	require.NoError(t, l.OnStateChange(context.Background(), true, false, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{IsHighestKnownLeader: true, Writable: false, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	assert.False(t, running(l), "listener must stop once postgres is no longer writable")
 }

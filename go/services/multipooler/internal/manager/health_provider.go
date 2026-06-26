@@ -23,6 +23,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 const (
@@ -127,27 +128,27 @@ func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObserv
 // discovering the new primary before the pooler can actually serve that type.
 // not-serving transitions broadcast immediately so the gateway can start
 // buffering without delay.
-func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, isConsensusLeader, servingStatus)
+func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.State) error {
+	if state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
+		hs.queryServer.AwaitStateChange(ctx, state.IsHighestKnownLeader, state.ServingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// The health stream still reports the PoolerType routing label to the gateway.
-	// PoolerType tracks the consensus term (leadership), not postgres writability —
-	// a leader can be the term leader before it has finished promoting. Translate
-	// the leader fact to the wire label: a non-leader is a read replica for routing.
-	hs.poolerType = poolerTypeForLeader(isConsensusLeader)
-	// writable is published separately so the gateway gates write traffic on actual
-	// write-readiness (postgres out of recovery), not on leadership.
-	hs.writable = postgresPrimary
-	hs.servingStatus = servingStatus
+	// The health stream reports the PoolerType routing label from highest-known
+	// leadership (the consensus term), not writability — a node can be the term
+	// leader before it has finished promoting. A non-leader is a read replica for
+	// routing.
+	hs.poolerType = poolerTypeForLeader(state.IsHighestKnownLeader)
+	// writable is published separately so the gateway gates write traffic on
+	// write-safety (out of recovery AND highest committed leader), not routing.
+	hs.writable = state.Writable
+	hs.servingStatus = state.ServingStatus
 	hs.broadcastLocked()
-	if prev != servingStatus {
-		hs.metrics.recordTransition(ctx, prev, servingStatus)
+	if prev != state.ServingStatus {
+		hs.metrics.recordTransition(ctx, prev, state.ServingStatus)
 	}
 	return nil
 }

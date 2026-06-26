@@ -667,14 +667,14 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// step on its replica branch for the same reason.
 	// A REPLICA pooler record carries no self leadership observation.
 	// Republish REPLICA (clear any stale PRIMARY self-leadership) so the
-	// stale-leader analyzer stops firing, and sync physical primary-ness: we
-	// just restarted as a standby, so postgres is no longer primary and the
-	// published writable signal must reflect that immediately rather than
-	// waiting a monitor cycle. Serving status is owned by the lifecycle and the
-	// monitor's reconcileState, not by "here is your primary" bookkeeping.
+	// stale-leader analyzer stops firing, and sync the recovery fact: we just
+	// restarted as a standby, so the derived writable signal must reflect that
+	// immediately rather than waiting a monitor cycle. Serving status is owned by
+	// the lifecycle and the monitor's reconcileState, not by "here is your
+	// primary" bookkeeping.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.SelfLeadership = nil
-		s.PostgresPrimary = false
+		s.InRecovery = true // just restarted as a standby
 	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}
