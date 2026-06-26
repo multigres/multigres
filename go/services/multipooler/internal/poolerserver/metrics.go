@@ -44,7 +44,7 @@ func newDrainStats() *drainStats {
 
 	s.duration, err = s.meter.Float64Histogram(
 		"mg.pooler.drain.duration",
-		metric.WithDescription("Wall-clock duration of graceful drain on NOT_SERVING transition"),
+		metric.WithDescription("Wall-clock duration of graceful drain on not-serving transition"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60),
 	)

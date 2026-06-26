@@ -513,6 +513,12 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
+
+  // writable reports whether this pooler can accept writes — i.e. postgres is
+  // out of recovery (!pg_is_in_recovery). A consensus leader mid-promotion is
+  // SERVING (can answer reads) but not yet writable, so clients must gate write
+  // traffic on this rather than on pooler_type/serving_status alone.
+  bool writable = 7;
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.

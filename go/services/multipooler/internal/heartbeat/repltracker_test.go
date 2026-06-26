@@ -15,10 +15,12 @@
 package heartbeat
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
 	"github.com/stretchr/testify/assert"
@@ -124,6 +126,77 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	// Wait and verify writes resume
 	time.Sleep(1 * time.Second)
 	assert.Greater(t, rt.Writes(), lastWrites)
+}
+
+// TestReplTrackerOnStateChangeGating verifies the writer (primary mode) runs
+// only when this pooler is the consensus leader AND postgres is out of recovery
+// AND serving. The postgresPrimary gate is the important one: a consensus leader
+// whose postgres is still in recovery must NOT run the heartbeat writer, since
+// every write would fail against a read-only standby.
+func TestReplTrackerOnStateChangeGating(t *testing.T) {
+	tests := []struct {
+		name              string
+		isConsensusLeader bool
+		postgresPrimary   bool
+		servingStatus     clustermetadatapb.PoolerServingStatus
+		wantPrimary       bool
+	}{
+		{
+			name:              "leader, writable, serving -> writer runs",
+			isConsensusLeader: true,
+			postgresPrimary:   true,
+			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			wantPrimary:       true,
+		},
+		{
+			name:              "leader but not yet writable -> writer stays off",
+			isConsensusLeader: true,
+			postgresPrimary:   false,
+			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			wantPrimary:       false,
+		},
+		{
+			name:              "writable but not leader -> writer stays off",
+			isConsensusLeader: false,
+			postgresPrimary:   true,
+			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			wantPrimary:       false,
+		},
+		{
+			name:              "leader and writable but draining -> writer stays off",
+			isConsensusLeader: true,
+			postgresPrimary:   true,
+			servingStatus:     clustermetadatapb.PoolerServingStatus_DRAINING,
+			wantPrimary:       false,
+		},
+		{
+			name:              "leader and writable but disabled -> writer stays off",
+			isConsensusLeader: true,
+			postgresPrimary:   true,
+			servingStatus:     clustermetadatapb.PoolerServingStatus_DISABLED,
+			wantPrimary:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queryService := mock.NewQueryService()
+			queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+			queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
+				[]string{"ts"},
+				[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+			))
+
+			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
+			defer rt.Close()
+
+			err := rt.OnStateChange(context.Background(), tt.isConsensusLeader, tt.postgresPrimary, tt.servingStatus)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantPrimary, rt.IsPrimary())
+			assert.Equal(t, tt.wantPrimary, rt.hw.IsOpen(), "writer open state must match primary mode")
+			assert.Equal(t, !tt.wantPrimary, rt.hr.IsOpen(), "reader runs whenever the writer does not")
+		})
+	}
 }
 
 func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {

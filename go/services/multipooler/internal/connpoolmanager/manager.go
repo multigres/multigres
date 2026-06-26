@@ -136,7 +136,7 @@ type Manager struct {
 	reservedAllocator *FairShareAllocator
 
 	// Drain tracking: counts connections currently lent out across all pools.
-	// Used for graceful drain during state transitions (NOT_SERVING).
+	// Used for graceful drain during state transitions (not-serving).
 	//
 	// regularCount tracks regular (single-query) borrows; reservedCount tracks
 	// reserved connections (transactions, temp tables, portals, COPY, etc.). They

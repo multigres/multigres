@@ -52,15 +52,18 @@ type QueryPoolerServer struct {
 	tableGroup string
 	shard      string
 
-	mu             sync.Mutex
-	poolerType     clustermetadatapb.PoolerType
-	servingStatus  clustermetadatapb.PoolerServingStatus
-	healthProvider HealthProvider
+	mu sync.Mutex
+	// isConsensusLeader reports whether this pooler is the consensus-elected
+	// leader (the shard's write target). Set from OnStateChange; replaces the
+	// PoolerType label, which the gateway no longer routes on.
+	isConsensusLeader bool
+	servingStatus     clustermetadatapb.PoolerServingStatus
+	healthProvider    HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
 
-	// drainPhase tracks the graceful-drain stage during a NOT_SERVING transition.
+	// drainPhase tracks the graceful-drain stage during a not-serving transition.
 	// See drainPhase constants and StartRequest for the admission rules per stage.
 	drainPhase drainPhase
 
@@ -77,13 +80,13 @@ type QueryPoolerServer struct {
 	drainStats *drainStats
 }
 
-// drainPhase is the stage of a graceful NOT_SERVING transition. The drain runs
+// drainPhase is the stage of a graceful not-serving transition. The drain runs
 // in two stages so single autocommit queries keep flowing while transactions
-// finish, and the pooler reports NOT_SERVING only once nothing is in flight.
+// finish, and the pooler reports not-serving only once nothing is in flight.
 type drainPhase int
 
 const (
-	// drainNone: not draining. Normal serving (or already NOT_SERVING).
+	// drainNone: not draining. Normal serving (or already not-serving).
 	drainNone drainPhase = iota
 	// drainReserved: stage 1 — waiting for reserved connections (transactions)
 	// to finish. New reservations are rejected; single queries are still served;
@@ -119,7 +122,7 @@ const (
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
-// during NOT_SERVING transitions before force-closing reserved connections.
+// during not-serving transitions before force-closing reserved connections.
 func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, vpidStampEnabled bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
@@ -132,7 +135,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		executor:       exec,
 		tableGroup:     tableGroup,
 		shard:          shard,
-		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus:  clustermetadatapb.PoolerServingStatus_DISABLED,
 		healthProvider: healthProvider,
 		gracePeriod:    gracePeriod,
 		stateChanged:   make(chan struct{}),
@@ -146,7 +149,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // This method is only called by the StateManager, which serializes calls behind
 // a mutex. Concurrent calls are not possible or expected.
 //
-// For NOT_SERVING transitions, this performs a two-stage graceful drain under a
+// For not-serving transitions, this performs a two-stage graceful drain under a
 // single gracePeriod deadline:
 //  1. drainReserved — reject new transactions/reservations, keep serving single
 //     autocommit queries, and wait for in-flight transactions (reserved
@@ -154,22 +157,22 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 //  2. drainRegular — also reject single queries, and wait for the remaining
 //     in-flight ones to finish, so the cutover happens with zero in-flight work
 //     and the subsequent postgres demotion kills nothing.
-//  3. Set servingStatus=NOT_SERVING.
+//  3. Set servingStatus to the not-serving target.
 //
 // If the shared deadline expires in either stage, all reserved connections are
 // force-closed (their transactions surface 40001) and the transition completes;
 // any still-running single queries are killed by the postgres demotion that
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
-func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
+		"leader_from", s.isConsensusLeader, "leader_to", isConsensusLeader,
 		"status_from", s.servingStatus, "status_to", servingStatus)
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.poolerType = poolerType
+		s.isConsensusLeader = isConsensusLeader
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -177,9 +180,9 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		return nil
 	}
 
-	// NOT_SERVING: begin stage 1 of the graceful drain.
-	// The poolerType is NOT updated yet — in-flight requests on reserved
-	// connections (e.g., COMMIT after a demotion) must still see the old type
+	// not-serving: begin stage 1 of the graceful drain.
+	// The leader role is NOT updated yet — in-flight requests on reserved
+	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
 	s.drainPhase = drainReserved
 	s.mu.Unlock()
@@ -214,7 +217,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 				"grace_period", s.gracePeriod)
 			// Force-close all reserved connections so no transaction survives into
 			// a non-serving state. In-flight single queries (if any) are killed by
-			// the postgres demotion that follows the NOT_SERVING transition.
+			// the postgres demotion that follows the not-serving transition.
 			killed := s.poolManager.CloseReservedConnections(ctx)
 			s.drainStats.recordForceClosed(ctx, killed)
 			if killed > 0 {
@@ -225,10 +228,10 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
 	}
 
-	// Complete the transition. The poolerType is set here (after drain) so that
-	// in-flight requests saw the old type throughout the drain phase.
+	// Complete the transition. The leader role is set here (after drain) so that
+	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
-	s.poolerType = poolerType
+	s.isConsensusLeader = isConsensusLeader
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -251,7 +254,7 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 //
 // Admission matrix:
 //
-//	kind \ state      | SERVING | drainReserved | drainRegular | NOT_SERVING
+//	kind \ state      | SERVING | drainReserved | drainRegular | not-serving
 //	------------------+---------+---------------+--------------+------------
 //	ExistingReserved  | allow   | allow         | allow        | allow¹
 //	SingleQuery       | allow   | allow         | reject MTF01 | reject MTF01
@@ -289,7 +292,7 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 
 	switch s.drainPhase {
 	case drainNone:
-		// Not draining: admit while serving, reject once NOT_SERVING.
+		// Not draining: admit while serving, reject once not-serving.
 		if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING {
 			return mterrors.MTF01.New()
 		}
@@ -310,13 +313,13 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 //
 // Validation rules:
 //   - TableGroup and Shard must always match. A mismatch is a routing bug (MTD01).
-//   - PoolerType: if the target is PRIMARY but this pooler is a REPLICA, the gateway
-//     has stale topology (likely a demotion happened). Returns MTF01 to trigger
-//     buffering until the new primary is discovered. All other type combinations
-//     are allowed (PRIMARY serves both PRIMARY and REPLICA traffic).
+//   - Leadership: if the target is PRIMARY but this pooler is not the consensus
+//     leader, the gateway has stale topology (likely a demotion happened). Returns
+//     MTF01 to trigger buffering until the new primary is discovered. All other
+//     combinations are allowed (a leader serves both PRIMARY and REPLICA traffic).
 //
 // existingReserved signals an in-flight operation on an existing reserved
-// connection. Such operations bypass the demotion (PRIMARY→REPLICA) check: the
+// connection. Such operations bypass the demotion (leader→non-leader) check: the
 // reserved connection's existence is the real gate (see StartRequest), so a
 // demoted pooler whose reserved connection survived the drain can still conclude
 // its transaction, and one whose connection was force-closed surfaces an honest
@@ -344,12 +347,14 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	// A leader-bound request (WRITABLE / CONSISTENT) hitting a REPLICA means
-	// the gateway thinks this pooler is still the primary, but it was demoted.
-	// Return MTF01 to trigger buffering.
+	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-leader means the
+	// gateway thinks this pooler is still the primary, but it was demoted. Return
+	// MTF01 to trigger buffering. Target side uses the Mode enum (#1183); pooler
+	// side uses the consensus-leadership observation, not the topology PoolerType
+	// label (PR 1184 — the gateway derives role from consensus observations).
 	mode := target.GetMode()
 	if (mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT) &&
-		s.poolerType == clustermetadatapb.PoolerType_REPLICA {
+		!s.isConsensusLeader {
 		return mterrors.MTF01.New()
 	}
 
@@ -367,10 +372,10 @@ func (s *QueryPoolerServer) notifyStateChangedLocked() {
 // AwaitStateChange blocks until the pooler's type and serving status match
 // the given targets, or ctx is cancelled. Used by the health streamer to
 // ensure the query server is ready before broadcasting the new state.
-func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) {
+func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus) {
 	for {
 		s.mu.Lock()
-		if s.poolerType == poolerType && s.servingStatus == servingStatus {
+		if s.isConsensusLeader == isConsensusLeader && s.servingStatus == servingStatus {
 			s.mu.Unlock()
 			return
 		}
@@ -424,7 +429,7 @@ func (s *QueryPoolerServer) RegisterGRPCServices() {
 func (s *QueryPoolerServer) StartServiceForTests() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	return s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	return s.OnStateChange(ctx, true /* isConsensusLeader */, true /* postgresPrimary */, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.

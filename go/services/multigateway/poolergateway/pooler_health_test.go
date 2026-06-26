@@ -47,14 +47,7 @@ func TestPoolerHealthIsServing(t *testing.T) {
 		{
 			name: "NOT_SERVING returns false",
 			health: &poolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-			},
-			expected: false,
-		},
-		{
-			name: "BACKUP returns false",
-			health: &poolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_BACKUP,
+				ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			},
 			expected: false,
 		},
@@ -118,7 +111,7 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		}
 
 		copy := original.simpleCopy()
-		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 		copy.LastError = errors.New("new error")
 
 		// Original should be unchanged
