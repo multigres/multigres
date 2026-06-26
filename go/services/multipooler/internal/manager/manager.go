@@ -475,7 +475,11 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// persists between ticks so that broadcastHealth fires only on transitions
 	// in postgres running state, not every tick.
 	prevState := postgresState{}
-	pm.pgMonitor.Start(func(ctx context.Context) {
+	// WithFastStart runs the first iteration immediately rather than after one
+	// interval, so we promptly detect anything that changed in postgres while we
+	// were disconnected (e.g. recovery mode flipping, or a restore from backup
+	// rewriting rules) instead of advertising stale state for a full interval.
+	pm.pgMonitor.StartWithOptions(func(ctx context.Context) {
 		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
 			// Broadcast postgres health transitions so orchestrators learn
 			// about changes immediately without waiting for the next 30-second
@@ -500,7 +504,7 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 			}
 			prevState = newState
 		}
-	}, nil)
+	}, timer.WithFastStart())
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
