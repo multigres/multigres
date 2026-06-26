@@ -691,6 +691,15 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 			"intended_role", intended.String(), "postgres_primary", state.isPrimary)
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.SelfLeadership = obs
+			// TODO: There's a subtle but important bug here. We're currently conflating
+			// being a postgres primary (not in recovery mode) with being able to accept
+			// user transactions. Need to gate user transactions on being a primary, and
+			// also being the leader in the most recent non-revoked committed consensus rule.
+			// SelfLeadership actually holds the highest known rule, not the highest non-revoked
+			// locally-committed rule, so the way we're dealing with state here could cause a bug
+			// if a Promote() RPC times out and then this remedial action ends up telling multigateway
+			// that it's ok to send user traffic when we actually never finished consensus propagation
+			// and establishment.
 			s.PostgresPrimary = state.isPrimary
 			if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 				s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
