@@ -558,6 +558,13 @@ func (pm *MultiPoolerManager) openLocked(ctx context.Context, targetServingStatu
 //
 // Note: Pause() cancels the manager's context, but openLocked creates a fresh one.
 func (pm *MultiPoolerManager) Pause(ctx context.Context) (resume func(context.Context)) {
+	// TODO: AssertActionLockHeld will itself panic once we add panic recovery in
+	// key places; until then, panic here rather than silently proceeding without
+	// the lock.
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		panic(err)
+	}
+
 	preServingStatus := pm.record.ServingStatus()
 	if !pm.closeLocked(ctx, "paused") {
 		pm.logger.ErrorContext(ctx, "MultiPoolerManager: Pause() called on already-closed manager")
@@ -593,6 +600,8 @@ func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
 		return
 	}
 	defer pm.actionLock.Release(lockCtx)
+
+	pm.pgMonitor.Stop()
 	pm.closeLocked(lockCtx, "shutdown")
 }
 
@@ -600,6 +609,11 @@ func (pm *MultiPoolerManager) ShutdownForTest(ctx context.Context) {
 // Returns true if the manager was open and is now closed, false if it was already closed.
 // Caller should NOT hold pm.mu - this function acquires it.
 // Always cancels the context - Open() will create a fresh one if reopened.
+//
+// closeLocked does NOT stop the postgres monitor: Pause keeps it running (the
+// action lock neuters it for the maintenance window), and a terminal teardown
+// stops it directly before calling closeLocked (ShutdownForTest), outside pm.mu,
+// since Stop() joins a callback that needs pm.mu.
 //
 // ctx must carry an action lock. The state transition (DISABLED) publishes
 // through pm.record.Mutate.
@@ -622,7 +636,6 @@ func (pm *MultiPoolerManager) closeLocked(ctx context.Context, logMessage string
 		pm.logger.WarnContext(ctx, "Failed to transition to DISABLED during close", "error", err)
 	}
 
-	pm.pgMonitor.Stop()
 	pm.closeConnectionsLocked(false /* forReopen */)
 	pm.cancel()
 	pm.isOpen = false
