@@ -41,6 +41,19 @@ func logicalReplicationClientConfig(base client.Config) client.Config {
 // in its startup parameters and tags it with ReasonLogicalReplication so the
 // reservation bitmask treats it as a session-pinned connection.
 //
+// Why this is a separate factory and not NewConn (the path Manager.NewReservedConn
+// takes): NewConn serves a reservation by drawing an already-open backend from the
+// idle pool and applying the caller's *connstate.Settings to it with SET. Neither
+// move works for replication. `replication=database` is negotiated in the startup
+// packet and is immutable on a live backend — no SET promotes an ordinary pooled
+// connection to a walsender — so the socket must be freshly dialed and can never be
+// reused from (or returned to) the idle list. The walsender's lifecycle is
+// incompatible too: it ignores session settings, and its idle teardown belongs to
+// Postgres' wal_sender_timeout rather than our idleKiller (see below). Threading
+// "don't pool this, settings don't apply, don't idle-kill it" through NewConn's
+// reuse-and-SET fast path would complicate the common case for one exception; a
+// dedicated factory keeps that path simple.
+//
 // The connection consumes one slot in the underlying regular pool, sharing the
 // per-user cap (and block-on-full, waiter metrics, and demand tracking) with
 // transactional reserved conns. Because `replication=database` is a startup-
