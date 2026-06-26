@@ -1163,12 +1163,6 @@ type ExecuteOptions struct {
 	// Used for connection pinning - this tells the multipooler which specific
 	// connection to use for executing this query.
 	ReservedConnectionId uint64 `protobuf:"varint,5,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// prepared_statement is deprecated. SQL-level EXECUTE wrappers now use
-	// execute_sql_prepared_statement so the multipooler can resolve the backend
-	// name through its pooler-level consolidator before materializing the SQL.
-	//
-	// Deprecated: Marked as deprecated in query.proto.
-	PreparedStatement *PreparedStatement `protobuf:"bytes,6,opt,name=prepared_statement,json=preparedStatement,proto3" json:"prepared_statement,omitempty"`
 	// user_auth carries SCRAM-SHA-256 passthrough keys captured during the
 	// client's authentication handshake at the multigateway. When the
 	// multipooler has SCRAM passthrough enabled, it uses these keys to
@@ -1252,14 +1246,6 @@ func (x *ExecuteOptions) GetReservedConnectionId() uint64 {
 		return x.ReservedConnectionId
 	}
 	return 0
-}
-
-// Deprecated: Marked as deprecated in query.proto.
-func (x *ExecuteOptions) GetPreparedStatement() *PreparedStatement {
-	if x != nil {
-		return x.PreparedStatement
-	}
-	return nil
 }
 
 func (x *ExecuteOptions) GetUserAuth() *UserAuth {
@@ -1564,19 +1550,18 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xa6\x04\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xdf\x03\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
-	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12K\n" +
-	"\x12prepared_statement\x18\x06 \x01(\v2\x18.query.PreparedStatementB\x02\x18\x01R\x11preparedStatement\x12,\n" +
+	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12,\n" +
 	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
 	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12g\n" +
 	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x06\x10\a\"R\n" +
 	"\bUserAuth\x12\"\n" +
 	"\n" +
 	"client_key\x18\x01 \x01(\fB\x03\x80\x01\x01R\tclientKey\x12\"\n" +
@@ -1637,14 +1622,13 @@ var file_query_proto_depIdxs = []int32{
 	9,  // 8: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
 	18, // 9: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
 	16, // 10: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	9,  // 11: query.ExecuteOptions.prepared_statement:type_name -> query.PreparedStatement
-	14, // 12: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
-	10, // 13: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	14, // 11: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
+	10, // 12: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
