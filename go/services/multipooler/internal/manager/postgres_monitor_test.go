@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -113,13 +114,50 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	pm := NewTestMultiPoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
+	// Running postgres triggers a pg_is_in_recovery probe; stub it as a standby
+	// so discovery determines the role rather than failing on an unreadable one.
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
 	state, err := pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
 
 	assert.True(t, state.pgctldAvailable)
 	assert.True(t, state.dirInitialized)
 	assert.True(t, state.postgresRunning)
+	assert.False(t, state.isPrimary, "pg_is_in_recovery=t means standby")
 	assert.False(t, state.bootstrapSentinelPresent)
+}
+
+// TestDiscoverPostgresState_RunningRoleProbeFails is a regression test: when
+// postgres is running but pg_is_in_recovery cannot be read, the role is
+// genuinely ambiguous and discovery must surface an error so the monitor skips
+// remediation. Acting on the guessed value is dangerous because isPrimary
+// defaults to true on probe failure, which would make a healthy but
+// momentarily-unqueryable replica look like a stale primary and trigger a
+// destructive demote.
+func TestDiscoverPostgresState_RunningRoleProbeFails(t *testing.T) {
+	ctx := t.Context()
+
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_RUNNING,
+		},
+	}
+
+	pm := NewTestMultiPoolerManager(t)
+	pm.pgctldClient = mockPgctld
+
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPatternWithError("SELECT pg_is_in_recovery", errors.New("connection refused"))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+	state, err := pm.discoverPostgresState(ctx)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "determine primary status")
+	// The process-up fact is still observed; only the role is ambiguous.
+	assert.True(t, state.postgresRunning)
 }
 
 func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {

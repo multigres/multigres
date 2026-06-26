@@ -219,6 +219,9 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err)
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else {
+			// TODO: If we have errors detecting postgres state for long enough, maybe try restarting postgres
+			// just in case? Could have been some kind of a fluke event like failing to create a socket file
+			// that might be resolved by restarting.
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err)
 		}
 		return postgresState{}, err
@@ -295,7 +298,14 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		var err error
 		state.isPrimary, err = pm.isPrimary(ctx)
 		if err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
+			// Postgres is running but we can't read its recovery mode, leaving the
+			// role genuinely ambiguous. Acting on a guessed value is dangerous:
+			// isPrimary defaults to true on error, which would make a healthy but
+			// momentarily-unqueryable replica look like a stale primary and trigger a
+			// destructive demote (pg_rewind), or flip the published writable bit on a
+			// guess. Surface the error so the monitor skips remediation this tick and
+			// retries, matching the bootstrap-sentinel handling below.
+			return state, fmt.Errorf("determine primary status: %w", err)
 		}
 		// A primary is a rewind source only once it has checkpointed onto its
 		// current timeline. Cheap to skip on standbys (rewindSourceReady would
@@ -303,6 +313,12 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		if state.isPrimary {
 			ready, rrErr := pm.rewindSourceReady(ctx)
 			if rrErr != nil {
+				// Unlike isPrimary above, this is safe to leave best-effort: a failed
+				// probe leaves rewindSourceReady=false, and that error defaults in the
+				// fail-safe direction. The worst case is that other poolers don't yet
+				// pick us as a pg_rewind source, which only delays their recovery — it
+				// never triggers an action. So we warn and continue rather than failing
+				// the whole tick (which would also block unrelated remediation).
 				pm.logger.WarnContext(ctx, "Failed to determine rewind-source readiness", "error", rrErr)
 			} else {
 				state.rewindSourceReady = ready
