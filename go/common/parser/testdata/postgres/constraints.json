@@ -67,12 +67,12 @@
   {
     "comment": "constraints - Statement 14",
     "query": "CREATE TABLE error_tbl (i int DEFAULT (100, ))",
-    "error": "parse error at position 45: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "constraints - Statement 15",
     "query": "CREATE TABLE error_tbl (b1 bool DEFAULT 1 IN (1, 2))",
-    "error": "parse error at position 44: syntax error"
+    "error": "syntax error at or near \"IN\""
   },
   {
     "comment": "constraints - Statement 16",

@@ -208,6 +208,7 @@ func (m *mockIExecute) ConcludeTransaction(
 	multipoolerpb.TransactionConclusion,
 	[]string,
 	bool,
+	bool,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
 	return nil

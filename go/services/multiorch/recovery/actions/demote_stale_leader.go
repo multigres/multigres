@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -170,9 +171,18 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 3. Restarts as standby
 	// 4. Clears sync replication config
 	// 5. Updates topology to REPLICA
+	// correctRule is the global HighestKnownRule (above), not the leader's
+	// self-claim, so build the message explicitly rather than relaying the
+	// leader's published ReplicationPrimary. rewind_ready is the leader's
+	// self-report — it has no global equivalent, so relay it: the stale leader
+	// defers its pg_rewind until the correct leader has checkpointed onto its
+	// current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
-		Leader: topoclient.PoolerAddressFor(correctLeader.Health().MultiPooler),
-		Rule:   correctRule,
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:        correctRule,
+			Primary:     topoclient.PoolerAddressFor(correctLeader.Health().MultiPooler),
+			RewindReady: commonconsensus.ReplicationPrimaryOrNil(correctLeader.Health().GetConsensusStatus()).GetRewindReady(),
+		},
 	}
 	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.Health().MultiPooler, setPrimaryReq); err != nil {
 		return mterrors.Wrap(err, "SetPrimary RPC failed")

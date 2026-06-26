@@ -1582,22 +1582,22 @@
   {
     "comment": "polymorphism - Statement 326",
     "query": "do $$ declare r integer",
-    "error": "parse error at position 4: syntax error"
+    "error": "syntax error at or near \"$\""
   },
   {
     "comment": "polymorphism - Statement 327",
     "query": "begin select dfunc(a=> 1) into r",
-    "error": "parse error at position 12: syntax error"
+    "error": "syntax error at or near \"select\""
   },
   {
     "comment": "polymorphism - Statement 328",
     "query": "raise info 'r = %', r",
-    "error": "parse error at position 5: syntax error"
+    "error": "syntax error at or near \"raise\""
   },
   {
     "comment": "polymorphism - Statement 329",
     "query": "$$",
-    "error": "parse error at position 1: syntax error"
+    "error": "syntax error at or near \"$\""
   },
   {
     "comment": "polymorphism - Statement 330",

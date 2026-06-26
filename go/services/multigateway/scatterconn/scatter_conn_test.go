@@ -164,7 +164,7 @@ func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -484,7 +484,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -494,6 +494,45 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
 	// Shard state must be cleared
+	require.Nil(t, state.GetMatchingShardState(target))
+}
+
+func TestScatterConn_ConcludeTransaction_RollbackAndChainOnDestroyedConnFails(t *testing.T) {
+	// ROLLBACK AND CHAIN must preserve backend continuity. If the reserved
+	// backend is gone, do not synthesize a successful ROLLBACK result and let the
+	// gateway transparently move the chained transaction to another backend.
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("reserved connection not found"),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := &querypb.Target{
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: "tg1",
+		},
+		Mode: querypb.Mode_MODE_WRITABLE,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	callbackCalled := false
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, true,
+		func(_ context.Context, _ *sqltypes.Result) error {
+			callbackCalled = true
+			return nil
+		})
+
+	require.Error(t, err, "ROLLBACK AND CHAIN on destroyed connection must fail closed")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+	require.False(t, callbackCalled, "must not emit a synthetic ROLLBACK command tag")
 	require.Nil(t, state.GetMatchingShardState(target))
 }
 
@@ -517,7 +556,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "COMMIT on destroyed connection must propagate error")
@@ -553,7 +592,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil

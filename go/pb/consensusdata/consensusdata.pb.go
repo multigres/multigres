@@ -335,16 +335,17 @@ func (x *PromoteResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 // information needed to act on that identity.
 type SetPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Contact info for the leader named in rule.leader_id. The pooler uses
-	// leader.host and leader.postgres_port when it rewrites primary_conninfo.
-	// leader.id must match rule.leader_id.
-	Leader *clustermetadata.PoolerAddress `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
-	// The rule the caller is informing about. The pooler compares this against
-	// its own observed rule (by RuleNumber) and only applies the change when
-	// the supplied rule is strictly higher.
-	Rule          *clustermetadata.ShardRule `protobuf:"bytes,2,opt,name=rule,proto3" json:"rule,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The (rule, primary, rewind_ready) the follower should adopt. Contact info
+	// for the leader is replication_primary.primary (host + postgres_port used to
+	// rewrite primary_conninfo); the rule is replication_primary.rule, which the
+	// pooler compares against its own observed rule (by RuleNumber) and only
+	// applies when strictly higher. primary.id must match rule.leader_id.
+	// replication_primary.rewind_ready relays whether the leader has checkpointed
+	// onto its current timeline: a diverged follower defers its pg_rewind until
+	// it is true, but sets up primary_conninfo and attempts to stream regardless.
+	ReplicationPrimary *clustermetadata.ReplicationPrimary `protobuf:"bytes,3,opt,name=replication_primary,json=replicationPrimary,proto3" json:"replication_primary,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SetPrimaryRequest) Reset() {
@@ -377,16 +378,9 @@ func (*SetPrimaryRequest) Descriptor() ([]byte, []int) {
 	return file_consensusdata_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *SetPrimaryRequest) GetLeader() *clustermetadata.PoolerAddress {
+func (x *SetPrimaryRequest) GetReplicationPrimary() *clustermetadata.ReplicationPrimary {
 	if x != nil {
-		return x.Leader
-	}
-	return nil
-}
-
-func (x *SetPrimaryRequest) GetRule() *clustermetadata.ShardRule {
-	if x != nil {
-		return x.Rule
+		return x.ReplicationPrimary
 	}
 	return nil
 }
@@ -456,10 +450,9 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12?\n" +
 	"\x11accepted_node_ids\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0facceptedNodeIds\"^\n" +
 	"\x0fPromoteResponse\x12K\n" +
-	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"{\n" +
-	"\x11SetPrimaryRequest\x126\n" +
-	"\x06leader\x18\x01 \x01(\v2\x1e.clustermetadata.PoolerAddressR\x06leader\x12.\n" +
-	"\x04rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\x04rule\"a\n" +
+	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatus\"i\n" +
+	"\x11SetPrimaryRequest\x12T\n" +
+	"\x13replication_primary\x18\x03 \x01(\v2#.clustermetadata.ReplicationPrimaryR\x12replicationPrimary\"a\n" +
 	"\x12SetPrimaryResponse\x12K\n" +
 	"\x10consensus_status\x18\x01 \x01(\v2 .clustermetadata.ConsensusStatusR\x0fconsensusStatusB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
@@ -477,18 +470,19 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 
 var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_consensusdata_proto_goTypes = []any{
-	(*CoordinatorProposal)(nil),             // 0: consensusdata.CoordinatorProposal
-	(*RecruitRequest)(nil),                  // 1: consensusdata.RecruitRequest
-	(*RecruitResponse)(nil),                 // 2: consensusdata.RecruitResponse
-	(*PromoteRequest)(nil),                  // 3: consensusdata.PromoteRequest
-	(*PromoteResponse)(nil),                 // 4: consensusdata.PromoteResponse
-	(*SetPrimaryRequest)(nil),               // 5: consensusdata.SetPrimaryRequest
-	(*SetPrimaryResponse)(nil),              // 6: consensusdata.SetPrimaryResponse
-	(*clustermetadata.TermRevocation)(nil),  // 7: clustermetadata.TermRevocation
-	(*clustermetadata.PoolerAddress)(nil),   // 8: clustermetadata.PoolerAddress
-	(*clustermetadata.ShardRule)(nil),       // 9: clustermetadata.ShardRule
-	(*clustermetadata.ConsensusStatus)(nil), // 10: clustermetadata.ConsensusStatus
-	(*clustermetadata.ID)(nil),              // 11: clustermetadata.ID
+	(*CoordinatorProposal)(nil),                // 0: consensusdata.CoordinatorProposal
+	(*RecruitRequest)(nil),                     // 1: consensusdata.RecruitRequest
+	(*RecruitResponse)(nil),                    // 2: consensusdata.RecruitResponse
+	(*PromoteRequest)(nil),                     // 3: consensusdata.PromoteRequest
+	(*PromoteResponse)(nil),                    // 4: consensusdata.PromoteResponse
+	(*SetPrimaryRequest)(nil),                  // 5: consensusdata.SetPrimaryRequest
+	(*SetPrimaryResponse)(nil),                 // 6: consensusdata.SetPrimaryResponse
+	(*clustermetadata.TermRevocation)(nil),     // 7: clustermetadata.TermRevocation
+	(*clustermetadata.PoolerAddress)(nil),      // 8: clustermetadata.PoolerAddress
+	(*clustermetadata.ShardRule)(nil),          // 9: clustermetadata.ShardRule
+	(*clustermetadata.ConsensusStatus)(nil),    // 10: clustermetadata.ConsensusStatus
+	(*clustermetadata.ID)(nil),                 // 11: clustermetadata.ID
+	(*clustermetadata.ReplicationPrimary)(nil), // 12: clustermetadata.ReplicationPrimary
 }
 var file_consensusdata_proto_depIdxs = []int32{
 	7,  // 0: consensusdata.CoordinatorProposal.term_revocation:type_name -> clustermetadata.TermRevocation
@@ -499,14 +493,13 @@ var file_consensusdata_proto_depIdxs = []int32{
 	0,  // 5: consensusdata.PromoteRequest.proposal:type_name -> consensusdata.CoordinatorProposal
 	11, // 6: consensusdata.PromoteRequest.accepted_node_ids:type_name -> clustermetadata.ID
 	10, // 7: consensusdata.PromoteResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	8,  // 8: consensusdata.SetPrimaryRequest.leader:type_name -> clustermetadata.PoolerAddress
-	9,  // 9: consensusdata.SetPrimaryRequest.rule:type_name -> clustermetadata.ShardRule
-	10, // 10: consensusdata.SetPrimaryResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	12, // 8: consensusdata.SetPrimaryRequest.replication_primary:type_name -> clustermetadata.ReplicationPrimary
+	10, // 9: consensusdata.SetPrimaryResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }

@@ -38,6 +38,30 @@ func TestNewMultiGatewayConnectionState(t *testing.T) {
 	require.Empty(t, state.Portals)
 }
 
+func TestMultiGatewayConnectionState_CanonicalizesSessionVariableNames(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+
+	state.SetSessionVariable("TimeZone", "UTC")
+	state.SetSessionVariable("timezone", "America/New_York")
+
+	got, ok := state.GetSessionVariable("TIMEZONE")
+	require.True(t, ok)
+	require.Equal(t, "America/New_York", got)
+	require.Equal(t, map[string]string{"timezone": "America/New_York"}, state.GetSessionSettings())
+
+	state.ResetSessionVariable("TIMEZONE")
+	_, ok = state.GetSessionVariable("timezone")
+	require.False(t, ok)
+}
+
+func TestMultiGatewayConnectionState_SessionSettingsOverrideStartupParamsCaseInsensitively(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	state.StartupParams = map[string]string{"TimeZone": "UTC"}
+	state.SetSessionVariable("timezone", "America/New_York")
+
+	require.Equal(t, map[string]string{"timezone": "America/New_York"}, state.GetSessionSettings())
+}
+
 func TestMultiGatewayConnectionState_GetPortalInfoNonExistent(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 

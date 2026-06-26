@@ -62,7 +62,7 @@
   {
     "comment": "copy - Statement 13",
     "query": "this is just a line full of junk that would error out if parsed 1,a,1 2,b,2 \\. copy copytest3 to stdout csv header",
-    "error": "parse error at position 4: syntax error"
+    "error": "syntax error at or near \"this\""
   },
   {
     "comment": "copy - Statement 14",
@@ -77,7 +77,7 @@
   {
     "comment": "copy - Statement 16",
     "query": "this is just a line full of junk that would error out if parsed 1\ta 2\tb \\. copy copytest4 to stdout (header)",
-    "error": "parse error at position 4: syntax error"
+    "error": "syntax error at or near \"this\""
   },
   {
     "comment": "copy - Statement 17",

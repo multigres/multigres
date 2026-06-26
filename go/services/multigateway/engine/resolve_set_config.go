@@ -260,13 +260,10 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 // (set_config(name, NULL, false) semantics); a NULL name is skipped (the apply
 // query would already have raised PostgreSQL's error).
 //
-// It calls SetSessionVariable / ResetSessionVariable directly — the same
-// methods ApplySessionState.executeSet/executeReset call — rather than
-// constructing ApplySessionState primitives per tuple. Those primitives do
-// nothing more than these calls, so wrapping each runtime-resolved tuple in a
-// synthetic VariableSetStmt + primitive would be more code for identical
-// behavior. This also matches how the literal `SELECT set_config(...)` path
-// tracks (plain ApplySessionState → SetSessionVariable, no revalidation).
+// It uses the same helper as ApplySessionState for role/session authorization
+// coupling: SET SESSION AUTHORIZATION clears the active role, and role value
+// "none" means RESET ROLE. Building synthetic primitives per tuple would be
+// more code for the same tracking behavior.
 func (s *ResolveTrackSetConfig) track(state *handler.MultiGatewayConnectionState, rows []*sqltypes.Row) {
 	numCalls := len(s.Aliases)
 	for _, row := range rows {
@@ -278,10 +275,10 @@ func (s *ResolveTrackSetConfig) track(state *handler.MultiGatewayConnectionState
 				continue
 			}
 			if value.IsNull() {
-				state.ResetSessionVariable(string(name))
+				resetTrackedSessionVariable(state, string(name))
 				continue
 			}
-			state.SetSessionVariable(string(name), string(value))
+			applyTrackedSessionVariable(state, string(name), string(value))
 		}
 	}
 }

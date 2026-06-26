@@ -158,6 +158,45 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 	return lsn, nil
 }
 
+// rewindSourceReady reports whether this pooler is safe to pg_rewind from: it is
+// a primary (not in recovery) AND its last completed checkpoint is on its current
+// running timeline. The check matters because pg_rewind copies the source's
+// checkpoint-timeline into the target's minRecoveryPoint; a freshly promoted
+// primary runs on a new timeline but its lazy post-promotion checkpoint may not
+// have rewritten the control file yet, so it would hand a diverged follower a
+// stale timeline that FATALs on startup. Compares pg_control_checkpoint().
+// timeline_id against the running timeline parsed from the current WAL filename.
+//
+// Returns false (not an error) on a standby: pg_current_wal_lsn() errors during
+// recovery, so the CASE guards it — a standby is never a rewind source.
+//
+// Design assumption: the rewind source must be a writable primary. A node that is
+// the rule-named leader but still in recovery (e.g. it has not yet been promoted to
+// a writable primary) never advertises rewind_ready, so a diverged follower's
+// rewind against it stays deferred until it becomes a writable primary. This is the
+// safe behavior — you cannot rewind a target off a still-replaying source without
+// risking the stale-minRecoveryPoint FATAL this gating exists to prevent. A future
+// enhancement could let a standby on a matching timeline serve as a rewind source
+// (using pg_last_wal_replay_lsn() instead of pg_current_wal_lsn()), but the common
+// case rewinds a diverged old primary against a writable leader.
+func (pm *MultiPoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	const sql = `SELECT CASE WHEN pg_is_in_recovery() THEN false ELSE
+		(SELECT timeline_id FROM pg_control_checkpoint())
+		= ('x' || substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8))::bit(32)::int
+	END`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to query rewind-source readiness")
+	}
+	var ready bool
+	if err := executor.ScanSingleRow(result, &ready); err != nil {
+		return false, mterrors.Wrap(err, "failed to scan rewind-source readiness result")
+	}
+	return ready, nil
+}
+
 // getStandbyReplayLSN gets the last replayed WAL location (standby only)
 func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)

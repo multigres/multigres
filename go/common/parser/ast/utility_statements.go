@@ -1542,7 +1542,9 @@ func (v *VariableSetStmt) SqlString() string {
 				var values []string
 				for _, arg := range v.Args.Items {
 					if str, ok := arg.(*String); ok {
-						if needsQuoting(str.SVal) {
+						if v.Name == "role" && (strings.EqualFold(str.SVal, "none") || strings.EqualFold(str.SVal, "default")) {
+							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+						} else if needsQuoting(str.SVal) {
 							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
 						} else {
 							values = append(values, str.SVal)
@@ -1624,8 +1626,10 @@ func (v *VariableSetStmt) SqlString() string {
 		// SET NAMES without arguments is valid for client_encoding
 
 	case VAR_SET_DEFAULT:
-		// Handle SET var = DEFAULT or SET SESSION AUTHORIZATION DEFAULT
+		// Handle SET var = DEFAULT or special PostgreSQL SET variants.
 		switch v.Name {
+		case "role":
+			parts = append(parts, "ROLE", "DEFAULT")
 		case "session_authorization":
 			parts = append(parts, "SESSION", "AUTHORIZATION", "DEFAULT")
 		case "timezone":

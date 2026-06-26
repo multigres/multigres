@@ -375,6 +375,39 @@ func TestConn_ApplySettings_ResetsRemovedVariables(t *testing.T) {
 	pooled.Recycle()
 }
 
+func TestConn_ApplySettings_RoleSessionAuthorizationResetAndApplyOrder(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\('search_path', 'public', false\); SET SESSION AUTHORIZATION 'parent1'; SET ROLE 'child1'`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET search_path; SELECT pg_catalog\.set_config\('work_mem', '64MB', false\); SET SESSION AUTHORIZATION 'parent2'; SET ROLE 'child2'`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	initial := connstate.NewSettings(map[string]string{
+		"SESSION_AUTHORIZATION": "parent1",
+		"Role":                  "child1",
+		"Search_Path":           "public",
+	}, 0)
+	pooled, err := pool.GetWithSettings(ctx, initial)
+	require.NoError(t, err)
+
+	desired := connstate.NewSettings(map[string]string{
+		"Session_Authorization": "parent2",
+		"ROLE":                  "child2",
+		"Work_Mem":              "64MB",
+	}, 0)
+	err = pooled.Conn.ApplySettings(ctx, desired)
+	require.NoError(t, err)
+
+	assert.Greater(t, server.GetPatternCalledNum(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET search_path; SELECT pg_catalog\.set_config\('work_mem', '64MB', false\); SET SESSION AUTHORIZATION 'parent2'; SET ROLE 'child2'`), 0)
+	assert.Equal(t, desired, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
 func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

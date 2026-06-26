@@ -515,7 +515,7 @@
   {
     "comment": "collate.linux.utf8 - Statement 119",
     "query": "SELECT CAST('42' AS text COLLATE \"C\")",
-    "error": "parse error at position 32: syntax error"
+    "error": "syntax error at or near \"COLLATE\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 120",
@@ -748,7 +748,7 @@
   {
     "comment": "collate.linux.utf8 - Statement 179",
     "query": "ALTER DATABASE :\"datname\" REFRESH COLLATION VERSION",
-    "error": "parse error at position 16: syntax error"
+    "error": "syntax error at or near \":\""
   },
   {
     "comment": "collate.linux.utf8 - Statement 180",

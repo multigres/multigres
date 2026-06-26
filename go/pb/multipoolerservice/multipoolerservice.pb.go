@@ -1350,8 +1350,12 @@ type ConcludeTransactionRequest struct {
 	// historical behavior so old gateway clients that do not yet compute
 	// the per-txn diff keep working.
 	ReleaseAllPortals bool `protobuf:"varint,6,opt,name=release_all_portals,json=releaseAllPortals,proto3" json:"release_all_portals,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// chain executes COMMIT AND CHAIN or ROLLBACK AND CHAIN instead of the plain
+	// transaction-ending command. The reserved backend remains pinned for the
+	// next transaction so transaction characteristics are inherited exactly.
+	Chain         bool `protobuf:"varint,7,opt,name=chain,proto3" json:"chain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConcludeTransactionRequest) Reset() {
@@ -1422,6 +1426,13 @@ func (x *ConcludeTransactionRequest) GetReleasePortalNames() []string {
 func (x *ConcludeTransactionRequest) GetReleaseAllPortals() bool {
 	if x != nil {
 		return x.ReleaseAllPortals
+	}
+	return false
+}
+
+func (x *ConcludeTransactionRequest) GetChain() bool {
+	if x != nil {
+		return x.Chain
 	}
 	return false
 }
@@ -2020,7 +2031,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x04DATA\x10\x01\x12\n" +
 	"\n" +
 	"\x06RESULT\x10\x02\x12\t\n" +
-	"\x05ERROR\x10\x03\"\xcf\x02\n" +
+	"\x05ERROR\x10\x03\"\xe5\x02\n" +
 	"\x1aConcludeTransactionRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
@@ -2029,7 +2040,8 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"conclusion\x18\x04 \x01(\x0e2).multipoolerservice.TransactionConclusionR\n" +
 	"conclusion\x120\n" +
 	"\x14release_portal_names\x18\x05 \x03(\tR\x12releasePortalNames\x12.\n" +
-	"\x13release_all_portals\x18\x06 \x01(\bR\x11releaseAllPortals\"\x86\x01\n" +
+	"\x13release_all_portals\x18\x06 \x01(\bR\x11releaseAllPortals\x12\x14\n" +
+	"\x05chain\x18\a \x01(\bR\x05chain\"\x86\x01\n" +
 	"\x1bConcludeTransactionResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
 	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xa0\x01\n" +

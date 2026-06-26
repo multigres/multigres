@@ -219,14 +219,16 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	// whatever the standby has observed, forcing SetPrimary's standby
 	// branch to apply.
 	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
-		Leader: &clustermetadatapb.PoolerAddress{
-			Id:           primaryID,
-			Host:         "localhost",
-			PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-		},
-		Rule: &clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-			LeaderId:   primaryID,
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+				LeaderId:   primaryID,
+			},
+			Primary: &clustermetadatapb.PoolerAddress{
+				Id:           primaryID,
+				Host:         "localhost",
+				PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+			},
 		},
 	})
 	require.NoError(t, err, "SetPrimary should succeed on standby")

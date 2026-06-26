@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -43,6 +44,12 @@ type ConsensusState struct {
 	// entry point). Restarts reset it to nil; coordinators re-inform the
 	// pooler.
 	replicationPrimary *clustermetadatapb.ReplicationPrimary
+	// leaderObservedAt is when RecordTermPrimary last saw the leader ID change
+	// (a new primary was recorded). Zero until the first leader is recorded. Used
+	// to measure how long a diverged follower's pg_rewind waited for that leader
+	// to become rewind-ready: the delay is (rewind start) - leaderObservedAt, which
+	// is ~0 when the same SetPrimary that learned the new leader could also rewind.
+	leaderObservedAt time.Time
 }
 
 // NewConsensusState creates a new ConsensusState manager.
@@ -55,8 +62,9 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 	}
 }
 
-// RecordTermPrimary updates the highest-known rule and last-known primary based on
-// what this pooler has been told. Either argument may be nil. Bump semantics:
+// RecordTermPrimary updates the highest-known (rule, primary, rewind_ready)
+// based on what this pooler has been told. A nil argument (or nil rule) is a
+// no-op. Bump semantics:
 //
 //   - rule: updated only when strictly greater than the current value
 //     (comparison by RuleNumber: coordinator_term then leader_subterm).
@@ -66,27 +74,38 @@ func NewConsensusState(poolerDir string, serviceID *clustermetadatapb.ID) *Conse
 //     The same-rule-different-contact case covers a primary pooler being
 //     re-homed (host or port changes) without a new election.
 //
+//   - rewind_ready: recorded alongside, and a change to it is itself enough to
+//     record even at the same rule and contact — the leader completing its
+//     post-promotion checkpoint flips rewind_ready false->true without a new
+//     election, and a diverged follower gates its pg_rewind on that flip.
+//
 // Safe to call on no-op SetPrimary paths so the recorded values reflect
 // everything the pooler has been told, regardless of whether postgres-side
 // changes were applied.
-func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) {
+func (cs *ConsensusState) RecordTermPrimary(rp *clustermetadatapb.ReplicationPrimary) {
+	rule := rp.GetRule()
 	if rule == nil {
 		return
 	}
+	primary := rp.GetPrimary()
+	rewindReady := rp.GetRewindReady()
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cs.replicationPrimary.GetRule().GetRuleNumber())
 	if cmp < 0 {
 		return
 	}
-	if cmp == 0 && (primary == nil || proto.Equal(primary, cs.replicationPrimary.GetPrimary())) {
+	if cmp == 0 &&
+		(primary == nil || proto.Equal(primary, cs.replicationPrimary.GetPrimary())) &&
+		rewindReady == cs.replicationPrimary.GetRewindReady() {
 		return
 	}
 	// Build the next value by starting from the existing fields (via getters,
 	// which are nil-safe) and overlaying the updates we want to apply.
 	next := &clustermetadatapb.ReplicationPrimary{
-		Rule:    cs.replicationPrimary.GetRule(),
-		Primary: cs.replicationPrimary.GetPrimary(),
+		Rule:        cs.replicationPrimary.GetRule(),
+		Primary:     cs.replicationPrimary.GetPrimary(),
+		RewindReady: rewindReady,
 	}
 	if cmp > 0 {
 		next.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
@@ -97,7 +116,22 @@ func (cs *ConsensusState) RecordTermPrimary(rule *clustermetadatapb.ShardRule, p
 	if primary != nil {
 		next.Primary = proto.Clone(primary).(*clustermetadatapb.PoolerAddress)
 	}
+	// Stamp the time the leader identity changed, so a subsequent rewind toward
+	// this leader can report how long it waited for the leader to become
+	// rewind-ready (~0 when this same call already advances to a rewind-ready
+	// leader).
+	if !proto.Equal(cs.replicationPrimary.GetPrimary().GetId(), next.GetPrimary().GetId()) {
+		cs.leaderObservedAt = time.Now()
+	}
 	cs.replicationPrimary = next
+}
+
+// LeaderObservedAt returns when RecordTermPrimary last recorded a change of leader
+// identity, or the zero time if no leader has been recorded yet.
+func (cs *ConsensusState) LeaderObservedAt() time.Time {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.leaderObservedAt
 }
 
 // GetReplicationPrimary returns a copy of the primary + rule this pooler has
@@ -110,6 +144,43 @@ func (cs *ConsensusState) GetReplicationPrimary() *clustermetadatapb.Replication
 		return nil
 	}
 	return proto.Clone(cs.replicationPrimary).(*clustermetadatapb.ReplicationPrimary)
+}
+
+// MarkSelfRewindReady records that this pooler is safe to pg_rewind from: it has
+// checkpointed onto its current timeline. The postgres monitor calls this once it
+// observes the condition (and the async post-promotion checkpoint can flip it as
+// soon as it completes). It is one-way: the flag auto-clears whenever
+// RecordTermPrimary installs a fresh ReplicationPrimary — a new coordinator term,
+// or a SetPrimary naming a different leader (resignation / restart-as-replica) —
+// since the new record defaults rewind_ready to false. Returns true if the value
+// changed, so callers can broadcast the new health promptly.
+//
+// selfID and expectedCoordinatorTerm guard against marking the wrong record:
+// only the pooler the record names as primary may declare itself rewind-ready,
+// and only at the coordinator term it expects. The term check matters for the
+// async post-promotion checkpoint — by the time it completes a newer term (a
+// re-promotion or a different leader) may have replaced the record, and we must
+// not stamp rewind_ready onto that newer term whose checkpoint hasn't completed.
+// Both checks happen under the lock so the decision is atomic. (Whether this
+// pooler currently holds non-resigned leadership is the caller's concern —
+// resignation state lives in the manager, not here.) No-op if no
+// ReplicationPrimary has been recorded yet.
+func (cs *ConsensusState) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.replicationPrimary == nil || cs.replicationPrimary.GetRewindReady() {
+		return false
+	}
+	if !proto.Equal(cs.replicationPrimary.GetPrimary().GetId(), selfID) {
+		return false
+	}
+	if cs.replicationPrimary.GetRule().GetRuleNumber().GetCoordinatorTerm() != expectedCoordinatorTerm {
+		return false
+	}
+	next := proto.Clone(cs.replicationPrimary).(*clustermetadatapb.ReplicationPrimary)
+	next.RewindReady = true
+	cs.replicationPrimary = next
+	return true
 }
 
 // Load loads consensus state from disk into memory.

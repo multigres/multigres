@@ -201,7 +201,7 @@ func (m *mockCopyQueryService) CopyOutStream(ctx context.Context, target *query.
 	return m.copyOutStreamFn(ctx, target, options, onMessage)
 }
 
-func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool) (*sqltypes.Result, *query.ReservedState, error) {
+func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool) (*sqltypes.Result, *query.ReservedState, error) {
 	return nil, nil, nil
 }
 

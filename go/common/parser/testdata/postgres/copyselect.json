@@ -92,12 +92,12 @@
   {
     "comment": "copyselect - Statement 19",
     "query": "copy (select * from test1) from stdin",
-    "error": "parse error at position 31: syntax error"
+    "error": "syntax error at or near \"from\""
   },
   {
     "comment": "copyselect - Statement 20",
     "query": "copy (select * from test1) (t,id) to stdout",
-    "error": "parse error at position 28: syntax error"
+    "error": "syntax error at or near \"(\""
   },
   {
     "comment": "copyselect - Statement 21",
@@ -132,17 +132,17 @@
   {
     "comment": "copyselect - Statement 27",
     "query": "copy (select 1) to stdout\\; select 1/0",
-    "error": "parse error at position 26: syntax error"
+    "error": "syntax error at or near \"\\\""
   },
   {
     "comment": "copyselect - Statement 28",
     "query": "select 1/0\\; copy (select 1) to stdout",
-    "error": "parse error at position 12: syntax error"
+    "error": "syntax error at or near \";\""
   },
   {
     "comment": "copyselect - Statement 29",
     "query": "copy (select 1) to stdout\\; copy (select 2) to stdout\\; select 3\\; select 4",
-    "error": "parse error at position 26: syntax error"
+    "error": "syntax error at or near \"\\\""
   },
   {
     "comment": "copyselect - Statement 30",
@@ -152,7 +152,7 @@
   {
     "comment": "copyselect - Statement 31",
     "query": "select 0\\; copy test3 from stdin\\; copy test3 from stdin\\; select 1",
-    "error": "parse error at position 10: syntax error"
+    "error": "syntax error at or near \";\""
   },
   {
     "comment": "copyselect - Statement 32",
