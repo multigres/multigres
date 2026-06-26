@@ -203,6 +203,8 @@ func buildBackupConfig(backupConfig map[string]string, baseDir string) BackupCon
 	config := BackupConfig{Type: backupType}
 
 	switch backupType {
+	case "none":
+		// No backup configured
 	case "local":
 		path := backupConfig["path"]
 		if path == "" {
