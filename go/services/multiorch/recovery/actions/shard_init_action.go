@@ -214,10 +214,6 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (a *ShardInitAction) Priority() types.Priority {
-	return types.PriorityShardBootstrap
-}
-
 func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {
 	return nil
 }

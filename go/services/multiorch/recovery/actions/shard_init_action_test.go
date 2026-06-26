@@ -123,10 +123,6 @@ func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
 	assert.False(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).RequiresHealthyLeader())
 }
 
-func TestShardInitAction_Priority(t *testing.T) {
-	assert.Equal(t, types.PriorityShardBootstrap, NewShardInitAction(nil, nil, nil, nil, slog.Default()).Priority())
-}
-
 func TestShardInitAction_GracePeriod(t *testing.T) {
 	assert.Nil(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).GracePeriod())
 }

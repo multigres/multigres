@@ -795,6 +795,10 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 	defer pm.actionLock.Release(ctx)
 
+	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
+		pm.logger.ErrorContext(ctx, "RewindToSource: failed to set action", "error", err)
+	}
+
 	// RewindToSource is an explicit "this WAL is suspect, rewind it" request from
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
 	// pg_rewind dry-run. The caller (orch's FixReplicationAction) has already
@@ -949,7 +953,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// restart so postgres reads the corrected file. Best-effort: log and
 		// continue on error rather than abort the demote.
 		if err := pm.fixPgBackRestPaths(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths after pg_rewind, continuing anyway", "error", err)
+			pm.logger.ErrorContext(ctx, "Failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
 		}
 	}
 

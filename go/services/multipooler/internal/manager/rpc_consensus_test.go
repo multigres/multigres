@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -903,7 +904,9 @@ func TestPromote(t *testing.T) {
 				}
 			}
 
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+			require.Eventually(t, func() bool {
+				return mockQueryService.ExpectationsWereMet() == nil
+			}, time.Second, time.Millisecond, "mock expectations not met after promotion")
 		})
 	}
 }
@@ -946,15 +949,25 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 	}
 
 	t.Run("drops every unlogged table", func(t *testing.T) {
+		var mu sync.Mutex
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
 			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar"})
 			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
+				mu.Lock()
 				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
+				mu.Unlock()
 			})
 		})
 		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(dropped) == 2
+		}, time.Second, 10*time.Millisecond, "expected both unlogged tables to be dropped")
+		mu.Lock()
 		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		mu.Unlock()
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
 

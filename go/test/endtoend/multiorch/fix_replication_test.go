@@ -134,11 +134,14 @@ func TestFixReplication(t *testing.T) {
 		}
 		count := string(result.Rows[0].Values[0])
 		if count != "1" {
-			t.Logf("Waiting for data to replicate... count=%s", count)
+			statusResp, _ := replicaClient.Manager.Status(context.Background(), &multipoolermanagerdatapb.StatusRequest{})
+			rep := statusResp.GetStatus().GetReplicationStatus()
+			t.Logf("Waiting for data to replicate... count=%s wal_receiver=%s receive_lsn=%s replay_lsn=%s",
+				count, rep.GetWalReceiverStatus(), rep.GetLastReceiveLsn(), rep.GetLastReplayLsn())
 			return false
 		}
 		return true
-	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
+	}, 5*time.Second, 100*time.Millisecond, "data should replicate to replica after fix")
 
 	// Verify replica was added to primary's synchronous standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately

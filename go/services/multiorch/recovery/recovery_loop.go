@@ -144,7 +144,12 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 	// Check if there's a leader problem in this shard
 	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
 
-	// Attempt recoveries in priority order
+	// Attempt recoveries. Pooler-scoped problems run in parallel since each
+	// targets a distinct node and can take up to its action timeout (e.g. 60s
+	// for DemoteStaleLeader). Shard-wide problems are always returned one at
+	// a time by filterAndPrioritize, so the WaitGroup has no practical effect
+	// there, but the code path is unified for simplicity.
+	var wg sync.WaitGroup
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
@@ -155,8 +160,13 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 			continue
 		}
 
-		re.attemptRecovery(ctx, problem)
+		wg.Add(1)
+		go func(p types.Problem) {
+			defer wg.Done()
+			re.attemptRecovery(ctx, p)
+		}(problem)
 	}
+	wg.Wait()
 }
 
 // hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
@@ -173,7 +183,7 @@ func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 // filterAndPrioritize sorts problems by priority and applies filtering:
 // - Sorts by priority (highest first)
 // - If there's a shard-wide problem, return only the highest priority shard-wide problem
-// - Otherwise, return all problems sorted by priority
+// - Otherwise, return the highest-priority problem per pooler (different poolers run in parallel)
 func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem {
 	if len(problems) == 0 {
 		return problems
@@ -204,8 +214,19 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		return []types.Problem{shardWideProblems[0]}
 	}
 
-	// No shard-wide problems, return all sorted by priority.
-	return problems
+	// No shard-wide problems: keep only the highest-priority problem per pooler.
+	// Problems are already sorted highest-first, so the first occurrence for each
+	// pooler is the one to run. Different poolers execute in parallel.
+	seen := make(map[topoclient.ComponentID]bool)
+	var filtered []types.Problem
+	for _, p := range problems {
+		id := topoclient.ComponentIDString(p.PoolerID)
+		if !seen[id] {
+			seen[id] = true
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // attemptRecovery attempts to recover from a single problem.
