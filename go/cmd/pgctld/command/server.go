@@ -252,6 +252,10 @@ type PgCtldServiceConfig struct {
 	InitdbSQLFiles       []string
 	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
+	// PostgresConfigTemplate is the --postgres-config-template path (or "").
+	// Threaded to the start path so postgresql.conf is re-rendered from the
+	// template on restart when set.
+	PostgresConfigTemplate string
 }
 
 // PgCtldService implements the pgctld gRPC service
@@ -346,6 +350,7 @@ func NewPgCtldService(
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
 	pgConfig.Password = cfg.Password
+	pgConfig.PostgresConfigTemplate = cfg.PostgresConfigTemplate
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
