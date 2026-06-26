@@ -84,9 +84,9 @@ func (g *grpcQueryService) StreamExecute(
 ) (*querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "streaming query execution",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"query", sql)
 
 	// Create the request
@@ -162,9 +162,9 @@ func (g *grpcQueryService) StreamExecute(
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "Executing query",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"query", sql)
 
 	// Create the request
@@ -200,9 +200,9 @@ func (g *grpcQueryService) PortalStreamExecute(
 ) (*querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "portal stream execute",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"portal", portal.Name)
 
 	// Create the request
@@ -285,9 +285,9 @@ func (g *grpcQueryService) Describe(
 ) (*querypb.StatementDescription, error) {
 	g.logger.DebugContext(ctx, "describing statement/portal",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String())
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String())
 
 	// Create the request
 	req := &multipoolerservice.DescribeRequest{
@@ -328,9 +328,9 @@ func (g *grpcQueryService) CopyReady(
 ) (int16, []int16, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "initiating COPY",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"query", copyQuery)
 
 	// Start the bidirectional stream
@@ -620,8 +620,8 @@ func (g *grpcQueryService) ConcludeTransaction(
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"conclusion", conclusion.String(),
 		"reserved_conn_id", options.ReservedConnectionId,
 		"release_portal_names", releasePortalNames,
@@ -673,8 +673,8 @@ func (g *grpcQueryService) DiscardTempTables(
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "discard temp tables",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Create the request
@@ -721,8 +721,8 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 
 	g.logger.DebugContext(ctx, "releasing reserved connection",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Clean up any stale COPY stream for this connection.
@@ -780,8 +780,8 @@ func (g *grpcQueryService) CopyOutReady(
 ) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "initiating COPY TO STDOUT",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
 		"query", copyQuery)
 
 	stream, err := g.client.CopyBidiExecute(ctx)

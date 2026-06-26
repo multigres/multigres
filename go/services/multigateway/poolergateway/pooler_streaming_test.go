@@ -31,7 +31,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // controllableHealthServer is a mock gRPC server that implements StreamPoolerHealth.
@@ -171,11 +170,6 @@ func makeHealthResponse(
 	status clustermetadatapb.PoolerServingStatus,
 ) *multipoolerservice.StreamPoolerHealthResponse {
 	return &multipoolerservice.StreamPoolerHealthResponse{
-		Target: &query.Target{
-			TableGroup: "default",
-			Shard:      "0",
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		},
 		PoolerId: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",

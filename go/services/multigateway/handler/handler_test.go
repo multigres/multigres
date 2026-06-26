@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -523,10 +524,7 @@ func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	conn.SetConnectionState(state)
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	target := &query.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, "tg1", "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -550,10 +548,7 @@ func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T
 	state := NewMultiGatewayConnectionState()
 	conn.SetConnectionState(state)
 	// NOT in a transaction - TxnStatusIdle
-	target := &query.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, "tg1", "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},

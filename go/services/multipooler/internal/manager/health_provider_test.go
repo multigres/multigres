@@ -52,7 +52,6 @@ func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
 
 	select {
 	case received := <-ch1:
-		assert.Equal(t, "tg1", received.Target.TableGroup)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
 	case <-timeout1:
 		t.Fatal("ch1 did not receive broadcast")
@@ -60,7 +59,6 @@ func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
 
 	select {
 	case received := <-ch2:
-		assert.Equal(t, "tg1", received.Target.TableGroup)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
 	case <-timeout2:
 		t.Fatal("ch2 did not receive broadcast")
@@ -81,7 +79,6 @@ func TestHealthStreamer_SubscribeReceivesCurrentState(t *testing.T) {
 
 	// Subscribe should return current state
 	state, _ := hs.subscribe()
-	assert.Equal(t, "initial", state.Target.TableGroup)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
 }
 
@@ -139,7 +136,6 @@ func TestHealthStreamer_GetState(t *testing.T) {
 	// Get initial state
 	got := hs.getState()
 	require.NotNil(t, got)
-	assert.Equal(t, "test", got.Target.TableGroup)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, got.ServingStatus)
 
 	// Update and verify
@@ -249,7 +245,6 @@ func TestHealthStreamer_OnStateChange(t *testing.T) {
 	select {
 	case received := <-ch:
 		require.NotNil(t, received)
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, received.Target.PoolerType)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("subscriber did not receive health broadcast")
@@ -257,7 +252,6 @@ func TestHealthStreamer_OnStateChange(t *testing.T) {
 
 	// Verify getState reflects both changes
 	state := hs.getState()
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, state.Target.PoolerType)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
 
 	// Verify no extra broadcast was sent (only one message in channel)
@@ -298,7 +292,6 @@ func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 	select {
 	case received := <-ch:
 		require.NotNil(t, received)
-		assert.Equal(t, "tg1", received.Target.TableGroup)
 		assert.Equal(t, serviceID, received.PoolerID)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("did not receive heartbeat broadcast within expected interval")
@@ -348,7 +341,6 @@ func TestHealthStreamer_WaitsForQueryServerOnServing(t *testing.T) {
 	// Verify the broadcast was sent.
 	select {
 	case state := <-ch:
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, state.Target.PoolerType)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
 	default:
 		t.Fatal("expected a health broadcast after transition")
@@ -399,7 +391,6 @@ func TestHealthStreamer_PublishesWritability(t *testing.T) {
 		true /* isConsensusLeader */, false, /* postgresPrimary */
 		clustermetadatapb.PoolerServingStatus_SERVING))
 	st := <-ch
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, st.Target.GetPoolerType(), "leader reports PRIMARY routing label")
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, st.ServingStatus)
 	assert.False(t, st.Writable, "leader still in recovery must not advertise writable")
 

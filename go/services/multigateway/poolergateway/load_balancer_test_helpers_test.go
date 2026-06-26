@@ -33,6 +33,13 @@ import (
 // re-merges; OnGone closes the connection. The cache uses no topology
 // Source, so it is driven by SeedForTest / DeleteForTest in tests.
 func newTestLB(t *testing.T, localCell string) *loadBalancer {
+	return newTestLBWithLeaderServing(t, localCell, nil)
+}
+
+// newTestLBWithLeaderServing is the variant of newTestLB used by tests that
+// need to observe the OnLeaderServing callback (the buffer-drain trigger).
+// Pass nil to behave exactly like newTestLB.
+func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing func(*clustermetadatapb.ShardKey)) *loadBalancer {
 	t.Helper()
 	logger := slog.Default()
 	ctx := t.Context()
@@ -41,11 +48,12 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 		Logger: logger,
 	})
 	lb := newLoadBalancer(loadBalancerOpts{
-		Ctx:       ctx,
-		LocalCell: localCell,
-		Logger:    logger,
-		DialOpt:   dialOpt,
-		Cache:     cache,
+		Ctx:             ctx,
+		LocalCell:       localCell,
+		Logger:          logger,
+		DialOpt:         dialOpt,
+		Cache:           cache,
+		OnLeaderServing: onLeaderServing,
 	})
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {
@@ -106,16 +114,17 @@ func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPoole
 // setLeaderForTest installs a LeaderObservation directly into the LB's
 // per-shard leader map. Used by tests that need to model a peer observation
 // without wiring a second connection.
-func setLeaderForTest(t *testing.T, lb *loadBalancer, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
+func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
 	t.Helper()
+	sk := &clustermetadatapb.ShardKey{
+		Database:   database,
+		TableGroup: tableGroup,
+		Shard:      shard,
+	}
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	key := shardKey{tableGroup: tableGroup, shard: shard}
-	lb.shards[key] = &shardSummary{
-		shardKey: &clustermetadatapb.ShardKey{
-			TableGroup: tableGroup,
-			Shard:      shard,
-		},
+	lb.shards[shardKeyOf(sk)] = &shardSummary{
+		shardKey:  sk,
 		leaderObs: obs,
 	}
 }

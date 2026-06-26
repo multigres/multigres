@@ -1,18 +1,9 @@
-# Known divergences, both by design:
-#
-# 1. The LOAD lines: multigateway rejects LOAD (loading shared libraries
-#    through the connection pooler is not permitted; see
-#    go/services/multigateway/planner/unsafe_stmt.go). The library is preloaded
-#    cluster-wide instead via shared_preload_libraries (PreloadLibraries on the
-#    plpgsql_check spec in extensions.go), so the test's LOAD is semantically a
-#    no-op and only the extra ERROR line differs.
-#
-# 2. The CREATE TRIGGER syntax error: the statement is deliberately malformed
-#    (missing the ON <table> clause) and is rejected by multigateway's own
-#    parser before reaching PostgreSQL, so the error wording differs
-#    ("parse error at position 40: syntax error" vs PostgreSQL's "syntax error
-#    at or near \"for\" at character 38"). Same class as the core regression
-#    suite's error-wording patches (e.g. errors.patch).
+# Known divergence: multigateway rejects LOAD by design (loading shared
+# libraries through the connection pooler is not permitted; see
+# go/services/multigateway/planner/unsafe_stmt.go). The library is preloaded
+# cluster-wide instead via shared_preload_libraries (PreloadLibraries on the
+# plpgsql_check spec in extensions.go), so the test's LOAD is semantically a
+# no-op and only the extra ERROR line differs.
 --- a
 +++ b
 @@ -1,4 +1,5 @@
@@ -21,15 +12,6 @@
  create extension if not exists plpgsql_check;
  set client_min_messages to notice;
  set plpgsql_check.regress_test_mode = true;
-@@ -4143,7 +4144,7 @@
- $$ language plpgsql;
- create table foo(a int);
- create trigger foo_trg before insert for each row execute procedure foo_trg_func();
--ERROR: syntax error at or near "for" at character 38
-+ERROR: parse error at position 40: syntax error
- -- should to print error
- select * from plpgsql_check_function('foo_trg_func', 'foo');
- plpgsql_check_function
 @@ -4889,6 +4890,7 @@
  
  drop function test_function();

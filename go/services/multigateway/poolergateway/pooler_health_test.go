@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
@@ -70,11 +69,6 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 	})
 
 	t.Run("copies all fields", func(t *testing.T) {
-		target := &query.Target{
-			TableGroup: "tg1",
-			Shard:      "0",
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
 		poolerID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -85,7 +79,6 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		lastResp := time.Now()
 
 		original := &poolerHealth{
-			Target:            target,
 			PoolerID:          poolerID,
 			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
 			LeaderObservation: primaryObs,
@@ -97,7 +90,6 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 
 		// Verify all fields are copied
 		require.NotNil(t, copy)
-		prototest.AssertEqual(t, original.Target, copy.Target)
 		prototest.AssertEqual(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
 		prototest.AssertEqual(t, original.LeaderObservation, copy.LeaderObservation)
@@ -108,7 +100,6 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		assert.NotSame(t, original, copy)
 
 		// Verify pointer fields point to same underlying objects (shallow copy)
-		assert.Same(t, original.Target, copy.Target)
 		assert.Same(t, original.PoolerID, copy.PoolerID)
 		assert.Same(t, original.LeaderObservation, copy.LeaderObservation)
 	})

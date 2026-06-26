@@ -352,7 +352,6 @@ func TestStateManager_HealthStreamerIntegration(t *testing.T) {
 	select {
 	case received := <-ch:
 		require.NotNil(t, received)
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, received.Target.PoolerType)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
 		assert.Equal(t, serviceID, received.PoolerID)
 	default:

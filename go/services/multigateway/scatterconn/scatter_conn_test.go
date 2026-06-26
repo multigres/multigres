@@ -186,10 +186,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -230,10 +227,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled)
 
 	// Verify state was updated with the reserved connection
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, uint64(77), ss.ReservedState.GetReservedConnectionId())
@@ -257,10 +251,7 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	require.NotNil(t, gw.streamExecuteReservationOps, "should pass ReservationOptions")
 	require.NotEqual(t, uint32(0), gw.streamExecuteReservationOps.GetReasons(), "should set reasons")
 	// State should not be updated
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	require.Nil(t, state.GetMatchingShardState(target))
 }
 
@@ -307,7 +298,7 @@ func TestScatterConn_Portal_FirstStatementReservesViaPortalRPC(t *testing.T) {
 		"no reserved connection id yet — the multipooler reserves one")
 
 	// State updated with the authoritative reserved connection from the portal RPC.
-	target := &querypb.Target{TableGroup: "tg1", PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, uint64(99), ss.ReservedState.GetReservedConnectionId())
@@ -358,7 +349,7 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{TableGroup: "tg1", PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -426,10 +417,7 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -458,10 +446,7 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -489,10 +474,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -528,8 +510,10 @@ func TestScatterConn_ConcludeTransaction_RollbackAndChainOnDestroyedConnFails(t 
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
 	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: "tg1",
+		},
+		Mode: querypb.Mode_MODE_WRITABLE,
 	}
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
@@ -563,10 +547,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -601,10 +582,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -639,10 +617,7 @@ func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn()
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -669,10 +644,7 @@ func TestScatterConn_CopyFinalize_ErrorSetsTxnFailed(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -711,10 +683,7 @@ func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -751,10 +720,7 @@ func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn()
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -788,10 +754,7 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -823,10 +786,7 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -852,10 +812,7 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -904,10 +861,7 @@ func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T)
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusIdle) // temp-table reservation, not in a txn
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -939,10 +893,7 @@ func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},

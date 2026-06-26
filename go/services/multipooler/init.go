@@ -305,7 +305,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	}
 
 	// Create multipooler record with all fields now that servenv.Init() has set them up
-	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
+	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())

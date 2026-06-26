@@ -217,8 +217,8 @@ func TestGracefulShutdown_AnnouncesStoppingInTopology(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost", "tg")
-	mp.ShardKey.Shard = "0"
+	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	mp.LifecycleStatus.Status = clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE
 	require.NoError(t, ts.CreateMultiPooler(ctx, mp))
 
@@ -261,8 +261,8 @@ func TestMarkPoolerActive_TransitionsLifecycle(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost", "tg")
-	mp.ShardKey.Shard = "0"
+	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	require.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 		mp.GetLifecycleStatus().GetStatus(),
@@ -321,8 +321,8 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost", "tg")
-	mp.ShardKey.Shard = "0"
+	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	mp.LifecycleStatus.Status = clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE
 	require.NoError(t, ts.CreateMultiPooler(ctx, mp))
 

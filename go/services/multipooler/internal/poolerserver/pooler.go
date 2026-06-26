@@ -332,21 +332,29 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	if s.tableGroup != "" && target.TableGroup != "" && target.TableGroup != s.tableGroup {
-		return mterrors.MTD01.New("target tablegroup %q does not match pooler tablegroup %q", target.TableGroup, s.tableGroup)
+	sk := target.GetShardKey()
+	// TODO: add s.database and validate sk.GetDatabase() once
+	// QueryPoolerServer is wired with the pooler's bound database.
+	if s.tableGroup != "" && sk.GetTableGroup() != "" && sk.GetTableGroup() != s.tableGroup {
+		return mterrors.MTD01.New("target tablegroup %q does not match pooler tablegroup %q", sk.GetTableGroup(), s.tableGroup)
 	}
 
-	if s.shard != "" && target.Shard != "" && target.Shard != s.shard {
-		return mterrors.MTD01.New("target shard %q does not match pooler shard %q", target.Shard, s.shard)
+	if s.shard != "" && sk.GetShard() != "" && sk.GetShard() != s.shard {
+		return mterrors.MTD01.New("target shard %q does not match pooler shard %q", sk.GetShard(), s.shard)
 	}
 
 	if existingReserved {
 		return nil
 	}
 
-	// A PRIMARY request hitting a non-leader means the gateway thinks this pooler
-	// is still the primary, but it was demoted. Return MTF01 to trigger buffering.
-	if target.PoolerType == clustermetadatapb.PoolerType_PRIMARY && !s.isConsensusLeader {
+	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-leader means the
+	// gateway thinks this pooler is still the primary, but it was demoted. Return
+	// MTF01 to trigger buffering. Target side uses the Mode enum (#1183); pooler
+	// side uses the consensus-leadership observation, not the topology PoolerType
+	// label (PR 1184 — the gateway derives role from consensus observations).
+	mode := target.GetMode()
+	if (mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT) &&
+		!s.isConsensusLeader {
 		return mterrors.MTF01.New()
 	}
 

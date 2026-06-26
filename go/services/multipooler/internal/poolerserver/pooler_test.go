@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -145,7 +146,7 @@ func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	s.isConsensusLeader = false
 
-	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	// A fresh PRIMARY-targeted request on a demoted (REPLICA) pooler is rejected
 	// with MTF01...
 	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
@@ -162,7 +163,7 @@ func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
 	s.isConsensusLeader = false
 
 	// PRIMARY query hitting a REPLICA pooler should be rejected with MTF01.
-	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
 }
 
@@ -171,7 +172,7 @@ func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	s.isConsensusLeader = true
 
-	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_PRIMARY}
+	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
 }
 
@@ -181,7 +182,7 @@ func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
 	s.isConsensusLeader = true
 
 	// PRIMARY pooler can serve REPLICA traffic.
-	target := &query.Target{PoolerType: clustermetadatapb.PoolerType_REPLICA}
+	target := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
 	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
 }
 
@@ -202,11 +203,7 @@ func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
 	s.shard = "0"
 
 	// Tablegroup mismatch is a routing bug (MTD01), rejected for every kind.
-	target := &query.Target{
-		TableGroup: "tg2",
-		Shard:      "0",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg2", "0", query.Mode_MODE_WRITABLE)
 	err := s.StartRequest(target, RequestExistingReserved)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
@@ -222,11 +219,7 @@ func TestStartRequest_ShardMismatch_Bug(t *testing.T) {
 	s.shard = "0"
 
 	// Shard mismatch is a routing bug (MTD01).
-	target := &query.Target{
-		TableGroup: "tg1",
-		Shard:      "1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "1", query.Mode_MODE_WRITABLE)
 	err := s.StartRequest(target, RequestSingleQuery)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
@@ -240,11 +233,7 @@ func TestStartRequest_FullTargetMatch_Allowed(t *testing.T) {
 	s.tableGroup = "tg1"
 	s.shard = "0"
 
-	target := &query.Target{
-		TableGroup: "tg1",
-		Shard:      "0",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "0", query.Mode_MODE_WRITABLE)
 	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
 }
 

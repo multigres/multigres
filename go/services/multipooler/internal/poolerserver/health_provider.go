@@ -19,15 +19,15 @@ import (
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
 // HealthState contains the current health state of the pooler.
 // This is used by StreamPoolerHealth to send health updates to clients.
+//
+// The previous Target *query.Target field was removed alongside
+// StreamPoolerHealthResponse.target — the gateway derives shard identity
+// from topology and role from serving_status + leader_observation.
 type HealthState struct {
-	// Target identifies the tablegroup, shard, and pooler type this pooler serves.
-	Target *querypb.Target
-
 	// PoolerID identifies this multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
