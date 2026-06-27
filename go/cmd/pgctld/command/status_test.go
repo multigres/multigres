@@ -134,12 +134,37 @@ func TestRunStatus(t *testing.T) {
 		assert.Contains(t, err.Error(), "data directory not initialized")
 	})
 
-	// Test 2: Stopped (initialized but no PID file)
+	// Test 2: Stopped (initialized, no PID file, and not accepting connections).
+	// A genuinely stopped server has no process AND does not answer pg_isready;
+	// connectivity is authoritative, so the fallback probe must also report down.
 	t.Run("stopped", func(t *testing.T) {
+		stoppedBinDir := filepath.Join(baseDir, "bin_stopped")
+		require.NoError(t, os.MkdirAll(stoppedBinDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, stoppedBinDir)
+		testutil.MockBinary(t, stoppedBinDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", stoppedBinDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
 		testutil.CreateDataDir(t, baseDir, true)
 		output, err := runStatusCommand()
 		require.NoError(t, err)
 		assert.Contains(t, output, "Status: Stopped")
+	})
+
+	// Test 2b: Reachable without a readable PID file. This is the #628 case:
+	// pgctld runs as a different OS user than postgres (cannot signal the
+	// postmaster, or cannot read PGDATA), so the local process check fails, but
+	// pg_isready still accepts connections. Connectivity is authoritative, so the
+	// server must be reported Running rather than Stopped.
+	t.Run("reachable_without_pidfile", func(t *testing.T) {
+		// Data dir is initialized but has no postmaster.pid; the default mock
+		// pg_isready accepts connections.
+		testutil.CreateDataDir(t, baseDir, true)
+		output, err := runStatusCommand()
+		require.NoError(t, err)
+		assert.Contains(t, output, "Status: Running")
 	})
 
 	// Test 3: Running (initialized with PID file)
