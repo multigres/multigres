@@ -421,7 +421,7 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 		},
 	}
 
-	filtered := engine.filterAndPrioritize(problems)
+	filtered := engine.filterAndPrioritize(context.Background(), problems)
 
 	// Should return only the shard-wide problem (PrimaryDead)
 	require.Len(t, filtered, 1)
@@ -488,7 +488,7 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	}
 
 	// Problems are already sorted by priority
-	filtered := engine.filterAndPrioritize(problems)
+	filtered := engine.filterAndPrioritize(context.Background(), problems)
 
 	// Should keep only highest priority problem per pooler
 	require.Len(t, filtered, 3)
@@ -544,7 +544,7 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 		},
 	}
 
-	filtered := engine.filterAndPrioritize(problems)
+	filtered := engine.filterAndPrioritize(context.Background(), problems)
 
 	// Should return only the highest priority shard-wide problem
 	// PriorityShardBootstrap (10000) > PriorityEmergency (1000)
