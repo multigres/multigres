@@ -1,0 +1,77 @@
+[
+  {
+    "comment": "integer FOR",
+    "body": "BEGIN FOR i IN 1..10 LOOP x := i; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN 1 .. 10 LOOP\nx := i;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "integer FOR with REVERSE",
+    "body": "BEGIN FOR i IN REVERSE 10..1 LOOP x := i; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN REVERSE 10 .. 1 LOOP\nx := i;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "integer FOR with BY",
+    "body": "BEGIN FOR i IN 1..10 BY 2 LOOP x := i; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN 1 .. 10 BY 2 LOOP\nx := i;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "integer FOR with REVERSE and BY",
+    "body": "BEGIN FOR i IN REVERSE 10..1 BY 2 LOOP x := i; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN REVERSE 10 .. 1 BY 2 LOOP\nx := i;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "integer FOR with expression bounds",
+    "body": "BEGIN FOR i IN a+1 .. b*2 LOOP x := i; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN a+1 .. b*2 LOOP\nx := i;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled integer FOR",
+    "body": "BEGIN <<l>> FOR i IN 1..3 LOOP EXIT l; END LOOP l; END",
+    "deparse": "BEGIN\n<<l>> FOR i IN 1 .. 3 LOOP\nEXIT l;\nEND LOOP l;\nEND"
+  },
+  {
+    "comment": "integer FOR empty body",
+    "body": "BEGIN FOR i IN 1..3 LOOP END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN 1 .. 3 LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "query FOR",
+    "body": "BEGIN FOR r IN SELECT * FROM t LOOP y := r; END LOOP; END",
+    "deparse": "BEGIN\nFOR r IN SELECT * FROM t LOOP\ny := r;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "query FOR with subquery condition",
+    "body": "BEGIN FOR r IN SELECT id FROM t WHERE x > 0 LOOP y := r.id; END LOOP; END",
+    "deparse": "BEGIN\nFOR r IN SELECT id FROM t WHERE x > 0 LOOP\ny := r.id;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled query FOR",
+    "body": "BEGIN <<scan>> FOR r IN SELECT 1 LOOP CONTINUE scan; END LOOP scan; END",
+    "deparse": "BEGIN\n<<scan>> FOR r IN SELECT 1 LOOP\nCONTINUE scan;\nEND LOOP scan;\nEND"
+  },
+  {
+    "comment": "FOREACH over array",
+    "body": "BEGIN FOREACH x IN ARRAY arr LOOP y := x; END LOOP; END",
+    "deparse": "BEGIN\nFOREACH x IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "FOREACH with SLICE",
+    "body": "BEGIN FOREACH x SLICE 1 IN ARRAY arr LOOP y := x; END LOOP; END",
+    "deparse": "BEGIN\nFOREACH x SLICE 1 IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled FOREACH with expression array",
+    "body": "BEGIN <<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP y := x; END LOOP f; END",
+    "deparse": "BEGIN\n<<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP\ny := x;\nEND LOOP f;\nEND"
+  },
+  {
+    "comment": "nested integer FOR with IF",
+    "body": "BEGIN FOR i IN 1..10 LOOP IF i = 5 THEN EXIT; END IF; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN 1 .. 10 LOOP\nIF i = 5 THEN\nEXIT;\nEND IF;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "FOR loop end label mismatch is an error",
+    "body": "BEGIN <<l>> FOR i IN 1..3 LOOP x := i; END LOOP wrong; END",
+    "error": "end label \"wrong\" differs"
+  }
+]

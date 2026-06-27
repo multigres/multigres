@@ -1,0 +1,57 @@
+[
+  {
+    "comment": "empty block",
+    "body": "BEGIN END",
+    "deparse": "BEGIN\nEND"
+  },
+  {
+    "comment": "empty block trailing semi",
+    "body": "BEGIN END;",
+    "deparse": "BEGIN\nEND"
+  },
+  {
+    "comment": "null discarded",
+    "body": "BEGIN NULL; END;",
+    "deparse": "BEGIN\nEND"
+  },
+  {
+    "comment": "multiple nulls discarded",
+    "body": "BEGIN NULL; NULL; END;",
+    "deparse": "BEGIN\nEND"
+  },
+  {
+    "comment": "labeled with matching end label",
+    "body": "<<outer>> BEGIN END outer;",
+    "deparse": "<<outer>> BEGIN\nEND outer"
+  },
+  {
+    "comment": "labeled no end label",
+    "body": "<<outer>> BEGIN END;",
+    "deparse": "<<outer>> BEGIN\nEND outer"
+  },
+  {
+    "comment": "nested block",
+    "body": "BEGIN BEGIN NULL; END; END;",
+    "deparse": "BEGIN\nBEGIN\nEND;\nEND"
+  },
+  {
+    "comment": "unreserved keyword as label",
+    "body": "<<query>> BEGIN END query;",
+    "deparse": "<<query>> BEGIN\nEND query"
+  },
+  {
+    "comment": "empty input is an error",
+    "body": "",
+    "error": "syntax error"
+  },
+  {
+    "comment": "end label on unlabeled block",
+    "body": "BEGIN END x;",
+    "error": "specified for unlabeled block"
+  },
+  {
+    "comment": "mismatched end label",
+    "body": "<<a>> BEGIN END b;",
+    "error": "differs from block's label"
+  }
+]

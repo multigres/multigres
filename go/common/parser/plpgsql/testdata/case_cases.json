@@ -1,0 +1,42 @@
+[
+  {
+    "comment": "searched CASE",
+    "body": "BEGIN CASE WHEN x > 0 THEN y := 1; END CASE; END",
+    "deparse": "BEGIN\nCASE\nWHEN x > 0 THEN\ny := 1;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "searched CASE with multiple WHEN and ELSE",
+    "body": "BEGIN CASE WHEN x > 0 THEN y := 1; WHEN x < 0 THEN y := 2; ELSE y := 0; END CASE; END",
+    "deparse": "BEGIN\nCASE\nWHEN x > 0 THEN\ny := 1;\nWHEN x < 0 THEN\ny := 2;\nELSE\ny := 0;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "simple CASE",
+    "body": "BEGIN CASE x WHEN 1 THEN y := 1; END CASE; END",
+    "deparse": "BEGIN\nCASE x\nWHEN 1 THEN\ny := 1;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "simple CASE with multiple WHEN and ELSE",
+    "body": "BEGIN CASE x WHEN 1 THEN y := 1; WHEN 2 THEN y := 2; ELSE y := 0; END CASE; END",
+    "deparse": "BEGIN\nCASE x\nWHEN 1 THEN\ny := 1;\nWHEN 2 THEN\ny := 2;\nELSE\ny := 0;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "simple CASE with expression test",
+    "body": "BEGIN CASE a + b WHEN 1 THEN y := 1; ELSE y := 9; END CASE; END",
+    "deparse": "BEGIN\nCASE a + b\nWHEN 1 THEN\ny := 1;\nELSE\ny := 9;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "CASE with empty WHEN body",
+    "body": "BEGIN CASE WHEN x > 0 THEN END CASE; END",
+    "deparse": "BEGIN\nCASE\nWHEN x > 0 THEN\nEND CASE;\nEND"
+  },
+  {
+    "comment": "CASE nested inside a loop",
+    "body": "BEGIN LOOP CASE WHEN done THEN EXIT; ELSE x := x + 1; END CASE; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nCASE\nWHEN done THEN\nEXIT;\nELSE\nx := x + 1;\nEND CASE;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "CASE containing an IF",
+    "body": "BEGIN CASE x WHEN 1 THEN IF y > 0 THEN z := 1; END IF; END CASE; END",
+    "deparse": "BEGIN\nCASE x\nWHEN 1 THEN\nIF y > 0 THEN\nz := 1;\nEND IF;\nEND CASE;\nEND"
+  }
+]
