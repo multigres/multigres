@@ -250,6 +250,10 @@ func NewMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	return NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 5*time.Minute)
 }
 
+var registerAndSyncStateAware = func(ctx context.Context, stateManager *StateManager, component StateAware) error {
+	return stateManager.RegisterAndSync(ctx, component)
+}
+
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
 func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
 	// Validate required multiPooler fields
@@ -368,6 +372,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
 	pm.servingState = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
+	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
+		if err := registerAndSyncStateAware(ctx, pm.servingState, stateAwareConnPoolMgr); err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to sync connection pool metrics state: %w", err)
+		}
+	}
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are

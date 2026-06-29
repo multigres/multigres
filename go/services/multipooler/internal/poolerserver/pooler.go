@@ -167,6 +167,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	s.logger.InfoContext(ctx, "Transitioning serving type",
 		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
 		"status_from", s.servingStatus, "status_to", servingStatus)
+	fromPoolerType := s.poolerType
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		s.poolerType = poolerType
@@ -216,13 +217,13 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 			// a non-serving state. In-flight single queries (if any) are killed by
 			// the postgres demotion that follows the NOT_SERVING transition.
 			killed := s.poolManager.CloseReservedConnections(ctx)
-			s.drainStats.recordForceClosed(ctx, killed)
+			s.drainStats.recordForceClosed(ctx, killed, fromPoolerType)
 			if killed > 0 {
 				s.logger.WarnContext(ctx, "Force-closed reserved connections after drain timeout",
 					"killed", killed)
 			}
 		}
-		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
+		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome, fromPoolerType)
 	}
 
 	// Complete the transition. The poolerType is set here (after drain) so that

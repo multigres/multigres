@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
@@ -162,6 +163,16 @@ func (m *Manager) CredentialQueryRecorder() CredentialQueryRecorder {
 		return nil
 	}
 	return m.metrics
+}
+
+// OnStateChange tracks the current pooler role for metrics emitted by the
+// connection pool manager. Pool lifecycles are controlled elsewhere.
+func (m *Manager) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, _ clustermetadatapb.PoolerServingStatus) error {
+	if m == nil {
+		return nil
+	}
+	m.metrics.SetPoolerType(poolerType)
+	return nil
 }
 
 // Open initializes the manager and creates the shared admin pool.
