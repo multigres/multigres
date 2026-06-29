@@ -195,6 +195,46 @@ func TestMetrics_RegisterManagerCallbacks_PoolerTypeLabel(t *testing.T) {
 	}
 }
 
+func TestMetrics_PoolerTypeLabelValues(t *testing.T) {
+	m, _ := setupPoolerMetrics(t)
+
+	var nilMetrics *Metrics
+	require.NotPanics(t, func() {
+		nilMetrics.SetPoolerType(clustermetadatapb.PoolerType_PRIMARY)
+	})
+	require.Equal(t, "unknown", nilMetrics.poolerTypeLabel())
+
+	require.Equal(t, "unknown", m.poolerTypeLabel())
+
+	m.SetPoolerType(clustermetadatapb.PoolerType_PRIMARY)
+	require.Equal(t, "primary", m.poolerTypeLabel())
+
+	m.SetPoolerType(clustermetadatapb.PoolerType_REPLICA)
+	require.Equal(t, "replica", m.poolerTypeLabel())
+
+	m.SetPoolerType(clustermetadatapb.PoolerType_UNKNOWN)
+	require.Equal(t, "unknown", m.poolerTypeLabel())
+}
+
+func TestManager_OnStateChangeUpdatesMetricsPoolerType(t *testing.T) {
+	m, _ := setupPoolerMetrics(t)
+	manager := &Manager{metrics: m}
+
+	require.NoError(t, manager.OnStateChange(
+		context.Background(),
+		clustermetadatapb.PoolerType_REPLICA,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+	))
+	require.Equal(t, "replica", m.poolerTypeLabel())
+
+	var nilManager *Manager
+	require.NoError(t, nilManager.OnStateChange(
+		context.Background(),
+		clustermetadatapb.PoolerType_PRIMARY,
+		clustermetadatapb.PoolerServingStatus_SERVING,
+	))
+}
+
 // TestMetrics_RecordCredentialQuery_DurationAlwaysRecorded ensures the
 // histogram fires on every call (success and error) so success-path
 // latency is also visible — operators triaging the admin pool need to see

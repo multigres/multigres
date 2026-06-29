@@ -132,6 +132,17 @@ func primaryDrainMetricAttrs() map[string]string {
 	}
 }
 
+func TestPoolerTypeLabelValues(t *testing.T) {
+	require.Equal(t, "primary", poolerTypeLabel(clustermetadatapb.PoolerType_PRIMARY))
+	require.Equal(t, "replica", poolerTypeLabel(clustermetadatapb.PoolerType_REPLICA))
+	require.Equal(t, "unknown", poolerTypeLabel(clustermetadatapb.PoolerType_UNKNOWN))
+
+	require.Equal(t,
+		[]attribute.KeyValue{attribute.String("pooler_type", "replica")},
+		drainAttributes(clustermetadatapb.PoolerType_REPLICA),
+	)
+}
+
 // TestDrainMetricGracefulOutcome verifies that a drain that completes
 // before the grace period elapses records outcome=graceful and no
 // force-closed connections.
