@@ -776,6 +776,52 @@ func TestDescribePortalThenFlush(t *testing.T) {
 		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
+func TestUnsupportedFunctionCallDrainsMessageBody(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	body := []byte{
+		0, 0, 0, 177, // function oid: int4pl
+		0, 1, // one argument format code
+		0, 0, // text format
+		0, 2, // two arguments
+		0, 0, 0, 1, '2',
+		0, 0, 0, 1, '3',
+		0, 0, // text result format
+	}
+	writeTestInt32(&readBuf, int32(4+len(body)))
+	readBuf.Write(body)
+
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported message type: F")
+	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must be drained before rejection")
+}
+
+func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	writeTestInt32(&readBuf, 4)
+
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported message type: F")
+	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must consume the length field")
+}
+
+func TestUnsupportedFunctionCallReportsDrainError(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to discard unsupported FunctionCall message")
+}
+
 // TestHandleClose tests the Close message handler.
 func TestHandleClose(t *testing.T) {
 	tests := []struct {
