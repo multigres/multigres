@@ -162,6 +162,15 @@ func (al *ActionLock) ActiveAction() (multipoolermanagerdatapb.PostgresAction, t
 // AssertActionLockHeld returns an error if the provided context does not hold
 // an action lock or if the lock has been released. This is a global function
 // that doesn't require a reference to the ActionLock.
+//
+// TODO: build this on a shared assertion helper in go/tools (e.g. tools/assert)
+// for "can't happen" invariants. That helper would (a) increment a metric when
+// an assertion fires so we can alert on logic errors that are supposed to be
+// impossible, and (b) panic by default under test builds — except for the unit
+// tests that explicitly opt out to exercise the lock-not-held path — while
+// returning an error in production. AssertActionLockHeld would then be one such
+// assertion, giving us loud failures in tests and observable-but-non-fatal
+// behavior in production.
 func AssertActionLockHeld(ctx context.Context) error {
 	val, ok := ctx.Value(actionLockKey{}).(*actionLockValue)
 	if !ok {
