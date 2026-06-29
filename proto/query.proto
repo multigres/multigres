@@ -385,6 +385,22 @@ message ExecuteOptions {
   // This field is only consumed by StreamExecute. PortalStreamExecute has its
   // own top-level prepared_statement field.
   ExecuteSqlPreparedStatement execute_sql_prepared_statement = 9;
+
+  // has_post_query_session_settings indicates that post_query_session_settings
+  // is authoritative for the backend's session state after this statement
+  // succeeds. This is distinct from session_settings, which is the desired
+  // state before execution. Route-first SELECT set_config(...) uses this so the
+  // multipooler can recycle a backend into the correct settings bucket without
+  // mutating gateway state until PostgreSQL accepts the statement. The explicit
+  // boolean preserves an intentionally-empty post state (for example, a reset to
+  // clean) because proto3 maps cannot distinguish nil from empty on the wire.
+  bool has_post_query_session_settings = 10;
+
+  // post_query_session_settings contains the backend session settings that will
+  // be true after the statement succeeds. The multipooler must only apply this
+  // to connection-state bookkeeping after PostgreSQL success; it must not issue
+  // SET commands from this map before running the query.
+  map<string, string> post_query_session_settings = 11;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

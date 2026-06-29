@@ -343,9 +343,9 @@ func (s *ApplySessionState) prepareStreamSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-) (func(), bool, error) {
+) (silentTrackingAction, bool, error) {
 	if !s.SilentTracking {
-		return nil, false, nil
+		return silentTrackingAction{}, false, nil
 	}
 	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
 		if s.BindRefs != nil {
@@ -364,9 +364,9 @@ func (s *ApplySessionState) preparePortalSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
-) (func(), bool, error) {
+) (silentTrackingAction, bool, error) {
 	if !s.SilentTracking {
-		return nil, false, nil
+		return silentTrackingAction{}, false, nil
 	}
 	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
 		if s.BindRefs != nil {
@@ -385,29 +385,29 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	resolveSet func() (resolvedSetConfig, error),
-) (func(), bool, error) {
+) (silentTrackingAction, bool, error) {
 	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
 		resolved, err := resolveSet()
 		if err != nil {
-			return nil, true, err
+			return silentTrackingAction{}, true, err
 		}
 		if !resolved.shouldTrack {
-			return func() {}, true, nil
+			return silentTrackingAction{apply: func() {}}, true, nil
 		}
-		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
-		return action, true, err
+		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
 	case ast.VAR_SET_DEFAULT:
-		return func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }, true, nil
+		return silentTrackingAction{apply: func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }}, true, nil
 	case ast.VAR_RESET:
-		return func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }, true, nil
+		return silentTrackingAction{apply: func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }}, true, nil
 	case ast.VAR_RESET_ALL:
-		return func() {
+		return silentTrackingAction{apply: func() {
 			resetAllSessionVariablesPreservingRoleAuth(state)
 			state.ResetGatewayManagedVariables()
-		}, true, nil
+		}}, true, nil
 	default:
-		return nil, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
+		return silentTrackingAction{}, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
 	}
 }
 
@@ -503,9 +503,15 @@ func (s *ApplySessionState) applyTracked(
 // a tracked SET / set_config. Callers can run this before a client-visible Route
 // and invoke the returned action only after PostgreSQL accepts the statement.
 func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), error) {
-	skipLeakyLocal := isLocal && !conn.IsInTransaction() && handler.IsGatewayManagedVariable(name)
+	action, _, err := prepareTrackedSetActionWithBackendPreview(conn, state, name, value, isLocal)
+	return action, err
+}
+
+func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), func(map[string]string) map[string]string, error) {
+	inTransaction := conn != nil && conn.IsInTransaction()
+	skipLeakyLocal := isLocal && !inTransaction && handler.IsGatewayManagedVariable(name)
 	if skipLeakyLocal {
-		return func() {}, nil
+		return func() {}, nil, nil
 	}
 
 	if handler.IsGatewayManagedVariable(name) {
@@ -513,7 +519,17 @@ func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConne
 		case "statement_timeout":
 			d, err := handler.ParsePostgresInterval("statement_timeout", value)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
+			}
+			var preview func(map[string]string) map[string]string
+			if !isLocal {
+				// The gateway does not replay gateway-managed variables through
+				// SessionSettings, but the Route still executed PostgreSQL's
+				// set_config(..., false) on the backend. Record that backend as dirty
+				// under this GUC so it is reset before another clean client can borrow it.
+				preview = func(settings map[string]string) map[string]string {
+					return applyBackendSessionVariableToMap(settings, name, value)
+				}
 			}
 			return func() {
 				if isLocal {
@@ -521,17 +537,21 @@ func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConne
 				} else {
 					state.SetStatementTimeout(d)
 				}
-			}, nil
+			}, preview, nil
 		default:
-			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+			return nil, nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
 				"internal error resolving set_config (please report this as a bug)",
 				fmt.Sprintf("unsupported gateway-managed variable %q", name))
 		}
 	}
 
-	return func() {
+	action := func() {
 		applyTrackedSessionVariable(state, name, value)
-	}, nil
+	}
+	preview := func(settings map[string]string) map[string]string {
+		return applyBackendSessionVariableToMap(settings, name, value)
+	}
+	return action, preview, nil
 }
 
 func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, name, value string) {
@@ -554,6 +574,29 @@ func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, nam
 	default:
 		state.SetSessionVariable(name, value)
 	}
+}
+
+func applyBackendSessionVariableToMap(settings map[string]string, name, value string) map[string]string {
+	if settings == nil {
+		settings = make(map[string]string)
+	}
+	switch pgsettings.CanonicalGUCName(name) {
+	case "session_authorization":
+		settings["session_authorization"] = value
+		delete(settings, "role")
+	case "role":
+		if value == "none" {
+			delete(settings, "role")
+		} else {
+			settings["role"] = value
+		}
+	default:
+		settings[pgsettings.CanonicalGUCName(name)] = value
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return settings
 }
 
 func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {

@@ -445,6 +445,22 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled, "should not call QueryServiceByID")
 }
 
+func TestScatterConn_StreamExecute_ForwardsPostQuerySessionSettings(t *testing.T) {
+	gw := &mockGateway{callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"}}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	post := map[string]string{"work_mem": "256MB"}
+
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT set_config('work_mem','256MB',false)", nil, state, engine.PlanExecInfo{
+		HasPostQuerySessionSettings: true,
+		PostQuerySessionSettings:    post,
+	}, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteOpts.GetHasPostQuerySessionSettings())
+	require.Equal(t, post, gw.streamExecuteOpts.GetPostQuerySessionSettings())
+}
+
 func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
 	gw := &mockGateway{
 		streamExecuteErr: errors.New("query failed"),

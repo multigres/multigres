@@ -38,17 +38,35 @@ func NewSequence(primitives []Primitive) *Sequence {
 	return &Sequence{Primitives: primitives}
 }
 
+type silentTrackingAction struct {
+	apply func()
+
+	// previewPostSessionSettings mutates/returns a copy of the backend session
+	// settings that should be recorded if the routed statement succeeds. It is
+	// deliberately separate from apply: Sequence runs these previews before the
+	// Route so the multipooler can receive post-query bookkeeping, but it runs
+	// apply only after the Route succeeds so gateway state cannot drift from
+	// PostgreSQL.
+	previewPostSessionSettings func(map[string]string) map[string]string
+}
+
+type preparedSilentTrackingActions struct {
+	actions                     map[int]silentTrackingAction
+	hasPostQuerySessionSettings bool
+	postQuerySessionSettings    map[string]string
+}
+
 type silentTrackingPreparer interface {
-	prepareStreamSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, []*ast.A_Const) (func(), bool, error)
-	preparePortalSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo) (func(), bool, error)
+	prepareStreamSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, []*ast.A_Const) (silentTrackingAction, bool, error)
+	preparePortalSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo) (silentTrackingAction, bool, error)
 }
 
 func (s *Sequence) prepareStreamSilentTrackingActions(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-) (map[int]func(), error) {
-	prepared := make(map[int]func())
+) (preparedSilentTrackingActions, error) {
+	prepared := preparedSilentTrackingActions{actions: make(map[int]silentTrackingAction)}
 	for i, p := range s.Primitives {
 		preparer, ok := p.(silentTrackingPreparer)
 		if !ok {
@@ -56,10 +74,17 @@ func (s *Sequence) prepareStreamSilentTrackingActions(
 		}
 		action, handled, err := preparer.prepareStreamSilentTrackingAction(conn, state, bindVars)
 		if err != nil {
-			return nil, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
+			return preparedSilentTrackingActions{}, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 		if handled {
-			prepared[i] = action
+			prepared.actions[i] = action
+			if action.previewPostSessionSettings != nil {
+				if !prepared.hasPostQuerySessionSettings {
+					prepared.postQuerySessionSettings = state.GetSessionSettings()
+					prepared.hasPostQuerySessionSettings = true
+				}
+				prepared.postQuerySessionSettings = action.previewPostSessionSettings(prepared.postQuerySessionSettings)
+			}
 		}
 	}
 	return prepared, nil
@@ -69,8 +94,8 @@ func (s *Sequence) preparePortalSilentTrackingActions(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
-) (map[int]func(), error) {
-	prepared := make(map[int]func())
+) (preparedSilentTrackingActions, error) {
+	prepared := preparedSilentTrackingActions{actions: make(map[int]silentTrackingAction)}
 	for i, p := range s.Primitives {
 		preparer, ok := p.(silentTrackingPreparer)
 		if !ok {
@@ -78,10 +103,17 @@ func (s *Sequence) preparePortalSilentTrackingActions(
 		}
 		action, handled, err := preparer.preparePortalSilentTrackingAction(conn, state, portalInfo)
 		if err != nil {
-			return nil, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
+			return preparedSilentTrackingActions{}, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 		if handled {
-			prepared[i] = action
+			prepared.actions[i] = action
+			if action.previewPostSessionSettings != nil {
+				if !prepared.hasPostQuerySessionSettings {
+					prepared.postQuerySessionSettings = state.GetSessionSettings()
+					prepared.hasPostQuerySessionSettings = true
+				}
+				prepared.postQuerySessionSettings = action.previewPostSessionSettings(prepared.postQuerySessionSettings)
+			}
 		}
 	}
 	return prepared, nil
@@ -120,12 +152,21 @@ func (s *Sequence) StreamExecute(
 	// set_config steps) ignore it and
 	// issue their own backend calls with the zero value, so the plan's
 	// reservation directives apply exactly once, on the query that warrants them.
+	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
-		if action, ok := prepared[i]; ok {
-			action()
+		if action, ok := prepared.actions[i]; ok {
+			if action.apply != nil {
+				action.apply()
+			}
 			continue
 		}
-		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, info, callback); err != nil {
+		childInfo := info
+		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
+			childInfo.HasPostQuerySessionSettings = true
+			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
+			postQueryInfoAttached = true
+		}
+		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, childInfo, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}
@@ -154,12 +195,21 @@ func (s *Sequence) PortalStreamExecute(
 		return err
 	}
 
+	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
-		if action, ok := prepared[i]; ok {
-			action()
+		if action, ok := prepared.actions[i]; ok {
+			if action.apply != nil {
+				action.apply()
+			}
 			continue
 		}
-		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, info, callback); err != nil {
+		childInfo := info
+		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
+			childInfo.HasPostQuerySessionSettings = true
+			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
+			postQueryInfoAttached = true
+		}
+		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, childInfo, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}

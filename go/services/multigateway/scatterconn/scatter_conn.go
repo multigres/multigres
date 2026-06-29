@@ -94,6 +94,14 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
+func attachPostQuerySessionSettings(eo *querypb.ExecuteOptions, info engine.PlanExecInfo) {
+	if eo == nil || !info.HasPostQuerySessionSettings {
+		return
+	}
+	eo.HasPostQuerySessionSettings = true
+	eo.PostQuerySessionSettings = info.PostQuerySessionSettings
+}
+
 // buildTarget constructs a routing target for the given (database,
 // tableGroup, shard). The database comes from the connection's bound
 // database (conn.Database()) so the gateway routes within the database
@@ -214,6 +222,7 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	ss := state.GetMatchingShardState(target)
 
@@ -475,6 +484,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one

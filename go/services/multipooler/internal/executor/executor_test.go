@@ -71,6 +71,7 @@ func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool    { return m.inTxn }
+func (m *mockReservedConn) Conn() *regular.Conn      { return nil }
 
 func (m *mockReservedConn) BeginWithQuery(_ context.Context, q string) error {
 	m.beginCalls = append(m.beginCalls, q)
@@ -217,10 +218,11 @@ func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) 
 func (m *stubPoolManager) ApplySettingsToConn(context.Context, *regular.Conn, map[string]string) error {
 	return nil
 }
-func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
-func (m *stubPoolManager) WaitForReservedDrain(context.Context) error   { return nil }
-func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }
-func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats          { return connpoolmanager.ManagerStats{} }
+func (m *stubPoolManager) RecordSettingsOnConn(*regular.Conn, map[string]string) {}
+func (m *stubPoolManager) WaitForDrain(context.Context) error                    { return nil }
+func (m *stubPoolManager) WaitForReservedDrain(context.Context) error            { return nil }
+func (m *stubPoolManager) CloseReservedConnections(context.Context) int          { return 0 }
+func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats                   { return connpoolmanager.ManagerStats{} }
 func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQueryRecorder {
 	return nil
 }

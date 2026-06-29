@@ -71,8 +71,30 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 	return options.SessionSettings
 }
 
+func (e *Executor) postQuerySessionSettingsFromOptions(options *query.ExecuteOptions) (map[string]string, bool) {
+	if options == nil || !options.GetHasPostQuerySessionSettings() {
+		return nil, false
+	}
+	return e.sessionSettingsForPool(options.PostQuerySessionSettings), true
+}
+
+func (e *Executor) successfulQueryReleaseSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
+	if settings, ok := e.postQuerySessionSettingsFromOptions(options); ok {
+		return settings
+	}
+	return e.sessionSettingsFromOptions(options)
+}
+
+func (e *Executor) recordPostQuerySessionSettings(conn *regular.Conn, options *query.ExecuteOptions) {
+	settings, ok := e.postQuerySessionSettingsFromOptions(options)
+	if !ok || e.poolManager == nil {
+		return
+	}
+	e.poolManager.RecordSettingsOnConn(conn, settings)
+}
+
 func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
-	if options == nil || options.SessionSettings == nil {
+	if options == nil {
 		return nil
 	}
 	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
@@ -182,6 +204,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			state, rerr := e.reservedConnError(reservedConn, "query execution failed", err)
 			return nil, state, rerr
 		}
+		e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
 
 		if len(results) == 0 {
 			return &sqltypes.Result{}, e.buildReservedState(reservedConn), nil
@@ -216,6 +239,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
+	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
@@ -297,10 +321,7 @@ func (e *Executor) StreamExecute(
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
 		// If the query references a SQL-level prepared statement wrapper,
-		// materialize it now. We do this before delegating to
-		// streamExecuteOnReservedConn because that helper operates over the
-		// reservedConnAPI interface which does not expose the underlying
-		// *regular.Conn needed by ensurePrepared.
+		// materialize it now before delegating to the reserved execution helper.
 		querySQL := sql
 		if executeSQLPreparedStmt != nil {
 			var err error
@@ -310,7 +331,7 @@ func (e *Executor) StreamExecute(
 			}
 		}
 
-		return e.streamExecuteOnReservedConn(ctx, reservedConn, querySQL, reservationOptions, e.sessionSettingsFromOptions(options), callback)
+		return e.streamExecuteOnReservedConnWithOptions(ctx, reservedConn, querySQL, reservationOptions, options, callback)
 	}
 
 	// Case 2: Create a new reserved connection
@@ -354,6 +375,7 @@ func (e *Executor) StreamExecute(
 		if err := conn.Conn.QueryStreaming(ctx, querySQL, callback); err != nil {
 			return nil, wrapQueryError(err)
 		}
+		e.recordPostQuerySessionSettings(conn.Conn, options)
 		return nil, nil
 	}
 
@@ -361,6 +383,7 @@ func (e *Executor) StreamExecute(
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
+	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	return nil, nil
 }
@@ -509,6 +532,9 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
+	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
+	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
+
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		reservedConn.MarkSessionStateUntrusted()
 	}
@@ -518,7 +544,7 @@ func (e *Executor) reserveAndStreamExecute(
 	// acquire, in which case unpin immediately so the gateway doesn't keep an
 	// empty reservation. Gated on the recheck signal so the probe stays off the
 	// per-statement hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, e.sessionSettingsFromOptions(options)) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
 		return nil, nil
 	}
 
@@ -543,6 +569,31 @@ func (e *Executor) streamExecuteOnReservedConn(
 	sql string,
 	reservationOptions *query.ReservationOptions,
 	gatewaySessionSettings map[string]string,
+	callback func(context.Context, *sqltypes.Result) error,
+) (*query.ReservedState, error) {
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, nil, false, callback)
+}
+
+func (e *Executor) streamExecuteOnReservedConnWithOptions(
+	ctx context.Context,
+	rc reservedConnAPI,
+	sql string,
+	reservationOptions *query.ReservationOptions,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (*query.ReservedState, error) {
+	postSettings, hasPostSettings := e.postQuerySessionSettingsFromOptions(options)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, callback)
+}
+
+func (e *Executor) streamExecuteOnReservedConnWithPostState(
+	ctx context.Context,
+	rc reservedConnAPI,
+	sql string,
+	reservationOptions *query.ReservationOptions,
+	gatewaySessionSettings map[string]string,
+	postQuerySessionSettings map[string]string,
+	hasPostQuerySessionSettings bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	reasons := protoutil.GetReasons(reservationOptions)
@@ -611,6 +662,15 @@ func (e *Executor) streamExecuteOnReservedConn(
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
 	}
 
+	releaseSettings := gatewaySessionSettings
+	if hasPostQuerySessionSettings {
+		releaseSettings = postQuerySessionSettings
+		e.recordPostQuerySessionSettings(rc.Conn(), &query.ExecuteOptions{
+			HasPostQuerySessionSettings: true,
+			PostQuerySessionSettings:    postQuerySessionSettings,
+		})
+	}
+
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		rc.MarkSessionStateUntrusted()
 	}
@@ -629,7 +689,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 		}
 	}
 	if shouldRelease {
-		rc.Release(reserved.ReleasePortalComplete, gatewaySessionSettings)
+		rc.Release(reserved.ReleasePortalComplete, releaseSettings)
 		return nil, nil
 	}
 
@@ -637,7 +697,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
 	// the recheck signal so the probe runs only on advisory-touching statements,
 	// not after every query on a pinned connection.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, gatewaySessionSettings) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, releaseSettings) {
 		return nil, nil
 	}
 
@@ -908,6 +968,9 @@ func (e *Executor) portalExecuteWithReserved(
 		return e.portalReservedError(reservedConn, portal.Name, options, err)
 	}
 
+	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
+	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
+
 	if reservationOptions.GetMarkSessionStateUntrusted() {
 		reservedConn.MarkSessionStateUntrusted()
 	}
@@ -924,7 +987,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// Portal completed — release this portal's reservation. ReleasePortal returns
 	// true only when all reservation reasons are gone.
 	if reservedConn.ReleasePortal(portal.Name) {
-		reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
+		reservedConn.Release(reserved.ReleasePortalComplete, releaseSettings)
 		return nil, nil
 	}
 
@@ -932,7 +995,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// this portal as touching an advisory lock (acquire that may have failed, or
 	// a release over the extended protocol), re-probe pg_locks and unpin if none
 	// remain. Gated on the recheck signal to keep the probe off the hot path.
-	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, e.sessionSettingsFromOptions(options)) {
+	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
 		return nil, nil
 	}
 
@@ -1024,6 +1087,7 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
+	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// No reserved connection for regular execution
 	return nil, nil

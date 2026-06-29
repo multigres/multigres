@@ -1274,8 +1274,22 @@ type ExecuteOptions struct {
 	// This field is only consumed by StreamExecute. PortalStreamExecute has its
 	// own top-level prepared_statement field.
 	ExecuteSqlPreparedStatement *ExecuteSqlPreparedStatement `protobuf:"bytes,9,opt,name=execute_sql_prepared_statement,json=executeSqlPreparedStatement,proto3" json:"execute_sql_prepared_statement,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// has_post_query_session_settings indicates that post_query_session_settings
+	// is authoritative for the backend's session state after this statement
+	// succeeds. This is distinct from session_settings, which is the desired
+	// state before execution. Route-first SELECT set_config(...) uses this so the
+	// multipooler can recycle a backend into the correct settings bucket without
+	// mutating gateway state until PostgreSQL accepts the statement. The explicit
+	// boolean preserves an intentionally-empty post state (for example, a reset to
+	// clean) because proto3 maps cannot distinguish nil from empty on the wire.
+	HasPostQuerySessionSettings bool `protobuf:"varint,10,opt,name=has_post_query_session_settings,json=hasPostQuerySessionSettings,proto3" json:"has_post_query_session_settings,omitempty"`
+	// post_query_session_settings contains the backend session settings that will
+	// be true after the statement succeeds. The multipooler must only apply this
+	// to connection-state bookkeeping after PostgreSQL success; it must not issue
+	// SET commands from this map before running the query.
+	PostQuerySessionSettings map[string]string `protobuf:"bytes,11,rep,name=post_query_session_settings,json=postQuerySessionSettings,proto3" json:"post_query_session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1353,6 +1367,20 @@ func (x *ExecuteOptions) GetClientConnectionId() uint32 {
 func (x *ExecuteOptions) GetExecuteSqlPreparedStatement() *ExecuteSqlPreparedStatement {
 	if x != nil {
 		return x.ExecuteSqlPreparedStatement
+	}
+	return nil
+}
+
+func (x *ExecuteOptions) GetHasPostQuerySessionSettings() bool {
+	if x != nil {
+		return x.HasPostQuerySessionSettings
+	}
+	return false
+}
+
+func (x *ExecuteOptions) GetPostQuerySessionSettings() map[string]string {
+	if x != nil {
+		return x.PostQuerySessionSettings
 	}
 	return nil
 }
@@ -1638,7 +1666,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xd9\x03\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xe0\x05\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1646,8 +1674,14 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x12,\n" +
 	"\tuser_auth\x18\a \x01(\v2\x0f.query.UserAuthR\buserAuth\x120\n" +
 	"\x14client_connection_id\x18\b \x01(\rR\x12clientConnectionId\x12g\n" +
-	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x1aB\n" +
+	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12D\n" +
+	"\x1fhas_post_query_session_settings\x18\n" +
+	" \x01(\bR\x1bhasPostQuerySessionSettings\x12r\n" +
+	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aK\n" +
+	"\x1dPostQuerySessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
 	"\bUserAuth\x12\"\n" +
@@ -1682,7 +1716,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_query_proto_goTypes = []any{
 	(Mode)(0),                           // 0: query.Mode
 	(*QueryResultPayload)(nil),          // 1: query.QueryResultPayload
@@ -1702,8 +1736,9 @@ var file_query_proto_goTypes = []any{
 	(*UserAuth)(nil),                    // 15: query.UserAuth
 	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
 	nil,                                 // 17: query.ExecuteOptions.SessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 18: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),          // 19: clustermetadata.ID
+	nil,                                 // 18: query.ExecuteOptions.PostQuerySessionSettingsEntry
+	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1714,18 +1749,19 @@ var file_query_proto_depIdxs = []int32{
 	5,  // 5: query.QueryResult.notices:type_name -> query.PgDiagnostic
 	8,  // 6: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	3,  // 7: query.StatementDescription.fields:type_name -> query.Field
-	18, // 8: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	19, // 8: query.Target.shard_key:type_name -> clustermetadata.ShardKey
 	0,  // 9: query.Target.mode:type_name -> query.Mode
 	10, // 10: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
-	19, // 11: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	20, // 11: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
 	17, // 12: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
 	15, // 13: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
 	11, // 14: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	18, // 15: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1744,7 +1780,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

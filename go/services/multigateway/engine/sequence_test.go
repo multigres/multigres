@@ -34,29 +34,37 @@ import (
 // recordingPrimitive captures which dispatch method was invoked. Used to
 // verify Sequence iterates and dispatches per-child.
 type recordingPrimitive struct {
-	streamCalls int
-	portalCalls int
-	err         error
+	streamCalls   int
+	portalCalls   int
+	streamInfos   []PlanExecInfo
+	portalInfos   []PlanExecInfo
+	stateAtStream map[string]string
+	err           error
 }
 
 func (r *recordingPrimitive) StreamExecute(
-	context.Context, IExecute, *server.Conn,
-	*handler.MultigatewayConnectionState, []*ast.A_Const,
-	PlanExecInfo,
-	func(context.Context, *sqltypes.Result) error,
+	_ context.Context, _ IExecute, _ *server.Conn,
+	state *handler.MultigatewayConnectionState, _ []*ast.A_Const,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.streamCalls++
+	r.streamInfos = append(r.streamInfos, info)
+	if state != nil {
+		r.stateAtStream = state.GetSessionSettings()
+	}
 	return r.err
 }
 
 func (r *recordingPrimitive) PortalStreamExecute(
-	context.Context, IExecute, *server.Conn,
-	*handler.MultigatewayConnectionState,
-	*preparedstatement.PortalInfo, int32, bool,
-	PlanExecInfo,
-	func(context.Context, *sqltypes.Result) error,
+	_ context.Context, _ IExecute, _ *server.Conn,
+	_ *handler.MultigatewayConnectionState,
+	_ *preparedstatement.PortalInfo, _ int32, _ bool,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.portalCalls++
+	r.portalInfos = append(r.portalInfos, info)
 	return r.err
 }
 
@@ -68,6 +76,14 @@ func silentStatementTimeoutTrack(value string) *ApplySessionState {
 	return NewApplySessionStateSilent("SELECT set_config('statement_timeout', '"+value+"', false)", &ast.VariableSetStmt{
 		Kind: ast.VAR_SET_VALUE,
 		Name: "statement_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
+	})
+}
+
+func silentWorkMemTrack(value string) *ApplySessionState {
+	return NewApplySessionStateSilent("SELECT set_config('work_mem', '"+value+"', false)", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
 	})
 }
@@ -98,7 +114,31 @@ func TestSequence_StreamExecute_AppliesPreparedTrackingAfterRouteSuccess(t *test
 	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, route.streamCalls)
+	require.Len(t, route.streamInfos, 1)
+	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
+	assert.Equal(t, "5s", route.streamInfos[0].PostQuerySessionSettings["statement_timeout"],
+		"gateway-managed set_config still dirties the backend and must be bucketed/reset safely")
 	assert.Equal(t, 5*time.Second, state.GetStatementTimeout())
+}
+
+func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *testing.T) {
+	route := &recordingPrimitive{}
+	seq := NewSequence([]Primitive{route, silentWorkMemTrack("256MB")})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, route.streamCalls)
+	require.Len(t, route.streamInfos, 1)
+	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
+	assert.Equal(t, map[string]string{"work_mem": "256MB"}, route.streamInfos[0].PostQuerySessionSettings)
+	assert.Nil(t, route.stateAtStream, "gateway state must not mutate before the Route succeeds")
+
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	assert.Equal(t, "256MB", got)
 }
 
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {

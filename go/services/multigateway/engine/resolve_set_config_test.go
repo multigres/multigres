@@ -86,7 +86,7 @@ func (e *resolveApplyExec) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.PreparedStatement,
+	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,

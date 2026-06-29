@@ -33,7 +33,9 @@ import (
 //	Sequence[Route(original SQL), ApplySessionState per call]
 //
 // The Route sends the unmodified query to PG, which executes set_config
-// normally and streams the result back. Only after that succeeds do the silent
+// normally and streams the result back. The Sequence precomputes the backend's
+// post-success session settings and attaches them to the Route for multipooler
+// recycle bookkeeping, but only after the Route succeeds do the silent
 // ApplySessionState primitives update the gateway tracker. This preserves
 // PostgreSQL semantics on statement errors: a rejected SELECT must not leave a
 // session GUC recorded in the gateway when the backend never applied it.
