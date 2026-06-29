@@ -108,10 +108,12 @@ func ContribModules() []string {
 // multigateway and returns one merged TestResults across all modules.
 //
 // Each module is a separate pg_regress invocation (make -C contrib/<mod>
-// installcheck). As with the core regression suite we pass
-// --use-existing --dbname=postgres because multigateway rejects DROP/CREATE
-// DATABASE. Per-test names are prefixed with the module directory
-// ("citext/citext") so they stay unique in the merged report.
+// installcheck). As with the core regression suite we pass --use-existing
+// because multigateway rejects DROP/CREATE DATABASE. PGXS appends
+// --dbname=$(CONTRIB_TESTDB), so installcheck modules override CONTRIB_TESTDB
+// to postgres to match the single database exposed by the test cluster.
+// Per-test names are prefixed with the module directory ("citext/citext") so
+// they stay unique in the merged report.
 //
 // All modules share the single postgres database (multigateway can't isolate
 // per-DB), so before each module we reset the public schema directly on the
@@ -186,7 +188,9 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 		} else {
 			t.Logf("Running contrib/%s installcheck against multigateway...", mod)
 			cmd = executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
-				"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
+				"EXTRA_REGRESS_OPTS=--use-existing",
+				"CONTRIB_TESTDB=postgres",
+				"ISOLATION_TESTDB=postgres").WithProcessGroup()
 		}
 
 		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{

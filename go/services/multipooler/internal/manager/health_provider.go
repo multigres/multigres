@@ -22,7 +22,6 @@ import (
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 )
 
@@ -60,6 +59,12 @@ type healthStreamer struct {
 	poolerType        clustermetadatapb.PoolerType
 	leaderObservation *poolerserver.LeaderObservation
 
+	// writable reports whether postgres can accept writes (!pg_is_in_recovery).
+	// Published separately from poolerType (which tracks the consensus term, not
+	// writability) so the gateway can hold write traffic for a leader that is
+	// SERVING but still mid-promotion.
+	writable bool
+
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
 
@@ -84,7 +89,7 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 		shard:                       shard,
 		clients:                     make(map[chan *poolerserver.HealthState]struct{}),
 		recommendedStalenessTimeout: defaultRecommendedStalenessTimeout,
-		servingStatus:               clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus:               clustermetadatapb.PoolerServingStatus_DISABLED,
 	}
 
 	// The observable gauge samples the lag atomic at collection time.
@@ -120,24 +125,40 @@ func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObserv
 // For SERVING transitions, it waits for the query server (via queryReadyGate)
 // to finish updating before broadcasting. This prevents the gateway from
 // discovering the new primary before the pooler can actually serve that type.
-// NOT_SERVING transitions broadcast immediately so the gateway can start
+// not-serving transitions broadcast immediately so the gateway can start
 // buffering without delay.
-func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, poolerType, servingStatus)
+		hs.queryServer.AwaitStateChange(ctx, isConsensusLeader, servingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	hs.poolerType = poolerType
+	// The health stream still reports the PoolerType routing label to the gateway.
+	// PoolerType tracks the consensus term (leadership), not postgres writability —
+	// a leader can be the term leader before it has finished promoting. Translate
+	// the leader fact to the wire label: a non-leader is a read replica for routing.
+	hs.poolerType = poolerTypeForLeader(isConsensusLeader)
+	// writable is published separately so the gateway gates write traffic on actual
+	// write-readiness (postgres out of recovery), not on leadership.
+	hs.writable = postgresPrimary
 	hs.servingStatus = servingStatus
 	hs.broadcastLocked()
 	if prev != servingStatus {
 		hs.metrics.recordTransition(ctx, prev, servingStatus)
 	}
 	return nil
+}
+
+// poolerTypeForLeader maps the consensus-leadership fact to the PoolerType routing
+// label published on the health stream.
+func poolerTypeForLeader(isConsensusLeader bool) clustermetadatapb.PoolerType {
+	if isConsensusLeader {
+		return clustermetadatapb.PoolerType_PRIMARY
+	}
+	return clustermetadatapb.PoolerType_REPLICA
 }
 
 // Broadcast sends the current state to all clients without changing any state.
@@ -159,16 +180,12 @@ func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
-		Target: &querypb.Target{
-			TableGroup: hs.tableGroup,
-			Shard:      hs.shard,
-			PoolerType: hs.poolerType,
-		},
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
 		LeaderObservation:           hs.leaderObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
+		Writable:                    hs.writable,
 	}
 }
 

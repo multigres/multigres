@@ -21,17 +21,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 func TestClassifyError(t *testing.T) {
-	primaryTarget := &query.Target{
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	replicaTarget := &query.Target{
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
+	primaryTarget := &query.Target{Mode: query.Mode_MODE_WRITABLE}
+	replicaTarget := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
 
 	tests := []struct {
 		name   string

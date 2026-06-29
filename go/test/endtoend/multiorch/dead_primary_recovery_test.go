@@ -136,7 +136,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		currentPrimaryName := currentPrimary.Name
 
 		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
-		// between the kill and when emergencyDemoteLocked sets rewindPending.
+		// between the kill and when demoteToStandbyLocked sets rewindPending.
 		primaryManagerClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
 		require.NoError(t, err)
 		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
@@ -155,7 +155,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
+		// Re-enable postgres restarts: by now demoteToStandbyLocked has set rewindPending,
 		// so the monitor will not restart postgres before stale-primary demotion runs.
 		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)

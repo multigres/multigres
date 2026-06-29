@@ -82,7 +82,7 @@ func (m *mockIExecute) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *query.PreparedStatement,
+	preparedStatement *query.ExecuteSqlPreparedStatement,
 	state *handler.MultiGatewayConnectionState,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,

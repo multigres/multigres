@@ -40,24 +40,32 @@ import (
 // GetComparisonTargets). The two cases are connecting to a nonexistent database
 // and the auth-vs-database error ordering.
 //
-// The headline finding is a genuine **divergence**, documented and guarded
-// below: direct PostgreSQL validates the database during startup and rejects a
-// nonexistent one at connect time (3D000), whereas the multigateway authenticates
-// the client and routes queries to the database its backend serves *without
-// validating the requested name* — so an unknown database is silently accepted.
-// The auth-ordering case, by contrast, matches between the two.
+// **Known divergence**: the multigateway rejects a nonexistent connection
+// database with 28P01 (auth failure) instead of 3D000 / "no such database" —
+// which is what both PostgreSQL and pgbouncer return. See
+// TestNonexistentDatabaseConnectBehavior; the eventual fix is to align with
+// pgbouncer. The auth-ordering case (28P01 when both password is wrong AND
+// database is missing) matches between the two.
 
 // nonexistentDB is a database name that is not registered in the test topology
 // nor created in postgres.
 const nonexistentDB = "no_such_db_xyz"
 
-// TestNonexistentDatabaseConnectBehavior documents how the two targets diverge on
-// a nonexistent connection database: PostgreSQL rejects it at connect with
-// invalid_catalog_name (3D000); the multigateway accepts the connection (auth
-// only) and serves queries against its backend database regardless of the
-// requested name. The multigateway branch guards that current behavior — if the
-// gateway later validates the connection database, this test will flag it for an
-// intended update.
+// TestNonexistentDatabaseConnectBehavior documents how the two targets reject a
+// nonexistent connection database with different SQLSTATEs:
+//   - Direct PostgreSQL validates the catalog during startup and returns 3D000
+//     (invalid_catalog_name) at connect time.
+//   - The multigateway routes the credential lookup to the requested database;
+//     no pooler is registered for an unknown database, so the credential
+//     provider's error path surfaces as 28P01 (auth failure) at connect time.
+//
+// The multigateway's 28P01 is misleading and **diverges from both PostgreSQL
+// and pgbouncer**: pgbouncer's test_no_database asserts the client sees a "no
+// such database" error (3D000-shaped), and only switches to "password
+// authentication failed" (28P01) when the password is genuinely wrong
+// (test_no_database_authfail). The multigateway conflates the two. The
+// eventual fix is to translate "no pooler for database" into 3D000. Until
+// that lands, this test guards the current shape so we notice if it shifts.
 func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -78,22 +86,17 @@ func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 	assert.Equal(t, "3D000", code, "direct postgres should reject a nonexistent database with invalid_catalog_name")
 	assert.Equal(t, "connect", stage, "direct postgres rejects the database at connect time")
 
-	// Multigateway (DIVERGENCE): authentication succeeds and the gateway never
-	// validates the requested database, so the connection comes up and queries
-	// run against the served database (postgres). This guards the current
-	// behavior; it is a known divergence from PostgreSQL, not necessarily the
-	// desired end state.
-	gwDSN := buildDSN(targetPort(t, targets, "multigateway"), nonexistentDB, shardsetup.TestPostgresPassword)
-	gwConn, err := pgx.Connect(ctx, gwDSN)
-	require.NoError(t, err,
-		"DIVERGENCE: the multigateway does not validate the connection database, so a nonexistent name is accepted")
-	defer gwConn.Close(ctx)
-
-	var served string
-	require.NoError(t, gwConn.QueryRow(ctx, "SELECT current_database()").Scan(&served))
-	t.Logf("multigateway accepted database %q and served %q instead", nonexistentDB, served)
-	assert.Equal(t, "postgres", served,
-		"the gateway serves its backend database regardless of the requested (nonexistent) name")
+	// Multigateway (DIVERGENCE): the credential lookup is routed to the
+	// requested database and fails because no pooler is registered for it.
+	// The current error path surfaces this as 28P01 — misleading, since the
+	// password is correct. The eventual fix is to translate
+	// "no pooler for database" into 3D000 so we align with pgbouncer.
+	code, stage, err = probeConnect(t, ctx, targetPort(t, targets, "multigateway"), nonexistentDB, shardsetup.TestPostgresPassword)
+	require.Error(t, err, "multigateway must reject a nonexistent database")
+	t.Logf("multigateway: failed at %s stage with SQLSTATE %q", stage, code)
+	assert.Equal(t, "28P01", code,
+		"DIVERGENCE: multigateway currently returns 28P01 (auth failure) for a missing database; PostgreSQL and pgbouncer return 3D000-shaped 'no such database' instead")
+	assert.Equal(t, "connect", stage, "multigateway rejects the database at connect time")
 }
 
 // TestAuthErrorPrecedesDatabaseError asserts that when both the password is wrong

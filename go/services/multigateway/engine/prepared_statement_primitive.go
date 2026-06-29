@@ -42,8 +42,9 @@ const (
 //
 // Key behaviors:
 //   - PREPARE: Calls HandleParse to register in the consolidator.
-//   - EXECUTE: Rewrites the prepared-statement name to the canonical name and
-//     runs SQL EXECUTE verbatim so PostgreSQL evaluates argument expressions.
+//   - EXECUTE: Sends a SQL EXECUTE prefix/suffix template plus prepared
+//     statement metadata so the multipooler can resolve a pooler-consolidated
+//     backend name and PostgreSQL can evaluate argument expressions.
 //   - DEALLOCATE: Calls HandleClose to remove the user-facing mapping.
 //   - DEALLOCATE ALL: Clears all user-facing mappings for this connection.
 type PreparedStatementPrimitive struct {
@@ -147,11 +148,11 @@ func (p *PreparedStatementPrimitive) executePrepare(
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
 }
 
-// executeExecute rewrites the SQL-level EXECUTE to reference the gateway
-// canonical prepared-statement name, attaches the prepared-statement metadata,
-// and sends the rewritten SQL through StreamExecute. This preserves the
-// consolidation path while letting PostgreSQL evaluate EXECUTE arguments
-// verbatim, including casts, arrays, functions, and other expressions.
+// executeExecute sends the SQL-level EXECUTE wrapper as prefix/suffix plus the
+// prepared-statement metadata. The multipooler resolves the backend statement
+// name through its pooler-level consolidator (ppstmt*) and materializes the SQL
+// before sending it to PostgreSQL, which evaluates EXECUTE arguments verbatim,
+// including casts, arrays, functions, and other expressions.
 func (p *PreparedStatementPrimitive) executeExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -167,15 +168,11 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return fmt.Errorf("internal error: execute statement AST missing for statement \"%s\"", p.stmtName)
 	}
 
-	rewrittenSQL := p.executeSQLWithName(psi.Name)
-	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, rewrittenSQL, psi.PreparedStatement, state, PlanExecInfo{}, callback)
-}
-
-func (p *PreparedStatementPrimitive) executeSQLWithName(name string) string {
-	originalName := p.executeStmt.Name
-	p.executeStmt.Name = name
-	defer func() { p.executeStmt.Name = originalName }()
-	return p.executeStmt.SqlString()
+	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, psi.PreparedStatement)
+	if err != nil {
+		return err
+	}
+	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, PlanExecInfo{}, callback)
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent

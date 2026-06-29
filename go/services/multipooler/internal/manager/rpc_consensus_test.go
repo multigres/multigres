@@ -90,14 +90,15 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		TopoClient: ts,
 		PgctldAddr: pgctldAddr,
 	}
-	pm, err := NewMultiPoolerManager(logger, multipooler, config)
+	// Build through the real constructor with the mock query service and fake
+	// rule store injected, so the consensus manager (promises rooted at tmpDir
+	// via PoolerDir, rule store = the fake) is wired correctly from the start.
+	pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(rules),
+	)
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
-
-	// Assign mock pooler controller and rule store BEFORE starting the manager
-	// to avoid race conditions.
-	pm.qsc = &mockPoolerController{queryService: mockQueryService}
-	pm.rules = rules
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -114,11 +115,6 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
 	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
-
-	// Initialize consensus state
-	pm.mu.Lock()
-	pm.consensusState = consensus.NewConsensusState(tmpDir, serviceID)
-	pm.mu.Unlock()
 
 	return pm, tmpDir
 }
@@ -354,7 +350,7 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			// Primary node where emergencyDemoteLocked fails because there are no
+			// Primary node where demoteToStandbyLocked fails because there are no
 			// postgres mocks for the demotion queries. Exercises the isPrimary=true
 			// branch in Recruit and verifies that nothing is persisted on failure.
 			name:              "PrimaryReject_DemotionFails",
@@ -371,7 +367,7 @@ func TestRecruit(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// isPrimary returns false for pg_is_in_recovery (not in recovery = primary).
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				// No further mocks — emergencyDemoteLocked fails on its first query.
+				// No further mocks — demoteToStandbyLocked fails on its first query.
 			},
 			expectError:                true,
 			expectErrContains:          "failed to stop replication during recruit",
@@ -390,7 +386,7 @@ func TestRecruit(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
 			consensustest.SeedTerm(t, tmpDir, tt.initialRevocation)
-			_, err := pm.consensusState.Load()
+			_, err := pm.consensusMgr.Promises().Load()
 			require.NoError(t, err)
 
 			if tt.makeFilesystemReadOnly {
@@ -416,7 +412,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted := pm.consensusState.GetInconsistentRevocation()
+			persisted := pm.consensusMgr.Promises().GetInconsistentRevocation()
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
@@ -430,7 +426,11 @@ func TestRecruit(t *testing.T) {
 		// quorum. The actual rewind happens at SetPrimary.
 		mockQueryService := mock.NewQueryService()
 		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
-		pm.suspectedDivergence.Store(true)
+		seedLockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+		require.NoError(t, err)
+		_, err = pm.consensusMgr.SetSuspectedDivergence(seedLockCtx, true)
+		require.NoError(t, err)
+		pm.actionLock.Release(seedLockCtx)
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -440,7 +440,7 @@ func TestRecruit(t *testing.T) {
 				OutgoingRule:           &clustermetadatapb.RuleNumber{},
 			},
 		}
-		_, err := pm.Recruit(t.Context(), req)
+		_, err = pm.Recruit(t.Context(), req)
 		// We don't require success here (the minimal mock setup doesn't
 		// satisfy the full Recruit path); we only assert that suspectedDivergence
 		// is no longer the reason for rejection.
@@ -564,7 +564,7 @@ func TestPromote(t *testing.T) {
 		ruleStore         *fakeRuleStore
 		req               *consensusdatapb.PromoteRequest
 		setupMocks        func(*mock.QueryService)
-		preRun            func(*MultiPoolerManager)
+		preRun            func(*testing.T, *MultiPoolerManager)
 		expectError       bool
 		expectErrContains string
 		postCheck         func(*testing.T, *MultiPoolerManager, *fakeRuleStore)
@@ -712,11 +712,12 @@ func TestPromote(t *testing.T) {
 			},
 			// Verify the promotion was recorded with the right coordinator term and WAL
 			// position, and that the health streamer was updated for write traffic.
-			preRun: func(pm *MultiPoolerManager) {
+			preRun: func(t *testing.T, pm *MultiPoolerManager) {
 				// Pre-set so we can verify clearResignedLeaderAtTerm ran.
-				pm.mu.Lock()
-				pm.resignedLeaderAtTerm = 7
-				pm.mu.Unlock()
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
+				pm.actionLock.Release(lockCtx)
 			},
 			postCheck: func(t *testing.T, pm *MultiPoolerManager, rs *fakeRuleStore) {
 				update := rs.assertPromoteRecorded(t)
@@ -735,14 +736,12 @@ func TestPromote(t *testing.T) {
 				assert.True(t, proto.Equal(selfID, state.LeaderObservation.LeaderID))
 				assert.Equal(t, int64(7), state.LeaderObservation.LeaderTerm)
 
-				pm.mu.Lock()
-				assert.Equal(t, int64(0), pm.resignedLeaderAtTerm, "clearResignedLeaderAtTerm should have cleared the term")
-				pm.mu.Unlock()
+				assert.Equal(t, int64(0), pm.consensusMgr.ResignedLeaderAtTerm(), "clearResignedLeaderAtTerm should have cleared the term")
 
 				// ReplicationPrimary should advertise this pooler as the primary
 				// at the proposalLeader's host/port. Coordinators reading this
 				// pooler's health stream see (self, host, port).
-				rp := pm.consensusState.GetReplicationPrimary()
+				rp := pm.consensusMgr.GetReplicationPrimary()
 				require.NotNil(t, rp)
 				require.NotNil(t, rp.GetPrimary())
 				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))
@@ -879,11 +878,11 @@ func TestPromote(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, tt.ruleStore)
 
 			consensustest.SeedTerm(t, tmpDir, tt.initialTerm)
-			_, err := pm.consensusState.Load()
+			_, err := pm.consensusMgr.Promises().Load()
 			require.NoError(t, err)
 
 			if tt.preRun != nil {
-				tt.preRun(pm)
+				tt.preRun(t, pm)
 			}
 
 			resp, err := pm.Promote(ctx, tt.req)
@@ -939,7 +938,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		setupMocks(m)
 		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
 		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
-		_, err := pm.consensusState.Load()
+		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
 		_, err = pm.Promote(t.Context(), req)
 		return m, err
@@ -971,7 +970,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 
 func TestAvailabilityStatus(t *testing.T) {
 	t.Run("buildAvailabilityStatus publishes cohort eligibility with no leadership status when no resignation is set", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newTestManager(t)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
@@ -980,8 +979,7 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("resignedLeaderAtTerm set adds a LeadershipStatus alongside cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.resignedLeaderAtTerm = 7
+		pm := newTestManager(t, withResignedLeaderAtTerm(7))
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
@@ -991,19 +989,20 @@ func TestAvailabilityStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE, av.CohortEligibilityStatus.Signal)
 	})
 
-	t.Run("resignedLeaderAtTerm cleared drops LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.resignedLeaderAtTerm = 3
-		pm.resignedLeaderAtTerm = 0
+	t.Run("no resignation -> no LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
+		pm := newTestManager(t)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
 	})
 
-	t.Run("setCohortEligibility flips the signal", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
-		pm.setCohortEligibility(clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE)
+	t.Run("SetCohortEligibility flips the signal", func(t *testing.T) {
+		pm := newTestManager(t)
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+		require.NoError(t, err)
+		require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE))
+		pm.actionLock.Release(lockCtx)
 		av := pm.buildAvailabilityStatus()
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
@@ -1011,9 +1010,13 @@ func TestAvailabilityStatus(t *testing.T) {
 	})
 
 	t.Run("suspectedDivergence is published", func(t *testing.T) {
-		pm := &MultiPoolerManager{cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE}
+		pm := newTestManager(t)
 		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
-		pm.suspectedDivergence.Store(true)
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+		require.NoError(t, err)
+		_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+		require.NoError(t, err)
+		pm.actionLock.Release(lockCtx)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
 }
@@ -1027,10 +1030,8 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
 	streamer := newHealthStreamer(logger, id, "tg", "0")
 	pm := &MultiPoolerManager{
-		logger:         logger,
-		serviceID:      id,
-		healthStreamer: streamer,
-		actionLock:     actionlock.NewActionLock(),
+		actionLock:   actionlock.NewActionLock(),
+		consensusMgr: consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
 	}
 
 	// Subscribe so we can observe broadcasts.
@@ -1052,15 +1053,15 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
 	assert.Equal(t, 1, drain(), "first call should broadcast on change from 0 to 5")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
 	assert.Equal(t, 0, drain(), "repeating the same value should NOT broadcast")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 7))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
 	assert.Equal(t, 1, drain(), "changing to a new term should broadcast")
 
-	require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, 0))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 0))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
 }

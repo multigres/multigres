@@ -111,10 +111,13 @@ func (l *Listener) Stop() {
 	l.cancel = nil
 }
 
-// OnStateChange implements manager.StateAware. The listener runs only when the
-// multipooler is PRIMARY+SERVING; it is stopped on any other state transition.
-func (l *Listener) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+// OnStateChange implements manager.StateAware. The listener runs only when this
+// pooler is the consensus leader AND postgres is out of recovery AND serving; it
+// is stopped on any other state transition. LISTEN/NOTIFY only carries
+// notifications on the actual postgres primary — standbys never receive them — so
+// postgresPrimary must gate it in addition to leadership.
+func (l *Listener) OnStateChange(_ context.Context, isConsensusLeader bool, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if isConsensusLeader && postgresPrimary && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		//nolint:gocritic // Long-lived background listener; must not use the transient state-change ctx.
 		l.Start(context.Background())
 	} else {

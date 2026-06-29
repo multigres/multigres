@@ -143,8 +143,13 @@ func (m *mockReservedConn) MarkSessionStateUntrusted() {
 var _ reservedConnAPI = (*mockReservedConn)(nil)
 
 type stubPoolManager struct {
-	reservedConn   *reserved.Conn
-	reservedConnOK bool
+	reservedConn    *reserved.Conn
+	reservedConnOK  bool
+	regularConn     regular.PooledConn
+	regularErr      error
+	newReservedConn *reserved.Conn
+	newReservedPool *reserved.Pool
+	newReservedErr  error
 }
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
@@ -158,11 +163,23 @@ func (m *stubPoolManager) GetRegularConn(context.Context, string, []byte, []byte
 }
 
 func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string]string, string, []byte, []byte) (regular.PooledConn, error) {
-	return nil, nil
+	if m.regularErr != nil {
+		return nil, m.regularErr
+	}
+	return m.regularConn, nil
 }
 
-func (m *stubPoolManager) NewReservedConn(context.Context, map[string]string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
-	return nil, errors.New("not implemented in test stub")
+func (m *stubPoolManager) NewReservedConn(ctx context.Context, _ map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	if m.newReservedErr != nil {
+		return nil, m.newReservedErr
+	}
+	if m.newReservedConn != nil {
+		return m.newReservedConn, nil
+	}
+	if m.newReservedPool == nil {
+		return nil, errors.New("not implemented in test stub")
+	}
+	return m.newReservedPool.NewConn(ctx, nil, opts...)
 }
 
 func (m *stubPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
@@ -955,6 +972,184 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
+func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	first := &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
+		SqlPrefix:         "EXECUTE ",
+		SqlSuffix:         " ( 1 )",
+	}
+	second := &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{Name: "stmt99", Query: "SELECT $1", ParamTypes: []uint32{23}},
+		SqlPrefix:         "EXPLAIN EXECUTE ",
+		SqlSuffix:         " ( 2 )",
+	}
+
+	sql1, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, first)
+	require.NoError(t, err)
+	sql2, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, second)
+	require.NoError(t, err)
+
+	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
+	assert.Equal(t, "EXPLAIN EXECUTE ppstmt0 ( 2 )", sql2)
+	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"))
+	assert.Nil(t, conn.State().GetPreparedStatement("stmt0"))
+	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
+}
+
+func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err := e.materializeExecuteSQLPreparedStatement(context.Background(), nil, nil)
+	require.ErrorContains(t, err, "SQL EXECUTE prepared statement is required")
+
+	_, err = e.materializeExecuteSQLPreparedStatement(context.Background(), nil, &query.ExecuteSqlPreparedStatement{})
+	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
+}
+
+func TestStreamExecuteMaterializesExecuteSQLOnRegularConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+
+	pm := &stubPoolManager{
+		regularConn: &connpool.Pooled[*regular.Conn]{Conn: regular.NewConn(clientConn, nil)},
+	}
+	e := NewExecutor(slog.Default(), pm, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt ( 1 )", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
+			SqlPrefix:         "EXECUTE ",
+			SqlSuffix:         " ( 1 )",
+		},
+	}, nil, noopCallback)
+	require.NoError(t, err)
+
+	assert.Equal(t, "execute ppstmt0 ( 1 )", server.QueryLog())
+}
+
+func TestStreamExecuteMaterializesExecuteSQLOnExistingReservedConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	defer rconn.Release(reserved.ReleaseCommit, nil)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.StreamExecute(ctx, &query.Target{}, "EXPLAIN EXECUTE gateway_stmt", &query.ExecuteOptions{
+		User:                 "postgres",
+		ReservedConnectionId: uint64(rconn.ConnID()),
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
+			SqlPrefix:         "EXPLAIN EXECUTE ",
+		},
+	}, nil, noopCallback)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	assert.Equal(t, "explain execute ppstmt0", server.QueryLog())
+}
+
+func TestStreamExecuteMaterializesExecuteSQLOnNewReservedConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.StreamExecute(ctx, &query.Target{}, "CREATE TEMP TABLE t AS EXECUTE gateway_stmt", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
+			SqlPrefix:         "CREATE TEMP TABLE t AS EXECUTE ",
+		},
+	}, &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}, noopCallback)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
+	assert.Equal(t, "create temp table t as execute ppstmt0", server.QueryLog())
+}
+
+func TestStreamExecuteRollsBackNewReservedTransactionOnMaterializationError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			SqlPrefix: "EXECUTE ",
+		},
+	}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+	require.ErrorContains(t, err, "failed to materialize SQL EXECUTE prepared statement")
+
+	assert.Equal(t, "rollback", server.QueryLog())
+}
+
 // --- NewExecutor smoke test ---
 
 func TestNewExecutor(t *testing.T) {
@@ -982,7 +1177,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 
 	_, _, _, _, err := e.CopyOutReady(
 		context.Background(),
-		&query.Target{TableGroup: "tg"},
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		"COPY t TO STDOUT",
 		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
 		nil,
@@ -1004,7 +1199,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 
 	_, _, err := e.ConcludeTransaction(
 		context.Background(),
-		&query.Target{TableGroup: "tg"},
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		&query.ExecuteOptions{User: "alice", ReservedConnectionId: 42},
 		0, // TRANSACTION_CONCLUSION_UNSPECIFIED — unused on the not-found path
 		nil,
@@ -1023,7 +1218,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 	t.Run("missing reserved connection id", func(t *testing.T) {
 		_, _, err := e.CopyOutStream(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			&query.ExecuteOptions{},
 			func(client.CopyOutMessage) error { return nil },
 		)
@@ -1035,7 +1230,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		e.poolManager = &stubPoolManager{}
 		_, _, err := e.CopyOutStream(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			&query.ExecuteOptions{User: "alice", ReservedConnectionId: 99},
 			func(client.CopyOutMessage) error { return nil },
 		)
@@ -1049,7 +1244,7 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 	e := newTestExecutor()
 
 	t.Run("nil options is best-effort no-op", func(t *testing.T) {
-		state, err := e.CopyAbort(context.Background(), &query.Target{TableGroup: "tg"}, "abort", nil)
+		state, err := e.CopyAbort(context.Background(), protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED), "abort", nil)
 		require.NoError(t, err)
 		require.Nil(t, state)
 	})
@@ -1059,7 +1254,7 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 
 		state, err := e.CopyAbort(
 			context.Background(),
-			&query.Target{TableGroup: "tg"},
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 			"abort",
 			&query.ExecuteOptions{User: "postgres", ReservedConnectionId: 777},
 		)

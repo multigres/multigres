@@ -256,7 +256,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "no new primary elected within timeout")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// --- Re-enable postgres restarts on the old primary: emergencyDemoteLocked
+	// --- Re-enable postgres restarts on the old primary: demoteToStandbyLocked
 	// has already set rewindPending, so the monitor will not restart postgres
 	// before stale-primary demotion runs.
 	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),

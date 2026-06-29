@@ -224,9 +224,10 @@ func (f *fakeReplPoolManager) NewLogicalReplicationConn(context.Context, string,
 func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.QueryPoolerServer {
 	t.Helper()
 	p := poolerserver.NewQueryPoolerServer(slog.Default(), pm, nil, "", "", nil, 0, false)
+	// isConsensusLeader=true so a serving primary admits the stream (#1184/#1194:
+	// admission keys off consensus leadership, not the topology PoolerType label).
 	require.NoError(t, p.OnStateChange(t.Context(),
-		clustermetadatapb.PoolerType_PRIMARY,
-		clustermetadatapb.PoolerServingStatus_SERVING))
+		true, false, clustermetadatapb.PoolerServingStatus_SERVING))
 	return p
 }
 

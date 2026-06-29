@@ -29,7 +29,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/test/utils"
@@ -37,11 +36,10 @@ import (
 
 // primaryReplTarget builds the routing target for the primary pooler.
 func primaryReplTarget() *querypb.Target {
-	return &querypb.Target{
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	// WRITABLE = leader-bound (#1183); the primary pooler is the consensus leader,
+	// so this admits. An empty ShardKey skips the tablegroup/shard checks in the
+	// single-shard test cluster.
+	return &querypb.Target{Mode: querypb.Mode_MODE_WRITABLE}
 }
 
 // dialPoolerClient opens a gRPC client to the primary multipooler.

@@ -648,7 +648,7 @@ func TestIsInRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -700,7 +700,7 @@ func TestGetPrimaryLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -752,7 +752,7 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -896,7 +896,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -971,7 +971,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1330,7 +1330,7 @@ func TestPauseReplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1367,7 +1367,7 @@ func TestPauseReplication(t *testing.T) {
 // min-deadline semantics of context.WithTimeout.
 func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	t.Run("deadline already expired surfaces timeout before polling", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock("default", "0-inf")
+		pm, _ := newTestManagerWithMock(t, "default", "0-inf")
 		// Deadline already in the past: the first retry attempt observes the
 		// expired context and returns the timeout without ever polling, so no
 		// query mock is needed.
@@ -1382,7 +1382,7 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	})
 
 	t.Run("deadline expires while polls keep returning still-streaming", func(t *testing.T) {
-		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+		pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 		// Persistent (non-consumeOnce) pattern: the function polls repeatedly
 		// (immediately, then with exponential backoff) until the deadline trips.
 		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
@@ -1400,7 +1400,7 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	})
 
 	t.Run("parent context cancelled surfaces cancellation, not timeout", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock("default", "0-inf")
+		pm, _ := newTestManagerWithMock(t, "default", "0-inf")
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately
 
@@ -1448,7 +1448,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1504,7 +1504,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1631,7 +1631,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 

@@ -19,15 +19,15 @@ import (
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
 // HealthState contains the current health state of the pooler.
 // This is used by StreamPoolerHealth to send health updates to clients.
+//
+// The previous Target *query.Target field was removed alongside
+// StreamPoolerHealthResponse.target — the gateway derives shard identity
+// from topology and role from serving_status + leader_observation.
 type HealthState struct {
-	// Target identifies the tablegroup, shard, and pooler type this pooler serves.
-	Target *querypb.Target
-
 	// PoolerID identifies this multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
@@ -45,6 +45,10 @@ type HealthState struct {
 	// ReplicationLagNs is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64
+
+	// Writable reports whether postgres can accept writes (!pg_is_in_recovery).
+	// A consensus leader mid-promotion is SERVING (reads) but not yet Writable.
+	Writable bool
 }
 
 // LeaderObservation represents a pooler's view of who the consensus leader is.

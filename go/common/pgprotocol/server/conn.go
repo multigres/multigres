@@ -853,6 +853,16 @@ func (c *Conn) handleMessage(msgType byte) error {
 		// attached: more pipelined messages typically follow.
 		return c.flush()
 
+	case protocol.MsgFunctionCall:
+		// Fast-path FunctionCall is not implemented yet, but it is still a
+		// normal length-prefixed frontend message. Drain the frame before
+		// rejecting it so we do not close the socket while the client is still
+		// writing the rest of the packet, which can surface as ECONNRESET/SIGPIPE.
+		if err := c.discardMessageBody(); err != nil {
+			return fmt.Errorf("failed to discard unsupported FunctionCall message: %w", err)
+		}
+		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
+
 	default:
 		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
 	}
