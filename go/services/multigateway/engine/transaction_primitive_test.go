@@ -61,7 +61,7 @@ func (m *txMockIExecute) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.PreparedStatement,
+	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultiGatewayConnectionState,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,

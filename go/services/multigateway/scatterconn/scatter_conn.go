@@ -170,18 +170,17 @@ func (sc *ScatterConn) applyReservedState(
 //   - Case 2: In transaction, no reserved conn → call StreamExecute with reservation options
 //   - Case 3: Not in transaction → use regular pooled connection
 //
-// If preparedStatement is non-nil, it is attached to the ExecuteOptions so
-// the multipooler can ensurePrepared() on the backend connection before
-// running the query. Used for wrapped EXECUTE forms (EXPLAIN EXECUTE,
-// CREATE TABLE ... AS EXECUTE) that reference a gateway-managed prepared
-// statement by its canonical name.
+// If executeSQLPreparedStatement is non-nil, it is attached to the
+// ExecuteOptions so the multipooler can resolve the prepared statement through
+// pooler-level consolidation and materialize the SQL EXECUTE wrapper before
+// running the query.
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *querypb.PreparedStatement,
+	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
 	state *handler.MultiGatewayConnectionState,
 	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -209,11 +208,11 @@ func (sc *ScatterConn) StreamExecute(
 	target := sc.buildTarget(conn.Database(), tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-		PreparedStatement:  preparedStatement,
+		UserAuth:                    userAuthFrom(conn),
+		User:                        conn.User(),
+		ClientConnectionId:          conn.ConnectionID(),
+		SessionSettings:             state.GetSessionSettings(),
+		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 	}
 
 	ss := state.GetMatchingShardState(target)

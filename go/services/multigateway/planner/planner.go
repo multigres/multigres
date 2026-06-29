@@ -137,12 +137,12 @@ func (p *Planner) Plan(
 	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
 	// before normal dispatch. The wrapper's inner ExecuteStmt references a
 	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
-	// rewrite it to the canonical name (e.g. "stmt42") and attach the
-	// PreparedStatement metadata so the multipooler can ensurePrepared() on
-	// the backend connection before running the query. See execute_unwrap.go.
+	// attach a SQL prefix/suffix template plus PreparedStatement metadata so the
+	// multipooler can resolve a pooler-consolidated backend name before running
+	// the query. See execute_unwrap.go.
 	//
-	// Simple protocol only: the rewrite produces a Route carrying the prepared
-	// statement, but Route.PortalStreamExecute forwards the portal as-is and
+	// Simple protocol only: the rewrite produces a Route carrying the SQL EXECUTE
+	// template, but Route.PortalStreamExecute forwards the portal as-is and
 	// ignores that metadata, so the unwrap is a no-op (or worse, an error if the
 	// statement is missing) over the extended protocol. In portal mode these
 	// wrapped forms fall through to normal dispatch and route like any query.
