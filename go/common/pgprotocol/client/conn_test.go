@@ -18,6 +18,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"sync"
 	"testing"
 )
 
@@ -77,6 +78,29 @@ func TestDetachConn_ClosedConnReturnsError(t *testing.T) {
 
 	if _, _, err := c.DetachConn(); err == nil {
 		t.Fatal("DetachConn on a closed connection must return an error")
+	}
+}
+
+// TestDetachConn_ConcurrentForceCloseIsRaceFree reproduces the drain-vs-detach
+// race haritabh flagged: a graceful drain force-closing a pooled conn
+// (ForceClose) can run concurrently with the replication handler's DetachConn on
+// the same *Conn. They must be mutually exclusive — no data race on c.conn, no
+// nil-deref panic. Run with -race.
+func TestDetachConn_ConcurrentForceCloseIsRaceFree(t *testing.T) {
+	for range 100 {
+		client, server := net.Pipe()
+		ctx, cancel := context.WithCancel(context.Background())
+		c := &Conn{ctx: ctx, cancel: cancel}
+		c.resetConn(client)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _, _, _ = c.DetachConn() }()
+		go func() { defer wg.Done(); _ = c.ForceClose() }()
+		wg.Wait()
+
+		_ = client.Close()
+		_ = server.Close()
 	}
 }
 

@@ -381,38 +381,48 @@ func (c *Conn) flush() error {
 // protocol layer and knows nothing about any pool this Conn may belong to. When
 // a Conn is owned by a pooled wrapper (e.g. reserved.Conn), that wrapper's own
 // release path remains solely responsible for freeing its capacity slot and
-// updating live counts; detaching neither frees nor leaks a slot. The ordering
-// here is what keeps that release safe: `closed` is set to true before the
-// socket is handed off, so the wrapper's later Close/Recycle sees an
-// already-closed Conn, skips touching the (now caller-owned) socket, and still
-// frees its slot exactly once. The caller owns and must close `raw`.
+// updating live counts; detaching neither frees nor leaks a slot.
+//
+// Detach claims the close transition with the same CompareAndSwap that
+// Close/ForceClose use, so it is mutually exclusive with them: a concurrent
+// Close/ForceClose (e.g. a graceful drain force-closing this pooled conn while
+// the handler is detaching) either wins the CAS — in which case DetachConn
+// returns an error and touches nothing — or loses it and no-ops. Either way
+// only one of them ever touches c.conn, so there is no data race or nil-deref.
+// The winner also owns c.cancel() (releasing the child context derived from
+// poolCtx in Connect) and, on a successful detach, hands the socket to the
+// caller, who owns and must close `raw`.
 func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
-	if c.closed.Load() {
+	if !c.closed.CompareAndSwap(false, true) {
 		return nil, nil, errors.New("pgclient: DetachConn on closed connection")
 	}
+	// We now own teardown; Close/ForceClose will CAS-fail and no-op, so they no
+	// longer reach their c.cancel(). Cancel here exactly once.
+	c.cancel()
+
+	// On any error past this point we still own the socket — close it ourselves,
+	// since Close/ForceClose are now no-ops and would otherwise leak it.
 	if err := c.flush(); err != nil {
-		return nil, nil, fmt.Errorf("pgclient: flush before hijack: %w", err)
+		_ = c.conn.Close()
+		c.conn = nil
+		return nil, nil, fmt.Errorf("pgclient: flush before detach: %w", err)
 	}
 	if n := c.bufferedReader.Buffered(); n > 0 {
-		peeked, err := c.bufferedReader.Peek(n)
-		if err != nil {
-			return nil, nil, fmt.Errorf("pgclient: peek buffered bytes: %w", err)
+		peeked, perr := c.bufferedReader.Peek(n)
+		if perr != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+			return nil, nil, fmt.Errorf("pgclient: peek buffered bytes: %w", perr)
 		}
 		buffered = append([]byte(nil), peeked...) // copy; reader memory is reused
-		if _, err := c.bufferedReader.Discard(n); err != nil {
-			return nil, nil, fmt.Errorf("pgclient: discard buffered bytes: %w", err)
+		if _, derr := c.bufferedReader.Discard(n); derr != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+			return nil, nil, fmt.Errorf("pgclient: discard buffered bytes: %w", derr)
 		}
 	}
 	raw = c.conn
-	c.conn = nil         // prevent Close() from closing the hijacked socket
-	c.closed.Store(true) // Conn is no longer usable for protocol I/O
-	// Release the connection's context here: setting closed=true makes a later
-	// Close()/ForceClose() short-circuit on the closed CAS before they reach
-	// c.cancel(), so this is the only place the child context derived from
-	// poolCtx in Connect() gets cancelled. Skipping it would leak that child in
-	// poolCtx's children map for the pool's lifetime (one per detach). The
-	// detached raw socket is a plain net.Conn and is unaffected by this cancel.
-	c.cancel()
+	c.conn = nil // hand the socket to the caller
 	return raw, buffered, nil
 }
 

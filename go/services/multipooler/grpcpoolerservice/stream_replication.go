@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -72,11 +73,13 @@ func (s *poolerService) StreamReplication(stream multipoolerpb.MultiPoolerServic
 	// A replication stream opens a fresh, dedicated, session-pinned backend, so
 	// it is admitted like a new reservation (rejected during graceful drain).
 	if err := s.pooler.StartRequest(init.GetTarget(), admissionKind(0, true)); err != nil {
+		s.pooler.ReplicationMetrics().RecordSetupError(replication.SetupErrorAdmissionRejected)
 		return mterrors.ToGRPC(err)
 	}
 
 	pm := s.pooler.PoolManager()
 	if pm == nil {
+		s.pooler.ReplicationMetrics().RecordSetupError(replication.SetupErrorUnavailable)
 		return status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
@@ -89,6 +92,7 @@ func (s *poolerService) StreamReplication(stream multipoolerpb.MultiPoolerServic
 	conn, err := pm.NewLogicalReplicationConn(ctx, user,
 		init.GetUserAuth().GetClientKey(), init.GetUserAuth().GetServerKey())
 	if err != nil {
+		s.pooler.ReplicationMetrics().RecordSetupError(replication.SetupErrorBackendOpenFailed)
 		s.sendReplicationError(stream, err)
 		return mterrors.ToGRPC(err)
 	}
@@ -102,6 +106,7 @@ func (s *poolerService) StreamReplication(stream multipoolerpb.MultiPoolerServic
 	// Hand off the authenticated socket to the protocol-blind tunnel.
 	raw, buffered, err := conn.Conn().RawConn().DetachConn()
 	if err != nil {
+		s.pooler.ReplicationMetrics().RecordSetupError(replication.SetupErrorDetachFailed)
 		s.sendReplicationError(stream, err)
 		return status.Errorf(codes.Internal, "detach replication socket: %v", err)
 	}
@@ -124,19 +129,30 @@ func (s *poolerService) runReplicationTunnel(
 	backend io.ReadWriteCloser,
 	metrics *replication.Stream,
 ) error {
+	// Safety net: the tunnel closes the backend as its teardown lever, but a defer
+	// guarantees the detached socket is released on every exit path as this
+	// handler grows. Close is idempotent on the underlying net.Conn.
+	defer backend.Close()
+
 	if err := stream.Send(&multipoolerpb.StreamReplicationResponse{
 		Msg: &multipoolerpb.StreamReplicationResponse_Ready{
 			Ready: &multipoolerpb.StreamReplicationReady{},
 		},
 	}); err != nil {
-		_ = backend.Close()
 		return status.Errorf(codes.Internal, "failed to send ready: %v", err)
 	}
 
 	metrics.IncActive()
 	start := time.Now()
 
+	// gRPC forbids concurrent SendMsg on one stream. The tunnel's downstream send
+	// goroutine and the post-Run error send below can otherwise overlap — Run does
+	// not wait for that goroutine, which may still be blocked in Send on a slow
+	// client — so every Send goes through sendMu.
+	var sendMu sync.Mutex
 	send := func(b []byte) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		return stream.Send(&multipoolerpb.StreamReplicationResponse{
 			Msg: &multipoolerpb.StreamReplicationResponse_Data{Data: b},
 		})
@@ -159,28 +175,43 @@ func (s *poolerService) runReplicationTunnel(
 	metrics.RecordTermination(terminationReason(runErr))
 
 	if runErr != nil {
-		// Infrastructure failure (not a PG ErrorResponse, which already flowed
-		// as opaque data). Best-effort structured error; the stream may already
-		// be gone on client disconnect.
-		s.sendReplicationError(stream, runErr)
+		// Infrastructure failure (not a PG ErrorResponse, which already flowed as
+		// opaque data). Best-effort structured error, serialized with the tunnel's
+		// sends. TryLock, not Lock: the downstream goroutine may still hold sendMu
+		// (blocked in Send on a slow client), and blocking would both risk a
+		// concurrent Send and deadlock — the gRPC status below conveys the failure
+		// regardless.
+		if sendMu.TryLock() {
+			_ = stream.Send(replicationErrorResponse(runErr))
+			sendMu.Unlock()
+		}
 		return mterrors.ToGRPC(runErr)
 	}
 	return nil
 }
 
-// sendReplicationError sends a structured infrastructure error on the stream.
-// Best-effort: a send failure (e.g. the client already disconnected) is ignored.
-func (s *poolerService) sendReplicationError(
-	stream multipoolerpb.MultiPoolerService_StreamReplicationServer,
-	err error,
-) {
-	_ = stream.Send(&multipoolerpb.StreamReplicationResponse{
+// replicationErrorResponse wraps an infrastructure error as a structured
+// StreamReplicationResponse (distinct from a PG ErrorResponse, which flows as
+// opaque data).
+func replicationErrorResponse(err error) *multipoolerpb.StreamReplicationResponse {
+	return &multipoolerpb.StreamReplicationResponse{
 		Msg: &multipoolerpb.StreamReplicationResponse_Error{
 			Error: &multipoolerpb.StreamReplicationError{
 				Diagnostic: pgDiagnosticFromError(err),
 			},
 		},
-	})
+	}
+}
+
+// sendReplicationError sends a structured infrastructure error on the stream.
+// Best-effort: a send failure (e.g. the client already disconnected) is ignored.
+// Only called before the tunnel starts (no concurrent sender exists yet); the
+// post-tunnel error send is serialized via sendMu in runReplicationTunnel.
+func (s *poolerService) sendReplicationError(
+	stream multipoolerpb.MultiPoolerService_StreamReplicationServer,
+	err error,
+) {
+	_ = stream.Send(replicationErrorResponse(err))
 }
 
 // terminationReason classifies a tunnel exit for the terminations metric.

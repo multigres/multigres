@@ -97,6 +97,31 @@ func TestMetrics_NilReceiverIsNoop(t *testing.T) {
 	})
 }
 
+// TestMetrics_RecordSetupError verifies setup-error counts accumulate (by
+// reason) on the process-global recorder, and that a nil *Metrics is a no-op.
+func TestMetrics_RecordSetupError(t *testing.T) {
+	var nilM *Metrics
+	require.NotPanics(t, func() { nilM.RecordSetupError(SetupErrorAdmissionRejected) })
+
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+	m, err := NewMetrics()
+	require.NoError(t, err)
+
+	m.RecordSetupError(SetupErrorBackendOpenFailed)
+	m.RecordSetupError(SetupErrorBackendOpenFailed)
+	m.RecordSetupError(SetupErrorAdmissionRejected)
+
+	agg := collectAggregation(t, setup.MetricReader, "mg.pooler.replication.setup_errors")
+	sum, ok := agg.(metricdata.Sum[int64])
+	require.True(t, ok, "setup_errors should be an int64 sum")
+	var total int64
+	for _, dp := range sum.DataPoints {
+		total += dp.Value
+	}
+	require.Equal(t, int64(3), total)
+}
+
 // TestMetrics_RecordsBytesAndChunksPerDirection asserts bytes/chunks are
 // attributed to the right direction and accumulate correctly.
 func TestMetrics_RecordsBytesAndChunksPerDirection(t *testing.T) {

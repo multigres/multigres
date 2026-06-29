@@ -50,6 +50,16 @@ const (
 	TerminationGRPCError        = "grpc_error"
 )
 
+// Setup-error reasons recorded on mg.pooler.replication.setup_errors. These
+// count streams that never reach the tunnel: admission rejected, pooler
+// unavailable, backend open failed, or socket detach failed.
+const (
+	SetupErrorAdmissionRejected = "admission_rejected"
+	SetupErrorUnavailable       = "unavailable"
+	SetupErrorBackendOpenFailed = "backend_open_failed"
+	SetupErrorDetachFailed      = "detach_failed"
+)
+
 // Metrics holds the process-global OpenTelemetry instruments for replication
 // tunnels. Create one per process with NewMetrics; derive a per-stream recorder
 // with NewStream. A nil *Metrics yields nil per-stream recorders, which are
@@ -62,6 +72,7 @@ type Metrics struct {
 	duration       metric.Float64Histogram
 	setupLatency   metric.Float64Histogram
 	terminations   metric.Int64Counter
+	setupErrors    metric.Int64Counter
 }
 
 // NewMetrics initialises the replication-tunnel instruments. Instruments that
@@ -142,10 +153,32 @@ func NewMetrics() (*Metrics, error) {
 		m.terminations = noop.Int64Counter{}
 	}
 
+	if m.setupErrors, err = meter.Int64Counter(
+		"mg.pooler.replication.setup_errors",
+		metric.WithDescription("Replication streams that failed before the tunnel started, by reason"),
+		metric.WithUnit("{error}"),
+	); err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.replication.setup_errors: %w", err))
+		m.setupErrors = noop.Int64Counter{}
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
 	return m, nil
+}
+
+// RecordSetupError counts a stream that failed before reaching the tunnel,
+// labeled by reason (see SetupError* constants). It is process-global rather
+// than per-stream because these failures happen before a per-stream recorder
+// exists. Safe on a nil receiver.
+func (m *Metrics) RecordSetupError(reason string) {
+	if m == nil {
+		return
+	}
+	// Metrics recording is context-free and must succeed even as the request
+	// context is being cancelled during teardown.
+	m.setupErrors.Add(context.Background(), 1, metric.WithAttributes(attribute.String(attrReason, reason))) //nolint:gocritic // see comment above
 }
 
 // Stream is a per-tunnel metrics recorder. The direction and user attributes

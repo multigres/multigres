@@ -21,6 +21,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,4 +328,114 @@ func TestTerminationReason(t *testing.T) {
 			assert.Equal(t, tt.want, terminationReason(tt.err))
 		})
 	}
+}
+
+// concurrentSendStream is a fake stream that detects concurrent Send calls
+// (which gRPC forbids). A "data" send blocks until released, so the test can
+// hold the tunnel's downstream send in-flight while the handler attempts its
+// post-Run error send.
+type concurrentSendStream struct {
+	ctx           context.Context
+	recvCh        chan replRecv
+	inSend        atomic.Int32
+	sawConcurrent atomic.Bool
+	dataEntered   chan struct{} // closed once a data send is in-flight
+	releaseData   chan struct{} // test closes to release the blocked data send
+	dataOnce      sync.Once
+}
+
+func (f *concurrentSendStream) SetHeader(metadata.MD) error  { return nil }
+func (f *concurrentSendStream) SendHeader(metadata.MD) error { return nil }
+func (f *concurrentSendStream) SetTrailer(metadata.MD)       {}
+func (f *concurrentSendStream) SendMsg(any) error            { return nil }
+func (f *concurrentSendStream) RecvMsg(any) error            { return nil }
+func (f *concurrentSendStream) Context() context.Context     { return f.ctx }
+
+func (f *concurrentSendStream) Recv() (*multipoolerpb.StreamReplicationRequest, error) {
+	select {
+	case r := <-f.recvCh:
+		return r.req, r.err
+	case <-f.ctx.Done():
+		return nil, f.ctx.Err()
+	}
+}
+
+func (f *concurrentSendStream) Send(resp *multipoolerpb.StreamReplicationResponse) error {
+	if f.inSend.Add(1) > 1 {
+		f.sawConcurrent.Store(true)
+	}
+	defer f.inSend.Add(-1)
+	if resp.GetData() != nil {
+		f.dataOnce.Do(func() { close(f.dataEntered) })
+		<-f.releaseData // hold the downstream send in-flight
+	}
+	return nil
+}
+
+// teardownBackend yields one chunk downstream, then fails the upstream write
+// (only after the downstream send is in-flight) to force Run to return while the
+// downstream send goroutine is still active.
+type teardownBackend struct {
+	readOnce    sync.Once
+	closeOnce   sync.Once
+	closed      chan struct{}
+	dataEntered chan struct{}
+}
+
+func (b *teardownBackend) Read(p []byte) (int, error) {
+	first := false
+	b.readOnce.Do(func() { first = true })
+	if first {
+		return copy(p, []byte("wal")), nil
+	}
+	<-b.closed
+	return 0, io.EOF
+}
+
+func (b *teardownBackend) Write([]byte) (int, error) {
+	<-b.dataEntered // ensure the downstream send is in-flight first
+	return 0, errors.New("backend write failed")
+}
+
+func (b *teardownBackend) Close() error {
+	b.closeOnce.Do(func() { close(b.closed) })
+	return nil
+}
+
+// TestRunReplicationTunnel_NoConcurrentSendOnTeardown verifies the handler never
+// issues a Send concurrently with the tunnel's downstream send goroutine. On an
+// upstream (backend write) failure, Run returns while the downstream goroutine is
+// still blocked in Send; the post-Run error send must not race it.
+func TestRunReplicationTunnel_NoConcurrentSendOnTeardown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	dataEntered := make(chan struct{})
+	stream := &concurrentSendStream{
+		ctx:         ctx,
+		recvCh:      make(chan replRecv, 1),
+		dataEntered: dataEntered,
+		releaseData: make(chan struct{}),
+	}
+	backend := &teardownBackend{closed: make(chan struct{}), dataEntered: dataEntered}
+	stream.recvCh <- replRecv{req: dataReq("upstream")} // drives the failing Write
+
+	s := &poolerService{}
+	done := make(chan error, 1)
+	go func() { done <- s.runReplicationTunnel(ctx, stream, backend, nil) }()
+
+	// Once the downstream send is in-flight, the upstream write fails and Run
+	// returns; the handler then attempts its error send. Give that interleaving
+	// time to happen, then release the held send.
+	<-dataEntered
+	time.Sleep(100 * time.Millisecond)
+	close(stream.releaseData)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runReplicationTunnel did not return")
+	}
+	assert.False(t, stream.sawConcurrent.Load(),
+		"handler issued a Send concurrently with the tunnel's downstream send goroutine")
 }
