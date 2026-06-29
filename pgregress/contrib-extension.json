@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "Contrib Extension",
-  "message": "103/103 passed",
-  "color": "brightgreen"
+  "message": "2/103 passed",
+  "color": "red"
 }
