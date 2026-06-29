@@ -82,9 +82,12 @@ func (rt *ReplTracker) makeNonPrimary() {
 }
 
 // OnStateChange transitions the heartbeat tracker based on the serving state.
-// Starts the heartbeat writer for (PRIMARY, SERVING), stops it otherwise.
-func (rt *ReplTracker) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+// The writer runs only when this pooler is the consensus leader AND postgres is
+// out of recovery AND serving; otherwise the reader runs. Being the leader does
+// not imply a writable postgres — writing heartbeats to a standby fails every
+// interval and spams the log — so postgresPrimary must gate the writer too.
+func (rt *ReplTracker) OnStateChange(_ context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if isConsensusLeader && postgresPrimary && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		rt.makePrimary()
 	} else {
 		rt.makeNonPrimary()

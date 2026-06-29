@@ -214,6 +214,43 @@ func simulateHealthUpdate(conn *poolerConnection, status clustermetadatapb.Poole
 	})
 }
 
+// TestLoadBalancer_WriteResumeWaitsForWritable verifies the buffer-drain gate
+// (notifyLeaderServingFromSummary → onLeaderServing) does NOT resume write
+// traffic for a leader that is the observed leader and SERVING but not yet
+// writable (still in recovery mid-promotion). It resumes only once the leader
+// reports writable.
+func TestLoadBalancer_WriteResumeWaitsForWritable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	var resumed int
+	lb.onLeaderServing = func(_ *clustermetadatapb.ShardKey) { resumed++ }
+
+	p := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, p)
+	conn := connForTest(t, lb, p)
+
+	obs := &clustermetadatapb.LeaderObservation{
+		LeaderId:         p.Id,
+		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+	}
+	injectHealth := func(writable bool) {
+		conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
+			PoolerId:          p.Id,
+			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+			LeaderObservation: obs,
+			Writable:          writable,
+		})
+	}
+
+	// Observed leader, SERVING, but still in recovery: hold.
+	injectHealth(false)
+	assert.Equal(t, 0, resumed, "write traffic must stay buffered until the leader is writable")
+
+	// Out of recovery: writable → resume.
+	injectHealth(true)
+	assert.Equal(t, 1, resumed, "resume once the leader reports writable")
+}
+
 func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("highest term wins", func(t *testing.T) {
 		lb := newTestLB(t, "zone1")
@@ -273,7 +310,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 		// primary2 thinks primary2 is leader with term 12 (stale)
 		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+			clustermetadatapb.PoolerServingStatus_DISABLED,
 			&clustermetadatapb.LeaderObservation{LeaderId: primary2.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 12}})
 
 		// replica1 observed the new leader (primary1) with term 20 (highest)
@@ -439,7 +476,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	connRemote := connForTest(t, lb, remoteReplica)
 
 	t.Run("prefers local serving over remote serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 
@@ -451,8 +488,8 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	})
 
 	t.Run("falls back to remote serving when no local serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING, nil)
 
 		target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "", query.Mode_MODE_INCONSISTENT)
@@ -463,9 +500,9 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	})
 
 	t.Run("falls back to local not-serving when no serving", func(t *testing.T) {
-		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
-		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
+		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connLocal2, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
+		simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_DISABLED, nil)
 
 		target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "", query.Mode_MODE_INCONSISTENT)
 		conn, err := lb.getConnection(target)
@@ -775,11 +812,15 @@ func TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader(t *testing.T) {
 	assert.Empty(t, calls,
 		"OnLeaderServing must not fire while the pooler's broadcast names a different leader")
 
-	// Second broadcast: pooler now names itself in the broadcast. This is
-	// the post-OnStateChange snapshot. Drain the buffer.
-	simulateHealthUpdate(connLeader,
-		clustermetadatapb.PoolerServingStatus_SERVING,
-		&clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}})
+	// Second broadcast: pooler now names itself in the broadcast and is
+	// writable (postgres out of recovery). This is the post-OnStateChange,
+	// post-promotion snapshot. Drain the buffer.
+	connLeader.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
+		PoolerId:          leader.Id,
+		ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
+		LeaderObservation: &clustermetadatapb.LeaderObservation{LeaderId: leader.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}},
+		Writable:          true,
+	})
 	require.Len(t, calls, 1, "OnLeaderServing must fire once the pooler self-identifies as leader")
 	assert.Equal(t, constants.DefaultTableGroup, calls[0].GetTableGroup())
 	assert.Equal(t, "0", calls[0].GetShard())

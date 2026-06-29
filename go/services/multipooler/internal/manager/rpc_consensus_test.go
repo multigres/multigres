@@ -350,7 +350,7 @@ func TestRecruit(t *testing.T) {
 			expectPersistedCoordinator: "",
 		},
 		{
-			// Primary node where emergencyDemoteLocked fails because there are no
+			// Primary node where demoteToStandbyLocked fails because there are no
 			// postgres mocks for the demotion queries. Exercises the isPrimary=true
 			// branch in Recruit and verifies that nothing is persisted on failure.
 			name:              "PrimaryReject_DemotionFails",
@@ -367,7 +367,7 @@ func TestRecruit(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// isPrimary returns false for pg_is_in_recovery (not in recovery = primary).
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				// No further mocks — emergencyDemoteLocked fails on its first query.
+				// No further mocks — demoteToStandbyLocked fails on its first query.
 			},
 			expectError:                true,
 			expectErrContains:          "failed to stop replication during recruit",

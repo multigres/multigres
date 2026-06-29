@@ -219,11 +219,11 @@ func TestPoolerConnection_StreamHealth_StateTransitions(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Transition 2: SERVING -> NOT_SERVING
-	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_DISABLED)
 	require.Eventually(t, func() bool {
 		return !setup.conn.Health().isServing()
 	}, 2*time.Second, 10*time.Millisecond)
-	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED,
 		setup.conn.Health().ServingStatus)
 
 	// Transition 3: NOT_SERVING -> SERVING again
@@ -367,7 +367,7 @@ func TestPoolerConnection_StreamHealth_Callback(t *testing.T) {
 
 	// Send another state change and verify callback fires again.
 	prevCount := callbackCount.Load()
-	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	setup.server.responseCh <- makeHealthResponse(clustermetadatapb.PoolerServingStatus_DISABLED)
 
 	require.Eventually(t, func() bool {
 		return callbackCount.Load() > prevCount

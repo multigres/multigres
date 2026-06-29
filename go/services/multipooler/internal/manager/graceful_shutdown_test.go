@@ -94,6 +94,15 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		Name:      "test",
 	}
 	hs := newHealthStreamer(logger, id, "tg", "0")
+	// Match the production default set by topoclient.NewMultiPooler so the
+	// record's LifecycleStatus reads as STARTING from the start. (Real boot wires
+	// this in via NewMultiPoolerManager(multiPooler).)
+	record := newRecordFromProto(&clustermetadatapb.MultiPooler{
+		Id: id,
+		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
+			Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+		},
+	})
 	return &MultiPoolerManager{
 		logger:         logger,
 		serviceID:      id,
@@ -101,16 +110,14 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		pgctldClient:   pgctldClient,
 		healthStreamer: hs,
 		actionLock:     actionlock.NewActionLock(),
-		consensusMgr:   consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, hs),
-		// Match the production default set by topoclient.NewMultiPooler so
-		// the record's LifecycleStatus reads as STARTING from the start.
-		// (Real boot wires this in via NewMultiPoolerManager(multiPooler).)
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-			Id: id,
-			LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
-				Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
-			},
-		}),
+		// consensusMgr is required: GracefulShutdown drives cohort eligibility
+		// through it (pm.consensusMgr.SetCohortEligibility).
+		consensusMgr: consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, hs),
+		record:       record,
+		// GracefulShutdown transitions serving state to DISABLED; wire a real
+		// StateManager (fanning out to the healthStreamer) so the shutdown path
+		// runs as in production rather than relying on a nil-check.
+		stateManager: NewStateManager(logger, record, hs),
 	}
 }
 

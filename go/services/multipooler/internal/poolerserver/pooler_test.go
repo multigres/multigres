@@ -81,7 +81,7 @@ func newStartRequestTestServer() *QueryPoolerServer {
 	logger := slog.New(slog.DiscardHandler)
 	return &QueryPoolerServer{
 		logger:        logger,
-		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
@@ -107,7 +107,7 @@ func TestStartRequest_Serving(t *testing.T) {
 
 func TestStartRequest_NotServing(t *testing.T) {
 	s := newStartRequestTestServer()
-	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING // drainPhase is drainNone (post-flip)
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED // drainPhase is drainNone (post-flip)
 
 	// Existing reserved ops are still admitted (the connection's existence is the
 	// gate; a force-closed connection surfaces an honest 40001 from the executor).
@@ -143,8 +143,8 @@ func TestStartRequest_DrainRegular_RejectsSingleQueries(t *testing.T) {
 
 func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 	s := newStartRequestTestServer()
-	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	s.isConsensusLeader = false
 
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	// A fresh PRIMARY-targeted request on a demoted (REPLICA) pooler is rejected
@@ -160,7 +160,7 @@ func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+	s.isConsensusLeader = false
 
 	// PRIMARY query hitting a REPLICA pooler should be rejected with MTF01.
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
@@ -170,7 +170,7 @@ func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
 func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.isConsensusLeader = true
 
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
@@ -179,7 +179,7 @@ func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
 func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.isConsensusLeader = true
 
 	// PRIMARY pooler can serve REPLICA traffic.
 	target := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
@@ -189,7 +189,7 @@ func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
 func TestStartRequest_NilTarget_Skipped(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_REPLICA
+	s.isConsensusLeader = false
 
 	// Nil target should skip target validation (e.g., GetAuthCredentials).
 	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
@@ -198,7 +198,7 @@ func TestStartRequest_NilTarget_Skipped(t *testing.T) {
 func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.isConsensusLeader = true
 	s.tableGroup = "tg1"
 	s.shard = "0"
 
@@ -214,7 +214,7 @@ func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
 func TestStartRequest_ShardMismatch_Bug(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.isConsensusLeader = true
 	s.tableGroup = "tg1"
 	s.shard = "0"
 
@@ -229,7 +229,7 @@ func TestStartRequest_ShardMismatch_Bug(t *testing.T) {
 func TestStartRequest_FullTargetMatch_Allowed(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	s.poolerType = clustermetadatapb.PoolerType_PRIMARY
+	s.isConsensusLeader = true
 	s.tableGroup = "tg1"
 	s.shard = "0"
 
@@ -340,7 +340,7 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 	return &QueryPoolerServer{
 		logger:        logger,
 		poolManager:   mock,
-		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
@@ -368,7 +368,7 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	pooler.gracePeriod = 5 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// One in-flight transaction (reserved) and one in-flight single query (regular).
 	mock.reservedAdd(1)
@@ -377,7 +377,7 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Stage 1: blocked on the in-flight transaction. Single queries are served,
@@ -415,13 +415,13 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 	pooler.gracePeriod = 100 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// A transaction that never commits — stage 1 (WaitForReservedDrain) blocks.
 	mock.reservedAdd(1)
 
 	start := time.Now()
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 	elapsed := time.Since(start)
 
 	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should block ~grace period waiting on the held transaction")
@@ -433,14 +433,14 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 }
 
 // TestOnStateChange_WaitsForInflightRequests verifies that OnStateChange blocks
-// until all lent connections are returned before completing the NOT_SERVING transition.
+// until all lent connections are returned before completing the DISABLED transition.
 func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 5 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// Simulate two in-flight connections
 	mock.regularAdd(1)
@@ -449,7 +449,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Drain should not complete while connections are in-flight
@@ -470,7 +470,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 		t.Fatal("drain did not complete after all connections returned")
 	}
 
-	// Should be NOT_SERVING now
+	// Should be DISABLED now
 	assert.False(t, pooler.IsServing())
 }
 
@@ -482,7 +482,7 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 	pooler.gracePeriod = 100 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// Simulate a connection that will never return
 	mock.regularAdd(1)
@@ -491,7 +491,7 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	select {
@@ -503,29 +503,29 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 		t.Fatal("drain did not complete after grace period")
 	}
 
-	// Should be NOT_SERVING even though connection is still in-flight
+	// Should be DISABLED even though connection is still in-flight
 	assert.False(t, pooler.IsServing())
 
 	// Clean up
 	mock.regularAdd(-1)
 }
 
-// TestOnStateChange_BackToServing verifies the SERVING → NOT_SERVING → SERVING round-trip.
+// TestOnStateChange_BackToServing verifies the SERVING → DISABLED → SERVING round-trip.
 func TestOnStateChange_BackToServing(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()
 
-	// SERVING → NOT_SERVING → SERVING
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	// SERVING → DISABLED → SERVING
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 	assert.True(t, pooler.IsServing())
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED))
 	assert.False(t, pooler.IsServing())
 
 	// Transition back to SERVING
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 	assert.True(t, pooler.IsServing())
 
 	// Requests should work again
@@ -534,14 +534,14 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 }
 
 // TestOnStateChange_ConcurrentRequests verifies drain behavior with many
-// concurrent simulated connections during a NOT_SERVING transition.
+// concurrent simulated connections during a DISABLED transition.
 func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	mock := newDrainMockPoolManager()
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 2 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	const numRequests = 50
 	var wg sync.WaitGroup
@@ -563,11 +563,11 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	// Give goroutines time to start
 	time.Sleep(10 * time.Millisecond)
 
-	// Transition to NOT_SERVING while connections are in-flight
+	// Transition to DISABLED while connections are in-flight
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+		_ = pooler.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_DISABLED)
 	}()
 
 	// Wait for all goroutines and drain to complete
@@ -586,12 +586,12 @@ func TestAwaitStateChange_AlreadyMatches(t *testing.T) {
 	ctx := t.Context()
 
 	// Transition to PRIMARY/SERVING
-	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, s.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	// AwaitStateChange should return immediately when state already matches
 	done := make(chan struct{})
 	go func() {
-		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		s.AwaitStateChange(ctx, true, clustermetadatapb.PoolerServingStatus_SERVING)
 		close(done)
 	}()
 
@@ -606,10 +606,10 @@ func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
 	s := newStartRequestTestServer()
 	ctx := t.Context()
 
-	// Start as NOT_SERVING (default)
+	// Start as DISABLED (default)
 	done := make(chan struct{})
 	go func() {
-		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		s.AwaitStateChange(ctx, true, clustermetadatapb.PoolerServingStatus_SERVING)
 		close(done)
 	}()
 
@@ -621,7 +621,7 @@ func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
 	}
 
 	// Transition to the awaited state
-	require.NoError(t, s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, s.OnStateChange(ctx, true, true, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	select {
 	case <-done:
@@ -637,7 +637,7 @@ func TestAwaitStateChange_RespectsContextCancellation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		// Wait for a state that will never happen
-		s.AwaitStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+		s.AwaitStateChange(ctx, true, clustermetadatapb.PoolerServingStatus_SERVING)
 		close(done)
 	}()
 

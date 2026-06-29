@@ -67,6 +67,18 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	}
 	defer pm.actionLock.Release(lockCtx)
 
+	// Stop the postgres monitor before tearing anything down. Otherwise, once we
+	// release the action lock on return, the still-running monitor could observe
+	// postgres stopped and take remedialActionStartPostgres — restarting the very
+	// database we are shutting down — in the window before the process exits.
+	// Safe to call here: we are not holding pm.mu, and Stop() cancels the
+	// callback's ctx, so a monitor iteration parked on the action lock we hold
+	// unblocks and bails rather than waiting on us. Nil guard: some unit tests
+	// construct MultiPoolerManager via struct literal without a monitor.
+	if pm.pgMonitor != nil {
+		pm.pgMonitor.Stop()
+	}
+
 	// Announce STOPPING in topology before any blocking work. Operators see
 	// the announcement immediately; the actual teardown happens in the rest
 	// of this function and in the StopTopoRegistration call that follows in
@@ -86,22 +98,22 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 			"error", err)
 	}
 
-	// Transition to NOT_SERVING so the gateway sees a clean rejection for new
+	// Transition to DISABLED so the gateway sees a clean rejection for new
 	// queries while in-flight transactions are allowed to complete (bounded by
-	// --connpool-drain-grace-period). SetState fans out OnStateChange to the
+	// --connpool-drain-grace-period). Mutate fans out OnStateChange to the
 	// in-process components (query service, connection pool, heartbeat,
 	// health streamer) and routes the topology update through record.Mutate
-	// so the publisher reflects NOT_SERVING during the drain window —
+	// so the publisher reflects DISABLED during the drain window —
 	// without it, the entry would still read SERVING in topology until the
 	// OnClose StopTopoRegistration runs at the very end of shutdown.
 	//
 	// Best-effort: a failure here is logged but doesn't block the rest of
 	// shutdown.
-	if pm.servingState != nil {
-		if err := pm.servingState.SetState(lockCtx, pm.record.Type(), pm.record.SelfLeadership(), clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
-			pm.logger.WarnContext(lockCtx, "transition to NOT_SERVING returned error; proceeding with shutdown",
-				"error", err)
-		}
+	if err := pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	}); err != nil {
+		pm.logger.WarnContext(lockCtx, "transition to DISABLED returned error; proceeding with shutdown",
+			"error", err)
 	}
 
 	// Advertise cohort ineligibility before stopping postgres just in case

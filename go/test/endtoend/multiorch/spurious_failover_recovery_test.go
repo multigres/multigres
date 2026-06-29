@@ -127,7 +127,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 
 	// Fan out Recruit RPCs to all three poolers concurrently. The current
 	// primary will emergency-demote as a side effect (rpc_consensus.go's
-	// Recruit handler routes through emergencyDemoteLocked when isPrimary).
+	// Recruit handler routes through demoteToStandbyLocked when isPrimary).
 	// We deliberately do NOT issue a follow-up Promote — recovery is
 	// multiorch's job once we re-enable it below.
 	type recruitResult struct {

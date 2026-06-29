@@ -858,6 +858,7 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	resp := &multipoolerpb.StreamPoolerHealthResponse{
 		PoolerId:      state.PoolerID,
 		ServingStatus: state.ServingStatus,
+		Writable:      state.Writable,
 	}
 
 	if state.LeaderObservation != nil {
