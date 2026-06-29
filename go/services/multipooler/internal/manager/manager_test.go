@@ -29,8 +29,10 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -64,6 +66,67 @@ func TestManagerState_InitialState(t *testing.T) {
 	state, err := manager.GetStateAndError()
 	assert.Equal(t, ManagerStateStarting, state)
 	assert.Nil(t, err)
+}
+
+func TestManagerState_SyncsConnPoolMetricsState(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Cell: "zone1",
+		Name: "test-service",
+	}
+
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = t.TempDir()
+
+	config := &Config{
+		TopoClient:     ts,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
+	}
+
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	require.NotNil(t, manager.connPoolMgr)
+}
+
+func TestManagerState_ConnPoolMetricsSyncFailure(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Cell: "zone1",
+		Name: "test-service",
+	}
+
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = t.TempDir()
+
+	origRegisterAndSync := registerAndSyncStateAware
+	t.Cleanup(func() {
+		registerAndSyncStateAware = origRegisterAndSync
+	})
+	registerAndSyncStateAware = func(context.Context, *StateManager, StateAware) error {
+		return assert.AnError
+	}
+
+	config := &Config{
+		TopoClient:     ts,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
+	}
+
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
+	require.Nil(t, manager)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "failed to sync connection pool metrics state")
 }
 
 func TestManagerState_LoadFailureTimeout(t *testing.T) {

@@ -21,6 +21,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // drainStats holds OpenTelemetry metrics for graceful-drain observability.
@@ -80,16 +82,23 @@ const (
 
 // recordDrain records a completed drain event with its wall-clock duration
 // and outcome.
-func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome string) {
-	s.duration.Record(ctx, seconds)
-	s.outcome.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome string, role servingstate.RoutingRole) {
+	attrs := drainAttributes(role)
+	s.duration.Record(ctx, seconds, metric.WithAttributes(attrs...))
+	s.outcome.Add(ctx, 1, metric.WithAttributes(append(attrs, attribute.String("outcome", outcome))...))
 }
 
 // recordForceClosed adds to the count of connections force-closed across
 // all drain events.
-func (s *drainStats) recordForceClosed(ctx context.Context, n int) {
+func (s *drainStats) recordForceClosed(ctx context.Context, n int, role servingstate.RoutingRole) {
 	if n <= 0 {
 		return
 	}
-	s.forceClosed.Add(ctx, int64(n))
+	s.forceClosed.Add(ctx, int64(n), metric.WithAttributes(drainAttributes(role)...))
+}
+
+func drainAttributes(role servingstate.RoutingRole) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("routing_role", role.String()),
+	}
 }

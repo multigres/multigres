@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 const (
@@ -162,6 +163,16 @@ func (m *Manager) CredentialQueryRecorder() CredentialQueryRecorder {
 		return nil
 	}
 	return m.metrics
+}
+
+// OnStateChange tracks the current routing role for metrics emitted by the
+// connection pool manager. Pool lifecycles are controlled elsewhere.
+func (m *Manager) OnStateChange(_ context.Context, state servingstate.State) error {
+	if m == nil {
+		return nil
+	}
+	m.metrics.SetRoutingRole(state.Routing.Role)
+	return nil
 }
 
 // Open initializes the manager and creates the shared admin pool.
