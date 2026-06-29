@@ -53,11 +53,10 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 		},
 		PoolerDir: t.TempDir(),
 	}
-	pm, err := NewMultiPoolerManager(slog.Default(), mp, &Config{})
-	require.NoError(t, err)
-	// Swap in a fake rule store so tests that exercise ObservePosition /
+	// Inject a fake rule store so tests that exercise ObservePosition /
 	// CachedPosition don't crash on the real store's nil query service.
-	pm.rules = &fakeRuleStore{}
+	pm, err := NewMultiPoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(&fakeRuleStore{}))
+	require.NoError(t, err)
 	return pm
 }
 
@@ -261,7 +260,7 @@ func TestHelperMethods(t *testing.T) {
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
 // The resignation signal behavior is tested below without full infrastructure.
 
-func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler) *MultiPoolerManager {
+func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler, opts ...testManagerOption) *MultiPoolerManager {
 	t.Helper()
 	ctx := t.Context()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -269,15 +268,20 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 	record, err := newPoolerRecord(slog.Default(), ts, multipooler)
 	require.NoError(t, err)
-	return &MultiPoolerManager{
-		logger:            slog.Default(),
-		actionLock:        actionlock.NewActionLock(),
-		record:            record,
-		serviceID:         multipooler.Id,
-		topoClient:        ts,
-		servingState:      NewStateManager(slog.Default(), record),
-		cohortEligibility: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+	// Default the recorded service identity to this pooler unless an option
+	// overrode it, so the promises default is rooted at the right ID.
+	cfg := resolveTestManagerConfig(t, append([]testManagerOption{withServiceID(multipooler.Id)}, opts...)...)
+	pm := &MultiPoolerManager{
+		logger:       slog.Default(),
+		actionLock:   actionlock.NewActionLock(),
+		record:       record,
+		serviceID:    multipooler.Id,
+		topoClient:   ts,
+		servingState: NewStateManager(slog.Default(), record),
+		consensusMgr: cfg.consensusManager(t),
 	}
+	cfg.seedLockedState(t, pm)
+	return pm
 }
 
 // TestUpdateTopologyAfterPromotion_PublishesSelfLeadership verifies the
