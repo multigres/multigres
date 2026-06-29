@@ -92,6 +92,32 @@ it is applied only at first init. Advanced callers can instead point
 `POSTGRES_INITDB_EXTRA_CONF` at a mounted snippet directly — if both are set,
 the values from these knobs are appended last and win.
 
+### Custom base image (`MULTIGRES_POSTGRES_IMAGE`)
+
+By default the image builds on the official Debian `postgres` and installs
+pgBackRest, pgvector, and procps via apt. To build on a different PostgreSQL — a
+newer version, or a prebuilt image that already bundles those — override the base
+and skip the apt provisioning:
+
+```bash
+MULTIGRES_POSTGRES_IMAGE=registry.example.com/postgres:custom \
+MULTIGRES_PROVISION_PG_PACKAGES=false \
+docker compose up --build
+```
+
+- `MULTIGRES_POSTGRES_IMAGE` — base image (default `postgres:17.7`).
+- `MULTIGRES_PROVISION_PG_PACKAGES` — `true` (default) installs the dependencies
+  via apt; set `false` when the base already provides them (required for a
+  non-Debian base, where apt won't work).
+
+The cluster's superuser follows the base image's `POSTGRES_USER` (default
+`postgres`). If the image sets a custom role, connect as it — password is still
+`postgres`:
+
+```bash
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 15432 -U "$CUSTOM_SUPERUSER" -d postgres
+```
+
 ## Usage
 
 From the repository root:
@@ -130,7 +156,9 @@ docker compose down
 | database | `postgres` |
 
 The gateway/pooler is pinned to the `postgres` database and the `postgres`
-superuser; use those for connections.
+superuser; use those for connections. (A [custom base
+image](#custom-base-image-multigres_postgres_image) can change the superuser
+name — see that section.)
 
 ## CI
 
