@@ -106,6 +106,20 @@ func (c *Conn) returnReadBuffer() {
 	}
 }
 
+// discardMessageBody reads and discards the length-prefixed body of the
+// current frontend message. The message type byte has already been consumed.
+func (c *Conn) discardMessageBody() error {
+	bodyLen, err := c.ReadMessageLength()
+	if err != nil {
+		return err
+	}
+	if bodyLen == 0 {
+		return nil
+	}
+	_, err = c.bufferedReader.Discard(bodyLen)
+	return err
+}
+
 // returnOutboundBuffer releases the buffer held by outboundPoolBuf
 // back to the listener bufpool. Normally writePacket releases it via
 // defer; this method exists for defensive cleanup on Conn.Close so a
