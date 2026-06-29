@@ -55,7 +55,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		return err
 	}
 
-	if err := pm.rules.CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
+	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
 		return err
 	}
 

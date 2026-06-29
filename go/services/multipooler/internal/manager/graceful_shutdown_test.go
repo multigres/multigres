@@ -33,6 +33,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
 // assertRecent fails the test if ts is nil or older than 5 seconds ago.
@@ -92,6 +93,7 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		Cell:      "zone1",
 		Name:      "test",
 	}
+	hs := newHealthStreamer(logger, id, "tg", "0")
 	// Match the production default set by topoclient.NewMultiPooler so the
 	// record's LifecycleStatus reads as STARTING from the start. (Real boot wires
 	// this in via NewMultiPoolerManager(multiPooler).)
@@ -101,19 +103,21 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 			Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 		},
 	})
-	healthStreamer := newHealthStreamer(logger, id, "tg", "0")
 	return &MultiPoolerManager{
 		logger:         logger,
 		serviceID:      id,
 		config:         &Config{},
 		pgctldClient:   pgctldClient,
-		healthStreamer: healthStreamer,
+		healthStreamer: hs,
 		actionLock:     actionlock.NewActionLock(),
-		record:         record,
+		// consensusMgr is required: GracefulShutdown drives cohort eligibility
+		// through it (pm.consensusMgr.SetCohortEligibility).
+		consensusMgr: consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, hs),
+		record:       record,
 		// GracefulShutdown transitions serving state to DISABLED; wire a real
 		// StateManager (fanning out to the healthStreamer) so the shutdown path
 		// runs as in production rather than relying on a nil-check.
-		stateManager: NewStateManager(logger, record, healthStreamer),
+		stateManager: NewStateManager(logger, record, hs),
 	}
 }
 
@@ -373,9 +377,7 @@ func TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop(t *testing.T) {
 	var atStopSignal clustermetadatapb.CohortEligibilitySignal
 	pgctld := &recordingPgctldClient{
 		stopFn: func(string) error {
-			pm.mu.Lock()
-			atStopSignal = pm.cohortEligibility
-			pm.mu.Unlock()
+			atStopSignal = pm.consensusMgr.CohortEligibility()
 			return nil
 		},
 	}
@@ -392,9 +394,7 @@ func TestGracefulShutdown_AdvertisesCohortIneligibleBeforeStop(t *testing.T) {
 			"the default ELIGIBLE, the announce was sequenced AFTER stop and the "+
 			"broadcast races stream EOF")
 
-	pm.mu.Lock()
-	finalSignal := pm.cohortEligibility
-	pm.mu.Unlock()
+	finalSignal := pm.consensusMgr.CohortEligibility()
 	require.Equal(t,
 		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
 		finalSignal,

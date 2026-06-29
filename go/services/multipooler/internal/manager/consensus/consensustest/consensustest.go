@@ -28,7 +28,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// SeedTerm writes the consensus term file into poolerDir so a ConsensusState
+// SeedTerm writes the consensus term file into poolerDir so a ConsensusPromises
 // rooted at that directory will load the given revocation. It writes the file
 // directly, bypassing any in-memory cache, so tests can prime persisted state
 // before exercising Load() or an operation that reads it.

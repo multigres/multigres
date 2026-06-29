@@ -315,7 +315,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	poolerStatus.WalPosition = walPosition
 
 	// Get cohort members from the current rule (best-effort).
-	if pos, err := pm.rules.ObservePosition(ctx); err != nil {
+	if pos, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
 	} else if pos.Rule != nil {
 		poolerStatus.CohortMembers = pos.Rule.CohortMembers
@@ -327,10 +327,10 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 
 	// Best-effort status report: prefer a fresh read, fall back to the cached
 	// position if postgres is unreachable.
-	if cs, err := pm.getInconsistentConsensusStatus(ctx); err == nil {
+	if cs, err := pm.consensusMgr.InconsistentConsensusStatus(ctx); err == nil {
 		resp.ConsensusStatus = cs
 	} else {
-		resp.ConsensusStatus = pm.getCachedConsensusStatus()
+		resp.ConsensusStatus = pm.consensusMgr.CachedConsensusStatus()
 	}
 	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
 
@@ -441,7 +441,7 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// === Parse Current Configuration ===
 
 	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.rules.ObservePosition(ctx)
+	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return err
 	}
@@ -733,7 +733,7 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// sees leadership_status.REQUESTING_DEMOTION before the next periodic
 	// health stream interval fires.
 	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
-		if err := pm.setResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
 			return mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 	}
@@ -750,7 +750,9 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
 	// demote path) must run pg_rewind before trusting local WAL.
-	pm.suspectedDivergence.Store(true)
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to set suspected divergence on emergency demote", "error", err)
+	}
 
 	// Re-enable serving now that we're back as a healthy standby: the drain
 	// existed only to gracefully restart, so there's no reason to make reads wait
@@ -823,7 +825,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
 	// pg_rewind dry-run. The caller (orch's FixReplicationAction) has already
 	// confirmed the source is rewind-ready before issuing this RPC.
-	pm.suspectedDivergence.Store(true)
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to set suspected divergence in RewindToSource", "error", err)
+	}
 	rewindPerformed, err := pm.restartAsStandbyLocked(ctx, source.Hostname, port)
 	if err != nil {
 		return nil, err
@@ -932,7 +936,7 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	// surviving timeline branched), so we never restart-without-rewind here; the
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
-	wantRewind := pm.suspectedDivergence.Load()
+	wantRewind := pm.consensusMgr.SuspectedDivergence()
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	resume := pm.Pause(ctx)
@@ -950,8 +954,8 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// seconds when we had to defer the rewind waiting for that checkpoint. Emit
 		// once per leader change so a rewind that fails and is re-attempted against
 		// the same leader is not double-counted.
-		if observedAt := pm.consensusState.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.rewindWaitEmittedFor) {
-			pm.rewindWaitEmittedFor = observedAt
+		if observedAt := pm.consensusMgr.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.consensusMgr.RewindWaitEmittedFor()) {
+			pm.consensusMgr.SetRewindWaitEmittedFor(observedAt)
 			waited := time.Since(observedAt)
 			pm.logger.InfoContext(ctx, "Proceeding with pg_rewind; leader is rewind-ready",
 				"waited_for_rewind_ready", waited.String(),
@@ -966,7 +970,9 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 		// dry-run detects no divergence and skips), so clearing as soon as
 		// pg_rewind returns is safe even if the restart or reconnect below
 		// fails: the next attempt will skip pg_rewind and just restart.
-		pm.suspectedDivergence.Store(false)
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to clear suspected divergence after pg_rewind", "error", err)
+		}
 		// pg_rewind copies postgresql.auto.conf from source, baking source's
 		// own pooler paths into pgbackrest commands (restore_command,
 		// archive_command). Patch them back to this pooler's paths before
