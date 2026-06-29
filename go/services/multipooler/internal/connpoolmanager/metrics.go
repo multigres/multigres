@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -25,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
 
@@ -46,6 +48,8 @@ const (
 // Metrics holds OpenTelemetry metrics for connection pool management.
 type Metrics struct {
 	meter metric.Meter
+
+	poolerType atomic.Uint32
 
 	// registration is the handle returned by RegisterCallback. Stored so the
 	// callback can be unregistered when the manager is closed.
@@ -125,6 +129,7 @@ func NewMetrics() (*Metrics, error) {
 	meter := otel.Meter("github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager")
 
 	m := &Metrics{meter: meter}
+	m.SetPoolerType(clustermetadatapb.PoolerType_UNKNOWN)
 
 	var errs []error
 
@@ -311,10 +316,44 @@ func (m *Metrics) RecordCredentialQuery(ctx context.Context, d time.Duration, er
 	if m == nil {
 		return
 	}
-	m.authCredQueryDuration.Record(ctx, d.Seconds())
+	m.authCredQueryDuration.Record(ctx, d.Seconds(), m.poolerTypeOption())
 	if errorType != "" {
 		m.authCredQueryErrors.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("error_type", errorType)))
+			metric.WithAttributes(
+				attribute.String("pooler_type", m.poolerTypeLabel()),
+				attribute.String("error_type", errorType),
+			))
+	}
+}
+
+// SetPoolerType updates the pooler role label used for subsequent metric
+// observations. The state manager calls this on every serving-state transition.
+func (m *Metrics) SetPoolerType(poolerType clustermetadatapb.PoolerType) {
+	if m == nil {
+		return
+	}
+	m.poolerType.Store(uint32(poolerType))
+}
+
+func (m *Metrics) poolerTypeLabel() string {
+	if m == nil {
+		return "unknown"
+	}
+	return poolerTypeLabel(clustermetadatapb.PoolerType(m.poolerType.Load()))
+}
+
+func (m *Metrics) poolerTypeOption() metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String("pooler_type", m.poolerTypeLabel()))
+}
+
+func poolerTypeLabel(poolerType clustermetadatapb.PoolerType) string {
+	switch poolerType {
+	case clustermetadatapb.PoolerType_PRIMARY:
+		return "primary"
+	case clustermetadatapb.PoolerType_REPLICA:
+		return "replica"
+	default:
+		return "unknown"
 	}
 }
 
@@ -359,22 +398,25 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 	registration, err := m.meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
+			poolerType := m.poolerTypeLabel()
+			poolerTypeAttr := metric.WithAttributes(attribute.String("pooler_type", poolerType))
+
 			// Pooler health.
 			if m.poolerUp != nil {
 				var up int64
 				if !isClosedGetter() {
 					up = 1
 				}
-				o.ObserveInt64(m.poolerUp, up)
+				o.ObserveInt64(m.poolerUp, up, poolerTypeAttr)
 			}
 
 			// Pool/user count.
 			poolCount := poolCountGetter()
 			if m.poolCount != nil {
-				o.ObserveInt64(m.poolCount, int64(poolCount))
+				o.ObserveInt64(m.poolCount, int64(poolCount), poolerTypeAttr)
 			}
 			if m.userCount != nil {
-				o.ObserveInt64(m.userCount, int64(poolCount))
+				o.ObserveInt64(m.userCount, int64(poolCount), poolerTypeAttr)
 			}
 
 			// Database count (always 1 per multipooler instance).
@@ -383,12 +425,12 @@ func (m *Metrics) RegisterManagerCallbacks(
 				if !isClosedGetter() {
 					dbCount = 1
 				}
-				o.ObserveInt64(m.databaseCount, dbCount)
+				o.ObserveInt64(m.databaseCount, dbCount, poolerTypeAttr)
 			}
 
 			// Read global capacity config.
 			if m.configMaxServerConnections != nil {
-				o.ObserveInt64(m.configMaxServerConnections, globalCapacityGetter())
+				o.ObserveInt64(m.configMaxServerConnections, globalCapacityGetter(), poolerTypeAttr)
 			}
 
 			// Aggregate stats across all user pools.
@@ -417,7 +459,10 @@ func (m *Metrics) RegisterManagerCallbacks(
 				totalGetCount += userStats.GetCount
 
 				// Per-user pool capacity and current connections.
-				userAttr := metric.WithAttributes(attribute.String("user", user))
+				userAttr := metric.WithAttributes(
+					attribute.String("pooler_type", poolerType),
+					attribute.String("user", user),
+				)
 
 				if m.poolCapacity != nil {
 					capacity := userStats.Regular.Capacity + userStats.Reserved.RegularPool.Capacity
@@ -435,25 +480,31 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 			if m.serverConnections != nil {
 				o.ObserveInt64(m.serverConnections, totalActive,
-					metric.WithAttributes(attribute.String("state", "active")))
+					metric.WithAttributes(
+						attribute.String("pooler_type", poolerType),
+						attribute.String("state", "active"),
+					))
 				o.ObserveInt64(m.serverConnections, totalIdle,
-					metric.WithAttributes(attribute.String("state", "idle")))
+					metric.WithAttributes(
+						attribute.String("pooler_type", poolerType),
+						attribute.String("state", "idle"),
+					))
 			}
 
 			if m.clientWaitingConnections != nil {
-				o.ObserveInt64(m.clientWaitingConnections, int64(totalWaiting))
+				o.ObserveInt64(m.clientWaitingConnections, int64(totalWaiting), poolerTypeAttr)
 			}
 
 			if m.reservedActiveConnections != nil {
-				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive))
+				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive), poolerTypeAttr)
 			}
 
 			if m.clientWaitTimeTotal != nil {
-				o.ObserveFloat64(m.clientWaitTimeTotal, totalWaitTime)
+				o.ObserveFloat64(m.clientWaitTimeTotal, totalWaitTime, poolerTypeAttr)
 			}
 
 			if m.queriesPooledTotal != nil {
-				o.ObserveInt64(m.queriesPooledTotal, totalGetCount)
+				o.ObserveInt64(m.queriesPooledTotal, totalGetCount, poolerTypeAttr)
 			}
 
 			return nil

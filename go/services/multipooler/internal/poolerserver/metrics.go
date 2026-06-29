@@ -21,6 +21,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // drainStats holds OpenTelemetry metrics for graceful-drain observability.
@@ -80,16 +82,34 @@ const (
 
 // recordDrain records a completed drain event with its wall-clock duration
 // and outcome.
-func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome string) {
-	s.duration.Record(ctx, seconds)
-	s.outcome.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome string, poolerType clustermetadatapb.PoolerType) {
+	attrs := drainAttributes(poolerType)
+	s.duration.Record(ctx, seconds, metric.WithAttributes(attrs...))
+	s.outcome.Add(ctx, 1, metric.WithAttributes(append(attrs, attribute.String("outcome", outcome))...))
 }
 
 // recordForceClosed adds to the count of connections force-closed across
 // all drain events.
-func (s *drainStats) recordForceClosed(ctx context.Context, n int) {
+func (s *drainStats) recordForceClosed(ctx context.Context, n int, poolerType clustermetadatapb.PoolerType) {
 	if n <= 0 {
 		return
 	}
-	s.forceClosed.Add(ctx, int64(n))
+	s.forceClosed.Add(ctx, int64(n), metric.WithAttributes(drainAttributes(poolerType)...))
+}
+
+func drainAttributes(poolerType clustermetadatapb.PoolerType) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("pooler_type", poolerTypeLabel(poolerType)),
+	}
+}
+
+func poolerTypeLabel(poolerType clustermetadatapb.PoolerType) string {
+	switch poolerType {
+	case clustermetadatapb.PoolerType_PRIMARY:
+		return "primary"
+	case clustermetadatapb.PoolerType_REPLICA:
+		return "replica"
+	default:
+		return "unknown"
+	}
 }

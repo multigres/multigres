@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -60,9 +61,9 @@ func readHistogramFloat64(t *testing.T, reader *sdkmetric.ManualReader, name str
 	return nil
 }
 
-// readCounterByOutcome returns the value of an Int64 counter data point
-// matching the given outcome attribute, or 0 if absent.
-func readCounterByOutcome(t *testing.T, reader *sdkmetric.ManualReader, name, outcome string) int64 {
+// readCounterByAttrs returns the value of an Int64 counter data point matching
+// all provided attributes, or 0 if absent.
+func readCounterByAttrs(t *testing.T, reader *sdkmetric.ManualReader, name string, attrs map[string]string) int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -74,8 +75,7 @@ func readCounterByOutcome(t *testing.T, reader *sdkmetric.ManualReader, name, ou
 			sum, ok := m.Data.(metricdata.Sum[int64])
 			require.True(t, ok, "%s should be Sum[int64], got %T", name, m.Data)
 			for _, dp := range sum.DataPoints {
-				v, hasAttr := dp.Attributes.Value("outcome")
-				if hasAttr && v.AsString() == outcome {
+				if hasAttrs(dp.Attributes, attrs) {
 					return dp.Value
 				}
 			}
@@ -84,8 +84,9 @@ func readCounterByOutcome(t *testing.T, reader *sdkmetric.ManualReader, name, ou
 	return 0
 }
 
-// readCounterTotal returns the sum of all data points for an Int64 counter.
-func readCounterTotal(t *testing.T, reader *sdkmetric.ManualReader, name string) int64 {
+// readCounterTotalByAttrs returns the sum of all Int64 counter data points
+// matching the provided attributes.
+func readCounterTotalByAttrs(t *testing.T, reader *sdkmetric.ManualReader, name string, attrs map[string]string) int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -98,12 +99,37 @@ func readCounterTotal(t *testing.T, reader *sdkmetric.ManualReader, name string)
 			require.True(t, ok, "%s should be Sum[int64], got %T", name, m.Data)
 			var total int64
 			for _, dp := range sum.DataPoints {
-				total += dp.Value
+				if hasAttrs(dp.Attributes, attrs) {
+					total += dp.Value
+				}
 			}
 			return total
 		}
 	}
 	return 0
+}
+
+func hasAttrs(set attribute.Set, attrs map[string]string) bool {
+	for k, want := range attrs {
+		got, ok := set.Value(attribute.Key(k))
+		if !ok || got.AsString() != want {
+			return false
+		}
+	}
+	return true
+}
+
+func primaryDrainAttrs(outcome string) map[string]string {
+	return map[string]string{
+		"pooler_type": "primary",
+		"outcome":     outcome,
+	}
+}
+
+func primaryDrainMetricAttrs() map[string]string {
+	return map[string]string{
+		"pooler_type": "primary",
+	}
 }
 
 // TestDrainMetricGracefulOutcome verifies that a drain that completes
@@ -121,12 +147,13 @@ func TestDrainMetricGracefulOutcome(t *testing.T) {
 	// No in-flight connections → WaitForDrain returns immediately.
 	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
 
-	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
-	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
-	assert.Equal(t, int64(0), readCounterTotal(t, reader, "mg.pooler.drain.force_closed"))
+	assert.Equal(t, int64(1), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", primaryDrainAttrs("graceful")))
+	assert.Equal(t, int64(0), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", primaryDrainAttrs("force_close")))
+	assert.Equal(t, int64(0), readCounterTotalByAttrs(t, reader, "mg.pooler.drain.force_closed", primaryDrainMetricAttrs()))
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
 	require.NotNil(t, hist)
+	assert.True(t, hasAttrs(hist.Attributes, primaryDrainMetricAttrs()))
 	assert.Equal(t, uint64(1), hist.Count)
 }
 
@@ -147,15 +174,39 @@ func TestDrainMetricForceCloseOutcome(t *testing.T) {
 	mock.regularAdd(1)
 	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
 
-	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
-	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
-	assert.Equal(t, int64(4), readCounterTotal(t, reader, "mg.pooler.drain.force_closed"))
+	assert.Equal(t, int64(0), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", primaryDrainAttrs("graceful")))
+	assert.Equal(t, int64(1), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", primaryDrainAttrs("force_close")))
+	assert.Equal(t, int64(4), readCounterTotalByAttrs(t, reader, "mg.pooler.drain.force_closed", primaryDrainMetricAttrs()))
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
 	require.NotNil(t, hist)
+	assert.True(t, hasAttrs(hist.Attributes, primaryDrainMetricAttrs()))
 	assert.Equal(t, uint64(1), hist.Count)
 	assert.GreaterOrEqual(t, hist.Sum, 0.05,
 		"recorded duration should reflect at least the grace period")
+}
+
+func TestDrainMetricUsesDrainedPoolerType(t *testing.T) {
+	reader := setupPoolerTelemetry(t)
+
+	mock := newDrainMockPoolManager()
+	mock.closeReservedCount = 2
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 50 * time.Millisecond
+	ctx := t.Context()
+
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	mock.regularAdd(1)
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+
+	metricAttrs := primaryDrainMetricAttrs()
+	assert.Equal(t, int64(1), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", primaryDrainAttrs("force_close")))
+	assert.Equal(t, int64(2), readCounterTotalByAttrs(t, reader, "mg.pooler.drain.force_closed", metricAttrs))
+
+	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
+	require.NotNil(t, hist)
+	assert.True(t, hasAttrs(hist.Attributes, metricAttrs))
 }
 
 // TestDrainMetricDurationBuckets verifies the histogram uses our
@@ -201,7 +252,7 @@ func TestDrainMetricBucketDistribution(t *testing.T) {
 	}
 	var wantSum float64
 	for _, s := range samples {
-		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful)
+		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, clustermetadatapb.PoolerType_PRIMARY)
 		wantSum += s
 	}
 
@@ -226,7 +277,7 @@ func TestDrainMetricBoundaryInclusivity(t *testing.T) {
 	ctx := t.Context()
 
 	for _, s := range []float64{0.1, 0.5, 1, 2} {
-		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful)
+		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, clustermetadatapb.PoolerType_PRIMARY)
 	}
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
