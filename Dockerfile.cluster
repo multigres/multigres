@@ -78,6 +78,7 @@ RUN case "${TARGETARCH}" in \
 # Stage 3: Final image (PostgreSQL + pgBackRest + etcd + multigres)
 # =========================================================================
 # Base image is the global POSTGRES_IMAGE ARG declared at the top of this file.
+# checkov:skip=CKV_DOCKER_7:overridable base image, pinned to postgres:17.7 by default
 FROM ${POSTGRES_IMAGE}
 
 LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
@@ -101,7 +102,7 @@ USER root
 # already ships these (often such bases are not Debian-based, so apt would not
 # work there anyway); the guardrail below asserts the base actually provides them.
 ARG PROVISION_PG_PACKAGES=true
-# Re-declare the global POSTGRES_IMAGE inside this stage so the guardrail's error
+# Redeclare the global POSTGRES_IMAGE inside this stage so the guardrail's error
 # message can name the offending base image (global ARGs aren't visible to RUN).
 ARG POSTGRES_IMAGE
 # hadolint ignore=DL3008
