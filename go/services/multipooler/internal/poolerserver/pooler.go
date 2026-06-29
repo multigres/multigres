@@ -54,12 +54,18 @@ type QueryPoolerServer struct {
 	shard      string
 
 	mu sync.Mutex
-	// isHighestKnownLeader reports whether this pooler is the consensus-elected
-	// leader (the shard's write target). Set from OnStateChange; replaces the
-	// PoolerType label, which the gateway no longer routes on.
+	// isHighestKnownLeader reports highest-known leadership (the routing signal).
+	// Set from OnStateChange. CONSISTENT reads gate on this — a deposed-but-
+	// running leader can still serve read-consistent queries.
 	isHighestKnownLeader bool
-	servingStatus        clustermetadatapb.PoolerServingStatus
-	healthProvider       HealthProvider
+	// writable is true iff this pooler can accept a write: postgres is out of
+	// recovery AND the last-written committed WAL rule names this pooler as the
+	// (non-revoked) leader. WRITABLE requests gate on this, so a write is never
+	// admitted on the strength of merely highest-known leadership (a mid-promote
+	// or deposed-but-running node).
+	writable       bool
+	servingStatus  clustermetadatapb.PoolerServingStatus
+	healthProvider HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
@@ -176,6 +182,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		s.isHighestKnownLeader = isHighestKnownLeader
+		s.writable = state.Writable
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -235,6 +242,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
 	s.isHighestKnownLeader = isHighestKnownLeader
+	s.writable = state.Writable
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -350,22 +358,25 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-leader means the
-	// gateway thinks this pooler is still the primary, but it was demoted. Return
-	// MTF01 to trigger buffering. Target side uses the Mode enum (#1183); pooler
-	// side uses highest-known leadership (the routing signal), not the topology
-	// PoolerType label.
+	// A leader-bound request hitting a pooler that can't serve it as leader means
+	// the gateway has stale topology (a demotion happened). Return MTF01 to trigger
+	// buffering and re-discovery. The required leadership differs by mode:
 	//
-	// TODO: split this gate by mode. WRITABLE should reject unless we are writable
-	// (out of recovery AND the highest non-revoked *committed* leader), not merely
-	// the highest *known* leader — otherwise a mid-promote or deposed-but-running
-	// node could accept a write before consensus committed. CONSISTENT (a read)
-	// correctly stays on highest-known leadership. The Writable signal is already
-	// delivered via OnStateChange (servingstate.State).
-	mode := target.GetMode()
-	if (mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT) &&
-		!s.isHighestKnownLeader {
-		return mterrors.MTF01.New()
+	//   - WRITABLE gates on writability: postgres out of recovery AND we are the
+	//     last-written committed (non-revoked) leader. Highest-known leadership is
+	//     NOT sufficient — a mid-promote or deposed-but-running node could otherwise
+	//     admit a write before consensus committed.
+	//   - CONSISTENT (a read) gates on highest-known leadership: a deposed-but-
+	//     running leader can still serve read-consistent queries.
+	switch target.GetMode() {
+	case query.Mode_MODE_WRITABLE:
+		if !s.writable {
+			return mterrors.MTF01.New()
+		}
+	case query.Mode_MODE_CONSISTENT:
+		if !s.isHighestKnownLeader {
+			return mterrors.MTF01.New()
+		}
 	}
 
 	return nil

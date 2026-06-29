@@ -172,9 +172,47 @@ func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	s.isHighestKnownLeader = true
+	s.writable = true // writable primary admits WRITABLE traffic
 
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
+}
+
+// A WRITABLE request is rejected on a node that is the highest-known leader but
+// not yet writable (e.g. mid-promote, before the rule committed / out of
+// recovery) — write admission gates on writability, not highest-known leadership.
+func TestStartRequest_WritableQueryOnNonWritableLeader_Rejected(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.isHighestKnownLeader = true
+	s.writable = false
+
+	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
+	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
+}
+
+// A CONSISTENT (read) request is allowed on the highest-known leader even when
+// it is not writable: a deposed-but-still-running leader can serve
+// read-consistent queries.
+func TestStartRequest_ConsistentQueryOnNonWritableLeader_Allowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.isHighestKnownLeader = true
+	s.writable = false
+
+	target := &query.Target{Mode: query.Mode_MODE_CONSISTENT}
+	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
+}
+
+// A CONSISTENT request hitting a non-leader is rejected with MTF01 (stale
+// routing) so the gateway re-discovers the leader.
+func TestStartRequest_ConsistentQueryOnNonLeader_Rejected(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.isHighestKnownLeader = false
+
+	target := &query.Target{Mode: query.Mode_MODE_CONSISTENT}
+	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
 }
 
 func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
@@ -231,6 +269,7 @@ func TestStartRequest_FullTargetMatch_Allowed(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	s.isHighestKnownLeader = true
+	s.writable = true // writable primary admits WRITABLE traffic
 	s.tableGroup = "tg1"
 	s.shard = "0"
 
