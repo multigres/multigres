@@ -87,9 +87,9 @@ export function MultiPoolersTable() {
       const searchableText = [
         pooler.id?.cell || "",
         pooler.id?.name || "",
-        pooler.database || "",
-        pooler.tableGroup || "",
-        pooler.shard || "",
+        pooler.shardKey?.database || "",
+        pooler.shardKey?.tableGroup || "",
+        pooler.shardKey?.shard || "",
         pooler.type || "",
         pooler.servingStatus || "",
         pooler.hostname || "",
@@ -184,13 +184,13 @@ export function MultiPoolersTable() {
                       {pooler.id?.name || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.database || "-"}
+                      {pooler.shardKey?.database || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.tableGroup || "-"}
+                      {pooler.shardKey?.tableGroup || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.shard || "-"}
+                      {pooler.shardKey?.shard || "-"}
                     </TableCell>
                     <TableCell className="text-center py-3">
                       <PoolerTypeBadge type={pooler.type} />

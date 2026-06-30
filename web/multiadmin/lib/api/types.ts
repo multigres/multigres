@@ -39,6 +39,8 @@ export type {
 export {
   PostgresStatus,
   PostgresAction,
+  SynchronousCommitLevel,
+  SynchronousMethod,
 } from "./generated/multipoolermanagerdata_pb";
 
 // Enriched pooler combining topology metadata with live status (not a proto type).

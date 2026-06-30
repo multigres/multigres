@@ -134,14 +134,3 @@ export class MultiAdminClient {
     return this.client.getGatewayConsolidator({ gatewayId });
   }
 }
-
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public body: string,
-    public url: string,
-  ) {
-    super(`API error ${status}: ${body}`);
-    this.name = "ApiError";
-  }
-}

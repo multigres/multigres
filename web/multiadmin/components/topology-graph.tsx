@@ -343,7 +343,7 @@ export function TopologyGraph({
     >();
 
     poolers.forEach((pooler) => {
-      const key = `${pooler.database || ""}/${pooler.tableGroup || "default"}/${pooler.shard || "0-"}`;
+      const key = `${pooler.shardKey?.database || ""}/${pooler.shardKey?.tableGroup || "default"}/${pooler.shardKey?.shard || "0-"}`;
       if (!poolerGroups.has(key)) {
         poolerGroups.set(key, { primaries: [], replicas: [] });
       }
