@@ -54,7 +54,7 @@ type Metric struct {
 }
 
 // Metrics is the catalog of every metric Multigres defines, sorted by OTel name.
-// There are 104 metrics.
+// There are 112 metrics.
 var Metrics = []Metric{
 	{
 		OTelName:       "db.client.connection.count",
@@ -487,6 +487,56 @@ var Metrics = []Metric{
 		Series:         []string{"mg_pooler_query_rows_bucket", "mg_pooler_query_rows_count", "mg_pooler_query_rows_sum"},
 	},
 	{
+		OTelName:       "mg.pooler.replication.active",
+		Constructor:    "Int64UpDownCounter",
+		Unit:           "{stream}",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:118",
+		PrometheusName: "mg_pooler_replication_active",
+		Series:         []string{"mg_pooler_replication_active"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.bytes",
+		Constructor:    "Int64Counter",
+		Unit:           "By",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:90",
+		PrometheusName: "mg_pooler_replication_bytes_total",
+		Series:         []string{"mg_pooler_replication_bytes_total"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.chunks",
+		Constructor:    "Int64Counter",
+		Unit:           "{chunk}",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:99",
+		PrometheusName: "mg_pooler_replication_chunks_total",
+		Series:         []string{"mg_pooler_replication_chunks_total"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.duration",
+		Constructor:    "Float64Histogram",
+		Unit:           "s",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:127",
+		PrometheusName: "mg_pooler_replication_duration_seconds",
+		Series:         []string{"mg_pooler_replication_duration_seconds_bucket", "mg_pooler_replication_duration_seconds_count", "mg_pooler_replication_duration_seconds_sum"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.forward.latency",
+		Constructor:    "Float64Histogram",
+		Unit:           "ms",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:108",
+		PrometheusName: "mg_pooler_replication_forward_latency_milliseconds",
+		Series:         []string{"mg_pooler_replication_forward_latency_milliseconds_bucket", "mg_pooler_replication_forward_latency_milliseconds_count", "mg_pooler_replication_forward_latency_milliseconds_sum"},
+	},
+	{
 		OTelName:       "mg.pooler.replication.lag",
 		Constructor:    "Float64ObservableGauge",
 		Unit:           "s",
@@ -495,6 +545,36 @@ var Metrics = []Metric{
 		Source:         "go/services/multipooler/internal/manager/metrics.go:56",
 		PrometheusName: "mg_pooler_replication_lag_seconds",
 		Series:         []string{"mg_pooler_replication_lag_seconds"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.setup.latency",
+		Constructor:    "Float64Histogram",
+		Unit:           "s",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:137",
+		PrometheusName: "mg_pooler_replication_setup_latency_seconds",
+		Series:         []string{"mg_pooler_replication_setup_latency_seconds_bucket", "mg_pooler_replication_setup_latency_seconds_count", "mg_pooler_replication_setup_latency_seconds_sum"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.setup_errors",
+		Constructor:    "Int64Counter",
+		Unit:           "{error}",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:156",
+		PrometheusName: "mg_pooler_replication_setup_errors_total",
+		Series:         []string{"mg_pooler_replication_setup_errors_total"},
+	},
+	{
+		OTelName:       "mg.pooler.replication.terminations",
+		Constructor:    "Int64Counter",
+		Unit:           "{termination}",
+		Package:        "github.com/multigres/multigres/go/services/multipooler/internal/replication",
+		Binaries:       []string{"multipooler"},
+		Source:         "go/services/multipooler/internal/replication/metrics.go:147",
+		PrometheusName: "mg_pooler_replication_terminations_total",
+		Series:         []string{"mg_pooler_replication_terminations_total"},
 	},
 	{
 		OTelName:       "mg.pooler.reserved.active_connections",
@@ -1107,7 +1187,7 @@ var Metrics = []Metric{
 //     action: keep
 //
 // Histogram families collapse to a "<base>_(bucket|count|sum)" group.
-const PrometheusKeepListRegex = `db_client_connection_count|mg_gateway_auth_attempts_total|mg_gateway_auth_credential_lookup_duration_seconds_(bucket|count|sum)|mg_gateway_auth_credential_lookup_rate_total|mg_gateway_auth_scram_duration_seconds_(bucket|count|sum)|mg_gateway_client_connections|mg_gateway_notification_streams|mg_gateway_notifications_dropped_total|mg_gateway_query_duration_seconds_(bucket|count|sum)|mg_gateway_query_errors_total|mg_gateway_query_exec_duration_seconds_(bucket|count|sum)|mg_gateway_query_info|mg_gateway_query_log_emits_total|mg_gateway_query_parse_duration_seconds_(bucket|count|sum)|mg_gateway_query_plan_duration_seconds_(bucket|count|sum)|mg_gateway_query_rows_returned_(bucket|count|sum)|mg_gateway_query_table_queries_total|mg_gateway_tls_connections_total|mg_gateway_tls_direct_rejected_total|mg_gateway_tls_handshake_duration_seconds_(bucket|count|sum)|mg_gateway_tls_plaintext_rejected_total|mg_gateway_tls_sslrequest_declined_total|mg_gateway_transaction_count_total|mg_gateway_transaction_duration_seconds_(bucket|count|sum)|mg_plancache_hits_total|mg_plancache_misses_total|mg_pooler_auth_credential_query_duration_seconds_(bucket|count|sum)|mg_pooler_auth_credential_query_errors_total|mg_pooler_client_wait_time_seconds_total|mg_pooler_client_waiting_connections|mg_pooler_config_max_server_connections|mg_pooler_databases|mg_pooler_drain_duration_seconds_(bucket|count|sum)|mg_pooler_drain_force_closed_total|mg_pooler_drain_outcome_total|mg_pooler_pool_capacity|mg_pooler_pool_current_connections|mg_pooler_pools|mg_pooler_queries_pooled_total|mg_pooler_query_duration_seconds_(bucket|count|sum)|mg_pooler_query_errors_total|mg_pooler_query_pool_acquire_duration_seconds_(bucket|count|sum)|mg_pooler_query_rows_(bucket|count|sum)|mg_pooler_replication_lag_seconds|mg_pooler_reserved_active_connections|mg_pooler_server_conn_open_errors_total|mg_pooler_server_conn_opened_total|mg_pooler_server_conn_setup_duration_seconds_(bucket|count|sum)|mg_pooler_server_connections|mg_pooler_serving_transitions_total|mg_pooler_txn_duration_seconds_(bucket|count|sum)|mg_pooler_txn_outcomes_total|mg_pooler_up|mg_pooler_users|mg_pubsub_channels|mg_pubsub_notifications_dropped_total|mg_pubsub_reconnect_gap_duration_seconds_(bucket|count|sum)|mg_pubsub_reconnects_total|mg_pubsub_subscribers|mg_scatter_execute_duration_seconds_(bucket|count|sum)|mg_scatter_execute_errors_total|multigateway_buffer_failover_duration_seconds_(bucket|count|sum)|multigateway_buffer_failovers_total|multigateway_buffer_queue_depth|multigateway_buffer_requests_buffered_total|multigateway_buffer_requests_drained_total|multigateway_buffer_requests_evicted_total|multigateway_buffer_requests_skipped_total|multigateway_buffer_wait_duration_seconds_(bucket|count|sum)|multiorch_recovery_action_duration_milliseconds_(bucket|count|sum)|multiorch_recovery_detected_problems|multiorch_recovery_errors_total|multiorch_recovery_pooler_store_size|multiorch_recovery_stream_connected|multiorch_recovery_stream_snapshots_received|multipooler_rewind_checkpoint_wait_duration_seconds_(bucket|count|sum)|pgbackrest_backup_attempts_total|pgbackrest_backup_complete_count|pgbackrest_backup_duration_seconds_(bucket|count|sum)|pgbackrest_backup_failures_since_success|pgbackrest_backup_failures_total|pgbackrest_backup_in_progress|pgbackrest_backup_in_progress_duration_seconds|pgbackrest_backup_last_success_age_seconds|pgbackrest_backup_lease_held|pgbackrest_backup_lease_lost_total|pgbackrest_backup_lock_wait_seconds_(bucket|count|sum)|pgbackrest_backup_ready|pgbackrest_backup_successes_total|pgbackrest_backup_verify_duration_seconds_(bucket|count|sum)|pgbackrest_restore_attempts_total|pgbackrest_restore_duration_seconds_(bucket|count|sum)|pgbackrest_restore_failures_total|pgbackrest_restore_successes_total|pgbackrest_server_restart_count|pgbackrest_server_up|pgbackrest_server_uptime|pgbackrest_wal_archive_lag_seconds|rpcclient_connection_cache_size|rpcclient_connection_creates_total|rpcclient_connection_dial_duration_seconds_(bucket|count|sum)|rpcclient_connection_dial_timeouts_total|rpcclient_connection_reuses_total|topoclient_lock_duration_seconds_(bucket|count|sum)`
+const PrometheusKeepListRegex = `db_client_connection_count|mg_gateway_auth_attempts_total|mg_gateway_auth_credential_lookup_duration_seconds_(bucket|count|sum)|mg_gateway_auth_credential_lookup_rate_total|mg_gateway_auth_scram_duration_seconds_(bucket|count|sum)|mg_gateway_client_connections|mg_gateway_notification_streams|mg_gateway_notifications_dropped_total|mg_gateway_query_duration_seconds_(bucket|count|sum)|mg_gateway_query_errors_total|mg_gateway_query_exec_duration_seconds_(bucket|count|sum)|mg_gateway_query_info|mg_gateway_query_log_emits_total|mg_gateway_query_parse_duration_seconds_(bucket|count|sum)|mg_gateway_query_plan_duration_seconds_(bucket|count|sum)|mg_gateway_query_rows_returned_(bucket|count|sum)|mg_gateway_query_table_queries_total|mg_gateway_tls_connections_total|mg_gateway_tls_direct_rejected_total|mg_gateway_tls_handshake_duration_seconds_(bucket|count|sum)|mg_gateway_tls_plaintext_rejected_total|mg_gateway_tls_sslrequest_declined_total|mg_gateway_transaction_count_total|mg_gateway_transaction_duration_seconds_(bucket|count|sum)|mg_plancache_hits_total|mg_plancache_misses_total|mg_pooler_auth_credential_query_duration_seconds_(bucket|count|sum)|mg_pooler_auth_credential_query_errors_total|mg_pooler_client_wait_time_seconds_total|mg_pooler_client_waiting_connections|mg_pooler_config_max_server_connections|mg_pooler_databases|mg_pooler_drain_duration_seconds_(bucket|count|sum)|mg_pooler_drain_force_closed_total|mg_pooler_drain_outcome_total|mg_pooler_pool_capacity|mg_pooler_pool_current_connections|mg_pooler_pools|mg_pooler_queries_pooled_total|mg_pooler_query_duration_seconds_(bucket|count|sum)|mg_pooler_query_errors_total|mg_pooler_query_pool_acquire_duration_seconds_(bucket|count|sum)|mg_pooler_query_rows_(bucket|count|sum)|mg_pooler_replication_active|mg_pooler_replication_bytes_total|mg_pooler_replication_chunks_total|mg_pooler_replication_duration_seconds_(bucket|count|sum)|mg_pooler_replication_forward_latency_milliseconds_(bucket|count|sum)|mg_pooler_replication_lag_seconds|mg_pooler_replication_setup_errors_total|mg_pooler_replication_setup_latency_seconds_(bucket|count|sum)|mg_pooler_replication_terminations_total|mg_pooler_reserved_active_connections|mg_pooler_server_conn_open_errors_total|mg_pooler_server_conn_opened_total|mg_pooler_server_conn_setup_duration_seconds_(bucket|count|sum)|mg_pooler_server_connections|mg_pooler_serving_transitions_total|mg_pooler_txn_duration_seconds_(bucket|count|sum)|mg_pooler_txn_outcomes_total|mg_pooler_up|mg_pooler_users|mg_pubsub_channels|mg_pubsub_notifications_dropped_total|mg_pubsub_reconnect_gap_duration_seconds_(bucket|count|sum)|mg_pubsub_reconnects_total|mg_pubsub_subscribers|mg_scatter_execute_duration_seconds_(bucket|count|sum)|mg_scatter_execute_errors_total|multigateway_buffer_failover_duration_seconds_(bucket|count|sum)|multigateway_buffer_failovers_total|multigateway_buffer_queue_depth|multigateway_buffer_requests_buffered_total|multigateway_buffer_requests_drained_total|multigateway_buffer_requests_evicted_total|multigateway_buffer_requests_skipped_total|multigateway_buffer_wait_duration_seconds_(bucket|count|sum)|multiorch_recovery_action_duration_milliseconds_(bucket|count|sum)|multiorch_recovery_detected_problems|multiorch_recovery_errors_total|multiorch_recovery_pooler_store_size|multiorch_recovery_stream_connected|multiorch_recovery_stream_snapshots_received|multipooler_rewind_checkpoint_wait_duration_seconds_(bucket|count|sum)|pgbackrest_backup_attempts_total|pgbackrest_backup_complete_count|pgbackrest_backup_duration_seconds_(bucket|count|sum)|pgbackrest_backup_failures_since_success|pgbackrest_backup_failures_total|pgbackrest_backup_in_progress|pgbackrest_backup_in_progress_duration_seconds|pgbackrest_backup_last_success_age_seconds|pgbackrest_backup_lease_held|pgbackrest_backup_lease_lost_total|pgbackrest_backup_lock_wait_seconds_(bucket|count|sum)|pgbackrest_backup_ready|pgbackrest_backup_successes_total|pgbackrest_backup_verify_duration_seconds_(bucket|count|sum)|pgbackrest_restore_attempts_total|pgbackrest_restore_duration_seconds_(bucket|count|sum)|pgbackrest_restore_failures_total|pgbackrest_restore_successes_total|pgbackrest_server_restart_count|pgbackrest_server_up|pgbackrest_server_uptime|pgbackrest_wal_archive_lag_seconds|rpcclient_connection_cache_size|rpcclient_connection_creates_total|rpcclient_connection_dial_duration_seconds_(bucket|count|sum)|rpcclient_connection_dial_timeouts_total|rpcclient_connection_reuses_total|topoclient_lock_duration_seconds_(bucket|count|sum)`
 
 // PrometheusKeepListByBinary maps each binary to a keep-list regex covering only
 // the series that binary exposes, for scoping a keep rule per Prometheus scrape
@@ -1119,7 +1199,7 @@ var PrometheusKeepListByBinary = map[string]string{
 	"multigateway": `mg_gateway_auth_attempts_total|mg_gateway_auth_credential_lookup_duration_seconds_(bucket|count|sum)|mg_gateway_auth_credential_lookup_rate_total|mg_gateway_auth_scram_duration_seconds_(bucket|count|sum)|mg_gateway_client_connections|mg_gateway_notification_streams|mg_gateway_notifications_dropped_total|mg_gateway_query_duration_seconds_(bucket|count|sum)|mg_gateway_query_errors_total|mg_gateway_query_exec_duration_seconds_(bucket|count|sum)|mg_gateway_query_info|mg_gateway_query_log_emits_total|mg_gateway_query_parse_duration_seconds_(bucket|count|sum)|mg_gateway_query_plan_duration_seconds_(bucket|count|sum)|mg_gateway_query_rows_returned_(bucket|count|sum)|mg_gateway_query_table_queries_total|mg_gateway_tls_connections_total|mg_gateway_tls_direct_rejected_total|mg_gateway_tls_handshake_duration_seconds_(bucket|count|sum)|mg_gateway_tls_plaintext_rejected_total|mg_gateway_tls_sslrequest_declined_total|mg_gateway_transaction_count_total|mg_gateway_transaction_duration_seconds_(bucket|count|sum)|mg_plancache_hits_total|mg_plancache_misses_total|mg_scatter_execute_duration_seconds_(bucket|count|sum)|mg_scatter_execute_errors_total|multigateway_buffer_failover_duration_seconds_(bucket|count|sum)|multigateway_buffer_failovers_total|multigateway_buffer_queue_depth|multigateway_buffer_requests_buffered_total|multigateway_buffer_requests_drained_total|multigateway_buffer_requests_evicted_total|multigateway_buffer_requests_skipped_total|multigateway_buffer_wait_duration_seconds_(bucket|count|sum)|rpcclient_connection_cache_size|rpcclient_connection_creates_total|rpcclient_connection_dial_duration_seconds_(bucket|count|sum)|rpcclient_connection_dial_timeouts_total|rpcclient_connection_reuses_total|topoclient_lock_duration_seconds_(bucket|count|sum)`,
 	"multigres":    `topoclient_lock_duration_seconds_(bucket|count|sum)`,
 	"multiorch":    `multiorch_recovery_action_duration_milliseconds_(bucket|count|sum)|multiorch_recovery_detected_problems|multiorch_recovery_errors_total|multiorch_recovery_pooler_store_size|multiorch_recovery_stream_connected|multiorch_recovery_stream_snapshots_received|rpcclient_connection_cache_size|rpcclient_connection_creates_total|rpcclient_connection_dial_duration_seconds_(bucket|count|sum)|rpcclient_connection_dial_timeouts_total|rpcclient_connection_reuses_total|topoclient_lock_duration_seconds_(bucket|count|sum)`,
-	"multipooler":  `db_client_connection_count|mg_pooler_auth_credential_query_duration_seconds_(bucket|count|sum)|mg_pooler_auth_credential_query_errors_total|mg_pooler_client_wait_time_seconds_total|mg_pooler_client_waiting_connections|mg_pooler_config_max_server_connections|mg_pooler_databases|mg_pooler_drain_duration_seconds_(bucket|count|sum)|mg_pooler_drain_force_closed_total|mg_pooler_drain_outcome_total|mg_pooler_pool_capacity|mg_pooler_pool_current_connections|mg_pooler_pools|mg_pooler_queries_pooled_total|mg_pooler_query_duration_seconds_(bucket|count|sum)|mg_pooler_query_errors_total|mg_pooler_query_pool_acquire_duration_seconds_(bucket|count|sum)|mg_pooler_query_rows_(bucket|count|sum)|mg_pooler_replication_lag_seconds|mg_pooler_reserved_active_connections|mg_pooler_server_conn_open_errors_total|mg_pooler_server_conn_opened_total|mg_pooler_server_conn_setup_duration_seconds_(bucket|count|sum)|mg_pooler_server_connections|mg_pooler_serving_transitions_total|mg_pooler_txn_duration_seconds_(bucket|count|sum)|mg_pooler_txn_outcomes_total|mg_pooler_up|mg_pooler_users|mg_pubsub_channels|mg_pubsub_notifications_dropped_total|mg_pubsub_reconnect_gap_duration_seconds_(bucket|count|sum)|mg_pubsub_reconnects_total|mg_pubsub_subscribers|multipooler_rewind_checkpoint_wait_duration_seconds_(bucket|count|sum)|pgbackrest_backup_attempts_total|pgbackrest_backup_complete_count|pgbackrest_backup_duration_seconds_(bucket|count|sum)|pgbackrest_backup_failures_since_success|pgbackrest_backup_failures_total|pgbackrest_backup_in_progress|pgbackrest_backup_in_progress_duration_seconds|pgbackrest_backup_last_success_age_seconds|pgbackrest_backup_lease_held|pgbackrest_backup_lease_lost_total|pgbackrest_backup_lock_wait_seconds_(bucket|count|sum)|pgbackrest_backup_ready|pgbackrest_backup_successes_total|pgbackrest_backup_verify_duration_seconds_(bucket|count|sum)|pgbackrest_restore_attempts_total|pgbackrest_restore_duration_seconds_(bucket|count|sum)|pgbackrest_restore_failures_total|pgbackrest_restore_successes_total|pgbackrest_wal_archive_lag_seconds|topoclient_lock_duration_seconds_(bucket|count|sum)`,
+	"multipooler":  `db_client_connection_count|mg_pooler_auth_credential_query_duration_seconds_(bucket|count|sum)|mg_pooler_auth_credential_query_errors_total|mg_pooler_client_wait_time_seconds_total|mg_pooler_client_waiting_connections|mg_pooler_config_max_server_connections|mg_pooler_databases|mg_pooler_drain_duration_seconds_(bucket|count|sum)|mg_pooler_drain_force_closed_total|mg_pooler_drain_outcome_total|mg_pooler_pool_capacity|mg_pooler_pool_current_connections|mg_pooler_pools|mg_pooler_queries_pooled_total|mg_pooler_query_duration_seconds_(bucket|count|sum)|mg_pooler_query_errors_total|mg_pooler_query_pool_acquire_duration_seconds_(bucket|count|sum)|mg_pooler_query_rows_(bucket|count|sum)|mg_pooler_replication_active|mg_pooler_replication_bytes_total|mg_pooler_replication_chunks_total|mg_pooler_replication_duration_seconds_(bucket|count|sum)|mg_pooler_replication_forward_latency_milliseconds_(bucket|count|sum)|mg_pooler_replication_lag_seconds|mg_pooler_replication_setup_errors_total|mg_pooler_replication_setup_latency_seconds_(bucket|count|sum)|mg_pooler_replication_terminations_total|mg_pooler_reserved_active_connections|mg_pooler_server_conn_open_errors_total|mg_pooler_server_conn_opened_total|mg_pooler_server_conn_setup_duration_seconds_(bucket|count|sum)|mg_pooler_server_connections|mg_pooler_serving_transitions_total|mg_pooler_txn_duration_seconds_(bucket|count|sum)|mg_pooler_txn_outcomes_total|mg_pooler_up|mg_pooler_users|mg_pubsub_channels|mg_pubsub_notifications_dropped_total|mg_pubsub_reconnect_gap_duration_seconds_(bucket|count|sum)|mg_pubsub_reconnects_total|mg_pubsub_subscribers|multipooler_rewind_checkpoint_wait_duration_seconds_(bucket|count|sum)|pgbackrest_backup_attempts_total|pgbackrest_backup_complete_count|pgbackrest_backup_duration_seconds_(bucket|count|sum)|pgbackrest_backup_failures_since_success|pgbackrest_backup_failures_total|pgbackrest_backup_in_progress|pgbackrest_backup_in_progress_duration_seconds|pgbackrest_backup_last_success_age_seconds|pgbackrest_backup_lease_held|pgbackrest_backup_lease_lost_total|pgbackrest_backup_lock_wait_seconds_(bucket|count|sum)|pgbackrest_backup_ready|pgbackrest_backup_successes_total|pgbackrest_backup_verify_duration_seconds_(bucket|count|sum)|pgbackrest_restore_attempts_total|pgbackrest_restore_duration_seconds_(bucket|count|sum)|pgbackrest_restore_failures_total|pgbackrest_restore_successes_total|pgbackrest_wal_archive_lag_seconds|topoclient_lock_duration_seconds_(bucket|count|sum)`,
 	"pgctld":       `pgbackrest_server_restart_count|pgbackrest_server_up|pgbackrest_server_uptime|topoclient_lock_duration_seconds_(bucket|count|sum)`,
 }
 

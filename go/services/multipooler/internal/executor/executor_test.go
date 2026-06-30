@@ -182,6 +182,10 @@ func (m *stubPoolManager) NewReservedConn(ctx context.Context, _ map[string]stri
 	return m.newReservedPool.NewConn(ctx, nil, opts...)
 }
 
+func (m *stubPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
+	return nil, errors.New("not implemented in test stub")
+}
+
 func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) {
 	return m.reservedConn, m.reservedConnOK
 }

@@ -109,6 +109,10 @@ func (m *mockMultiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts
 	return m.bidiStream, nil
 }
 
+func (m *mockMultiPoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse], error) {
+	return nil, nil
+}
+
 // Other methods not used in CopyReady tests
 func (m *mockMultiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *multipoolerservice.ExecuteQueryRequest, opts ...grpc.CallOption) (*multipoolerservice.ExecuteQueryResponse, error) {
 	return nil, nil
