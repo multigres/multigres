@@ -59,6 +59,9 @@ func (r ConsensusRole) String() string {
 func SelfConsensusRole(cs *clustermetadatapb.ConsensusStatus) ConsensusRole {
 	rule := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})
 	self := cs.GetId()
+	if self == nil {
+		return ConsensusRoleObserver
+	}
 	if RuleNamesLeader(rule, self) {
 		return ConsensusRoleLeader
 	}

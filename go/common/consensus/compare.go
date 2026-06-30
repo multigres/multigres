@@ -206,9 +206,15 @@ func idsEqual(a, b *clustermetadatapb.ID) bool {
 }
 
 // RuleNamesLeader reports whether rule names id as its leader. Returns false
-// when rule or its leader ID is absent.
+// when rule, its leader ID, or id is absent — two absent IDs must not be treated
+// as a match (idsEqual(nil, nil) is true), or a pooler with no ID would be
+// classified as the leader of a leaderless bootstrap rule.
 func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID) bool {
-	return rule != nil && idsEqual(rule.GetLeaderId(), id)
+	leader := rule.GetLeaderId()
+	if leader == nil || id == nil {
+		return false
+	}
+	return idsEqual(leader, id)
 }
 
 // ComparePosition returns negative, zero, or positive based on whether a is

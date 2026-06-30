@@ -40,6 +40,8 @@ func TestRuleNamesLeader(t *testing.T) {
 	}{
 		{name: "nil rule", rule: nil, id: self, want: false},
 		{name: "nil leader id", rule: &clustermetadatapb.ShardRule{}, id: self, want: false},
+		{name: "nil leader id and nil id", rule: &clustermetadatapb.ShardRule{}, id: nil, want: false},
+		{name: "leader present but nil id", rule: &clustermetadatapb.ShardRule{LeaderId: self}, id: nil, want: false},
 		{name: "leader matches", rule: &clustermetadatapb.ShardRule{LeaderId: self}, id: self, want: true},
 		{name: "leader differs", rule: &clustermetadatapb.ShardRule{LeaderId: id("zone1", "pooler-2")}, id: self, want: false},
 	}

@@ -179,6 +179,16 @@ func TestSelfConsensusRole(t *testing.T) {
 			},
 			want: ConsensusRoleObserver,
 		},
+		{
+			// A pooler with no ID and a leaderless bootstrap rule must not be
+			// classified as leader: idsEqual(nil, nil) is true, so this guards the
+			// nil self against matching a nil leader ID.
+			name: "nil self id with leaderless rule is observer",
+			cs: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{}},
+			},
+			want: ConsensusRoleObserver,
+		},
 	}
 
 	for _, tt := range tests {
@@ -246,6 +256,15 @@ func TestIsNonRevokedCommittedLeader(t *testing.T) {
 				Id:              self,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
 				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
+			},
+			want: false,
+		},
+		{
+			// nil self id + leaderless committed rule must not self-certify as the
+			// committed leader (write-safety input must fail closed here).
+			name: "nil self id with leaderless committed rule",
+			cs: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{}},
 			},
 			want: false,
 		},
