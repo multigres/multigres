@@ -26,6 +26,31 @@ func rn(term, subterm int64) *clustermetadatapb.RuleNumber {
 	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm}
 }
 
+func TestRuleNamesLeader(t *testing.T) {
+	id := func(cell, name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{Cell: cell, Name: name}
+	}
+	self := id("zone1", "pooler-1")
+
+	tests := []struct {
+		name string
+		rule *clustermetadatapb.ShardRule
+		id   *clustermetadatapb.ID
+		want bool
+	}{
+		{name: "nil rule", rule: nil, id: self, want: false},
+		{name: "nil leader id", rule: &clustermetadatapb.ShardRule{}, id: self, want: false},
+		{name: "leader matches", rule: &clustermetadatapb.ShardRule{LeaderId: self}, id: self, want: true},
+		{name: "leader differs", rule: &clustermetadatapb.ShardRule{LeaderId: id("zone1", "pooler-2")}, id: self, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, RuleNamesLeader(tt.rule, tt.id))
+		})
+	}
+}
+
 func pos(term int64, lsn string) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
 		Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)},

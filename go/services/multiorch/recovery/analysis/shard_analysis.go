@@ -131,7 +131,7 @@ func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
 func (sa *ShardAnalysis) Replicas() []*PoolerAnalysis {
 	var replicas []*PoolerAnalysis
 	for _, pa := range sa.Analyses {
-		if !pa.NamesSelfAsLeader {
+		if pa.SelfConsensusRole != commonconsensus.ConsensusRoleLeader {
 			replicas = append(replicas, pa)
 		}
 	}
@@ -147,7 +147,11 @@ type PoolerAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 
 	// Pooler properties
-	NamesSelfAsLeader bool
+
+	// SelfConsensusRole is the pooler's role in the highest consensus rule it
+	// knows (leader/follower/observer), derived from ConsensusStatus via
+	// commonconsensus.SelfConsensusRole. Distinct from any routing role.
+	SelfConsensusRole commonconsensus.ConsensusRole
 	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool

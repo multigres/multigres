@@ -51,7 +51,7 @@ func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient
 	if err != nil {
 		return nil, mterrors.Wrap(err, "consensus leader unreachable during health check")
 	}
-	if !commonconsensus.NamesSelfAsLeader(statusResp.GetConsensusStatus()) {
+	if commonconsensus.SelfConsensusRole(statusResp.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus leader %s no longer reports itself as the leader", leader.Health().GetMultiPooler().GetId().GetName())
 	}

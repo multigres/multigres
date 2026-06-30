@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
@@ -49,8 +50,8 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// Only analyze replicas
-	if poolerAnalysis.NamesSelfAsLeader {
+	// Only analyze non-leaders
+	if poolerAnalysis.SelfConsensusRole == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
 
