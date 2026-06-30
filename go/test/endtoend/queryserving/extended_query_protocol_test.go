@@ -865,6 +865,42 @@ func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
 				assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation),
 					"expected 08P01 protocol_violation, got: %v", err)
 			})
+
+			// Describe('P') of an empty portal, both unfolded and folded into
+			// Execute. Asserted against both targets so the gateway's NoData /
+			// EmptyQueryResponse handling is confirmed to match stock PostgreSQL.
+			t.Run("describe and execute empty portal", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "empty_dp", "-- comment\n", nil))
+
+				// Unfolded Bind → Describe('P') → Sync. An empty portal answers
+				// with NoData, so the client surfaces nil Fields. (A RowDescription
+				// would leave Fields non-nil — that is the divergence this guards
+				// against.) PostgreSQL sends no ParameterDescription for a portal.
+				desc, err := conn.BindAndDescribe(ctx, "empty_dp", nil, nil, nil)
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				assert.Nil(t, desc.Fields, "Describe('P') of an empty portal must answer NoData, not RowDescription")
+				assert.Empty(t, desc.Parameters, "portal describe never returns ParameterDescription")
+
+				// Folded Bind → Describe('P') → Execute → Sync. The describe's
+				// NoData and the execute's EmptyQueryResponse collapse to a single
+				// empty result with no fields, no rows, and no command tag.
+				var results []*sqltypes.Result
+				completed, err := conn.BindDescribeAndExecute(ctx, "", "empty_dp", nil, nil, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						results = append(results, result)
+						return nil
+					})
+				require.NoError(t, err)
+				assert.True(t, completed)
+				require.Len(t, results, 1)
+				assert.Nil(t, results[0].Fields)
+				assert.Empty(t, results[0].Rows)
+				assert.Empty(t, results[0].CommandTag)
+			})
 		})
 	}
 }
