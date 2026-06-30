@@ -78,14 +78,6 @@ func (pm *MultiPoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
 	})
 }
 
-// intendedRole is the pooler role implied by the highest rule it knows of — the
-// consensus-authoritative source of truth for the published PoolerType,
-// independent of the observed postgres recovery mode.
-func (pm *MultiPoolerManager) intendedRole() clustermetadatapb.PoolerType {
-	t, _ := deriveTypeAndObs(pm.highestKnownRule(), pm.serviceID)
-	return t
-}
-
 // staleStandbyDemoteTarget returns the leader this pooler should restart as a
 // standby of, for the case where consensus has moved on but postgres is still
 // running as a primary on a deposed term. Returns nil unless there is a recorded
@@ -448,13 +440,13 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 // determineRoleAction returns the action needed to align this pooler's role with
 // the rule-derived intended role: demote a stale primary, resign when the rule
 // names us leader but postgres is a standby, etc.
-func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.PoolerType, state postgresState, lastAppliedPrimary bool) remedialAction {
-	// Rule: FOLLOWER
+func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.ConsensusRole, state postgresState, lastAppliedPrimary bool) remedialAction {
+	// Consensus role: not leader (follower/observer)
 	// Postgres: PRIMARY
 	// Diagnosis: Stale primary. We should restart as a replica, but we anticipate
 	// having extra / phantom transactions so don't restart until we've been informed
 	// the current leader to allow rewinding.
-	if intended == clustermetadatapb.PoolerType_REPLICA && state.isPrimary {
+	if role != commonconsensus.ConsensusRoleLeader && state.isPrimary {
 		if pm.staleStandbyDemoteTarget() != nil {
 			return remedialActionDemoteStalePrimary
 		}
@@ -471,7 +463,7 @@ func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.Poo
 	// Promote's promoteStandbyToPrimary), and disambiguate resign (we lost our
 	// postgres) from promote (newly elected). Embedding the leader host/port in the
 	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
-	if intended == clustermetadatapb.PoolerType_PRIMARY && !state.isPrimary {
+	if role == commonconsensus.ConsensusRoleLeader && !state.isPrimary {
 		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
 			return remedialActionResignLeadership
 		}
@@ -493,7 +485,7 @@ func (pm *MultiPoolerManager) determineRoleAction(intended clustermetadatapb.Poo
 	//     under the action lock, so an actionable DRAINING means the drain finished
 	//     and restoring SERVING is safe. A resigned leader is handled by the branch
 	//     above.
-	if pm.getPoolerType() != intended ||
+	if pm.getPoolerType() != poolerTypeForLeader(role == commonconsensus.ConsensusRoleLeader) ||
 		state.isPrimary != lastAppliedPrimary ||
 		pm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_DRAINING {
 		return remedialActionReconcileState
@@ -548,21 +540,21 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 	// role (determineRoleAction), then when the role needs no action
 	// reconcile the replication settings (determineReplicationSettingsAction).
 	if currentState.postgresRunning {
-		intended := pm.intendedRole()
-		if intended == clustermetadatapb.PoolerType_UNKNOWN {
+		if pm.highestKnownRule() == nil {
 			// No rule-bearing position observed yet; wait rather than act on the
 			// observed postgres state. This also defers DRAINING -> SERVING recovery:
 			// a node only re-enables serving once it knows its rule-derived role,
 			// matching the "healthy and role-aligned" contract on PoolerServingStatus.
 			return remedialActionNone
 		}
-		if action := pm.determineRoleAction(intended, currentState, lastAppliedPrimary); action != remedialActionNone {
+		role := commonconsensus.SelfConsensusRole(pm.consensusMgr.CachedConsensusStatus())
+		if action := pm.determineRoleAction(role, currentState, lastAppliedPrimary); action != remedialActionNone {
 			return action
 		}
 		if action := pm.determineReplicationSettingsAction(ctx, currentState); action != remedialActionNone {
 			return action
 		}
-		if pm.shouldMarkRewindReady(currentState, intended) {
+		if pm.shouldMarkRewindReady(currentState, role) {
 			return remedialActionMarkRewindReady
 		}
 		return remedialActionNone
@@ -578,8 +570,8 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 // leadership, and the published ReplicationPrimary has not yet advertised it. The
 // last check makes the resulting action a false->true edge, so its broadcast
 // fires once per promotion rather than every tick.
-func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, intended clustermetadatapb.PoolerType) bool {
-	if !state.rewindSourceReady || intended != clustermetadatapb.PoolerType_PRIMARY {
+func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, role commonconsensus.ConsensusRole) bool {
+	if !state.rewindSourceReady || role != commonconsensus.ConsensusRoleLeader {
 		return false
 	}
 	if pm.consensusMgr.ResignedLeaderAtTerm() != 0 {

@@ -723,14 +723,6 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	})
 }
 
-// TestIntendedRole verifies that intendedRole() derives the PoolerType from
-// the freshest rule this pooler knows about (highestKnownRule, which merges the
-// consensus-recorded replication primary with the rule store's cached
-// position): UNKNOWN when no rule exists, PRIMARY when the freshest rule names
-// this pooler as leader, REPLICA when it names another pooler. The
-// consensus-recorded rule can outrank our cached position — that is the
-// stale-primary signal, where intendedRole() reports REPLICA even though our
-// cached rule still names self.
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 
