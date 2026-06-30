@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -846,6 +847,24 @@ func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
 					assert.Equal(t, "1", string(after[0].Rows[0].Values[0]))
 				})
 			}
+
+			// Binding a parameter to an empty statement that declares none is a
+			// protocol violation (08P01), matching PostgreSQL. Asserted against
+			// both targets to confirm parity.
+			t.Run("bind param mismatch on empty statement", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "empty_mismatch", "-- comment\n", nil))
+
+				_, err := conn.BindAndExecute(ctx, "", "empty_mismatch", [][]byte{[]byte("1")}, []int16{0}, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						return nil
+					})
+				require.Error(t, err, "binding params to a zero-parameter empty statement must be rejected")
+				assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation),
+					"expected 08P01 protocol_violation, got: %v", err)
+			})
 		})
 	}
 }

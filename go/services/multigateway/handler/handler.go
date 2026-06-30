@@ -388,6 +388,21 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 		return mterrors.NewInvalidPreparedStatementError(stmtName)
 	}
 
+	// For an empty / comment-only statement the gateway knows the parameter
+	// count authoritatively (there is no query body in which postgres could
+	// infer extra parameters), and the backend never sees the Bind because
+	// Execute is short-circuited. Validate the supplied parameter count here so
+	// a mismatch surfaces the same 08P01 protocol_violation PostgreSQL raises,
+	// rather than silently succeeding. Non-empty statements are validated by the
+	// backend, which may infer parameters beyond those declared at Parse.
+	if psi.IsEmpty() {
+		if declared := len(psi.GetParamTypes()); len(params) != declared {
+			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
+				fmt.Sprintf("bind message supplies %d parameters, but prepared statement %q requires %d",
+					len(params), stmtName, declared), "")
+		}
+	}
+
 	// Get the connection state.
 	state := h.getConnectionState(conn)
 

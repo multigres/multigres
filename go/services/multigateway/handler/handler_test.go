@@ -511,6 +511,38 @@ func TestHandleParse_EmptyAndCommentOnlyAccepted(t *testing.T) {
 	}
 }
 
+// TestHandleBind_EmptyStatementParamCountMismatch verifies that binding the
+// wrong number of parameters to an empty (comment-only) prepared statement is
+// rejected as a protocol violation (08P01), matching PostgreSQL. For an empty
+// statement the gateway authoritatively knows the parameter count (there is no
+// query body in which postgres could infer additional parameters), so the
+// check belongs at the gateway rather than being deferred to the backend.
+func TestHandleBind_EmptyStatementParamCountMismatch(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Empty statement declaring zero parameters.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s0", "-- comment\n", nil))
+
+	// Binding any parameter is a protocol violation.
+	err := h.HandleBind(t.Context(), conn, "p0", "s0", [][]byte{[]byte("1")}, []int16{0}, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+
+	// Binding the correct (zero) count still succeeds.
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p0", "s0", nil, nil, nil))
+
+	// Empty statement that declares parameter types still validates against the
+	// declared count: too few is rejected, the exact count succeeds.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s1", "-- comment\n", []uint32{23}))
+	err = h.HandleBind(t.Context(), conn, "p1", "s1", nil, nil, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p1", "s1", [][]byte{[]byte("1")}, []int16{0}, nil))
+}
+
 // TestHandleDescribe_EmptyStatementAndPortal verifies that describing an empty
 // (comment-only) prepared statement or portal returns an empty description
 // (rendered as ParameterDescription(0)/NoData) without calling the executor.
