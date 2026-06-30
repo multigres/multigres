@@ -362,7 +362,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 //
 //   - The standby's topology entry stays in place but its
 //     LifecycleStatus.Status transitions to LIFECYCLE_SHUTDOWN (with
-//     Type=UNKNOWN and ServingStatus=NOT_SERVING) once the OnClose
+//     Type=UNKNOWN and ServingStatus=DISABLED) once the OnClose
 //     unregisterFunc has run. This is the signal the orchestrator's
 //     pooler watcher reacts to in order to tear down the per-pooler
 //     health stream; the durable entry itself is left for the 4 h

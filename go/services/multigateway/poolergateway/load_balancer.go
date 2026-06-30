@@ -317,6 +317,14 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if !proto.Equal(health.LeaderObservation.GetLeaderId(), connID) {
 		return
 	}
+	// Gate write-resume on writability, not just leadership. A leader can answer
+	// reads (CONSISTENT) and report SERVING before it has finished promoting,
+	// while postgres is still in recovery. Draining the failover buffer then would
+	// route buffered writes to a read-only node ("cannot ... during recovery" /
+	// read-only transaction). isWritable() reflects postgres being out of recovery.
+	if !health.isWritable() {
+		return
+	}
 	lb.onLeaderServing(summary.shardKey)
 }
 

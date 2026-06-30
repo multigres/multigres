@@ -683,7 +683,7 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 
 				retrieved.Hostname = "host2.example.com"
 				retrieved.PortMap["http"] = 8081
-				retrieved.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+				retrieved.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 
 				err = ts.UpdateMultiPooler(ctx, retrieved)
 				require.NoError(t, err)
@@ -692,7 +692,7 @@ func TestMultiPoolerCRUDOperations(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "host2.example.com", updated.Hostname)
 				require.Equal(t, int32(8081), updated.PortMap["http"])
-				require.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, updated.ServingStatus)
+				require.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, updated.ServingStatus)
 				require.NotEqual(t, oldVersion, updated.Version())
 			},
 		},
@@ -1085,7 +1085,7 @@ func TestInitMultiPooler(t *testing.T) {
 					Hostname:      "newhost",
 					PortMap:       map[string]int32{"grpc": 8081},
 					Type:          clustermetadatapb.PoolerType_REPLICA,
-					ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 				}
 
 				err := ts.RegisterMultiPooler(ctx, updated, true)
@@ -1131,7 +1131,7 @@ func TestInitMultiPooler(t *testing.T) {
 					Hostname:      "newhost",
 					PortMap:       map[string]int32{"grpc": 8081},
 					Type:          clustermetadatapb.PoolerType_REPLICA,
-					ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 				}
 
 				err := ts.RegisterMultiPooler(ctx, updated, false)
