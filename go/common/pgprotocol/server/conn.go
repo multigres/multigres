@@ -1210,6 +1210,19 @@ func (c *Conn) handleExecute() error {
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
 	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, includeDescribe, func(ctx context.Context, result *sqltypes.Result) error {
+		// A nil result signals an empty / comment-only query, mirroring the
+		// simple-query path. PostgreSQL answers Execute of an empty-string
+		// portal with EmptyQueryResponse. If a Describe('P') was folded into
+		// this Execute, its answer (NoData for an empty portal) is owed first.
+		if result == nil {
+			if includeDescribe && !sentRowDescription {
+				if err := c.writeMessage(protocol.MsgNoData, nil); err != nil {
+					return fmt.Errorf("writing no data: %w", err)
+				}
+			}
+			return c.writeEmptyQueryResponse()
+		}
+
 		// Send notices immediately (zero-buffering delivery).
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
