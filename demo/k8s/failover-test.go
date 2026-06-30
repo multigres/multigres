@@ -80,20 +80,20 @@ type Config struct {
 // PoolerStatus represents the status returned from the HTTP API
 type PoolerStatus struct {
 	Status struct {
-		PoolerType    string `json:"pooler_type"`
-		PostgresReady bool   `json:"postgres_ready"`
+		PoolerType    string `json:"poolerType"`
+		PostgresReady bool   `json:"postgresReady"`
 		PrimaryStatus *struct {
 			Ready              bool `json:"ready"`
 			ConnectedFollowers []struct {
 				Cell string `json:"cell"`
 				Name string `json:"name"`
-			} `json:"connected_followers"`
-		} `json:"primary_status"`
+			} `json:"connectedFollowers"`
+		} `json:"primaryStatus"`
 		ReplicationStatus *struct {
-			LastReceiveLSN    string `json:"last_receive_lsn"`
-			LastReplayLSN     string `json:"last_replay_lsn"`
-			IsWALReplayPaused bool   `json:"is_wal_replay_paused"`
-		} `json:"replication_status"`
+			LastReceiveLSN    string `json:"lastReceiveLsn"`
+			LastReplayLSN     string `json:"lastReplayLsn"`
+			IsWALReplayPaused bool   `json:"isWalReplayPaused"`
+		} `json:"replicationStatus"`
 	} `json:"status"`
 }
 

@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"connectrpc.com/vanguard"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -121,8 +122,23 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 			connectPath, connectHandler := multiadminconnect.NewMultiAdminServiceHandler(
 				&connectAdapter{ma.adminServer},
 			)
+			// Serve the Connect/gRPC-Web protocol (canonical camelCase JSON) for
+			// the web UI directly.
 			ma.senv.HTTPHandle(connectPath, connectHandler)
-			logger.InfoContext(ctx, "MultiAdmin gRPC and Connect API services registered")
+
+			// Also expose the RESTful /api/v1 routes (from the proto's
+			// google.api.http annotations) via a Vanguard transcoder that wraps
+			// the same handler. REST serves canonical proto3 JSON (camelCase),
+			// matching the Connect API and standard transcoder defaults.
+			transcoder, err := vanguard.NewTranscoder(
+				[]*vanguard.Service{vanguard.NewService(connectPath, connectHandler)},
+			)
+			if err != nil {
+				logger.ErrorContext(ctx, "failed to build REST transcoder", "error", err)
+			} else {
+				ma.senv.HTTPHandle("/api/", transcoder)
+			}
+			logger.InfoContext(ctx, "MultiAdmin gRPC, Connect, and REST API services registered")
 		}
 	})
 

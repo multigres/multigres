@@ -1,6 +1,12 @@
+buf.build/gen/go/connectrpc/eliza/connectrpc/go v1.11.1-20230822171018-8b8b971d6fde.1 h1:VxlBIOBOYa4k5dHcmduPVF1OXJwhiGmsVhqdbPd33Mo=
+buf.build/gen/go/connectrpc/eliza/connectrpc/go v1.11.1-20230822171018-8b8b971d6fde.1/go.mod h1:FapnC4TeZc01ECYAUKV30mpI5J0R60dZrIeqfOSPbMk=
+buf.build/gen/go/connectrpc/eliza/protocolbuffers/go v1.31.0-20230822171018-8b8b971d6fde.1 h1:JUxbUtCrCK/nPCkWcucuBKRH9mbwSElgeWoORg16IrI=
+buf.build/gen/go/connectrpc/eliza/protocolbuffers/go v1.31.0-20230822171018-8b8b971d6fde.1/go.mod h1:QiftkbxA+bQUTeN1ke64YoIoxt6diVLfuolQi3ORa9c=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 connectrpc.com/connect v1.19.2 h1:McQ83FGdzL+t60peksi0gXC7MQ/iLKgLduAnThbM0mo=
 connectrpc.com/connect v1.19.2/go.mod h1:tN20fjdGlewnSFeZxLKb0xwIZ6ozc3OQs2hTXy4du9w=
+connectrpc.com/vanguard v0.4.0 h1:lx23IDorlJnaR1mNbjgP0LXiI5yBwo0eWeXA5qSBNoY=
+connectrpc.com/vanguard v0.4.0/go.mod h1:VbDkW6OqfRPOi144sbE+OuLiLmhLfCxkQjzKErJsoT0=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.5.0 h1:W5quZX/G/csjUnuI8SUYlsHs9M38FC7znL0lIO+DvMg=
 github.com/BurntSushi/toml v1.5.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
