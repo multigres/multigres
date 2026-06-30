@@ -16,8 +16,12 @@ package multiadmin
 
 import (
 	"context"
+	"errors"
+	"net/http"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
@@ -31,6 +35,33 @@ type connectAdapter struct {
 
 // Compile-time check that connectAdapter implements the connect handler interface.
 var _ multiadminconnect.MultiAdminServiceHandler = (*connectAdapter)(nil)
+
+// newConnectHandler builds the MultiAdminService Connect handler used by both the
+// Connect/gRPC-Web endpoint and the Vanguard REST transcoder.
+func newConnectHandler(srv *MultiAdminServer) (string, http.Handler) {
+	return multiadminconnect.NewMultiAdminServiceHandler(
+		&connectAdapter{srv},
+		connect.WithInterceptors(connect.UnaryInterceptorFunc(grpcCodeInterceptor)),
+	)
+}
+
+// grpcCodeInterceptor translates gRPC status errors returned by MultiAdminServer
+// into connect errors so the canonical code (NotFound, InvalidArgument, ...) is
+// preserved over the wire. Without this, connect-go does not recognize gRPC
+// status errors and flattens them to CodeUnknown (HTTP 500), masking the real
+// failure for both Connect and REST (Vanguard) clients.
+func grpcCodeInterceptor(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		resp, err := next(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+		if st, ok := status.FromError(err); ok && st.Code() != codes.OK {
+			return resp, connect.NewError(connect.Code(st.Code()), errors.New(st.Message()))
+		}
+		return resp, err
+	}
+}
 
 func (a *connectAdapter) GetCell(ctx context.Context, req *connect.Request[multiadminpb.GetCellRequest]) (*connect.Response[multiadminpb.GetCellResponse], error) {
 	resp, err := a.MultiAdminServer.GetCell(ctx, req.Msg)

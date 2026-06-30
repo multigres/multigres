@@ -16,6 +16,8 @@ package multiadmin
 
 import (
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -29,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 )
 
 func newTestAdapter(t *testing.T) *connectAdapter {
@@ -55,6 +58,25 @@ func TestConnectAdapterGetCellNotFound(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+// TestConnectHandlerPropagatesGRPCCode exercises the error path through the
+// real Connect HTTP handler (not a direct adapter call). The backend returns a
+// gRPC status error; connect-go does not understand those, so without explicit
+// translation it serializes them as CodeUnknown (HTTP 500), masking NotFound,
+// InvalidArgument, etc. This guards against that regression.
+func TestConnectHandlerPropagatesGRPCCode(t *testing.T) {
+	path, handler := newConnectHandler(newTestServer(t))
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	httpSrv := httptest.NewServer(mux)
+	defer httpSrv.Close()
+
+	client := multiadminconnect.NewMultiAdminServiceClient(httpSrv.Client(), httpSrv.URL)
+	_, err := client.GetCell(t.Context(), connect.NewRequest(&multiadminpb.GetCellRequest{Name: "missing"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err),
+		"gRPC NotFound must survive serialization through the Connect handler")
 }
 
 func TestConnectAdapterGetDatabaseNames(t *testing.T) {
