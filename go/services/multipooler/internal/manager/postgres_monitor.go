@@ -49,12 +49,21 @@ func deriveTypeAndObs(rule *clustermetadatapb.ShardRule, selfID *clustermetadata
 	return clustermetadatapb.PoolerType_REPLICA, nil
 }
 
-// latestRule returns the highest-numbered rule this pooler knows of, combining
-// the rule it has applied into its own position with the rule it was most
-// recently told to follow via SetPrimary/Promote (consensusPromises's recorded
-// ReplicationPrimary). A standby told of a newer leader before its own position
-// advances still reads the newer rule. Returns nil if neither source carries a
-// rule.
+// highestKnownRule returns the highest-numbered rule this pooler knows of,
+// combining the rule it has applied into its own position with the rule it was
+// most recently told to follow via SetPrimary/Promote (consensusPromises's
+// recorded ReplicationPrimary). A standby told of a newer leader before its own
+// position advances still reads the newer rule. Returns nil if neither source
+// carries a rule.
+//
+// "Known" is deliberately distinct from "committed": this ranks across both the
+// committed position and the replication primary, so it can name a leader whose
+// rule has not yet committed to local WAL.
+//
+// TODO: decisions that must be write-safe (e.g. admitting writes, advertising a
+// rewind source) need the committed rule, not the highest *known* rule — add a
+// highestCommittedRule companion that reads only the committed position's rule
+// so those callers don't act on not-yet-committed leadership.
 //
 // Both sources arrive as a single ConsensusStatus from getCachedConsensusStatus
 // (in-memory only — no postgres query, so this stays side-effect free for the
@@ -63,7 +72,7 @@ func deriveTypeAndObs(rule *clustermetadatapb.ShardRule, selfID *clustermetadata
 // commonconsensus.HighestKnownRule — the same method the orchestrator uses to
 // identify the shard leader — so the pooler and orch can never rank rules
 // differently.
-func (pm *MultiPoolerManager) latestRule() *clustermetadatapb.ShardRule {
+func (pm *MultiPoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
 		pm.consensusMgr.CachedConsensusStatus(),
 	})
@@ -73,7 +82,7 @@ func (pm *MultiPoolerManager) latestRule() *clustermetadatapb.ShardRule {
 // consensus-authoritative source of truth for the published PoolerType,
 // independent of the observed postgres recovery mode.
 func (pm *MultiPoolerManager) intendedRole() clustermetadatapb.PoolerType {
-	t, _ := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
+	t, _ := deriveTypeAndObs(pm.highestKnownRule(), pm.serviceID)
 	return t
 }
 
@@ -129,9 +138,6 @@ type postgresState struct {
 	backupsAvailable         bool
 	isPrimary                bool
 	bootstrapSentinelPresent bool
-	// primaryTerm is the coordinator term at which this pooler is the primary
-	// per the highest known rule. 0 if we are not the primary for that rule.
-	primaryTerm int64
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
 	// from. False on standbys and on a freshly promoted primary that has not yet
@@ -147,7 +153,6 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.backupsAvailable == b.backupsAvailable &&
 		a.isPrimary == b.isPrimary &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
-		a.primaryTerm == b.primaryTerm &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
 
@@ -324,14 +329,6 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 				state.rewindSourceReady = ready
 			}
 		}
-		// Lock-free first pass from the monitor: prefer a fresh read, fall back to
-		// the cached rule when postgres is unreachable so we keep the last-known
-		// primary term across postgres restarts and crashes.
-		cs, err := pm.consensusMgr.InconsistentConsensusStatus(ctx)
-		if err != nil {
-			cs = pm.consensusMgr.CachedConsensusStatus()
-		}
-		state.primaryTerm = commonconsensus.LeaderTerm(cs)
 	}
 
 	// Check if backups are available (only if directory not initialized)
@@ -665,7 +662,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// demoted), so the role resolves to REPLICA (nil self-leadership); we just
 		// restarted as a standby, so postgres is no longer primary. Serving status
 		// is unchanged (a healthy standby keeps serving reads).
-		_, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
+		_, obs := deriveTypeAndObs(pm.highestKnownRule(), pm.serviceID)
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.SelfLeadership = obs
 			s.PostgresPrimary = false
@@ -682,7 +679,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// re-enabled only out of DRAINING (the transient drain this loop owns); a
 		// DISABLED pooler (stopping/paused/operator-drained) is left not-serving,
 		// since this case also fires for plain role/primary drift.
-		intended, obs := deriveTypeAndObs(pm.latestRule(), pm.serviceID)
+		intended, obs := deriveTypeAndObs(pm.highestKnownRule(), pm.serviceID)
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling state from rule",
 			"intended_role", intended.String(), "postgres_primary", state.isPrimary)
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
@@ -707,13 +704,14 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionResignLeadership:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		// The rule names us leader but postgres is running as a standby. Signal
-		// voluntary resignation so the coordinator re-elects; use primary_term (the
-		// term at which we were elected) so the coordinator knows the signal is
+		// voluntary resignation at the highest-known rule's term so the coordinator
+		// re-elects; this branch only fires when that rule names us, so the term is
 		// current. We do not self-promote.
+		term := pm.highestKnownRule().GetRuleNumber().GetCoordinatorTerm()
 		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning",
-			"primary_term", state.primaryTerm)
-		if state.primaryTerm != 0 {
-			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, state.primaryTerm); err != nil {
+			"primary_term", term)
+		if term != 0 {
+			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, term); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 			}
 		}

@@ -242,7 +242,6 @@ func TestDetermineRemedialAction(t *testing.T) {
 		poolerType         clustermetadatapb.PoolerType
 		seedPrimary        *clustermetadatapb.ReplicationPrimary
 		cachedPos          *clustermetadatapb.PoolerPosition
-		primaryTerm        int64
 		resignedLeaderTerm int64
 		inconsistentGUC    bool
 		expectedAction     remedialAction
@@ -318,7 +317,6 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:         clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 0,
 			expectedAction:     remedialActionResignLeadership,
 		},
@@ -332,7 +330,6 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:         clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 5,
 			expectedAction:     remedialActionNone,
 		},
@@ -350,7 +347,6 @@ func TestDetermineRemedialAction(t *testing.T) {
 			},
 			poolerType:         clustermetadatapb.PoolerType_REPLICA,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 5,
 			expectedAction:     remedialActionNone,
 		},
@@ -472,7 +468,6 @@ func TestDetermineRemedialAction(t *testing.T) {
 				withResignedLeaderAtTerm(tt.resignedLeaderTerm),
 				withRuleStore(&fakeRuleStore{pos: tt.cachedPos, inconsistentGUC: tt.inconsistentGUC}),
 			)
-			tt.state.primaryTerm = tt.primaryTerm
 
 			// lastAppliedPrimary == state.isPrimary: this table exercises role,
 			// demote, resign and GUC decisions, not physical-primary drift (covered
@@ -729,7 +724,7 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 }
 
 // TestIntendedRole verifies that intendedRole() derives the PoolerType from
-// the freshest rule this pooler knows about (latestRule, which merges the
+// the freshest rule this pooler knows about (highestKnownRule, which merges the
 // consensus-recorded replication primary with the rule store's cached
 // position): UNKNOWN when no rule exists, PRIMARY when the freshest rule names
 // this pooler as leader, REPLICA when it names another pooler. The
@@ -885,21 +880,29 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 }
 
 func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+	selfPos := func(term int64) *clustermetadatapb.PoolerPosition {
+		return &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			LeaderId:   selfID,
+		}}
+	}
 	tests := []struct {
 		name           string
 		action         remedialAction
 		poolerType     clustermetadatapb.PoolerType
-		primaryTerm    int64                             // set in consensus state before action
 		resignedBefore int64                             // set resignedLeaderAtTerm before action (0 = don't set)
-		cachedPos      *clustermetadatapb.PoolerPosition // rule the monitor reads for ReconcileRole
+		cachedPos      *clustermetadatapb.PoolerPosition // rule the monitor reads; the resign term comes from it
 		wantAvStatus   *clustermetadatapb.AvailabilityStatus
 	}{
 		{
-			name:        "ResignLeadership sets resignation at primary_term",
-			action:      remedialActionResignLeadership,
-			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
-			primaryTerm: 5,
+			// The resign term is the highest-known rule's term; seed a rule naming
+			// self at term 5.
+			name:       "ResignLeadership sets resignation at the highest-known term",
+			action:     remedialActionResignLeadership,
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			cachedPos:  selfPos(5),
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 					LeaderTerm: 5,
@@ -911,10 +914,10 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			},
 		},
 		{
-			name:        "ResignLeadership sets no resignation when primary_term is zero",
-			action:      remedialActionResignLeadership,
-			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
-			primaryTerm: 0,
+			// No known rule (nil position) -> term 0 -> no resignation signal.
+			name:       "ResignLeadership sets no resignation when no known term",
+			action:     remedialActionResignLeadership,
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
@@ -951,7 +954,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			ctx := t.Context()
 
 			multipooler := &clustermetadatapb.MultiPooler{
-				Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+				Id:   selfID,
 				Type: tc.poolerType,
 			}
 			if tc.poolerType == clustermetadatapb.PoolerType_PRIMARY {
@@ -978,7 +981,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})
+			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
@@ -1268,7 +1271,6 @@ func TestPostgresStateEqual(t *testing.T) {
 		backupsAvailable:         true,
 		isPrimary:                true,
 		bootstrapSentinelPresent: true,
-		primaryTerm:              42,
 	}
 
 	t.Run("equal states", func(t *testing.T) {
@@ -1285,7 +1287,6 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
 		{"isPrimary", func() postgresState { s := base; s.isPrimary = false; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
-		{"primaryTerm", func() postgresState { s := base; s.primaryTerm = 99; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {
