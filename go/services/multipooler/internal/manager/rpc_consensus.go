@@ -363,6 +363,20 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 			"must Recruit before Promote: stored term %d != proposal term %d", storedTerm, revokedBelowTerm)
 	}
 
+	// The revocation must revoke ALL terms below the rule being established, so the
+	// promoted rule is unambiguously the highest non-revoked committed leader.
+	// ValidateRevocation only checks the revocation against the outgoing/recorded
+	// rule; it never sees the proposed rule. A proposal that pairs a rule at
+	// coordinator term T with a revocation from an older recruitment
+	// (revoked_below_term M < T) would leave terms [M, T) non-revoked and able to
+	// compete, so require revoked_below_term to equal the new rule's term exactly.
+	ruleTerm := proposedRule.GetRuleNumber().GetCoordinatorTerm()
+	if revokedBelowTerm != ruleTerm {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"revocation revoked_below_term %d must equal the promoted rule's coordinator term %d: "+
+				"the revocation must revoke all rules below the new term", revokedBelowTerm, ruleTerm)
+	}
+
 	// Verify postgres is in the expected standby state: in recovery with no
 	// primary_conninfo set. Together these prove that Recruit ran (which clears
 	// primary_conninfo and goes into recovery mode) and that no prior Promote on
