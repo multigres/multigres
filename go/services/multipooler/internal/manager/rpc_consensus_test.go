@@ -525,6 +525,7 @@ func TestPromote(t *testing.T) {
 		OutgoingRule:           &clustermetadatapb.RuleNumber{},
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
+		RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 		CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 		CoordinatorId: coordinatorA,
 		CreationTime:  ruleCreatedTS,
@@ -670,6 +671,31 @@ func TestPromote(t *testing.T) {
 			setupMocks:        func(m *mock.QueryService) {},
 			expectError:       true,
 			expectErrContains: "already accepted term 10 > requested 7",
+		},
+		{
+			// The revocation must revoke ALL terms below the rule being promoted.
+			// Here the node was recruited for term 7 (revocation revokes below 7)
+			// but the proposal would install a rule at term 9, leaving terms [7,9)
+			// non-revoked — so a stale committed rule in that range could be
+			// misread as a live leader. Reject.
+			name:        "RevocationDoesNotCoverRuleTerm",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.PromoteRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: recruitedTerm, // revokes below 7
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+					ProposedRule: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 9},
+						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						CoordinatorId: coordinatorA,
+						CreationTime:  ruleCreatedTS,
+					},
+				},
+			},
+			setupMocks:        func(m *mock.QueryService) {},
+			expectError:       true,
+			expectErrContains: "must revoke all rules below the new term",
 		},
 		{
 			name:        "WrongCoordinator",
@@ -828,6 +854,7 @@ func TestPromote(t *testing.T) {
 						PostgresPort: 5432,
 					},
 					ProposedRule: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 						CoordinatorId: coordinatorA,
 						CreationTime:  ruleCreatedTS,
@@ -926,6 +953,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 			TermRevocation: recruitedTerm,
 			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
 			ProposedRule: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 				CoordinatorId: coordinatorA,
 				CreationTime:  ruleCreatedTS,
