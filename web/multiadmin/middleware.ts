@@ -15,5 +15,8 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/v1/:path*", "/proxy/:path*", "/multiadmin.:path*"],
+  // The connect-web client posts to "/multiadmin.<Service>/<Method>"; the
+  // ":path*" form doesn't match because the segment after "multiadmin." has no
+  // leading slash, so use a regex matching the whole "/multiadmin.*" prefix.
+  matcher: ["/api/v1/:path*", "/proxy/:path*", "/:path(multiadmin\\..*)"],
 };
