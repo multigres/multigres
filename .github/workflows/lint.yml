@@ -80,15 +80,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # pnpm must be installed before setup-node so its pnpm cache step can run.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
       - name: Set up Node.js
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
         with:
-          node-version-file: web/multiadmin/package.json
+          node-version: 22
           cache: pnpm
           cache-dependency-path: web/multiadmin/pnpm-lock.yaml
-
-      - name: Enable pnpm via Corepack
-        run: corepack enable pnpm
 
       - name: Validate generated files
         run: make validate-generated-files

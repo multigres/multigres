@@ -71,18 +71,18 @@ proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
 # Generate TypeScript types and connect service descriptors from proto files
 proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_ES_PLUGIN)
 	rm -rf $(TS_PROTO_OUT) && mkdir -p $(TS_PROTO_OUT)
+	# import_extension=none omits the ".js" suffix protobuf-es adds to import paths
+	# by default; Turbopack (used by Next.js) cannot resolve ".js" imports to ".ts"
+	# files. The option is honored by all @bufbuild/protoplugin-based plugins.
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
 		--plugin=$(TS_PROTO_ES_PLUGIN) \
 		--es_out=$(TS_PROTO_OUT) \
-		--es_opt=target=ts \
+		--es_opt=target=ts,import_extension=none \
 		--plugin=$(TS_CONNECT_ES_PLUGIN) \
 		--connect-es_out=$(TS_PROTO_OUT) \
-		--connect-es_opt=target=ts \
+		--connect-es_opt=target=ts,import_extension=none \
 		--proto_path=$(MTROOT)/proto \
 		$(PROTO_TS_SRCS)
-	# Strip .js extension from import paths — protobuf-es v1 always emits ".js"
-	# but Turbopack (used by Next.js) cannot resolve .js imports to .ts files.
-	find $(TS_PROTO_OUT) -name '*.ts' -exec sed -i '' "s/from \"\(.*\)\.js\"/from \"\1\"/g" {} \;
 
 $(TS_PROTO_ES_PLUGIN): web/multiadmin/package.json
 	cd $(MTROOT)/web/multiadmin && pnpm install
