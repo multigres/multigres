@@ -370,13 +370,7 @@ func (g *GrpcServer) Create() error {
 	}
 	opts = append(opts, grpc.KeepaliveEnforcementPolicy(ep))
 
-	ka := keepalive.ServerParameters{
-		MaxConnectionAge:      g.maxConnectionAge.Get(),
-		MaxConnectionAgeGrace: g.maxConnectionAgeGrace.Get(),
-		Time:                  g.keepaliveTime.Get(),
-		Timeout:               g.keepaliveTimeout.Get(),
-	}
-	opts = append(opts, grpc.KeepaliveParams(ka))
+	opts = append(opts, grpc.KeepaliveParams(g.keepaliveServerParameters()))
 
 	// Add OpenTelemetry instrumentation for distributed tracing and metrics
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
@@ -390,6 +384,30 @@ func (g *GrpcServer) Create() error {
 
 	g.Server = grpc.NewServer(opts...)
 	return nil
+}
+
+// keepaliveServerParameters builds the server keepalive parameters.
+//
+// The defaults here are load-bearing for long-lived streams — most acutely the
+// StreamReplication tunnel, which has NO client-side reconnect/resume: a GoAway
+// (from a finite MaxConnectionAge) or an idle reap (from a set MaxConnectionIdle)
+// would tear an active replication stream down with no recovery. These params
+// are global to every servenv gRPC server, so the invariant ("unbounded age,
+// no idle reaping") is not replication-specific and nothing structurally ties
+// it to replication's needs. TestGrpcServerKeepaliveDefaults pins it so a future
+// edit fails loudly instead of silently breaking replication; per-workload
+// tuning (a dedicated replication listener) is tracked as a follow-up.
+//
+// Time/Timeout still ping idle peers so genuinely dead connections are detected.
+func (g *GrpcServer) keepaliveServerParameters() keepalive.ServerParameters {
+	return keepalive.ServerParameters{
+		MaxConnectionAge:      g.maxConnectionAge.Get(),
+		MaxConnectionAgeGrace: g.maxConnectionAgeGrace.Get(),
+		// MaxConnectionIdle intentionally omitted (0 = unbounded): an idle
+		// replication stream waiting on WAL must not be reaped for inactivity.
+		Time:    g.keepaliveTime.Get(),
+		Timeout: g.keepaliveTimeout.Get(),
+	}
 }
 
 // interceptors builds the list of interceptors for the gRPC server

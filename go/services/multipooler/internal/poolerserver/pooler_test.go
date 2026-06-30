@@ -47,6 +47,15 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	assert.Nil(t, exec)
 }
 
+func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+
+	// The shared replication instruments are built at construction and exposed
+	// for the StreamReplication handler to derive per-stream recorders.
+	require.NotNil(t, pooler.ReplicationMetrics())
+}
+
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)

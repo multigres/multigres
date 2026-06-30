@@ -1374,11 +1374,14 @@ func (e *Executor) CopyFinalize(
 		// socket) still falls through to Release(ReleaseError).
 		//
 		// We deliberately do NOT wrap the PG error with "COPY operation
-		// failed:" — the gateway round-trips a structured PgDiagnostic over
-		// the bidi stream's error_diagnostic field and re-emits a verbatim
-		// ErrorResponse to the client. Adding a Go-style prefix here would
-		// cause regression-test fixtures comparing ERROR / CONTEXT lines to
-		// diverge from upstream PostgreSQL output.
+		// failed:". The gateway round-trips a structured PgDiagnostic over the
+		// bidi stream's error_diagnostic field and re-emits a verbatim
+		// ErrorResponse to the client, preserving SQLSTATE and the COPY CONTEXT
+		// (the diagnostic's Where field). Adding a Go-style prefix here would
+		// strip that context and break the parity asserted by
+		// TestErrorFormat_CopyFromStdinContext in
+		// go/test/endtoend/queryserving, which compares ERROR / CONTEXT output
+		// against upstream PostgreSQL.
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)

@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -78,6 +79,10 @@ type QueryPoolerServer struct {
 
 	// drainStats holds drain-observability metrics. Never nil.
 	drainStats *drainStats
+
+	// replMetrics holds replication-tunnel instruments, shared across all
+	// StreamReplication RPCs. Never nil (instruments fall back to noop).
+	replMetrics *replication.Metrics
 }
 
 // drainPhase is the stage of a graceful not-serving transition. The drain runs
@@ -129,6 +134,12 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		exec = executor.NewExecutor(logger, poolManager, poolerID, vpidStampEnabled)
 	}
 
+	replMetrics, replMetricsErr := replication.NewMetrics()
+	if replMetricsErr != nil && logger != nil {
+		// Non-fatal: instruments that failed fall back to noop.
+		logger.Warn("failed to initialise some replication metrics", "error", replMetricsErr)
+	}
+
 	return &QueryPoolerServer{
 		logger:         logger,
 		poolManager:    poolManager,
@@ -140,7 +151,14 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		gracePeriod:    gracePeriod,
 		stateChanged:   make(chan struct{}),
 		drainStats:     newDrainStats(),
+		replMetrics:    replMetrics,
 	}
+}
+
+// ReplicationMetrics returns the shared replication-tunnel instruments. Used by
+// the gRPC StreamReplication handler to derive a per-stream recorder.
+func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
+	return s.replMetrics
 }
 
 // OnStateChange transitions the query service to match the new serving state.
