@@ -58,6 +58,8 @@ func (g *GatewayShowVariable) StreamExecute(
 	switch g.variable {
 	case "statement_timeout":
 		value = state.ShowStatementTimeout()
+	case "idle_session_timeout":
+		value = state.ShowIdleSessionTimeout()
 	default:
 		// Unreachable: the planner validates the variable name before creating
 		// this primitive. If we get here, there's a code bug (new variable added

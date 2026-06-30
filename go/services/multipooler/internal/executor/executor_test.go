@@ -225,6 +225,79 @@ func boolResult(b bool) []*sqltypes.Result {
 	return []*sqltypes.Result{makeResult(makeRow(v))}
 }
 
+// TestReserveAndStreamExecute_BeginRetriesIdleSessionTimeout verifies the
+// dashboard-refocus failure mode: the first write on a newly reserved backend is
+// BEGIN, and PostgreSQL may have killed the pooled socket while it sat idle
+// after a client SET idle_session_timeout. BEGIN must run inside the reserved
+// pool's validation hook so acquireValidated can discard the stale connection
+// and retry on a fresh one before surfacing an error to the client.
+func TestReserveAndStreamExecute_BeginRetriesIdleSessionTimeout(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT warmup",
+		QueryResult: fakepgserver.MakeResult([]string{"?column?"}, [][]any{{1}}),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "BEGIN",
+		Error: mterrors.NewIdleSessionTimeout(),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "BEGIN",
+		QueryResult: &sqltypes.Result{CommandTag: "BEGIN"},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT 1",
+		QueryResult: fakepgserver.MakeResult([]string{"?column?"}, [][]any{{1}}),
+	})
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	// Put a backend through a successful borrow/recycle cycle so the BEGIN below
+	// exercises a pooled idle socket rather than a brand-new connection.
+	warm, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	_, err = warm.Query(context.Background(), "SELECT warmup")
+	require.NoError(t, err)
+	warm.Release(reserved.ReleaseCommit, nil)
+
+	e := newTestExecutor()
+	e.metrics = newQueryStats()
+	e.poolManager = &stubPoolManager{newReservedPool: pool}
+
+	var results []*sqltypes.Result
+	state, err := e.reserveAndStreamExecute(
+		context.Background(),
+		"SELECT 1",
+		&query.ExecuteOptions{User: "dashboard"},
+		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
+		func(_ context.Context, result *sqltypes.Result) error {
+			results = append(results, result)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.NotZero(t, state.GetReservedConnectionId())
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons())
+	require.Len(t, results, 1)
+	assert.Equal(t, "SELECT 1", results[0].CommandTag)
+	server.VerifyAllExecutedOrFail()
+}
+
 // TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld verifies that after a
 // statement on an advisory-lock-reserved connection, if PostgreSQL still
 // reports an advisory lock the connection stays reserved.
