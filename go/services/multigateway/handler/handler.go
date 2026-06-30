@@ -370,11 +370,9 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
-	// Basic validation: query must not be empty.
-	if queryStr == "" {
-		return errors.New("query string cannot be empty")
-	}
-
+	// An empty or comment-only query string parses to zero statements;
+	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
+	// the gateway answers with EmptyQueryResponse — matching PostgreSQL.
 	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
 	return err
 }
@@ -416,6 +414,18 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		// Record before span creation since we don't have an operation name yet.
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, nil, portalErr)
 		return portalErr
+	}
+
+	// Empty / comment-only prepared statement: answer Execute with
+	// EmptyQueryResponse, mirroring the simple-query path. Short-circuit here so
+	// the nil AST never reaches the planner (resolvePortalPlan/isCacheable would
+	// dereference it). This also bypasses the aborted-transaction gate, matching
+	// PostgreSQL, which returns EmptyQueryResponse for an empty query regardless
+	// of transaction state.
+	if portalInfo.IsEmpty() {
+		err := callback(ctx, nil)
+		h.recordQueryCompletion(ctx, conn, "EMPTY", "extended", 0, 0, time.Since(queryStart), 0, nil, err)
+		return err
 	}
 
 	operationName := "UNKNOWN"
@@ -484,6 +494,10 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 		if stmt == nil {
 			return nil, mterrors.NewInvalidPreparedStatementError(name)
 		}
+		if stmt.IsEmpty() {
+			// Empty statement: ParameterDescription(0) + NoData, no backend call.
+			return &query.StatementDescription{}, nil
+		}
 
 		// Call executor to get description from multipooler
 		return h.executor.Describe(ctx, conn, state, nil, stmt)
@@ -492,6 +506,10 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 		portalInfo := state.GetPortalInfo(name)
 		if portalInfo == nil {
 			return nil, mterrors.NewInvalidPortalError(name)
+		}
+		if portalInfo.IsEmpty() {
+			// Empty portal: NoData, no backend call.
+			return &query.StatementDescription{}, nil
 		}
 
 		// Call executor to get description from multipooler

@@ -776,3 +776,76 @@ func TestExtendedQueryProtocol_SetConfigBoundParam(t *testing.T) {
 		})
 	}
 }
+
+// TestExtendedQueryProtocol_CommentOnlyStatement verifies that an empty or
+// comment-only prepared statement Parses, Describes, Binds, and Executes
+// cleanly through the gateway — returning ParameterDescription(0)/NoData and
+// EmptyQueryResponse — instead of being rejected with MTD04 "parse failed".
+// Reproduces the Realtime tenant-migration failure, where a comment-only
+// migration statement broke the extended-protocol path.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway to confirm
+// the proxy's wire behavior matches native PostgreSQL exactly.
+func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	queries := []struct {
+		name  string
+		query string
+	}{
+		{"empty string", ""},
+		{"comment only", "-- Commented to have oriole compatibility\n-- ALTER TABLE realtime.messages SET UNLOGGED;\n"},
+	}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			for _, q := range queries {
+				t.Run(q.name, func(t *testing.T) {
+					conn := connectLowLevelToPort(t, ctx, target.Port)
+					defer conn.Close()
+
+					// Parse must succeed (ParseComplete), not MTD04.
+					require.NoError(t, conn.Parse(ctx, "empty_stmt", q.query, nil),
+						"comment-only/empty Parse must be accepted")
+
+					// Describe('S'): zero parameters, no row fields.
+					desc, err := conn.DescribePrepared(ctx, "empty_stmt")
+					require.NoError(t, err)
+					require.NotNil(t, desc)
+					assert.Empty(t, desc.Parameters, "empty statement has no parameters")
+					assert.Empty(t, desc.Fields, "empty statement has no result fields")
+
+					// Bind + Execute: EmptyQueryResponse, surfaced as an empty result.
+					var results []*sqltypes.Result
+					completed, err := conn.BindAndExecute(ctx, "", "empty_stmt", nil, nil, nil, 0,
+						func(ctx context.Context, result *sqltypes.Result) error {
+							results = append(results, result)
+							return nil
+						})
+					require.NoError(t, err, "Execute of an empty statement must not error")
+					assert.True(t, completed)
+					require.Len(t, results, 1)
+					assert.Empty(t, results[0].Rows, "empty query returns no rows")
+					assert.Empty(t, results[0].CommandTag, "empty query has no command tag")
+
+					require.NoError(t, conn.CloseStatement(ctx, "empty_stmt"))
+
+					// The connection must remain usable for subsequent queries.
+					after, err := conn.Query(ctx, "SELECT 1")
+					require.NoError(t, err)
+					require.NotEmpty(t, after)
+					require.NotEmpty(t, after[0].Rows)
+					assert.Equal(t, "1", string(after[0].Rows[0].Values[0]))
+				})
+			}
+		})
+	}
+}

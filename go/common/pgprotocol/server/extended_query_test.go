@@ -1584,3 +1584,61 @@ func TestDrainModeTerminateExits(t *testing.T) {
 	require.ErrorIs(t, conn.handleMessage(msgType), io.EOF,
 		"Terminate in drain mode must return io.EOF, not silently drain")
 }
+
+// An Execute whose handler signals an empty query (callback with nil result)
+// must produce a single EmptyQueryResponse ('I'), mirroring the simple-query path.
+func TestHandleExecute_EmptyQueryResponse(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		executeFunc: func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			return callback(ctx, nil) // signal empty query
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	portalName := "portal1"
+	writeTestInt32(&readBuf, int32(4+len(portalName)+1+4))
+	writeTestString(&readBuf, portalName)
+	writeTestInt32(&readBuf, 0) // maxRows
+
+	require.NoError(t, conn.handleExecute())
+
+	msgType, bodyLen, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgEmptyQueryResponse), msgType)
+	assert.Equal(t, int32(0), bodyLen)
+	// No further messages.
+	assert.Equal(t, 0, writeBuf.Len(), "EmptyQueryResponse must be the only message")
+}
+
+// When Describe('P') is folded into Execute (includeDescribe=true) for an empty
+// portal, the wire order is NoData (the describe answer) then EmptyQueryResponse.
+func TestHandleExecute_EmptyQueryFoldedDescribe(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		describeFunc: func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+			return &query.StatementDescription{}, nil // empty: NoData
+		},
+		executeFunc: func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			return callback(ctx, nil)
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Describe('P', "portal1") — deferred/folded.
+	portalName := "portal1"
+	writeTestInt32(&readBuf, int32(4+1+len(portalName)+1))
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, portalName)
+	require.NoError(t, conn.handleDescribe())
+
+	// Execute on the same portal — folds the describe in.
+	writeTestInt32(&readBuf, int32(4+len(portalName)+1+4))
+	writeTestString(&readBuf, portalName)
+	writeTestInt32(&readBuf, 0)
+	require.NoError(t, conn.handleExecute())
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgNoData), msgType, "folded Describe('P') answer")
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgEmptyQueryResponse), msgType, "Execute answer")
+}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
@@ -163,14 +164,41 @@ func TestConsolidator_InvalidSQL(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestConsolidator_EmptyQueryAllowed(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+
+	// An empty query string and a comment-only string both parse to zero
+	// statements. PostgreSQL accepts these; the prepared statement is "empty".
+	for _, q := range []string{"", "   ", "-- just a comment\n", "/* block */"} {
+		psi, err := consolidator.AddPreparedStatement(connID, "", q, nil)
+		require.NoError(t, err, "query %q should be accepted as an empty statement", q)
+		require.NotNil(t, psi)
+		require.True(t, psi.IsEmpty(), "query %q should produce an empty prepared statement", q)
+		require.Nil(t, psi.AstStmt(), "empty prepared statement should have a nil AST")
+	}
+}
+
+func TestConsolidator_SingleStatementNotEmpty(t *testing.T) {
+	consolidator := NewConsolidator()
+	psi, err := consolidator.AddPreparedStatement(1, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+	require.False(t, psi.IsEmpty())
+	require.NotNil(t, psi.AstStmt())
+}
+
 func TestConsolidator_MultipleStatementsInQuery(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	// Prepared statements should only contain a single query
+	// Prepared statements may contain only a single command (PG: 42601).
 	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1; SELECT 2", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "more than 1 query")
+	require.Contains(t, err.Error(), "cannot insert multiple commands into a prepared statement")
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Equal(t, mterrors.PgSSSyntaxError, diag.Code) // 42601
 }
 
 func TestConsolidator_ConcurrentAccess(t *testing.T) {
