@@ -189,11 +189,11 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // row commits in autocommit before any BEGIN, so it is visible to this probe
 // for the whole transaction). The row is deleted when the backend is released
 // or recycled, so the table represents active gateway-to-backend associations.
-// The table is also created here, idempotently and ahead of the suite, so the
-// shim never races the pooler's own lazy creation. The wait-check aggregates
-// over every matching backend rather than picking one non-deterministically;
-// rows of dead backends are ignored via the join against pg_stat_activity as a
-// defensive fallback for abrupt connection loss.
+// The table is also created here, idempotently and ahead of the suite, for
+// isolation runs that do not go through normal multipooler bootstrap. The
+// wait-check aggregates over every matching backend rather than picking one
+// non-deterministically; rows of dead backends are ignored via the join against
+// pg_stat_activity as a defensive fallback for abrupt connection loss.
 func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
 	t.Helper()
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
@@ -208,8 +208,8 @@ func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, p
 
 	stmts := []string{
 		// The vpid mapping table the multipooler upserts into. Created here
-		// too (idempotent DDL shared via multigresschema) so the shim below
-		// can reference it even before the pooler's own lazy creation ran.
+		// too (idempotent DDL shared via multigresschema) for isolation runs
+		// that do not go through normal multipooler bootstrap.
 		multigresschema.BackendVpidDDL,
 		// Debug table: every shim invocation logs its inputs/outputs and a
 		// snapshot of every backend in this DB so failures can be diagnosed

@@ -67,7 +67,6 @@ type mockReservedConn struct {
 	openHoldCursors map[string]bool
 }
 
-func (m *mockReservedConn) Conn() *regular.Conn      { return nil }
 func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
@@ -935,11 +934,11 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	rconn, err := pool.NewConn(ctx, nil)
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	rconn, err := pool.NewConn(ctx, nil, reserved.WithReleaseCleanup(e.vpidReleaseCleanup()))
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
 
-	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 123})
 
@@ -948,7 +947,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
 
 	server.ResetQueryLog()
-	e.releaseReservedConn(ctx, rconn, reserved.ReleaseCommit, nil)
+	rconn.Release(reserved.ReleaseCommit, nil)
 	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
 }
 

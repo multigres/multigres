@@ -29,6 +29,11 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
+// ReleaseCleanup runs just before a clean reserved backend is returned to the
+// regular pool. Returning false means the backend must not be recycled as clean
+// and should be tainted/closed instead.
+type ReleaseCleanup func(*regular.Conn) bool
+
 // Conn wraps a regular connection with transaction/reservation state.
 // It provides a unique ID for client-side tracking across requests.
 //
@@ -69,6 +74,9 @@ type Conn struct {
 	// settings instead of trusting the stale cache.
 	sessionStateUntrusted bool
 
+	// releaseCleanups run before clean release recycles the backend.
+	releaseCleanups []ReleaseCleanup
+
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
@@ -102,11 +110,12 @@ func (c *Conn) recordTxnOutcome(ctx context.Context, outcome string) {
 }
 
 // newConn creates a new reserved connection.
-func newConn(pooled regular.PooledConn, connID int64, pool *Pool) *Conn {
+func newConn(pooled regular.PooledConn, connID int64, pool *Pool, releaseCleanups []ReleaseCleanup) *Conn {
 	return &Conn{
-		pooled: pooled,
-		connID: connID,
-		pool:   pool,
+		pooled:          pooled,
+		connID:          connID,
+		pool:            pool,
+		releaseCleanups: append([]ReleaseCleanup(nil), releaseCleanups...),
 	}
 }
 
@@ -416,7 +425,7 @@ func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]s
 	}
 
 	if c.pool != nil {
-		c.pool.release(c, reason, gatewaySessionSettings)
+		c.pool.release(c, reason, gatewaySessionSettings, c.releaseCleanups)
 	}
 }
 

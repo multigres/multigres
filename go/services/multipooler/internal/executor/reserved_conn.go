@@ -18,7 +18,6 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
 
@@ -27,7 +26,6 @@ import (
 // an interface so unit tests can substitute a mock without standing up a real
 // PostgreSQL connection. *reserved.Conn satisfies this interface.
 type reservedConnAPI interface {
-	Conn() *regular.Conn
 	ConnID() int64
 	ProcessID() uint32
 	RemainingReasons() uint32

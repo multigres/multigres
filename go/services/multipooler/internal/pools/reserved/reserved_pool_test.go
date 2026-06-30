@@ -85,6 +85,35 @@ func TestPool_NewConn(t *testing.T) {
 	conn.Release(ReleaseCommit, nil)
 }
 
+func TestPool_ReleaseCleanupRunsOnCleanRelease(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	called := false
+	conn, err := pool.NewConn(ctx, nil, WithReleaseCleanup(func(conn *regular.Conn) bool {
+		called = true
+		return true
+	}))
+	require.NoError(t, err)
+
+	conn.Release(ReleaseCommit, nil)
+	assert.True(t, called)
+
+	called = false
+	conn, err = pool.NewConn(ctx, nil, WithReleaseCleanup(func(conn *regular.Conn) bool {
+		called = true
+		return true
+	}))
+	require.NoError(t, err)
+	conn.Release(ReleaseError, nil)
+	assert.False(t, called, "dirty releases already taint and must skip clean-release hooks")
+}
+
 func TestPool_Get(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

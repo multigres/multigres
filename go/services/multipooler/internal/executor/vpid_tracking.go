@@ -59,10 +59,10 @@ const vpidCleanupTimeout = 250 * time.Millisecond
 // reads no catalog/stats views, so it cannot be perturbed by the session's
 // current role (e.g. a client SET ROLE to an unprivileged role).
 //
-// Best-effort: a failure does not block the actual query; only lock detection
-// through the proxy depends on the mapping. No-op when tracking is disabled,
-// the caller has no client connection id, or this connection already recorded
-// the same active association.
+// If the upsert fails, the query still runs; the affected behavior is lock-wait
+// translation for this gateway/backend association. No-op when tracking is
+// disabled, the caller has no client connection id, or this connection already
+// recorded the same active association.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
 	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
 		return
@@ -103,14 +103,11 @@ func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn,
 // Returns true on the normal path (mapping cleared, or nothing to clear) so the
 // caller recycles the backend.
 //
-// It returns false only on paths where the backend is already in an uncertain
-// state and should not be recycled clean regardless of vpid tracking: the conn
-// is not idle (a leaked open transaction — recycling it would hand a dirty
-// backend to the next session), or the cleanup DELETE failed/timed out (its last
-// operation did not complete cleanly). The caller then closes the backend; this
-// is about connection health, not mapping staleness — a recycled-but-stale row
-// would be harmless because the next checkout re-upserts before any query and an
-// idle pooled backend blocks no one.
+// It returns false only when the backend cannot be confidently returned clean:
+// the conn is not idle (a leaked open transaction would hand a dirty backend to
+// the next session), or the cleanup DELETE failed/timed out. The caller then
+// closes the backend, which also makes any surviving mapping row disappear from
+// pg_stat_activity joins instead of remaining visible for a reused pid.
 func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) bool {
 	if !e.backendVpidTrackingEnabled {
 		return true
@@ -136,8 +133,10 @@ func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) b
 	return true
 }
 
-func (e *Executor) recycleTrackedRegularConn(ctx context.Context, conn regular.PooledConn) {
-	if !e.clearVpidOnRegular(ctx, conn.Conn) {
+func (e *Executor) recycleTrackedRegularConn(conn regular.PooledConn) {
+	// Release cleanup uses its own bounded context so caller cancellation does not
+	// leave active-association metadata behind or force unnecessary reconnects.
+	if !e.clearVpidOnRegular(context.TODO(), conn.Conn) {
 		conn.Conn.Close()
 	}
 	conn.Recycle()
