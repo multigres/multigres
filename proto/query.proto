@@ -179,6 +179,15 @@ message StatementDescription {
   // fields describes the result columns
   // Nil if the statement doesn't return rows.
   repeated Field fields = 2;
+
+  // has_fields distinguishes "no result set" (false, fields is nil — the
+  // backend answered Describe with NoData, e.g. a DML statement) from a
+  // row-returning statement with zero result columns (true, fields is a
+  // non-nil empty slice — the backend answered with RowDescription carrying 0
+  // fields, e.g. `SELECT FROM t`). protobuf serializes both an empty and a nil
+  // `repeated fields` identically, so this flag carries the distinction across
+  // the wire. Mirror of QueryResult.has_fields.
+  bool has_fields = 3;
 }
 
 // ParameterDescription describes a parameter in a prepared statement.

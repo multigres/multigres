@@ -100,6 +100,10 @@ type mockMultiPoolerServiceClient struct {
 	// ConcludeTransaction behavior
 	concludeResponse *multipoolerservice.ConcludeTransactionResponse
 	concludeErr      error
+
+	// Describe behavior
+	describeResponse *multipoolerservice.DescribeResponse
+	describeErr      error
 }
 
 func (m *mockMultiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
@@ -127,7 +131,10 @@ func (m *mockMultiPoolerServiceClient) PortalStreamExecute(ctx context.Context, 
 }
 
 func (m *mockMultiPoolerServiceClient) Describe(ctx context.Context, in *multipoolerservice.DescribeRequest, opts ...grpc.CallOption) (*multipoolerservice.DescribeResponse, error) {
-	return nil, nil
+	if m.describeErr != nil {
+		return nil, m.describeErr
+	}
+	return m.describeResponse, nil
 }
 
 func (m *mockMultiPoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
@@ -821,4 +828,68 @@ func TestConcludeTransaction_Error(t *testing.T) {
 	// underlying PostgreSQL diagnostic surfaces unwrapped. For a generic mock
 	// error we keep its original message instead of an internal RPC prefix.
 	require.Contains(t, err.Error(), "conclude failed")
+}
+
+func TestDescribe_RestoresEmptyFieldsForZeroColumnRowDescription(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		describeResponse: &multipoolerservice.DescribeResponse{
+			Description: &query.StatementDescription{HasFields: true, Fields: nil},
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	desc, err := svc.Describe(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.PreparedStatement{},
+		nil,
+		&query.ExecuteOptions{},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	require.NotNil(t, desc.Fields, "zero-column row-returning statement must restore a non-nil Fields slice")
+	require.Empty(t, desc.Fields)
+}
+
+func TestDescribe_LeavesNilFieldsForNoData(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		describeResponse: &multipoolerservice.DescribeResponse{
+			Description: &query.StatementDescription{HasFields: false, Fields: nil},
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	desc, err := svc.Describe(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.PreparedStatement{},
+		nil,
+		&query.ExecuteOptions{},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	require.Nil(t, desc.Fields, "DML statement must stay NoData (nil Fields)")
+}
+
+func TestDescribe_Error(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		describeErr: errors.New("describe failed"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, err := svc.Describe(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.PreparedStatement{},
+		nil,
+		&query.ExecuteOptions{},
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "describe failed")
 }
