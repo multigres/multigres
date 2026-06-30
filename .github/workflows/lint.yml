@@ -81,8 +81,12 @@ jobs:
           go-version-file: go.mod
 
       # pnpm must be installed before setup-node so its pnpm cache step can run.
+      # The web app lives in a subdir, so point the action at its package.json
+      # to pick up the pinned pnpm version from "packageManager".
       - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: web/multiadmin/package.json
 
       - name: Set up Node.js
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
