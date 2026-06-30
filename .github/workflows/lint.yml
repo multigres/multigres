@@ -80,6 +80,54 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # pnpm must be installed before setup-node so its pnpm cache step can run.
+      # The web app lives in a subdir, so point the action at its package.json
+      # to pick up the pinned pnpm version from "packageManager".
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: web/multiadmin/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/multiadmin/pnpm-lock.yaml
+
       - name: Validate generated files
         run: make validate-generated-files
         shell: bash
+
+  typecheck-multiadmin:
+    name: Typecheck multiadmin web
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: web/multiadmin/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/multiadmin/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: web/multiadmin
+
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: web/multiadmin
