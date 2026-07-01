@@ -215,7 +215,7 @@ func TestSelfConsensusRole(t *testing.T) {
 	}
 }
 
-func TestIsNonRevokedCommittedLeader(t *testing.T) {
+func TestIsActiveLeader(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
 	}
@@ -285,11 +285,25 @@ func TestIsNonRevokedCommittedLeader(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			// Superseded stale primary: our committed rule still names us and is not
+			// revoked, but we have learned (via the replication primary) of a higher
+			// rule naming another pooler — so we are no longer the active leader.
+			name: "committed self but superseded by higher known rule",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id:              self,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}}},
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{LeaderId: other, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6}},
+				},
+			},
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsNonRevokedCommittedLeader(tt.cs))
+			assert.Equal(t, tt.want, IsActiveLeader(tt.cs))
 		})
 	}
 }
