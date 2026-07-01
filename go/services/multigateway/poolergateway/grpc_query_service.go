@@ -305,6 +305,13 @@ func (g *grpcQueryService) Describe(
 	}
 
 	g.logger.DebugContext(ctx, "describe completed successfully", "pooler_id", g.poolerID)
+
+	// protobuf deserializes an empty `repeated fields` as nil. Restore the
+	// non-nil empty slice for a zero-column row-returning statement so the
+	// wire layer sends RowDescription(0 fields) instead of NoData. nil +
+	// HasFields == zero-column SELECT.
+	sqltypes.RestoreStatementDescriptionFields(response.Description)
+
 	return response.Description, nil
 }
 

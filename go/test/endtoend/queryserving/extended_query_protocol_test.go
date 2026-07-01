@@ -904,3 +904,77 @@ func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
 		})
 	}
 }
+
+// TestZeroColumnDescribeExtended is the regression for the zero-column result
+// bug: a row-returning statement with zero result columns must answer Describe
+// with RowDescription (non-nil, empty Fields), NOT NoData. Postgrex/Ecto rely
+// on this; pgx tolerates the wrong sequence, so TestZeroColumnResults misses it.
+func TestZeroColumnDescribeExtended(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	const zeroColQuery = "SELECT FROM generate_series(1, 3)" // 0 columns, 3 rows
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			t.Run("statement describe returns empty RowDescription not NoData", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_s", zeroColQuery, nil))
+
+				desc, err := conn.DescribePrepared(ctx, "zc_s")
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				// The crux: non-nil (RowDescription was sent) but empty (0 columns).
+				// Before the fix the gateway sends NoData -> Fields is nil here.
+				require.NotNil(t, desc.Fields,
+					"zero-column row-returning statement must send RowDescription, not NoData")
+				assert.Empty(t, desc.Fields, "zero-column statement has 0 fields")
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_s"))
+			})
+
+			t.Run("portal describe returns empty RowDescription not NoData", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_p", zeroColQuery, nil))
+
+				desc, err := conn.BindAndDescribe(ctx, "zc_p", nil, nil, nil)
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				require.NotNil(t, desc.Fields,
+					"zero-column portal must send RowDescription, not NoData")
+				assert.Empty(t, desc.Fields)
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_p"))
+			})
+
+			t.Run("bind+execute streams the rows", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_e", zeroColQuery, nil))
+
+				var rows int
+				_, err := conn.BindAndExecute(ctx, "", "zc_e", nil, nil, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						rows += len(result.Rows)
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, 3, rows, "should stream 3 zero-column rows")
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_e"))
+			})
+		})
+	}
+}
