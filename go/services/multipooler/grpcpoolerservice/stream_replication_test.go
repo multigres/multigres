@@ -238,7 +238,7 @@ func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.Q
 // is not serving.
 func TestStreamReplication_StartRequestRejectedWhenNotServing(t *testing.T) {
 	// Default state is NOT_SERVING.
-	p := poolerserver.NewQueryPoolerServer(slog.Default(), nil, nil, "", "", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.Default(), nil, nil, "", "", nil, 0)
 	s := &poolerService{pooler: p}
 	f := newFakeReplStream(t.Context())
 	f.recvCh <- replRecv{req: initReq(multipoolerpb.ReplicationMode_REPLICATION_MODE_DATABASE)}
