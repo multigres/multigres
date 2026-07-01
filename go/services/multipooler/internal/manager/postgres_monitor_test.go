@@ -103,23 +103,31 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	assert.False(t, state.bootstrapSentinelPresent)
 }
 
-func TestDiscoverPostgresState_Running(t *testing.T) {
-	ctx := t.Context()
-
-	mockPgctld := &mockPgctldClient{
-		statusResponse: &pgctldpb.StatusResponse{
-			Status: pgctldpb.ServerStatus_RUNNING,
-		},
+// newRunningStandbyManagerForTest builds a manager whose pgctld reports RUNNING
+// and pg_is_in_recovery=t (standby), backed by the given rule store, for
+// discoverPostgresState tests. The rule store controls whether the per-iteration
+// ObservePosition refresh succeeds.
+func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *MultiPoolerManager {
+	t.Helper()
+	mp := &clustermetadatapb.MultiPooler{
+		Id:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "test-pooler"},
+		ShardKey:  &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
+		PoolerDir: t.TempDir(),
 	}
-
-	pm := NewTestMultiPoolerManager(t)
-	pm.pgctldClient = mockPgctld
-
-	// Running postgres triggers a pg_is_in_recovery probe; stub it as a standby
-	// so discovery determines the role rather than failing on an unreadable one.
+	pm, err := NewMultiPoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
+	require.NoError(t, err)
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING},
+	}
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	return pm
+}
+
+func TestDiscoverPostgresState_Running(t *testing.T) {
+	ctx := t.Context()
+	pm := newRunningStandbyManagerForTest(t, &fakeRuleStore{pos: makeRulePosition(1)})
 
 	state, err := pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
@@ -129,6 +137,38 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	assert.True(t, state.postgresRunning)
 	assert.False(t, state.isPrimary, "pg_is_in_recovery=t means standby")
 	assert.False(t, state.bootstrapSentinelPresent)
+}
+
+// TestDiscoverPostgresState_RefreshesConsensusPosition is a regression test:
+// even when the monitor takes no remedial action, a running postgres must
+// refresh the cached consensus position each iteration (via ObservePosition) so
+// the recovery loop converges on current state instead of lagging the periodic
+// Status RPC that otherwise refreshes the cache.
+func TestDiscoverPostgresState_RefreshesConsensusPosition(t *testing.T) {
+	ctx := t.Context()
+	rs := &fakeRuleStore{pos: makeRulePosition(1)}
+	pm := newRunningStandbyManagerForTest(t, rs)
+
+	before := rs.observePositionCallCount()
+	_, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
+	assert.Greater(t, rs.observePositionCallCount(), before,
+		"running postgres must refresh the cached consensus position each iteration")
+}
+
+// TestDiscoverPostgresState_ConsensusPositionUnreadable is a regression test:
+// when postgres is running but the consensus position cannot be read (postgres
+// or the multischema is unreadable — readCurrentRule errors when current_rule is
+// missing), discovery must surface an error so the monitor skips remediation
+// this tick rather than acting on stale/absent consensus state.
+func TestDiscoverPostgresState_ConsensusPositionUnreadable(t *testing.T) {
+	ctx := t.Context()
+	rs := &fakeRuleStore{observeErr: errors.New("current_rule initial row missing: tables may not be initialized")}
+	pm := newRunningStandbyManagerForTest(t, rs)
+
+	_, err := pm.discoverPostgresState(ctx)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "refresh consensus position")
 }
 
 // TestDiscoverPostgresState_RunningRoleProbeFails is a regression test: when

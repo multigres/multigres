@@ -321,6 +321,17 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 				state.rewindSourceReady = ready
 			}
 		}
+		// Refresh the cached consensus position from postgres so this iteration's
+		// role decisions (highestKnownRule / SelfConsensusRole read the cache)
+		// converge on current state rather than lagging the periodic Status RPC that
+		// otherwise refreshes it. If the position can't be read — postgres or the
+		// multischema is unreadable (readCurrentRule errors when current_rule is
+		// missing) — the role would rest on stale/absent consensus state, so surface
+		// the error and let the monitor skip remediation this tick, matching the
+		// isPrimary probe above.
+		if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
+			return state, fmt.Errorf("refresh consensus position: %w", err)
+		}
 	}
 
 	// Check if backups are available (only if directory not initialized)
