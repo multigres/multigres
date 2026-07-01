@@ -310,6 +310,12 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 		return nil, mterrors.ToGRPC(err)
 	}
 
+	// protobuf collapses an empty `repeated fields` to nil on the wire, losing
+	// the RowDescription(0 fields) vs NoData distinction. Record it explicitly
+	// so the gateway can restore it. nil Fields => NoData (no result set);
+	// non-nil (incl. empty) => RowDescription.
+	sqltypes.SetStatementDescriptionHasFields(desc)
+
 	return &multipoolerpb.DescribeResponse{
 		Description: desc,
 	}, nil
