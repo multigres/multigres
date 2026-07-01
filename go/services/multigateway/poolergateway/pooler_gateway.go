@@ -179,7 +179,6 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
 				return nil
 			}
-			lb.mergeTopologyLeader(p)
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
@@ -188,7 +187,6 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.mergeTopologyLeader(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
