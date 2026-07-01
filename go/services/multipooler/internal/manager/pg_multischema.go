@@ -166,7 +166,6 @@ func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error 
 	vpid bigint NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE multigres.backend_vpid DROP COLUMN IF EXISTS backend_start;
 GRANT USAGE ON SCHEMA multigres TO PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create backend_vpid table")

@@ -405,7 +405,7 @@ func (s *Settings) NeedsReapplyOnReuse() bool {
 		return false
 	}
 	for k := range s.Vars {
-		switch strings.ToLower(k) {
+		switch CanonicalGUCName(k) {
 		case "role", "session_authorization":
 			return true
 		}

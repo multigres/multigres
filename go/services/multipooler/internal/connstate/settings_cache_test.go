@@ -395,7 +395,8 @@ func TestSettingsNeedsReapplyOnReuse(t *testing.T) {
 		{"plain GUCs", map[string]string{"timezone": "UTC", "search_path": "public"}, false},
 		{"role", map[string]string{"role": "regress_user"}, true},
 		{"session_authorization", map[string]string{"session_authorization": "regress_user"}, true},
-		{"mixed case key", map[string]string{"ROLE": "regress_user"}, true},
+		{"mixed case role key", map[string]string{"ROLE": "regress_user"}, true},
+		{"mixed case session_authorization key", map[string]string{"SESSION_AUTHORIZATION": "regress_user"}, true},
 		{"role among others", map[string]string{"timezone": "UTC", "role": "r"}, true},
 	}
 	for _, tc := range cases {

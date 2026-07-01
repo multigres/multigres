@@ -811,8 +811,8 @@ func (e *Executor) portalExecuteWithReserved(
 
 	// Record the vpid mapping only for a freshly reserved backend — at this
 	// point it is still in autocommit (the BEGIN below has not run). A
-	// resumed reservation already has its row, which unlike the old
-	// application_name stamp cannot be wiped by an ApplySettings RESET ALL.
+	// resumed reservation already has its row; the mapping lives outside
+	// PostgreSQL session GUC state, so ApplySettings RESET ALL does not affect it.
 	if newlyReserved {
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}

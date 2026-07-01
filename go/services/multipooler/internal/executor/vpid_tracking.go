@@ -38,9 +38,8 @@ import (
 // would entangle the metadata write with the client transaction (extra
 // predicate locks under SERIALIZABLE, rollback on abort). Mid-transaction
 // re-stamping is unnecessary — a reserved backend stays bound to one gateway
-// session for the life of the reservation, and unlike the old
-// application_name stamp the table row cannot be wiped by RESET ALL /
-// DISCARD ALL, so the row written at reservation time stays valid.
+// session for the life of the reservation, and the mapping lives outside
+// PostgreSQL session GUC state, so RESET ALL / DISCARD ALL do not affect it.
 //
 // Rows are deleted at the release/recycle boundary so the table reflects only
 // backends currently associated with a gateway connection. That keeps metadata
