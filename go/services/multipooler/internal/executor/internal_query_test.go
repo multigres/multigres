@@ -58,7 +58,7 @@ func newInternalQueryTestExecutor(t *testing.T, server *fakepgserver.Server) *Ex
 	})
 
 	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	return NewExecutor(slog.Default(), manager, poolerID, true)
+	return NewExecutor(slog.Default(), manager, poolerID)
 }
 
 func TestInternalTx_CommitFlow(t *testing.T) {

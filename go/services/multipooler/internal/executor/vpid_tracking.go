@@ -60,11 +60,11 @@ const vpidCleanupTimeout = 250 * time.Millisecond
 // current role (e.g. a client SET ROLE to an unprivileged role).
 //
 // If the upsert fails, the query still runs; the affected behavior is lock-wait
-// translation for this gateway/backend association. No-op when tracking is
-// disabled, the caller has no client connection id, or this connection already
-// recorded the same active association.
+// translation for this gateway/backend association. No-op when the caller has
+// no client connection id, or this connection already recorded the same active
+// association.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
-	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
+	if options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	state := conn.State()
@@ -92,7 +92,7 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 // Must be called before the reservation's BEGIN so the row commits in
 // autocommit and is visible to other sessions for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
-	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
+	if options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	e.trackVpidOnRegular(ctx, conn.Conn(), options)
@@ -109,9 +109,6 @@ func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn,
 // closes the backend, which also makes any surviving mapping row disappear from
 // pg_stat_activity joins instead of remaining visible for a reused pid.
 func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) bool {
-	if !e.backendVpidTrackingEnabled {
-		return true
-	}
 	state := conn.State()
 	if state.TrackedVpid() == 0 {
 		return true

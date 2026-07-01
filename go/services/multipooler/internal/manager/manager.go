@@ -337,7 +337,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, backendVpidTrackingEnabled(config))
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -769,10 +769,6 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			pm.logger.Error("Failed to start PubSub listener", "error", err)
 		}
 	}
-}
-
-func backendVpidTrackingEnabled(config *Config) bool {
-	return config == nil || config.BackendVpidTrackingEnabled == nil || *config.BackendVpidTrackingEnabled
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller

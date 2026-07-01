@@ -20,7 +20,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/multigresschema"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -60,12 +59,9 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	// backend_vpid maps live backend pids to gateway virtual pids. Like the
 	// other sidecar tables it is created here, once, on the bootstrapping
 	// primary and before the first backup, so standbys inherit it via restore
-	// and post-failover primaries already have it — never provisioned on the
-	// connection open/reopen path.
-	if backendVpidTrackingEnabled(pm.config) {
-		if err := pm.createBackendVpidTable(ctx); err != nil {
-			return err
-		}
+	// and post-failover primaries already have it.
+	if err := pm.createBackendVpidTable(ctx); err != nil {
+		return err
 	}
 
 	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
@@ -157,9 +153,7 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 }
 
 // createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
-// backend-pid mapping read by lock-wait probes). The DDL is multi-statement
-// (table + GRANTs) and lives in the shared multigresschema package so the
-// pgregress isolation harness can install the same definition.
+// backend-pid mapping read by lock-wait probes).
 func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -167,7 +161,14 @@ func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := queryService.QueryMultiStatement(execCtx, multigresschema.BackendVpidDDL); err != nil {
+	if err := queryService.QueryMultiStatement(execCtx, `CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
+	backend_pid integer PRIMARY KEY,
+	vpid bigint NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE multigres.backend_vpid DROP COLUMN IF EXISTS backend_start;
+GRANT USAGE ON SCHEMA multigres TO PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create backend_vpid table")
 	}
 	return nil
