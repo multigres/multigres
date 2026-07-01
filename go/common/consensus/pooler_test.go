@@ -127,6 +127,23 @@ func TestSelfConsensusRoleLeadership(t *testing.T) {
 	}
 }
 
+func TestConsensusRoleString(t *testing.T) {
+	tests := []struct {
+		role ConsensusRole
+		want string
+	}{
+		{ConsensusRoleLeader, "leader"},
+		{ConsensusRoleFollower, "follower"},
+		{ConsensusRoleObserver, "observer"},
+		{ConsensusRole(99), "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.role.String())
+		})
+	}
+}
+
 func TestSelfConsensusRole(t *testing.T) {
 	id := func(cell, name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Cell: cell, Name: name}
