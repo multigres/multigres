@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -64,7 +66,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 				{
 					PoolerID:          &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"},
 					ShardKey:          shardKey,
-					NamesSelfAsLeader: false,
+					SelfConsensusRole: commonconsensus.ConsensusRoleFollower,
 					IsInitialized:     true,
 				},
 			},

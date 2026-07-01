@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"testing"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -104,7 +106,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
 		withCohortAndPrimary := initialized("pooler-1")
-		withCohortAndPrimary.NamesSelfAsLeader = true
+		withCohortAndPrimary.SelfConsensusRole = commonconsensus.ConsensusRoleLeader
 		withCohortAndPrimary.CohortMembers = []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-1"},
 		}

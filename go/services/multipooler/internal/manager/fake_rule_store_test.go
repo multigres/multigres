@@ -65,6 +65,7 @@ type fakeRuleStore struct {
 	mu                 sync.Mutex
 	pos                *clustermetadatapb.PoolerPosition
 	posSequence        []*clustermetadatapb.PoolerPosition
+	observeCalls       int
 	observeErr         error
 	updateErr          error
 	updateErrAfterHook error
@@ -76,9 +77,16 @@ type fakeRuleStore struct {
 	clearSyncErr       error
 }
 
+func (f *fakeRuleStore) observePositionCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.observeCalls
+}
+
 func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.observeCalls++
 	if len(f.posSequence) > 0 {
 		pos := f.posSequence[0]
 		f.posSequence = f.posSequence[1:]

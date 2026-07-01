@@ -123,6 +123,7 @@ func TestBuildTLSConfig_RequireAndPrefer(t *testing.T) {
 		}
 		if cfg == nil {
 			t.Fatalf("BuildTLSConfig(%s) = nil, want non-nil", mode)
+			return // staticcheck SA5011: t.Fatalf isn't modeled as no-return; make it explicit before dereferencing cfg
 		}
 		if !cfg.InsecureSkipVerify {
 			t.Errorf("BuildTLSConfig(%s).InsecureSkipVerify = false, want true (libpq parity)", mode)
@@ -294,6 +295,7 @@ func tlsStateFromPEM(t *testing.T, certPEM, keyPEM []byte) tls.ConnectionState {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		t.Fatal("failed to decode cert PEM")
+		return tls.ConnectionState{} // staticcheck SA5011: t.Fatal isn't modeled as no-return; make it explicit before dereferencing block
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

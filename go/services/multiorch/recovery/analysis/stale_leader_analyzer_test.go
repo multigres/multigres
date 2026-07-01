@@ -17,6 +17,8 @@ package analysis
 import (
 	"testing"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -50,7 +52,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		stalePA := &PoolerAnalysis{
 			PoolerID:          staleID,
 			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			NamesSelfAsLeader: true,
+			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
 			IsInitialized:     true,
 			LastCheckValid:    true,
 			ConsensusStatus:   primaryRuleStatus(staleID, 5),
@@ -85,7 +87,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newPA := &PoolerAnalysis{
 			PoolerID:          newID,
 			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			NamesSelfAsLeader: true,
+			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(newID, 6),
 			ConsensusTerm:     11,
@@ -126,7 +128,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 				Name:      "replica1",
 			},
 			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			NamesSelfAsLeader: false,
+			SelfConsensusRole: commonconsensus.ConsensusRoleFollower,
 			IsInitialized:     true,
 		}
 
@@ -142,7 +144,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		pa := &PoolerAnalysis{
 			PoolerID:          primaryID,
 			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			NamesSelfAsLeader: true,
+			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(primaryID, 5),
 			ConsensusTerm:     10,
@@ -164,7 +166,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: nil}
-		analysis := &PoolerAnalysis{NamesSelfAsLeader: true}
+		analysis := &PoolerAnalysis{SelfConsensusRole: commonconsensus.ConsensusRoleLeader}
 
 		_, err := analyzeOne(analyzer, analysis)
 
@@ -180,7 +182,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newPA := &PoolerAnalysis{
 			PoolerID:          newID,
 			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			NamesSelfAsLeader: true,
+			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
 			IsInitialized:     true,
 			ConsensusStatus:   primaryRuleStatus(newID, 6),
 			ConsensusTerm:     11,

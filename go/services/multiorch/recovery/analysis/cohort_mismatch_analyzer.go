@@ -211,7 +211,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
 func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *PoolerAnalysis) bool {
-	if pa.NamesSelfAsLeader {
+	if pa.SelfConsensusRole == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
 	if !pa.LastCheckValid {

@@ -215,7 +215,7 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 // MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
 // pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.NamesSelfAsLeader).
+// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.SelfConsensusRole).
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
