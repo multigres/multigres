@@ -50,7 +50,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
 
 	// The shared replication instruments are built at construction and exposed
 	// for the StreamReplication handler to derive per-stream recorders.
