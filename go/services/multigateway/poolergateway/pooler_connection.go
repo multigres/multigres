@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -231,20 +230,6 @@ func (pc *poolerConnection) ID() topoclient.ComponentID {
 // Cell returns the cell where this pooler is located.
 func (pc *poolerConnection) Cell() string {
 	return pc.poolerInfo.Load().Id.GetCell()
-}
-
-// believesSelfLeader reports whether this pooler considers itself the shard
-// leader, judged from the better of its topology self_leadership (read at
-// discovery) and its latest health-stream observation. A pooler in this state
-// is either the current leader or a stale leader that has not yet learned of a
-// newer one; either way it must not be selected for replica reads.
-func (pc *poolerConnection) believesSelfLeader() bool {
-	var healthObs *clustermetadatapb.LeaderObservation
-	if h := pc.Health(); h != nil {
-		healthObs = h.LeaderObservation
-	}
-	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
-	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
 // UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from

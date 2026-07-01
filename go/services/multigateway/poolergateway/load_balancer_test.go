@@ -21,9 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -164,11 +166,15 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	// Add a primary (a real PRIMARY record carries self_leadership).
-	primary := withSelfLeadership(createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
+	// Add a primary that self-attests as leader on its health stream, so it is
+	// excluded from replica reads.
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, primary)
+	simulateHealthUpdate(connForTest(t, lb, primary), clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: primary.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}})
 
-	// Request a replica - should not find one
+	// Request a replica - should not find one (only the primary exists, and a
+	// self-attesting leader is excluded from replica reads).
 	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "", query.Mode_MODE_INCONSISTENT)
 	_, err := lb.getConnection(target)
 	require.Error(t, err)
@@ -247,6 +253,48 @@ func TestLoadBalancer_WriteResumeWaitsForServingSelfNamedLeader(t *testing.T) {
 	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
 		&clustermetadatapb.LeaderObservation{LeaderId: p.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}})
 	assert.Equal(t, 1, resumed, "resume once the leader observes itself as the serving primary")
+}
+
+// TestLoadBalancer_ConsistentBuffersUntilLeaderWritable verifies that CONSISTENT
+// reads route to the writable leader, not to an appointed-but-not-yet-established
+// one. A pooler appointed leader by consensus does not advertise itself until it
+// is actually writable (out of recovery and its committed rule is active), so it
+// carries no routing-primary claim. Until then CONSISTENT (like WRITABLE) has no
+// leader to route to and returns UNAVAILABLE — the gateway buffers rather than
+// serving read-your-writes traffic from a leader that may not yet have replayed
+// the latest commits. Once the leader self-reports writable, CONSISTENT routes to
+// it.
+func TestLoadBalancer_ConsistentBuffersUntilLeaderWritable(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+
+	p := createTestMultiPooler("appointee", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, p)
+	conn := connForTest(t, lb, p)
+
+	// Appointed leader, SERVING, but still establishing: its broadcast names the
+	// prior leader (not yet writable itself), so it makes no routing-primary claim.
+	oldLeaderID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "old-leader",
+	}
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: oldLeaderID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}})
+
+	consistent := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_CONSISTENT)
+	_, err := lb.getConnection(consistent)
+	require.Error(t, err, "CONSISTENT must not route while no leader is writable")
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err),
+		"a not-yet-established leader must buffer, not serve CONSISTENT reads")
+
+	// The appointee establishes itself: out of recovery and active committed
+	// leader, so it now advertises itself as the writable primary.
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
+		&clustermetadatapb.LeaderObservation{LeaderId: p.Id, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}})
+
+	got, err := lb.getConnection(consistent)
+	require.NoError(t, err, "CONSISTENT routes once the leader is writable")
+	assert.Equal(t, poolerID(p), got.ID())
 }
 
 func TestLoadBalancer_PrimaryCaching(t *testing.T) {
@@ -723,44 +771,6 @@ func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
 		assert.Equal(t, poolerID(replica), conn.ID(),
 			"reads must avoid both the leader and the stale leader")
 	}
-}
-
-// TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica
-// documents the inverse of the stale-leader case: a pooler the central leaders
-// map knows to be the leader — populated by a peer's health-stream observation
-// — is still eligible for replica reads when its own view does not yet name it
-// the leader (etcd self_leadership absent and its own health stream not yet
-// reported). matchesReplicaTarget consults only the per-connection
-// believesSelfLeader, never the central map, so the leader is not excluded here.
-//
-// This is benign: a read served by the actual current leader sees the most
-// up-to-date data, so it cannot violate read consistency. The window is also
-// narrow — it closes the moment the leader's own health stream reports or its
-// etcd record gains self_leadership. The dangerous direction (serving from a
-// stale leader on an older rule) is covered by the test above.
-func TestLoadBalancer_CentrallyKnownLeaderUnknownToItselfEligibleAsReplica(t *testing.T) {
-	lb := newTestLB(t, "zone1")
-
-	// leader's etcd record lags: discovered without self_leadership, and its own
-	// health stream has not reported, so believesSelfLeader(leader) is false.
-	leader := createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	addPoolerForTest(t, lb, leader)
-
-	// A peer's health stream has already named `leader` the shard leader at rule
-	// 2, recorded in the central map. Set it directly rather than wiring a second
-	// connection, mirroring how onPoolerHealthUpdate would populate it.
-	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", &clustermetadatapb.LeaderObservation{
-		LeaderId:         leader.Id,
-		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
-	})
-
-	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_INCONSISTENT)
-	// `leader` is the only connection and is eligible despite the central map
-	// naming it the leader, so it is returned rather than erroring as no-candidate.
-	conn, err := lb.getConnection(target)
-	require.NoError(t, err)
-	assert.Equal(t, poolerID(leader), conn.ID(),
-		"a centrally-known leader unaware of its own leadership is eligible for replica reads")
 }
 
 // TestLoadBalancer_LeadershipFor verifies the three roles reported for the
