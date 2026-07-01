@@ -197,35 +197,6 @@ func TestHealthProvider_SubscribeHealthReturnsNilWhenNoStreamer(t *testing.T) {
 	assert.Nil(t, ch)
 }
 
-func TestHealthStreamer_UpdateLeaderObservation(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-pooler",
-	}
-	hs := newHealthStreamer(logger, serviceID, "tg1", "0")
-
-	// Subscribe
-	_, ch := hs.subscribe()
-
-	// Update primary observation
-	obs := &poolerserver.LeaderObservation{
-		LeaderTerm: 42,
-	}
-	hs.UpdateLeaderObservation(obs)
-
-	// Verify subscriber receives the updated state
-	select {
-	case received := <-ch:
-		require.NotNil(t, received)
-		require.NotNil(t, received.LeaderObservation)
-		assert.Equal(t, int64(42), received.LeaderObservation.LeaderTerm)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("subscriber did not receive health broadcast")
-	}
-}
-
 func TestHealthStreamer_OnStateChange(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	serviceID := &clustermetadatapb.ID{
@@ -376,27 +347,44 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	}
 }
 
-// TestHealthStreamer_PublishesWritability verifies the health stream publishes
-// Writable from postgresPrimary, independent of PoolerType/serving: a consensus
-// leader still in recovery is PRIMARY + SERVING but not yet Writable, and flips to
-// Writable only once postgres leaves recovery. This is what lets the gateway hold
-// write traffic for a leader mid-promotion.
-func TestHealthStreamer_PublishesWritability(t *testing.T) {
+// TestHealthStreamer_AdvertisesLeaderWhenWritable verifies the health stream
+// advertises a self-naming leader observation exactly when this pooler is the
+// writable routing primary. A consensus leader still in recovery is SERVING (can
+// answer reads) but routes REPLICA and carries no Leadership, so it advertises no
+// leader; once postgres leaves recovery it routes PRIMARY and advertises itself.
+// The presence of the observation is what lets the gateway route (and unbuffer)
+// writes — replacing the old separate Writable bool.
+func TestHealthStreamer_AdvertisesLeaderWhenWritable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	hs := newHealthStreamer(logger, nil, "tg1", "0")
+	self := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+	hs := newHealthStreamer(logger, self, "tg1", "0")
 	ch := make(chan *poolerserver.HealthState, 10)
 	hs.clients[ch] = struct{}{}
 
-	// Leader, SERVING (can answer reads), but postgres still in recovery: not writable.
+	// Leader, SERVING (can answer reads), but postgres still in recovery: routes
+	// REPLICA and carries no Leadership, so it advertises no leader.
 	require.NoError(t, hs.OnStateChange(t.Context(),
 		servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	st := <-ch
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, st.ServingStatus)
-	assert.False(t, st.Writable, "leader still in recovery must not advertise writable")
+	assert.Nil(t, st.LeaderObservation, "leader still in recovery must not advertise itself")
 
-	// Promotion completes (out of recovery): now writable.
+	// Promotion completes (out of recovery): routes PRIMARY and carries a
+	// self-naming Leadership at the committed rule, so it advertises itself.
 	require.NoError(t, hs.OnStateChange(t.Context(),
-		servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+		servingstate.State{
+			RoutingRole:   servingstate.RoutingRolePrimary,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			Leadership: &clustermetadatapb.LeaderObservation{
+				LeaderId:         self,
+				LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42},
+			},
+		}))
 	st = <-ch
-	assert.True(t, st.Writable, "writable once postgres leaves recovery")
+	require.NotNil(t, st.LeaderObservation, "writable primary must advertise itself")
+	assert.Equal(t, int64(42), st.LeaderObservation.LeaderTerm)
 }

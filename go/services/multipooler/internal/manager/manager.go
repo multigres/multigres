@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -965,21 +964,6 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			// Already closed
 		default:
 			close(pm.readyChan)
-		}
-
-		// Set initial leader observation from the highest known rule.
-		// commonconsensus.LeaderTerm returns 0 unless the rule names us as the
-		// leader, so publishing serviceID here is safe. Fall back to the cached
-		// position if postgres is unreachable.
-		cs, err := pm.consensusMgr.InconsistentConsensusStatus(pm.ctx)
-		if err != nil {
-			cs = pm.consensusMgr.CachedConsensusStatus()
-		}
-		if primaryTerm := commonconsensus.LeaderTerm(cs); primaryTerm > 0 {
-			pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-				LeaderID:   pm.serviceID,
-				LeaderTerm: primaryTerm,
-			})
 		}
 	}
 }
