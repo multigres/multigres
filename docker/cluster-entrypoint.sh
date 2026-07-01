@@ -103,7 +103,7 @@ set_gateway_ports() {
   for i in $(seq 1 "${keep}"); do
     src=$((15432 + i - 1))
     dst=$((base + i - 1))
-    sed -i "s/^\(                pg-port: \)${src}\$/\1${dst}/" "${file}"
+    sed -i "s/^\([[:space:]]*pg-port: \)${src}\$/\1${dst}/" "${file}"
   done
 }
 
@@ -114,7 +114,7 @@ set_gateway_ports() {
 # POSTGRES_USER) and any post-initdb SQL the image ships.
 set_pg_user() {
   local file="$1" user="$2"
-  sed -i "s/^\(                pg-user: \).*\$/\1${user}/" "${file}"
+  sed -i "s/^\([[:space:]]*pg-user: \).*\$/\1${user}/" "${file}"
 }
 
 shutdown() {
