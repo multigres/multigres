@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -720,6 +721,42 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(4, selfID)}}),
 		)
 		require.Nil(t, pm.staleStandbyDemoteTarget())
+	})
+}
+
+func TestShouldMarkRewindReady(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	// newMgr builds a manager whose consensus state controls the two inputs
+	// shouldMarkRewindReady reads beyond (rewindSourceReady, role): the resigned
+	// term and the recorded ReplicationPrimary's rewind-ready flag.
+	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultiPoolerManager {
+		return newTestManager(t,
+			withServiceID(selfID),
+			withResignedLeaderAtTerm(resignedTerm),
+			withReplicationPrimary(rp),
+		)
+	}
+	rewindReadyState := postgresState{rewindSourceReady: true}
+
+	t.Run("not a rewind source yet", func(t *testing.T) {
+		assert.False(t, newMgr(0, nil).shouldMarkRewindReady(postgresState{}, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("not the consensus leader", func(t *testing.T) {
+		assert.False(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleFollower))
+	})
+	t.Run("leadership resigned", func(t *testing.T) {
+		assert.False(t, newMgr(5, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("already advertised as rewind-ready", func(t *testing.T) {
+		// RecordTermPrimary only records an rp that carries a rule, so give it one.
+		rp := &clustermetadatapb.ReplicationPrimary{
+			Rule:        &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+			RewindReady: true,
+		}
+		assert.False(t, newMgr(0, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("leader, checkpointed, not yet advertised", func(t *testing.T) {
+		assert.True(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
 	})
 }
 
