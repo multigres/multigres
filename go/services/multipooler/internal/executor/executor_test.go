@@ -1262,3 +1262,83 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 		require.Nil(t, state)
 	})
 }
+
+// TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
+// the regression test for the reserved connection being destroyed on a plain
+// SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error
+// only aborts the transaction — PostgreSQL keeps the backend alive — so a
+// session-owned reservation must survive the failed portal and stay usable for
+// ROLLBACK [TO SAVEPOINT].
+func TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("select 1/0", mterrors.NewPgError("ERROR", "22012", "division by zero", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.PortalStreamExecute(ctx, &query.Target{},
+		&query.PreparedStatement{Name: "stmt0", Query: "SELECT 1/0"},
+		&query.Portal{Name: "p0"},
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		nil, nil, noopCallback)
+
+	require.Error(t, err)
+	require.NotNil(t, state, "gateway must keep tracking the session-owned reservation")
+	assert.Equal(t, uint64(rconn.ConnID()), state.GetReservedConnectionId())
+	assert.False(t, rconn.IsReleased(), "a plain statement error must not destroy the reserved connection")
+}
+
+// TestPortalStreamExecute_ExistingReservationConnectionErrorReleases verifies
+// that a genuine connection failure (unlike a plain statement error) still
+// destroys the reserved connection, since the backend is actually gone.
+func TestPortalStreamExecute_ExistingReservationConnectionErrorReleases(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("select 1", mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.PortalStreamExecute(ctx, &query.Target{},
+		&query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
+		&query.Portal{Name: "p0"},
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		nil, nil, noopCallback)
+
+	require.Error(t, err)
+	require.Nil(t, state)
+	assert.True(t, rconn.IsReleased(), "a genuine connection failure must still destroy the reserved connection")
+}
