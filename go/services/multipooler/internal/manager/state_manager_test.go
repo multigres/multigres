@@ -495,3 +495,98 @@ func selfLeaderConsensusStatus() *clustermetadatapb.ConsensusStatus {
 		},
 	}
 }
+
+// TestDeriveRoutingRole pins the write-safety boundary: routing role is PRIMARY
+// only when postgres is out of recovery AND the pooler is the active committed
+// consensus leader (commonconsensus.IsActiveLeader). Every other combination is
+// REPLICA — most importantly the pg_promote()->WAL-commit window, where postgres
+// is already out of recovery but the pooler's committed rule does not yet name it,
+// which must stay REPLICA so no write is admitted on a not-yet-committed term.
+func TestDeriveRoutingRole(t *testing.T) {
+	otherPoolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      testPoolerID.GetCell(),
+		Name:      "other-pooler",
+	}
+
+	tests := []struct {
+		name            string
+		postgresPrimary bool
+		cs              *clustermetadatapb.ConsensusStatus
+		want            servingstate.RoutingRole
+	}{
+		{
+			name:            "out of recovery and active leader is primary",
+			postgresPrimary: true,
+			cs:              selfLeaderConsensusStatus(),
+			want:            servingstate.RoutingRolePrimary,
+		},
+		{
+			name:            "in recovery is replica even as active leader",
+			postgresPrimary: false,
+			cs:              selfLeaderConsensusStatus(),
+			want:            servingstate.RoutingRoleReplica,
+		},
+		{
+			// pg_promote() has flipped postgres out of recovery, but the new rule has
+			// not committed to this pooler's WAL yet, so its committed rule still names
+			// the previous leader. Admitting writes here would land them on a
+			// not-yet-committed term — this is the window the routing role closes.
+			name:            "primary but committed rule names another is replica",
+			postgresPrimary: true,
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: testPoolerID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						LeaderId:   otherPoolerID,
+					},
+				},
+			},
+			want: servingstate.RoutingRoleReplica,
+		},
+		{
+			name:            "primary with no consensus snapshot is replica",
+			postgresPrimary: true,
+			cs:              nil,
+			want:            servingstate.RoutingRoleReplica,
+		},
+		{
+			// Self's committed rule (term 1) is revoked below term 2: the pooler was
+			// recruited into a higher term's reconfiguration, so the rule no longer
+			// carries write authority.
+			name:            "primary but committed rule revoked is replica",
+			postgresPrimary: true,
+			cs: func() *clustermetadatapb.ConsensusStatus {
+				cs := selfLeaderConsensusStatus()
+				cs.TermRevocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 2}
+				return cs
+			}(),
+			want: servingstate.RoutingRoleReplica,
+		},
+		{
+			// Self's committed rule (term 1) names self, but a higher rule (term 2)
+			// naming another pooler is known via ReplicationPrimary — self has been
+			// superseded, so it is no longer the active leader.
+			name:            "primary but superseded by higher known rule is replica",
+			postgresPrimary: true,
+			cs: func() *clustermetadatapb.ConsensusStatus {
+				cs := selfLeaderConsensusStatus()
+				cs.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+						LeaderId:   otherPoolerID,
+					},
+				}
+				return cs
+			}(),
+			want: servingstate.RoutingRoleReplica,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, deriveRoutingRole(tt.postgresPrimary, tt.cs))
+		})
+	}
+}
