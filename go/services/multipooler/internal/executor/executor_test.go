@@ -1563,6 +1563,84 @@ func TestExecuteQueryReservedConnDeadSocket_QueryError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
+// TestStreamExecuteReservedConnDeadSocket_SettingsApplyError mirrors
+// TestExecuteQueryReservedConnDeadSocket_SettingsApplyError for the StreamExecute path.
+func TestStreamExecuteReservedConnDeadSocket_SettingsApplyError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutorApplySettings(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		SessionSettings:      map[string]string{"search_path": "foo"},
+	}
+
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "SELECT 1", options, nil, noopCallback)
+
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to prepare reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestStreamExecuteReservedConnDeadSocket_MaterializeError covers the SQL EXECUTE
+// prepared-statement materialization path, which internally issues a Parse (via
+// ensurePrepared) — the first write on a dead socket.
+func TestStreamExecuteReservedConnDeadSocket_MaterializeError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
+			SqlPrefix:         "EXECUTE ",
+			SqlSuffix:         " ( 1 )",
+		},
+	}
+
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "", options, nil, noopCallback)
+
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to materialize SQL EXECUTE prepared statement on reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestStreamExecuteReservedConnDeadSocket_QueryStreamingError covers
+// streamExecuteOnReservedConn's rc.QueryStreaming error path, which previously released
+// only when portal-pin rollback happened to drain the last reservation reason on the
+// connection — a dead socket with no pinned portals fell through to "still alive".
+func TestStreamExecuteReservedConnDeadSocket_QueryStreamingError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "SELECT 1", options, nil, noopCallback)
+
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "query execution failed",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
 // the regression test for the reserved connection being destroyed on a plain
 // SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error

@@ -343,6 +343,9 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
+			if mterrors.IsConnectionError(err) {
+				return nil, e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			}
 			return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
@@ -361,6 +364,9 @@ func (e *Executor) StreamExecute(
 			var err error
 			querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
 			if err != nil {
+				if mterrors.IsConnectionError(err) {
+					return nil, e.reservedConnError(reservedConn, "failed to materialize SQL EXECUTE prepared statement on reserved connection", err)
+				}
 				return e.buildReservedState(reservedConn), fmt.Errorf("failed to materialize SQL EXECUTE prepared statement on reserved connection: %w", err)
 			}
 		}
@@ -619,6 +625,12 @@ func (e *Executor) streamExecuteOnReservedConn(
 	}
 
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
+		// A connection-level failure (dead backend socket) means the reserved conn
+		// is gone regardless of any pinned portals — release it and return a
+		// clean, retryable error instead of reporting a bogus "still alive" state.
+		if mterrors.IsConnectionError(err) {
+			return nil, e.reservedConnError(rc, "query execution failed", err)
+		}
 		// Roll back every pin we registered for this DECLARE — PG
 		// rejected the statement, so the gateway will never call
 		// AddOpenHoldCursor and any matching CLOSE will not arrive.
