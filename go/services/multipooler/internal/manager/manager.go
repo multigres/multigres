@@ -670,7 +670,7 @@ func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
 	if err != nil {
 		pm.logger.WarnContext(ctx, "failed to initialise some pubsub metrics", "error", err)
 	}
-	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger, pubsubMetrics)
+	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger, pubsubMetrics, pm.qsc.NotificationPIDMapper())
 	pm.qsc.SetPubSubListener(pm.pubsubListener)
 	return pm.stateManager.RegisterAndSync(ctx, pm.pubsubListener)
 }

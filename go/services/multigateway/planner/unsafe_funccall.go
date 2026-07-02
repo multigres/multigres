@@ -193,6 +193,12 @@ type statementAnalysis struct {
 	// (conservatively) until the next observed advisory statement, DISCARD ALL,
 	// or disconnect — never a leak.
 	ReleasesSessionAdvisoryLock bool
+
+	// UsesPgListeningChannels is true if the statement calls
+	// pg_catalog.pg_listening_channels(). The planner virtualizes only simple
+	// supported forms from gateway LISTEN state and rejects complex forms rather
+	// than routing them to an arbitrary pooled backend.
+	UsesPgListeningChannels bool
 }
 
 // analyzeStatement is the single pre-dispatch analysis pass that `Plan()`
@@ -290,6 +296,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if name == "pg_listening_channels" {
+			result.UsesPgListeningChannels = true
 			return true
 		}
 		if name != "set_config" {

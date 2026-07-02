@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/notificationpid"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -63,6 +64,7 @@ type Listener struct {
 	poolManager connpoolmanager.PoolManager
 	logger      *slog.Logger
 	metrics     *PubSubMetrics
+	pidMapper   *notificationpid.Mapper
 
 	// requests is the serialized command channel for the event loop.
 	requests chan request
@@ -79,13 +81,18 @@ type Listener struct {
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
-func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, metrics *PubSubMetrics) *Listener {
+func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, metrics *PubSubMetrics, mapperOpt ...*notificationpid.Mapper) *Listener {
 	stopped := make(chan struct{})
 	close(stopped) // initially stopped
+	var mapper *notificationpid.Mapper
+	if len(mapperOpt) > 0 {
+		mapper = mapperOpt[0]
+	}
 	return &Listener{
 		poolManager: poolManager,
 		logger:      logger,
 		metrics:     metrics,
+		pidMapper:   mapper,
 		requests:    make(chan request, 64),
 		stopped:     stopped,
 	}
@@ -412,6 +419,7 @@ func (l *Listener) run(ctx context.Context) {
 			}
 
 			if msg.notification != nil {
+				msg.notification.PID = l.pidMapper.Rewrite(msg.notification.PID)
 				for _, sub := range subscribers[msg.notification.Channel] {
 					select {
 					case sub <- msg.notification:
@@ -477,6 +485,7 @@ func (l *Listener) drainCommands(
 			}
 
 			if msg.notification != nil {
+				msg.notification.PID = l.pidMapper.Rewrite(msg.notification.PID)
 				for _, sub := range subscribers[msg.notification.Channel] {
 					select {
 					case sub <- msg.notification:

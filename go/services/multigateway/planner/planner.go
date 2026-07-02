@@ -159,6 +159,10 @@ func (p *Planner) Plan(
 		}
 	}
 
+	if analysis.UsesPgListeningChannels && stmt.NodeTag() != ast.T_SelectStmt {
+		return nil, unsupportedPgListeningChannels()
+	}
+
 	// Fold the per-statement routing signals derived from the expression
 	// analysis onto opts. These ride on ordinary queries that may simultaneously
 	// do other things the planner tracks (e.g. set_config), so rather than
@@ -228,6 +232,9 @@ func (p *Planner) Plan(
 
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
+		if analysis.UsesPgListeningChannels {
+			return p.planPgListeningChannels(sql, ss)
+		}
 		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
@@ -430,6 +437,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeGatewaySessionState
 	case *engine.GatewayShowVariable:
 		return engine.PlanTypeGatewayShowVariable
+	case *engine.PgListeningChannels:
+		return engine.PlanTypePgListeningChannels
 	case *engine.ListenNotifyPrimitive:
 		return engine.PlanTypeListenNotify
 	case *engine.Sequence:
