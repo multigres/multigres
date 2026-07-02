@@ -15,6 +15,14 @@
 #   docker compose up
 # =========================================================================
 
+# Overridable PostgreSQL base image for the final stage. Declared here, before
+# the first FROM, so it is in scope for the stage-3 FROM (a global ARG). Pass
+# --build-arg POSTGRES_IMAGE=postgres:18 (or MULTIGRES_POSTGRES_IMAGE for
+# compose) to build against a different PostgreSQL, or a prebuilt base image. For
+# a base that already bundles the required extensions and pgBackRest, combine it
+# with PROVISION_PG_PACKAGES=false (see stage 3).
+ARG POSTGRES_IMAGE=postgres:17.7
+
 # =========================================================================
 # Stage 1: Build the multigres binaries
 # =========================================================================
@@ -74,7 +82,9 @@ RUN case "${TARGETARCH}" in \
 # =========================================================================
 # Stage 3: Final image (PostgreSQL + pgBackRest + etcd + multigres)
 # =========================================================================
-FROM postgres:17.7
+# Base image is the global POSTGRES_IMAGE ARG declared at the top of this file.
+# checkov:skip=CKV_DOCKER_7:overridable base image, pinned to postgres:17.7 by default
+FROM ${POSTGRES_IMAGE}
 
 LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
 LABEL org.opencontainers.image.description="All-in-one Multigres cluster for docker-compose / CI compatibility testing."
@@ -82,12 +92,27 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install pgBackRest and pgvector from the PostgreSQL APT repository plus procps
-# (pgrep is used by the entrypoint to detect if the gateway dies). pgvector is
-# preinstalled so compatibility suites can CREATE EXTENSION vector against the
-# bundled PostgreSQL; the PGDG package is built for these exact pg17 binaries.
+# Run the build steps as root. The official postgres base already builds as
+# root (no-op here); some base images switch to a non-root USER, which can't
+# install packages or write to /multigres. A later USER postgres resets this
+# for runtime.
+USER root
+
+# With the default PROVISION_PG_PACKAGES=true (the official Debian postgres
+# base), install pgBackRest and pgvector from the PostgreSQL APT repository plus
+# procps (pgrep is used by the entrypoint to detect if the gateway dies).
+# pgvector is preinstalled so compatibility suites can CREATE EXTENSION vector
+# against the bundled PostgreSQL; the PGDG package follows the base image's
+# PG_MAJOR. Set PROVISION_PG_PACKAGES=false when building on a prebuilt base that
+# already ships these (often such bases are not Debian-based, so apt would not
+# work there anyway); the guardrail below asserts the base actually provides them.
+ARG PROVISION_PG_PACKAGES=true
+# Redeclare the global POSTGRES_IMAGE inside this stage so the guardrail's error
+# message can name the offending base image (global ARGs aren't visible to RUN).
+ARG POSTGRES_IMAGE
 # hadolint ignore=DL3008
-RUN apt-get update && \
+RUN if [ "${PROVISION_PG_PACKAGES}" = "true" ]; then \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -98,12 +123,32 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     pgbackrest \
-    postgresql-17-pgvector \
+    "postgresql-${PG_MAJOR}-pgvector" \
     procps && \
     pgbackrest version && \
     apt-get remove -y gnupg lsb-release && \
     apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# Guardrail: when provisioning is skipped, the base image must already provide
+# everything the step above would have installed. Assert it at build time so a
+# missing dependency fails fast with a clear message instead of surfacing as a
+# confusing runtime failure mid-bootstrap (pgrep -> dead-gateway detection,
+# pgbackrest -> shard init/first backup, pgvector -> CREATE EXTENSION vector).
+RUN if [ "${PROVISION_PG_PACKAGES}" != "true" ]; then \
+      missing=""; \
+      command -v pgbackrest >/dev/null 2>&1 || missing="${missing} pgbackrest"; \
+      command -v pgrep >/dev/null 2>&1 || missing="${missing} pgrep(procps)"; \
+      ext_dir="$(pg_config --sharedir 2>/dev/null)/extension"; \
+      [ -f "${ext_dir}/vector.control" ] || missing="${missing} pgvector"; \
+      if [ -n "${missing}" ]; then \
+        echo "ERROR: PROVISION_PG_PACKAGES=false but the base image ${POSTGRES_IMAGE} is missing:${missing}" >&2; \
+        echo "Provide an image that bundles these, or build with PROVISION_PG_PACKAGES=true." >&2; \
+        exit 1; \
+      fi; \
+      echo "Guardrail OK: base image provides pgbackrest, pgrep, and pgvector."; \
+    fi
 
 # etcd client and server binaries.
 COPY --from=etcd /usr/local/bin/etcd /usr/local/bin/etcdctl /usr/local/bin/
@@ -134,7 +179,7 @@ USER postgres
 WORKDIR /multigres/cluster
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
-    CMD PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc 'SELECT 1' || exit 1
+    CMD PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U "${POSTGRES_USER:-postgres}" -d postgres -tAc 'SELECT 1' || exit 1
 
 # Reset the base image's CMD (["postgres"]) so it isn't passed to the entrypoint.
 ENTRYPOINT ["/usr/local/bin/cluster-entrypoint.sh"]
