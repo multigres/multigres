@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -614,28 +615,28 @@ func TestApplyRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestIsInRecovery(t *testing.T) {
+func TestPostgresMode(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupMock    func(*mock.QueryService)
-		expectError  bool
-		expectResult bool
+		name        string
+		setupMock   func(*mock.QueryService)
+		expectError bool
+		expectMode  pgmode.Mode
 	}{
 		{
 			name: "primary server - not in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
-			expectError:  false,
-			expectResult: false,
+			expectError: false,
+			expectMode:  pgmode.Primary,
 		},
 		{
 			name: "standby server - in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
-			expectError:  false,
-			expectResult: true,
+			expectError: false,
+			expectMode:  pgmode.InRecovery,
 		},
 		{
 			name: "query error",
@@ -653,13 +654,13 @@ func TestIsInRecovery(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			result, err := pm.isInRecovery(ctx)
+			mode, err := pm.postgresMode(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectResult, result)
+				assert.Equal(t, tt.expectMode, mode)
 			}
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})

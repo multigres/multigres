@@ -56,37 +56,27 @@ import (
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// postgresMode reports the physical recovery mode as a pgmode.Mode, converting
-// the raw pg_is_in_recovery() result at this boundary so callers propagate the
-// typed value rather than a bool. On error returns pgmode.Unknown so a
-// failed probe never reads as a writable primary.
+// postgresMode reports the physical recovery mode postgres is in, querying
+// pg_is_in_recovery() and converting the raw bool to a pgmode.Mode at this
+// boundary so callers propagate the typed value rather than a bool. On error
+// returns pgmode.Unknown so a failed probe never reads as a writable primary.
 func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
-	inRecovery, err := pm.isInRecovery(ctx)
-	if err != nil {
-		return pgmode.Unknown, err
-	}
-	if inRecovery {
-		return pgmode.InRecovery, nil
-	}
-	return pgmode.Primary, nil
-}
-
-// isInRecovery checks if the connected database is in recovery mode (standby).
-// Returns true if the database is a standby, false if it's a primary.
-func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
-		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
 
 	var inRecovery bool
 	if err := executor.ScanSingleRow(result, &inRecovery); err != nil {
-		return false, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
 	}
 
-	return inRecovery, nil
+	if inRecovery {
+		return pgmode.InRecovery, nil
+	}
+	return pgmode.Primary, nil
 }
 
 // archiverStats reads pg_stat_archiver for the backup-health poller. NULL

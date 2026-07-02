@@ -85,6 +85,11 @@ type MultiPoolerConsensusClient interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error)
 }
 
@@ -185,6 +190,11 @@ type MultiPoolerConsensusHandler interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error)
 }
 

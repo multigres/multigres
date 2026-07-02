@@ -128,7 +128,7 @@ func TestPrimaryPosition(t *testing.T) {
 			require.NoError(t, err)
 			defer manager.ShutdownForTest(t.Context())
 
-			// Set up mock query service for isInRecovery checks during test
+			// Set up mock query service for postgresMode checks during test
 			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
 
@@ -208,7 +208,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
 
-	// Set up mock query service for isInRecovery check during startup
+	// Set up mock query service for postgresMode check during startup
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 
 	// Start and wait for ready
@@ -378,7 +378,7 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
-		// Status() calls isInRecovery() to determine role
+		// Status() calls postgresMode() to determine role
 		// pg_is_in_recovery returns false (not in recovery = primary)
 		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
@@ -467,7 +467,7 @@ func TestReplicationStatus(t *testing.T) {
 		err = pm.setInitialized()
 		require.NoError(t, err)
 
-		// Status() calls isInRecovery() - returns true (in recovery = standby)
+		// Status() calls postgresMode() - returns true (in recovery = standby)
 		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 		// getStandbyReplayLSN()

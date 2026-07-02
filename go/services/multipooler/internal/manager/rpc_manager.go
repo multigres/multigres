@@ -1015,11 +1015,11 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	}
 
 	// Sanity check: postgres must come back in recovery mode.
-	inRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return false, mterrors.Wrap(err, "verify standby status after restart")
 	}
-	if !inRecovery {
+	if pgMode.OutOfRecovery() {
 		return false, mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 

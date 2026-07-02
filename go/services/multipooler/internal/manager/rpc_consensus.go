@@ -393,11 +393,11 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// primary_conninfo set. Together these prove that Recruit ran (which clears
 	// primary_conninfo and goes into recovery mode) and that no prior Promote on
 	// this node succeeded.
-	inRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to verify standby state before promote")
 	}
-	if !inRecovery {
+	if pgMode.OutOfRecovery() {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"postgres is not in standby mode; call Recruit before Promote")
 	}
