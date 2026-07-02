@@ -235,6 +235,14 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		// Nothing components react to changed; no fan-out, no record write. (An
 		// obs rule-number bump that keeps the same routing role is published via
 		// the health stream, not the record.)
+		//
+		// Still refresh the cached recovery fact: postgres may have left/entered
+		// recovery without flipping the derived routing role (e.g. while this
+		// pooler is not the active leader, so it stays REPLICA either way). The
+		// cache is a physical observation independent of the fan-out, and
+		// RegisterAndSync reads it to derive the role for a late-registered
+		// component — leaving it stale could hand that component the wrong role.
+		ssm.postgresPrimary = next.PostgresPrimary
 		return nil
 	}
 

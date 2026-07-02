@@ -476,6 +476,54 @@ func TestStateManager_FixDrift(t *testing.T) {
 	})
 }
 
+// TestStateManager_RegisterAndSyncAfterDedupedRecoveryChange is a regression test
+// for the cached recovery fact going stale across a deduped (early-return) Mutate.
+// A postgresPrimary change that does not flip the routing role — because this
+// pooler is not yet the active consensus leader, so it stays REPLICA either way —
+// must still refresh ssm.postgresPrimary. Otherwise a component registered later,
+// once consensus does name this pooler the active leader, would derive REPLICA
+// from the stale recovery flag instead of the correct PRIMARY.
+func TestStateManager_RegisterAndSyncAfterDedupedRecoveryChange(t *testing.T) {
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
+
+	// A consensus snapshot the test flips from "not the active leader" to "active
+	// leader". While not the leader the routing role is REPLICA regardless of
+	// recovery mode; once the leader, recovery mode decides PRIMARY vs REPLICA.
+	var activeLeader atomic.Bool
+	consensusStatus := func() *clustermetadatapb.ConsensusStatus {
+		if activeLeader.Load() {
+			return selfLeaderConsensusStatus()
+		}
+		return nilConsensusStatus()
+	}
+	ssm := NewStateManager(newTestLogger(), r, consensusStatus)
+
+	// Baseline fan-out: REPLICA/SERVING with postgres in recovery.
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresPrimary = false
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+
+	// Postgres leaves recovery, but this pooler is not yet the active leader, so
+	// the derived routing role stays REPLICA and Mutate early-returns without a
+	// fan-out. The cached recovery fact must still advance to true.
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+
+	// Consensus now names this pooler the active leader.
+	activeLeader.Store(true)
+
+	// A component registered now must see PRIMARY: postgres is out of recovery
+	// (cached true) AND this pooler is the active leader. A stale cached false
+	// would derive REPLICA.
+	comp := &testComponent{}
+	require.NoError(t, ssm.RegisterAndSync(t.Context(), comp))
+	assert.Equal(t, servingstate.RoutingRolePrimary, comp.lastRole,
+		"late-registered component must derive PRIMARY from the refreshed recovery cache")
+}
+
 // nilConsensusStatus is a StateManager consensus-snapshot injector for tests that
 // don't exercise the derived routing role (nil -> not the active leader -> REPLICA).
 func nilConsensusStatus() *clustermetadatapb.ConsensusStatus { return nil }
