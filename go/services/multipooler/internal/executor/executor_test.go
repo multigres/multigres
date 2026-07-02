@@ -1726,6 +1726,27 @@ func TestCopyOutReadyReservedConnDeadSocket_SettingsApplyError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
+// TestCopySendDataReservedConnDeadSocket covers WriteCopyData's error path, which
+// previously had no error classification or release logic at all — any error,
+// including a dead socket, was just wrapped and the reservation left dangling.
+func TestCopySendDataReservedConnDeadSocket(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	err := e.CopySendData(context.Background(), &query.Target{}, []byte("1\t2\n"), options)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to write COPY data",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
 // the regression test for the reserved connection being destroyed on a plain
 // SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error

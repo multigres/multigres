@@ -1386,7 +1386,7 @@ func (e *Executor) CopySendData(
 		e.logger.ErrorContext(ctx, "failed to write COPY data",
 			"error", err,
 			"data_size", len(data))
-		return fmt.Errorf("failed to write COPY data: %w", err)
+		return e.reservedConnError(reservedConn, "failed to write COPY data", err)
 	}
 
 	e.logger.DebugContext(ctx, "COPY DATA sent successfully",
