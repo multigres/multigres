@@ -527,6 +527,19 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		"new_cohort", updatedStandbyIDs,
 		"expected_outgoing_rule", expectedOutgoingRule)
 
+	// The committed rule changed, so recalc the routing role from the fresh
+	// consensus snapshot. Today this is a no-op: UpdateConsensusRule only amends
+	// the cohort and keeps this pooler the leader (WithLeader above), so the
+	// routing role does not flip. It is here as a guard — if a rule write through
+	// this path ever changes the leader, the routing role and advertised
+	// observation re-derive immediately instead of waiting for the monitor's next
+	// drift tick. Runs after DoUpdateRule returns (outside the rule-store lock)
+	// and under the action lock, so it cannot deadlock. Precedes broadcastHealth
+	// so the pushed snapshot reflects any re-derived state.
+	if err := pm.stateManager.Recalc(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "UpdateConsensusRule: failed to recalc serving state", "error", err)
+	}
+
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.
 	pm.broadcastHealth()
