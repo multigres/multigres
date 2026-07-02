@@ -212,7 +212,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		// path. Apply deferred gateway session settings before user SQL when they
 		// differ from connstate.
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply session settings: %w", err)
+			return nil, nil, e.reservedConnError(reservedConn, "failed to apply session settings", err)
 		}
 
 		// Stamp multigres_vpid:<id> AFTER ApplySettingsToConn. When the
@@ -225,7 +225,13 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			// Query failed but connection still exists — return current state
+			// A connection-level failure (dead backend socket) means the reserved
+			// conn is gone; release it and return a clean, retryable error instead
+			// of reporting a bogus "still alive" state. A plain PG error leaves the
+			// backend reusable — keep it reserved and return its current state.
+			if mterrors.IsConnectionError(err) {
+				return nil, nil, e.reservedConnError(reservedConn, "query execution failed", err)
+			}
 			return nil, e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
 

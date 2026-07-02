@@ -1369,6 +1369,49 @@ func newDeadReservedConnTestExecutor(t *testing.T) (*Executor, *reserved.Pool, *
 	return e, pool, rconn
 }
 
+// applySettingsPoolManager forwards ApplySettingsToConn to the real
+// regular.Conn.ApplySettings so tests can exercise session-settings-apply failures
+// against a force-closed socket. stubPoolManager's own ApplySettingsToConn is a
+// permanent no-op success and can never surface a failure.
+type applySettingsPoolManager struct {
+	stubPoolManager
+}
+
+func (m *applySettingsPoolManager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error {
+	cache := connstate.NewSettingsCache(16)
+	return conn.ApplySettings(ctx, cache.GetOrCreate(settings))
+}
+
+// newDeadReservedConnTestExecutorApplySettings is newDeadReservedConnTestExecutor but
+// wired with applySettingsPoolManager so ApplySettingsToConn performs a real write.
+func newDeadReservedConnTestExecutorApplySettings(t *testing.T) (*Executor, *reserved.Pool, *reserved.Conn) {
+	t.Helper()
+
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	t.Cleanup(pool.Close)
+
+	rconn, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &applySettingsPoolManager{stubPoolManager{reservedConn: rconn, reservedConnOK: true}},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	return e, pool, rconn
+}
+
 // TestDescribeReservedConnDeadSocket_EnsurePreparedError is the regression for
 // MTD06 "describe failed ... broken pipe": when the reserved backend socket
 // is already dead and the statement has never been prepared on it,
@@ -1467,6 +1510,57 @@ func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) 
 
 	_, stillActive := pool.Get(connID)
 	assert.True(t, stillActive, "a non-connection error must not release the reservation")
+}
+
+// TestExecuteQueryReservedConnDeadSocket_SettingsApplyError covers the gap where
+// applyReservedSessionSettingsIfNeeded's failure was never checked for
+// IsConnectionError anywhere in the file: a dead backend socket was wrapped into an
+// opaque error while the reservation was reported as still alive.
+func TestExecuteQueryReservedConnDeadSocket_SettingsApplyError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutorApplySettings(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		SessionSettings:      map[string]string{"search_path": "foo"},
+	}
+
+	result, state, err := e.ExecuteQuery(context.Background(), &query.Target{}, "SELECT 1", options)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to apply session settings",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestExecuteQueryReservedConnDeadSocket_QueryError covers reservedConn.Query's error
+// path, which previously never checked IsConnectionError and never released — a dead
+// socket was reported back to the gateway as a live connection.
+func TestExecuteQueryReservedConnDeadSocket_QueryError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.ExecuteQuery(context.Background(), &query.Target{}, "SELECT 1", options)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "query execution failed",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
