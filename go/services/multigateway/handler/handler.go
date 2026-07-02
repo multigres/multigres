@@ -330,6 +330,13 @@ func (h *MultiGatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
 	return len(asts) > 0 && ast.IsAllowedInAbortedTransaction(asts[0])
 }
 
+// IdleSessionTimeout exposes the effective idle_session_timeout to the pgwire
+// protocol loop. The loop enforces it only while waiting for the next client
+// message in an idle transaction state.
+func (h *MultiGatewayHandler) IdleSessionTimeout(conn *server.Conn) time.Duration {
+	return h.getConnectionState(conn).GetIdleSessionTimeout()
+}
+
 // getConnectionState retrieves and typecasts the connection state for this handler.
 // Initializes a new state if it doesn't exist.
 func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewayConnectionState {
@@ -351,6 +358,18 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+
+		idleDefault := time.Duration(0)
+		if v, ok := newState.StartupParams["idle_session_timeout"]; ok {
+			if d, err := ParsePostgresInterval("idle_session_timeout", v); err == nil {
+				idleDefault = d
+			} else {
+				h.logger.Warn("ignoring invalid idle_session_timeout startup parameter, using default",
+					"value", v, "default", idleDefault, "error", err)
+			}
+			delete(newState.StartupParams, "idle_session_timeout")
+		}
+		newState.InitIdleSessionTimeout(idleDefault)
 		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{
