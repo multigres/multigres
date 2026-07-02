@@ -225,6 +225,16 @@ func newAdminConnFactory(t *testing.T, server *fakepgserver.Server) func(context
 	}
 }
 
+func newVpidTrackingExecutor(t *testing.T, server *fakepgserver.Server) *Executor {
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
+		backendVpidTrackingEnabled: true,
+	}
+	e.SetBackendVpidTrackingWritable(true)
+	return e
+}
+
 // newTestExecutor returns an Executor that has just enough wiring to exercise
 // streamExecuteOnReservedConn. The pool manager is left nil because the helper
 // never touches it.
@@ -918,11 +928,7 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{
-		logger:                     slog.Default(),
-		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
-		backendVpidTrackingEnabled: true,
-	}
+	e := newVpidTrackingExecutor(t, server)
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
@@ -969,11 +975,7 @@ func TestTrackVpidOnRegular_UsesAdminPool(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{
-		logger:                     slog.Default(),
-		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, adminServer)},
-		backendVpidTrackingEnabled: true,
-	}
+	e := newVpidTrackingExecutor(t, adminServer)
 	targetServer.ResetQueryLog()
 	adminServer.ResetQueryLog()
 
@@ -984,6 +986,34 @@ func TestTrackVpidOnRegular_UsesAdminPool(t *testing.T) {
 	adminLog := adminServer.QueryLog()
 	assert.Contains(t, adminLog, "insert into multigres.backend_vpid")
 	assert.Contains(t, adminLog, "delete from multigres.backend_vpid")
+}
+
+func TestTrackVpidOnRegular_SkipsWhenPostgresNotWritable(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminErr: errors.New("admin pool should not be used")},
+		backendVpidTrackingEnabled: true,
+	}
+	server.ResetQueryLog()
+
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+	assert.Empty(t, server.QueryLog(), "read replicas should skip backend_vpid upserts")
+	assert.Zero(t, conn.State().TrackedVpid())
+
+	conn.State().SetTrackedVpid(99)
+	assert.False(t, e.clearVpidOnRegular(ctx, conn), "tracked backends should be closed if cleanup cannot run on a read replica")
+	assert.Empty(t, server.QueryLog(), "read replicas should skip backend_vpid cleanup writes")
+	assert.Zero(t, conn.State().TrackedVpid())
 }
 
 func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
@@ -1004,11 +1034,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := &Executor{
-		logger:                     slog.Default(),
-		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
-		backendVpidTrackingEnabled: true,
-	}
+	e := newVpidTrackingExecutor(t, server)
 	rconn, err := pool.NewConn(ctx, nil, reserved.WithReleaseCleanup(e.vpidReleaseCleanup()))
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
@@ -1044,11 +1070,7 @@ func TestReservedConnOptionsAttachVpidCleanup(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := &Executor{
-		logger:                     slog.Default(),
-		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
-		backendVpidTrackingEnabled: true,
-	}
+	e := newVpidTrackingExecutor(t, server)
 	rconn, err := pool.NewConn(ctx, nil, e.reservedConnOptions()...)
 	require.NoError(t, err)
 
@@ -1075,11 +1097,7 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{
-		logger:                     slog.Default(),
-		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
-		backendVpidTrackingEnabled: true,
-	}
+	e := newVpidTrackingExecutor(t, server)
 	server.ResetQueryLog()
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
@@ -1349,6 +1367,9 @@ func TestNewExecutor(t *testing.T) {
 	assert.Equal(t, poolerID, e.poolerID)
 	assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
 	assert.True(t, e.backendVpidTrackingEnabled)
+	assert.False(t, e.backendVpidTrackingWritable.Load(), "writability is supplied by pooler state transitions")
+	e.SetBackendVpidTrackingWritable(true)
+	assert.True(t, e.backendVpidTrackingWritable.Load())
 }
 
 func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {

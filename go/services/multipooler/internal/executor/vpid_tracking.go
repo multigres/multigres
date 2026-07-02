@@ -51,6 +51,17 @@ import (
 
 const vpidCleanupTimeout = 250 * time.Millisecond
 
+// SetBackendVpidTrackingWritable updates whether backend_vpid tracking may
+// mutate its sidecar table. The pooler calls this from state transitions using
+// the current PostgreSQL physical recovery state.
+func (e *Executor) SetBackendVpidTrackingWritable(writable bool) {
+	e.backendVpidTrackingWritable.Store(writable)
+}
+
+func (e *Executor) canWriteBackendVpid() bool {
+	return e.backendVpidTrackingEnabled && e.backendVpidTrackingWritable.Load()
+}
+
 // trackVpidOnRegular upserts the (backend_pid → vpid) mapping row for the given
 // connection's backend. Must only be called at a hand-off point (fresh checkout
 // / pre-BEGIN) — see the package comment above.
@@ -64,7 +75,7 @@ const vpidCleanupTimeout = 250 * time.Millisecond
 // disabled, the caller has no client connection id, or this connection already
 // recorded the same active association.
 func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, options *query.ExecuteOptions) {
-	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
+	if !e.canWriteBackendVpid() || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	state := conn.State()
@@ -92,7 +103,7 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 // session flow; the admin-pool write is immediately visible to probes and the
 // row stays valid for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
-	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
+	if !e.canWriteBackendVpid() || options == nil || options.ClientConnectionId == 0 {
 		return
 	}
 	e.trackVpidOnRegular(ctx, conn.Conn(), options)
@@ -117,6 +128,11 @@ func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) b
 		return true
 	}
 	defer state.SetTrackedVpid(0)
+
+	if !e.backendVpidTrackingWritable.Load() {
+		e.logger.DebugContext(ctx, "skipping vpid mapping cleanup because postgres is not writable")
+		return false
+	}
 
 	cleanupCtx, cancel := context.WithTimeout(ctx, vpidCleanupTimeout)
 	defer cancel()

@@ -43,7 +43,8 @@ type PoolerController interface {
 	// state.RoutingRole is the write-safety role. The query server admits leader-
 	// bound traffic (WRITABLE and CONSISTENT) only when it is PRIMARY (out of
 	// recovery AND the non-revoked committed + highest-known leader), which closes
-	// the window between pg_promote() and the new rule committing to WAL.
+	// the window between pg_promote() and the new rule committing to WAL. Sidecar
+	// writers use the same role to avoid mutations on replicas/standbys.
 	//
 	// state.ServingStatus determines whether queries are accepted at all:
 	//   - SERVING: Accept queries

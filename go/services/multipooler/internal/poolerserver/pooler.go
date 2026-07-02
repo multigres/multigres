@@ -188,6 +188,10 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
 	routingRole := state.RoutingRole
 	servingStatus := state.ServingStatus
+	if s.executor != nil {
+		s.executor.SetBackendVpidTrackingWritable(routingRole.Writable())
+	}
+
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",

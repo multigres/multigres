@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -55,6 +56,12 @@ type Executor struct {
 	// provisioned, but writes are opt-in because they add metadata round trips on
 	// the query path and are currently needed only by pgregress isolation tests.
 	backendVpidTrackingEnabled bool
+
+	// backendVpidTrackingWritable mirrors the pooler's current PostgreSQL
+	// writability (!pg_is_in_recovery). VPID tracking mutates an unlogged sidecar
+	// table, so replicas/standbys must skip the best-effort writes even when the
+	// feature flag is enabled.
+	backendVpidTrackingWritable atomic.Bool
 }
 
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
