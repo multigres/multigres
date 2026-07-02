@@ -166,6 +166,12 @@ func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error 
 	vpid bigint NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE multigres.backend_vpid SET (
+	autovacuum_vacuum_scale_factor = 0,
+	autovacuum_vacuum_threshold = 100,
+	autovacuum_analyze_scale_factor = 0,
+	autovacuum_analyze_threshold = 100
+);
 GRANT USAGE ON SCHEMA multigres TO PUBLIC;
 REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
 GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {

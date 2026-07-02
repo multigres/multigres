@@ -225,12 +225,17 @@ func TestCreateSidecarSchema(t *testing.T) {
 	}
 }
 
-func TestCreateBackendVpidTableGrantsReadOnlyPublicAccess(t *testing.T) {
+func TestCreateBackendVpidTableDDL(t *testing.T) {
 	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
 
 	seen := false
 	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil), func(q string) {
 		seen = true
+		assert.Contains(t, q, "ALTER TABLE multigres.backend_vpid SET")
+		assert.Contains(t, q, "autovacuum_vacuum_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_vacuum_threshold = 100")
+		assert.Contains(t, q, "autovacuum_analyze_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_analyze_threshold = 100")
 		assert.Contains(t, q, "REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC")
 		assert.Contains(t, q, "GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC")
 		assert.NotContains(t, q, "GRANT SELECT, INSERT")
