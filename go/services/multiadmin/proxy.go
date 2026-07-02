@@ -165,18 +165,20 @@ func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
 		return
 	}
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-	// Modify the director to strip the proxy prefix from the request path
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		// Strip the proxy prefix to get the actual path the backend expects
-		req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		req.Host = targetURL.Host
+	// Use Rewrite to route to the target and strip the proxy prefix from the request
+	// path. SetURL applies the target's scheme/host (what the default director did);
+	// SetXForwarded preserves the X-Forwarded-* headers the Director path added automatically.
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+			pr.SetXForwarded()
+			// Strip the proxy prefix to get the actual path the backend expects.
+			pr.Out.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
+			if pr.Out.URL.Path == "" {
+				pr.Out.URL.Path = "/"
+			}
+			pr.Out.Host = targetURL.Host
+		},
 	}
 
 	// Intercept the response to rewrite HTML content

@@ -510,73 +510,13 @@ func TestDetermineRemedialAction(t *testing.T) {
 				withRuleStore(&fakeRuleStore{pos: tt.cachedPos, inconsistentGUC: tt.inconsistentGUC}),
 			)
 
-			// lastAppliedPrimary == state.isPrimary: this table exercises role,
-			// demote, resign and GUC decisions, not physical-primary drift (covered
-			// separately), so pass no drift here.
-			got := pm.determineRemedialAction(t.Context(), tt.state, tt.state.isPrimary)
+			// This table exercises role, demote, resign and GUC decisions, not
+			// physical-primary drift (that moved to StateManager.hasDrift/fixDrift and
+			// is covered separately).
+			got := pm.determineRemedialAction(t.Context(), tt.state)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}
-}
-
-// TestDetermineRemedialAction_PrimaryDrift covers the physical-primary-drift path:
-// the role is already aligned (rule names self, record says PRIMARY), but the
-// StateManager's last-applied primary-ness differs from what postgres reports.
-// That drift alone must trigger remedialActionReconcileState so the writable-only
-// components (heartbeat writer, LISTEN) re-evaluate — e.g. recovery clearing again
-// after a resign.
-func TestDetermineRemedialAction_PrimaryDrift(t *testing.T) {
-	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
-	newAlignedPrimaryManager := func(serving clustermetadatapb.PoolerServingStatus) *MultiPoolerManager {
-		// Rule names self, so intendedRole is PRIMARY and the record already agrees:
-		// no role drift, isolating the physical-primary / serving decisions.
-		return newTestManager(t,
-			withServiceID(selfID),
-			withRecord(newRecordFromProto(&clustermetadatapb.MultiPooler{
-				Id:             selfID,
-				Type:           clustermetadatapb.PoolerType_PRIMARY,
-				SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: selfID},
-				ServingStatus:  serving,
-			})),
-			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-					LeaderId:   selfID,
-				},
-			}}),
-		)
-	}
-
-	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true}
-
-	t.Run("primary drift reconciles", func(t *testing.T) {
-		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
-		// Components last saw a standby (false) but postgres is now a primary (true).
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, false /* lastAppliedPrimary */)
-		require.Equal(t, remedialActionReconcileState, got)
-	})
-
-	t.Run("draining reconciles", func(t *testing.T) {
-		// Role and primary aligned, but serving was left DRAINING (e.g. a demotion
-		// that errored before re-serving). The monitor re-enables it.
-		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DRAINING)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
-		require.Equal(t, remedialActionReconcileState, got)
-	})
-
-	t.Run("disabled is left alone", func(t *testing.T) {
-		// DISABLED is a deliberate non-serving state (stopping/paused/operator);
-		// the monitor must NOT auto-re-enable it.
-		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_DISABLED)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
-		require.Equal(t, remedialActionNone, got)
-	})
-
-	t.Run("no drift is a no-op", func(t *testing.T) {
-		pm := newAlignedPrimaryManager(clustermetadatapb.PoolerServingStatus_SERVING)
-		got := pm.determineRemedialAction(t.Context(), runningPrimary, true /* lastAppliedPrimary */)
-		require.Equal(t, remedialActionNone, got)
-	})
 }
 
 // TestDetermineRemedialAction_StalePrimaryDemote covers the consensus-authoritative
@@ -674,7 +614,7 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 				withRuleStore(&fakeRuleStore{pos: tt.cachedPos}),
 			)
 
-			got := pm.determineRemedialAction(t.Context(), runningPrimary, runningPrimary.isPrimary)
+			got := pm.determineRemedialAction(t.Context(), runningPrimary)
 			require.Equal(t, tt.expectedAction, got)
 		})
 	}

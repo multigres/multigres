@@ -277,9 +277,12 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 		record:       record,
 		serviceID:    multipooler.Id,
 		topoClient:   ts,
-		stateManager: NewStateManager(slog.Default(), record),
 		consensusMgr: cfg.consensusManager(t),
 	}
+	// Wire the StateManager to the live consensus snapshot (as production does), so
+	// the derived routing role reflects the promotion rule the test records — a
+	// promotion under a self-naming rule then derives Type=PRIMARY + SelfLeadership.
+	pm.stateManager = NewStateManager(slog.Default(), record, pm.consensusMgr.CachedConsensusStatus)
 	cfg.seedLockedState(t, pm)
 	return pm
 }
@@ -292,17 +295,20 @@ func TestUpdateTopologyAfterPromotion_PublishesSelfLeadership(t *testing.T) {
 		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	pm := newRemedialActionTestManager(t, multipooler)
-
-	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
-	require.NoError(t, err)
-	defer pm.actionLock.Release(lockCtx)
-
 	// The pooler is promoted under this rule, which names it as leader.
 	rule := &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7, LeaderSubterm: 2},
 		LeaderId:   multipooler.Id,
 	}
+	// The committed consensus position names self as leader under that rule, so the
+	// StateManager derives routing role PRIMARY (IsActiveLeader) once the promotion
+	// pokes PostgresPrimary.
+	pm := newRemedialActionTestManager(t, multipooler,
+		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule}}))
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 	require.NoError(t, pm.updateTopologyAfterPromotion(lockCtx, &promotionState{}, rule))
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())

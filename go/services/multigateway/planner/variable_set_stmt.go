@@ -201,6 +201,14 @@ func (p *Planner) planGatewayManagedVariable(
 			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
 				"value", value, "parsed", d, "is_local", stmt.IsLocal)
 			return engine.NewStatementTimeoutSet(sql, d, stmt.IsLocal), nil
+		case "idle_session_timeout":
+			d, err := handler.ParsePostgresInterval(name, value)
+			if err != nil {
+				return nil, err
+			}
+			p.logger.Debug("planning SET idle_session_timeout (gateway-managed)",
+				"value", value, "parsed", d, "is_local", stmt.IsLocal)
+			return engine.NewIdleSessionTimeoutSet(sql, d, stmt.IsLocal), nil
 		default:
 			return nil, mterrors.NewUnrecognizedParameter(name)
 		}

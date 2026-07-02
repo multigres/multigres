@@ -42,7 +42,8 @@ type GatewaySessionState struct {
 
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
-	statementTimeout time.Duration
+	statementTimeout   time.Duration
+	idleSessionTimeout time.Duration
 
 	// The (isReset, isLocal) flags map to the four user-visible variants:
 	//
@@ -71,6 +72,19 @@ func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal 
 		variable:         "statement_timeout",
 		statementTimeout: statementTimeout,
 		isLocal:          isLocal,
+	}
+}
+
+// NewIdleSessionTimeoutSet creates a primitive that SETs `idle_session_timeout`.
+// The value is pre-parsed and stored in the appropriate typed field. The
+// protocol layer enforces it while the client-facing connection is idle outside
+// a transaction.
+func NewIdleSessionTimeoutSet(sql string, idleSessionTimeout time.Duration, isLocal bool) *GatewaySessionState {
+	return &GatewaySessionState{
+		sql:                sql,
+		variable:           "idle_session_timeout",
+		idleSessionTimeout: idleSessionTimeout,
+		isLocal:            isLocal,
 	}
 }
 
@@ -147,6 +161,17 @@ func (g *GatewaySessionState) StreamExecute(
 			state.SetLocalStatementTimeout(g.statementTimeout)
 		default:
 			state.SetStatementTimeout(g.statementTimeout)
+		}
+	case "idle_session_timeout":
+		switch {
+		case g.isReset && g.isLocal:
+			state.SetLocalIdleSessionTimeoutToDefault()
+		case g.isReset:
+			state.ResetIdleSessionTimeout()
+		case g.isLocal:
+			state.SetLocalIdleSessionTimeout(g.idleSessionTimeout)
+		default:
+			state.SetIdleSessionTimeout(g.idleSessionTimeout)
 		}
 	default:
 		// Unreachable: the planner validates the variable name before creating

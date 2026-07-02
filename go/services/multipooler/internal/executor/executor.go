@@ -445,9 +445,9 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Do the first state-modifying writes on a newly borrowed socket inside the
 	// reserved-pool validate callback. If the regular pool hands us a stale socket
-	// that PostgreSQL closed while idle (for example after a backend restart), the
-	// validate path taints it and retries on a fresh socket before this reserved
-	// connection is registered.
+	// that PostgreSQL closed while idle (for example after a backend restart or a
+	// client-set idle_session_timeout), the validate path taints it and retries on
+	// a fresh socket before registering the reserved connection.
 	//
 	// Parse is a session-level operation in PostgreSQL, so running it before BEGIN
 	// is safe; the prepared statement persists into the transaction. VPID stamping
@@ -926,8 +926,19 @@ func (e *Executor) portalExecuteWithReserved(
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
 	if err != nil {
-		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, wrapQueryError(err)
+		// A PostgreSQL statement error (division_by_zero, a constraint violation,
+		// an RLS WITH CHECK denial, …) only ABORTS the transaction; the backend
+		// stays usable for ROLLBACK [TO SAVEPOINT]. Destroy the reserved conn only
+		// on a genuine connection failure, or when THIS call created the
+		// reservation (newlyReserved) — matching the sibling error sites above and
+		// the COPY path. Otherwise keep the session-owned reservation and return
+		// its state so the gateway keeps tracking it; releasing here would make the
+		// client's next statement fail with 40001 "reserved connection not found".
+		if newlyReserved || mterrors.IsConnectionError(err) {
+			reservedConn.Release(reserved.ReleaseError, nil)
+			return nil, wrapQueryError(err)
+		}
+		return e.buildReservedState(reservedConn), wrapQueryError(err)
 	}
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
