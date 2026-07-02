@@ -837,7 +837,16 @@ export class MultiPooler extends Message<MultiPooler> {
   keyRange?: KeyRange;
 
   /**
-   * PoolerType is the kind of pooler: PRIMARY or REPLICA
+   * PoolerType is the kind of pooler: PRIMARY or REPLICA.
+   *
+   * TODO(pooler-type-removal): this label is now derived, not authoritative —
+   * the multipooler computes it at publish from routing_state + lifecycle
+   * (SHUTDOWN->UNKNOWN, else PRIMARY iff routing_state PRIMARY, else REPLICA;
+   * DRAINED is no longer produced) and nothing inside multigres reads it for
+   * identity. The remaining reader is the external multigres-operator
+   * (FindPrimaryPooler + drain + status role map). Once the operator switches
+   * those reads to routing_state.role == PRIMARY, this field can stop being
+   * published and then be removed.
    *
    * @generated from field: clustermetadata.PoolerType type = 6;
    */
