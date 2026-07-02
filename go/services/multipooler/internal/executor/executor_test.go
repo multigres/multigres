@@ -1336,6 +1336,139 @@ func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
 	})
 }
 
+// newDeadReservedConnTestExecutor spins up a reserved connection backed by a
+// fake PostgreSQL server and returns the executor, the pool, and the conn.
+// Callers force-close the connection's raw socket to simulate a silently dead
+// backend (the same failure mode as a killed/crashed PostgreSQL process),
+// then exercise Describe against it.
+func newDeadReservedConnTestExecutor(t *testing.T) (*Executor, *reserved.Pool, *reserved.Conn) {
+	t.Helper()
+
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	t.Cleanup(pool.Close)
+
+	rconn, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	return e, pool, rconn
+}
+
+// TestDescribeReservedConnDeadSocket_EnsurePreparedError is the regression for
+// MTD06 "describe failed ... broken pipe": when the reserved backend socket
+// is already dead and the statement has never been prepared on it,
+// ensurePrepared's Parse write fails first. Describe must release the
+// reservation and return a clean, retryable "reserved connection terminated"
+// error instead of wrapping the raw connection error.
+func TestDescribeReservedConnDeadSocket_EnsurePreparedError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+
+	// Simulate the backend socket having silently died: force-close without a
+	// graceful Terminate, so the next write fails like a real broken pipe.
+	rconn.Conn().RawConn().ForceClose()
+
+	desc, err := e.Describe(context.Background(), &query.Target{},
+		&query.PreparedStatement{Name: "s1", Query: "SELECT 1"}, nil,
+		&query.ExecuteOptions{ReservedConnectionId: uint64(connID)})
+
+	require.Nil(t, desc)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to ensure prepared statement",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestDescribeReservedConnDeadSocket_DescribePreparedError covers the case
+// where the statement is already prepared on the reserved connection (so
+// ensurePrepared is a no-op) and the backend dies before a subsequent
+// Describe. The DescribePrepared write must fail cleanly.
+func TestDescribeReservedConnDeadSocket_DescribePreparedError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+	stmt := &query.PreparedStatement{Name: "s1", Query: "SELECT 1"}
+
+	// Prepare the statement while the backend is still alive.
+	_, err := e.Describe(context.Background(), &query.Target{}, stmt, nil, options)
+	require.NoError(t, err)
+
+	// The backend socket dies silently; the reserved conn stays held (no
+	// background health check), same as the real MTD06 scenario.
+	rconn.Conn().RawConn().ForceClose()
+
+	desc, err := e.Describe(context.Background(), &query.Target{}, stmt, nil, options)
+	require.Nil(t, desc)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to describe prepared statement",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestDescribeReservedConnDeadSocket_BindAndDescribeError covers the portal
+// describe path (Describe called with a bound portal rather than just a
+// prepared statement name).
+func TestDescribeReservedConnDeadSocket_BindAndDescribeError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+	stmt := &query.PreparedStatement{Name: "s1", Query: "SELECT 1"}
+
+	// Prepare the statement while the backend is still alive.
+	_, err := e.Describe(context.Background(), &query.Target{}, stmt, nil, options)
+	require.NoError(t, err)
+
+	rconn.Conn().RawConn().ForceClose()
+
+	desc, err := e.Describe(context.Background(), &query.Target{}, stmt, &query.Portal{}, options)
+	require.Nil(t, desc)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to describe portal",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestReservedDescribeError_NonConnectionErrorIsWrappedNotReleased verifies
+// that reservedDescribeError only treats connection-level failures as a
+// signal to release the reservation. An ordinary (non-connection) error, such
+// as a syntax error, must be wrapped with the given context and must leave
+// the reservation intact for the client to keep using.
+func TestReservedDescribeError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+
+	err := e.reservedDescribeError(rconn, uint64(connID), "failed to ensure prepared statement", errors.New("syntax error"))
+
+	require.EqualError(t, err, "failed to ensure prepared statement: syntax error")
+
+	_, stillActive := pool.Get(connID)
+	assert.True(t, stillActive, "a non-connection error must not release the reservation")
+}
+
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
 // the regression test for the reserved connection being destroyed on a plain
 // SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error
