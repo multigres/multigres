@@ -31,6 +31,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // request types for the serialized event loop.
@@ -112,12 +113,13 @@ func (l *Listener) Stop() {
 }
 
 // OnStateChange implements manager.StateAware. The listener runs only when this
-// pooler is the consensus leader AND postgres is out of recovery AND serving; it
-// is stopped on any other state transition. LISTEN/NOTIFY only carries
-// notifications on the actual postgres primary — standbys never receive them — so
-// postgresPrimary must gate it in addition to leadership.
-func (l *Listener) OnStateChange(_ context.Context, isConsensusLeader bool, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if isConsensusLeader && postgresPrimary && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+// pooler is the writable leader (routing role PRIMARY — out of recovery AND the
+// active consensus leader) AND serving; it is stopped on any other state
+// transition. LISTEN/NOTIFY only carries notifications on the actual postgres
+// primary, and writability already requires out-of-recovery, so a standby never
+// starts the listener.
+func (l *Listener) OnStateChange(_ context.Context, state servingstate.State) error {
+	if state.RoutingRole.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		//nolint:gocritic // Long-lived background listener; must not use the transient state-change ctx.
 		l.Start(context.Background())
 	} else {
