@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -55,28 +56,27 @@ import (
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// isPrimary checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
-	inRecovery, err := pm.isInRecovery(ctx)
-	return !inRecovery, err
-}
-
-// isInRecovery checks if the connected database is in recovery mode (standby).
-// Returns true if the database is a standby, false if it's a primary.
-func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
+// postgresMode reports the physical recovery mode postgres is in, querying
+// pg_is_in_recovery() and converting the raw bool to a pgmode.Mode at this
+// boundary so callers propagate the typed value rather than a bool. On error
+// returns pgmode.Unknown so a failed probe never reads as a writable primary.
+func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
-		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
 
 	var inRecovery bool
 	if err := executor.ScanSingleRow(result, &inRecovery); err != nil {
-		return false, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
 	}
 
-	return inRecovery, nil
+	if inRecovery {
+		return pgmode.InRecovery, nil
+	}
+	return pgmode.Primary, nil
 }
 
 // archiverStats reads pg_stat_archiver for the backup-health poller. NULL

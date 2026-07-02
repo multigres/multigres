@@ -24,6 +24,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -203,8 +204,11 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	// (which the tables passed as state.isPrimary): a freshly-built manager is NOT
 	// drifted relative to its seed, so drift is registered only when the observed
 	// postgresState / consensus diverges from the seeded label.
-	primaryBaseline := pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY
-	pm.stateManager.postgresPrimary = primaryBaseline
+	pm.stateManager.pgMode = pgmode.InRecovery
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		pm.stateManager.pgMode = pgmode.Primary
+	}
+	primaryBaseline := pm.stateManager.pgMode.OutOfRecovery()
 	baseline := servingstate.State{
 		RoutingRole:   servingstate.RoutingRoleReplica,
 		ServingStatus: pm.record.ServingStatus(),

@@ -29,6 +29,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -146,7 +147,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
 
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to determine role for recruit")
 	}
@@ -160,7 +161,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	var savedConnInfo string // non-empty if standby; used for recovery on race failure
 	{
 		stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
-		if isPrimary {
+		if pgMode.OutOfRecovery() {
 			pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
 				"revoked_below_term", revokedBelowTerm)
 			err = pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
@@ -182,7 +183,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		}
 	}
 
-	if !isPrimary {
+	if !pgMode.OutOfRecovery() {
 		stabilizeCtx, stabilizeSpan := telemetry.Tracer().Start(ctx, "consensus/stabilize")
 		_, err = pm.waitForReplayStabilize(stabilizeCtx)
 		stabilizeSpan.End()
@@ -209,7 +210,7 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
 		// Attempt to restore the node to its prior replication role.
-		if isPrimary {
+		if pgMode.OutOfRecovery() {
 			// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
 			// simpler for now we just keep publishing the signal that this pooler resigned from its term as
 			// leader to allow orch to do a failover.
@@ -392,11 +393,11 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// primary_conninfo set. Together these prove that Recruit ran (which clears
 	// primary_conninfo and goes into recovery mode) and that no prior Promote on
 	// this node succeeded.
-	inRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to verify standby state before promote")
 	}
-	if !inRecovery {
+	if pgMode.OutOfRecovery() {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"postgres is not in standby mode; call Recruit before Promote")
 	}
@@ -450,7 +451,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	//
 	// Promotion has already waited for postgres to leave recovery AND for the new
 	// rule to commit, so the consensus snapshot now names this pooler the active
-	// committed leader: poking PostgresPrimary here derives routing role PRIMARY
+	// committed leader: poking PostgresMode here derives routing role PRIMARY
 	// and its leadership observation, starting the heartbeat writer / LISTEN and
 	// opening the gateway immediately rather than waiting for the next monitor tick.
 	//
@@ -459,7 +460,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// left Type=PRIMARY but serving=DRAINING, and skipping this would strand the
 	// pooler at PRIMARY/DRAINING and prevent the gateway buffer from draining.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = true
+		s.PostgresMode = pgmode.Primary
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
@@ -630,12 +631,12 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// Decide between "standby update" and "stale-primary demote" based on
 	// actual postgres recovery state rather than topology — a node mid-promote
 	// or mid-demote may have a topology label that lags reality.
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if isPrimary {
+	if pgMode.OutOfRecovery() {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
 		}
@@ -659,7 +660,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby",
 			"new_leader", leader.GetId().GetName(),
 			"incoming_rule", rule.GetRuleNumber(),
-			"is_primary", isPrimary)
+			"postgres_mode", pgMode)
 		// restartAsStandbyLocked sets primary_conninfo to leader on success,
 		// so we don't need a separate setPrimaryConnInfoLocked call here.
 		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {
@@ -698,7 +699,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// cycle. Serving status is owned by the lifecycle and the monitor's reconcile,
 	// not by "here is your primary" bookkeeping.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = false
+		s.PostgresMode = pgmode.InRecovery
 	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}

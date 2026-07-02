@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/tools/ctxutil"
@@ -201,7 +202,7 @@ type MultiPoolerManager struct {
 
 // promotionState tracks which parts of the promotion are complete
 type promotionState struct {
-	isPrimaryInPostgres bool
+	pgMode              pgmode.Mode
 	isPrimaryInTopology bool
 	currentLSN          string
 }
@@ -381,7 +382,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	// Wire the backup-health poller to the manager's pg connection: role
 	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and
 	// the backup-relevant settings (archive/restore config).
-	pm.backup.SetRoleProvider(pm.isPrimary)
+	pm.backup.SetRoleProvider(pm.postgresMode)
 	pm.backup.SetArchiverStatsProvider(pm.archiverStats)
 	pm.backup.SetPGSettingsProvider(pm.backupSettings)
 
@@ -897,13 +898,13 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	isInRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if !isInRecovery {
+	if pgMode.OutOfRecovery() {
 		pm.logger.ErrorContext(ctx, "Replication operation called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
@@ -915,13 +916,13 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 // checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
 // This is the canonical guardrail for primary-only operations.
 func (pm *MultiPoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
-	isInRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if isInRecovery {
+	if !pgMode.OutOfRecovery() {
 		pm.logger.ErrorContext(ctx, "Primary operation called on standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
@@ -1098,12 +1099,12 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
-	state.isReadOnly = !isPrimary
+	state.isReadOnly = !pgMode.OutOfRecovery()
 
 	// Capture current LSN
 	state.finalLSN, err = pm.getWALPosition(ctx)
@@ -1115,7 +1116,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.logger.InfoContext(ctx, "Checked demotion state",
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
-		"is_primary", isPrimary,
+		"postgres_mode", pgMode,
 		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 
@@ -1167,12 +1168,12 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	// Verify server is in recovery mode (standby)
-	inRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify standby status")
 	}
 
-	if !inRecovery {
+	if pgMode.OutOfRecovery() {
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 
@@ -1301,15 +1302,14 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context) (*promoti
 	state := &promotionState{}
 
 	// Check PostgreSQL promotion state
-	isInRecovery, err := pm.isInRecovery(ctx)
+	mode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
+	state.pgMode = mode
 
-	state.isPrimaryInPostgres = !isInRecovery
-
-	if state.isPrimaryInPostgres {
+	if state.pgMode.OutOfRecovery() {
 		// Get current primary LSN
 		state.currentLSN, err = pm.getPrimaryLSN(ctx)
 		if err != nil {
@@ -1326,7 +1326,7 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context) (*promoti
 	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
 	pm.logger.InfoContext(ctx, "Checked promotion state",
-		"is_primary_in_postgres", state.isPrimaryInPostgres,
+		"postgres_mode", state.pgMode,
 		"is_primary_in_topology", state.isPrimaryInTopology)
 
 	return state, nil
@@ -1338,7 +1338,7 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context) (*promoti
 // inherit a stale mark.
 func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, coordinatorTerm int64) error {
 	// Return early if already promoted
-	if state.isPrimaryInPostgres {
+	if state.pgMode.OutOfRecovery() {
 		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping")
 		return nil
 	}
@@ -1506,12 +1506,12 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 
 		case <-ticker.C:
 			if !promotedFromRecovery {
-				isInRecovery, err := pm.isInRecovery(promotionCtx)
+				pgMode, err := pm.postgresMode(promotionCtx)
 				if err != nil {
 					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
 					return mterrors.Wrap(err, "failed to check recovery status")
 				}
-				if !isInRecovery {
+				if pgMode.OutOfRecovery() {
 					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
 					promotedFromRecovery = true
 				}

@@ -291,7 +291,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// 2. After restart, every subsequent pg_is_in_recovery must report standby.
-	// Covers isInRecovery (verify after restart) and setPrimaryConnInfoLocked's
+	// Covers postgresMode (verify after restart) and setPrimaryConnInfoLocked's
 	// guardrail. The post-demotion sync clear goes through the (fake) rule store's
 	// ClearSyncStandby, asserted below, so it issues no SQL here.
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
