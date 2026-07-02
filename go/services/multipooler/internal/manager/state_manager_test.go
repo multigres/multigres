@@ -524,6 +524,74 @@ func TestStateManager_RegisterAndSyncAfterDedupedRecoveryChange(t *testing.T) {
 		"late-registered component must derive PRIMARY from the refreshed recovery cache")
 }
 
+// TestStateManager_Recalc verifies Recalc re-derives the effective state from
+// the live consensus snapshot with no explicit recovery/serving change: when a
+// revocation makes this pooler no longer the active leader, Recalc flips the
+// fanned routing role PRIMARY->REPLICA and clears the self-leadership
+// observation immediately, rather than leaving it stale until the next monitor
+// drift tick. This is the behavior the Recruit path relies on after
+// AcceptRevocation persists.
+func TestStateManager_Recalc(t *testing.T) {
+	comp := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+
+	// A consensus snapshot the test flips from "self is the active leader" to
+	// "self's term is revoked", simulating a revocation arriving between the
+	// initial promotion and the Recalc. selfLeaderConsensusStatus names self at
+	// term 1; revoking below term 2 makes IsActiveLeader false.
+	var revoked atomic.Bool
+	consensusStatus := func() *clustermetadatapb.ConsensusStatus {
+		cs := selfLeaderConsensusStatus()
+		if revoked.Load() {
+			cs.TermRevocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 2}
+		}
+		return cs
+	}
+
+	ssm := NewStateManager(newTestLogger(), r, consensusStatus, comp)
+
+	// Baseline: the writable leader — PRIMARY + self-naming observation.
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+	require.Equal(t, servingstate.RoutingRolePrimary, comp.lastRole)
+	require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
+	require.NotNil(t, r.SelfLeadership())
+	callsAfterMutate := comp.callCount
+
+	// A revocation arrives: this pooler's term is revoked, so it is no longer the
+	// active leader even though postgres is still out of recovery. Recalc, with no
+	// recovery/serving mutation, must re-fan the flipped routing role.
+	revoked.Store(true)
+	require.NoError(t, ssm.Recalc(newActionLockedCtx(t)))
+
+	assert.Greater(t, comp.callCount, callsAfterMutate,
+		"Recalc should re-fan on the consensus-only change")
+	assert.Equal(t, servingstate.RoutingRoleReplica, comp.lastRole,
+		"revoked leader routes as REPLICA")
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
+	assert.Nil(t, r.SelfLeadership(),
+		"revoked leader must clear its self-leadership observation immediately")
+}
+
+// TestStateManager_Recalc_NoChangeIsNoOp verifies Recalc does not re-fan when the
+// derived state is unchanged (it dedups like any other Mutate).
+func TestStateManager_Recalc_NoChangeIsNoOp(t *testing.T) {
+	comp := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, comp)
+
+	require.NoError(t, ssm.Mutate(newActionLockedCtx(t), func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	}))
+	calls := comp.callCount
+
+	require.NoError(t, ssm.Recalc(newActionLockedCtx(t)))
+	assert.Equal(t, calls, comp.callCount, "Recalc with no derived change must not re-fan")
+}
+
 // nilConsensusStatus is a StateManager consensus-snapshot injector for tests that
 // don't exercise the derived routing role (nil -> not the active leader -> REPLICA).
 func nilConsensusStatus() *clustermetadatapb.ConsensusStatus { return nil }

@@ -29,7 +29,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
-	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -224,6 +223,18 @@ func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
 	pm.logger.InfoContext(ctx, "Recruit complete", "revoked_below_term", revokedBelowTerm)
+
+	// The revocation persisted: this pooler's term is now revoked, so it is no
+	// longer the active leader even if postgres has not yet left recovery. Recalc
+	// re-derives the routing role (PRIMARY -> REPLICA) and re-fans it, clearing the
+	// writable signal and self-leadership advertisement immediately rather than
+	// waiting for the monitor's next drift tick. Kept next to the revoke that
+	// causes it. Lock-safe: the action lock is held (acquired at the top of
+	// Recruit) and AcceptRevocation has released the consensus lock, so reading the
+	// consensus snapshot inside Recalc cannot deadlock.
+	if err := pm.stateManager.Recalc(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Recruit: failed to recalc serving state after revocation", "error", err)
+	}
 
 	// Step 5: Return ConsensusStatus with the stable post-revoke position.
 	// Uses the cached position warmed by the getConsensusStatus call in step 3.
@@ -433,22 +444,28 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
-	// IMPORTANT: updateTopologyAfterPromotion must only be called after UpdateRule
-	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
-	// UpdateRule is the durability gate: it waits for sync-standby acknowledgment.
-	if err := pm.updateTopologyAfterPromotion(ctx, state, proposedRule); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update topology after promote", "error", err)
+	// Advertise PRIMARY + SERVING now that the rule has committed — this opens the
+	// gateway to write traffic, so it must run only after UpdateRule succeeds
+	// (UpdateRule is the durability gate: it waits for sync-standby acknowledgment).
+	//
+	// Promotion has already waited for postgres to leave recovery AND for the new
+	// rule to commit, so the consensus snapshot now names this pooler the active
+	// committed leader: poking PostgresPrimary here derives routing role PRIMARY
+	// and its leadership observation, starting the heartbeat writer / LISTEN and
+	// opening the gateway immediately rather than waiting for the next monitor tick.
+	//
+	// The serving transition must run even when topology already reports PRIMARY:
+	// on re-promotion of the same pooler at a higher term, demoteToStandbyLocked
+	// left Type=PRIMARY but serving=DRAINING, and skipping this would strand the
+	// pooler at PRIMARY/DRAINING and prevent the gateway buffer from draining.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update serving state after promote", "error", err)
 	}
-	// UpdateLeaderObservation broadcasts (leader = self). Issue it AFTER
-	// updateTopologyAfterPromotion's SetState(PRIMARY, SERVING) so the
-	// broadcast that names this pooler as leader is also the first that
-	// reports PRIMARY+SERVING — keeping the gateway's buffer-drain check
-	// (serving && broadcast-names-self) from firing before the queryServer
-	// has finished transitioning to PRIMARY.
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   pm.serviceID,
-		LeaderTerm: revokedBelowTerm,
-	})
 
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping
 	// the published ReplicationPrimary lets the health stream advertise the
@@ -618,12 +635,6 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	// Reported to the gateway as the new leader's term. Not term validation —
-	// the rule compare above is the gate. SetPrimary does not bump the local
-	// revocation: revocations are authored by coordinators via Recruit, and
-	// an SetPrimary is a notification, not a revoke.
-	consensusTerm := rule.GetRuleNumber().GetCoordinatorTerm()
-
 	if isPrimary {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
@@ -691,18 +702,6 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}
-
-	// Advertise the new leader to the health stream so the gateway can route
-	// reads/writes against it. The stale-primary branch gets this for free
-	// via demoteStalePrimaryLocked; the standby branch must do it explicitly.
-	// TODO: LeaderObservation is redundant with the (rule, primary) tuple
-	// already recorded in consensusPromises.replicationPrimary. Plan to make
-	// RecordTermPrimary (or its successor) drive the health-stream
-	// observation directly, so callers don't have to remember to do both.
-	pm.healthStreamer.UpdateLeaderObservation(&poolerserver.LeaderObservation{
-		LeaderID:   leader.GetId(),
-		LeaderTerm: consensusTerm,
-	})
 
 	if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to clear resigned leader term after promote", "error", err)

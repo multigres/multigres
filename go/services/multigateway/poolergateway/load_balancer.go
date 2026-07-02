@@ -52,51 +52,113 @@ func shardKeyOf(sk *clustermetadatapb.ShardKey) shardKey {
 	}
 }
 
-// shardSummary holds the gateway's per-shard consensus state.
+// shardSummary holds the gateway's per-shard routing state.
 // One shardSummary exists per (tableGroup, shard) pair while any pooler
 // from that shard is tracked in the cache. It is auto-created on the
 // first observation for the shard and auto-cleared once no poolers from
 // the shard remain.
 //
-// Concurrency: leader is protected by mu. Read via leader(), mutate via
-// mergeLeader(). The shardKey field is immutable after construction and
-// safe to read without holding mu.
+// The state is the SET of poolers currently claiming to be the writable
+// (routing) primary — membership means "this pooler is a routing primary right
+// now," keyed by pooler id. This is distinct from consensus: orch reasons about
+// the highest-known rule over consensus statuses; the gateway only cares which
+// pooler(s) are writable primaries. The observation's rule number is used only
+// as a tiebreaker to pick among members during the brief failover-overlap window
+// when two poolers both claim primary. A pooler is added when it advertises
+// itself as a writable primary and removed when it stops (demoted, no longer
+// writable) or leaves — so a stale primary retracts rather than sticking.
+//
+// Concurrency: primaries is protected by mu. Read the elected leader via
+// leader(), mutate via setPrimary/clearPrimary. shardKey is immutable.
 type shardSummary struct {
 	// shardKey identifies the shard — database, tablegroup, shard.
 	shardKey *clustermetadatapb.ShardKey
 
-	mu sync.Mutex
-	// leaderObs is the most-authoritative LeaderObservation seen across this
-	// shard's poolers — merged across self_leadership topology records
-	// (folded in at mergeTopologyLeader time) and LeaderObservation
-	// messages on health streams (folded in via onPoolerHealthUpdate).
-	// May be nil if no leader has been observed yet.
-	leaderObs *clustermetadatapb.LeaderObservation
+	mu        sync.Mutex
+	primaries primarySet
 }
 
-// leader returns a snapshot of the current leader observation, or nil
-// if no leader has been observed yet. Safe to call concurrently.
+// primarySet is the set of poolers currently claiming to be the writable
+// routing primary for a shard, keyed by pooler id, each carrying the rule under
+// which it claimed. It exposes only what the gateway needs — add/remove by id
+// and "the highest-rule member" — behind a named type so the storage can change
+// without touching callers. No heap or sorted structure is warranted: the number
+// of simultaneous primary claims per shard is expected to be very low in practice
+// (normally one, briefly two during a failover overlap), so a plain map with a
+// linear highest() scan is the right call. Not safe for concurrent use —
+// shardSummary.mu guards it.
+type primarySet struct {
+	byID map[topoclient.ComponentID]*clustermetadatapb.LeaderObservation
+}
+
+func (p *primarySet) set(id topoclient.ComponentID, obs *clustermetadatapb.LeaderObservation) {
+	if p.byID == nil {
+		p.byID = make(map[topoclient.ComponentID]*clustermetadatapb.LeaderObservation)
+	}
+	p.byID[id] = obs
+}
+
+func (p *primarySet) clear(id topoclient.ComponentID) { delete(p.byID, id) }
+
+func (p *primarySet) has(id topoclient.ComponentID) bool { _, ok := p.byID[id]; return ok }
+
+// highest returns the member with the highest rule, or nil if the set is empty.
+func (p *primarySet) highest() *clustermetadatapb.LeaderObservation {
+	var best *clustermetadatapb.LeaderObservation
+	for _, obs := range p.byID {
+		if best == nil || commonconsensus.CompareRuleNumbers(obs.GetLeaderRuleNumber(), best.GetLeaderRuleNumber()) > 0 {
+			best = obs
+		}
+	}
+	return best
+}
+
+// leader returns the routing primary with the highest rule, or nil if the shard
+// currently has no writable leader. Safe to call concurrently.
 func (s *shardSummary) leader() *clustermetadatapb.LeaderObservation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.leaderObs
+	return s.primaries.highest()
 }
 
-// mergeLeader installs obs as this shard's leader if it strictly
-// supersedes whatever's there now (or there's nothing there). Returns
-// true if installed. Safe to call concurrently.
-//
-// TODO: rename LeadershipObservation to RoutingState and make sure only active primaries
-// publish routing state.
-func (s *shardSummary) mergeLeader(obs *clustermetadatapb.LeaderObservation) bool {
+// setPrimary records poolerID as a routing primary at obs's rule (adds it to the
+// set or updates its rule). Returns true if the elected leader changed.
+func (s *shardSummary) setPrimary(poolerID topoclient.ComponentID, obs *clustermetadatapb.LeaderObservation) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	merged := commonconsensus.MostAuthoritativeObservation(s.leaderObs, obs)
-	if merged == s.leaderObs {
+	before := s.primaries.highest()
+	s.primaries.set(poolerID, obs)
+	return !sameObservation(before, s.primaries.highest())
+}
+
+// clearPrimary removes poolerID from the routing-primary set (retraction).
+// Returns true if the elected leader changed. Safe on an absent pooler.
+func (s *shardSummary) clearPrimary(poolerID topoclient.ComponentID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.primaries.has(poolerID) {
 		return false
 	}
-	s.leaderObs = merged
-	return true
+	before := s.primaries.highest()
+	s.primaries.clear(poolerID)
+	return !sameObservation(before, s.primaries.highest())
+}
+
+// hasPrimary reports whether poolerID currently claims to be a routing primary
+// for this shard — i.e. its latest health observation named itself. This is the
+// single authority for "believes itself the writable primary": both stale-leader
+// detection and replica-read exclusion read it, rather than re-deriving the same
+// signal from each connection's live health.
+func (s *shardSummary) hasPrimary(poolerID topoclient.ComponentID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.primaries.has(poolerID)
+}
+
+// sameObservation reports whether two leader observations name the same elected
+// leader at the same rule (both nil counts as same).
+func sameObservation(a, b *clustermetadatapb.LeaderObservation) bool {
+	return proto.Equal(a, b)
 }
 
 // loadBalancer selects poolerConnections for queries. The set of tracked
@@ -105,29 +167,27 @@ func (s *shardSummary) mergeLeader(obs *clustermetadatapb.LeaderObservation) boo
 // constructs the connection, and OnGone closes it. loadBalancer owns no
 // per-pooler registry of its own.
 //
-// Per-shard state is tracked via the shards map, populated from two sources
-// that both carry a rule number: a pooler's self_leadership in its topology
-// record (folded in when the hook calls mergeTopologyLeader) and
-// LeaderObservation messages on health streams (delivered via
-// onPoolerHealthUpdate). The most-authoritative observation (highest rule
-// number) wins, regardless of source. The pooler.Type field from etcd
-// topology is never consulted for leader identity — only self_leadership is.
-// A shardSummary survives connection lifecycle events except when the last
-// pooler in the shard leaves (see onPoolerGone): removing one pooler does
-// not erase consensus's choice of leader.
+// Per-shard state is tracked via the shards map. Each shardSummary holds the
+// SET of poolers currently claiming to be the writable routing primary, fed
+// entirely by live health-stream observations (via onPoolerHealthUpdate): a
+// pooler is added when its own observation names itself and retracted when it
+// stops claiming or leaves. The etcd topology — pooler.Type and self_leadership
+// alike — is never consulted for leader identity; only a live, self-attested
+// health observation counts. A shardSummary survives connection lifecycle
+// events until the last pooler in the shard leaves (see onPoolerGone).
 //
 // Concurrency: a two-lock model is in play.
 //   - lb.mu protects ONLY the lb.shards map (lookups, inserts, deletes).
-//   - Each *shardSummary has its own mu protecting its leader field; reads
-//     go through leader(), mutations through mergeLeader().
+//   - Each *shardSummary has its own mu protecting its routing-primary set;
+//     reads go through leader()/hasPrimary(), mutations through
+//     setPrimary/clearPrimary.
 //
 // Lock ordering: take lb.mu first (if needed), then summary.mu. No method
 // holds both at once — summaryForPooler() releases lb.mu before returning the
 // *shardSummary, and callers then invoke summary methods which self-lock.
 // Cache reads happen after lb.mu has been released, so the cache OnLive/
-// OnGone hooks (which call mergeTopologyLeader / notifyIfLeaderServing →
-// lb.mu) can never deadlock against an LB method holding lb.mu and waiting
-// on the cache.
+// OnGone hooks (which call onPoolerHealthUpdate / onPoolerGone → lb.mu) can
+// never deadlock against an LB method holding lb.mu and waiting on the cache.
 type loadBalancer struct {
 	// localCell is the cell where this gateway is running
 	localCell string
@@ -141,15 +201,13 @@ type loadBalancer struct {
 	// mu protects shards.
 	mu sync.Mutex
 
-	// shards maps shard key to the gateway's per-shard summary (currently the
-	// most-authoritative LeaderObservation seen for that shard). Populated
-	// from a pooler's self_leadership topology record (via
-	// mergeTopologyLeader) and from LeaderObservation messages on health
-	// streams (via onPoolerHealthUpdate). The leader_id field of the
-	// observation may name a pooler we are not currently connected to —
-	// GetConnection handles that case at read time by consulting the cache.
-	// Entries are auto-cleared by onPoolerGone once no poolers remain in the
-	// shard.
+	// shards maps shard key to the gateway's per-shard summary — the set of
+	// poolers currently claiming to be the writable routing primary for that
+	// shard. Populated solely from LeaderObservation messages on health streams
+	// (via onPoolerHealthUpdate); the elected leader (highest-rule claimant) may
+	// name a pooler we are not currently connected to — GetConnection handles
+	// that at read time by consulting the cache. Entries are auto-cleared by
+	// onPoolerGone once no poolers remain in the shard.
 	shards map[shardKey]*shardSummary
 
 	// cache is the pooler cache that owns the per-pooler *poolerConnection
@@ -227,33 +285,6 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 	}
 }
 
-// mergeTopologyLeader folds a pooler's self_leadership observation (from its
-// topology record) into the shard's shardSummary, keeping whichever
-// observation has the higher rule number. A pooler that is not the leader
-// carries no self_leadership, so this is a no-op for it — it never clears an
-// existing entry, since a higher observation from any source is what
-// supersedes a leader.
-//
-// Called by the pooler cache's OnLive and OnUpdate hooks. Acquires lb.mu and
-// the summary's mu internally (in that order, non-overlapping); must not be
-// called while holding either.
-func (lb *loadBalancer) mergeTopologyLeader(pooler *clustermetadatapb.MultiPooler) {
-	obs := pooler.GetSelfLeadership()
-	if obs == nil {
-		return
-	}
-	summary := lb.summaryForPooler(pooler)
-	if !summary.mergeLeader(obs) {
-		return
-	}
-
-	lb.logger.Debug("leader observation from topology self_leadership",
-		"pooler_id", topoclient.ComponentIDString(pooler.Id),
-		"tablegroup", pooler.GetShardKey().GetTableGroup(),
-		"shard", pooler.GetShardKey().GetShard(),
-		"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
-}
-
 // shardSummary returns the existing summary for the shard, creating one if
 // absent. The returned *shardSummary is owned by the cache; callers mutate
 // via its methods (which self-lock). Briefly holds lb.mu; releases it before
@@ -315,17 +346,12 @@ func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, co
 	if health == nil || !health.isServing() {
 		return
 	}
-	// The pooler's own broadcast LeaderObservation must name itself as
-	// leader.
+	// The pooler's own broadcast observation must name itself as leader — it is
+	// the elected routing primary and it is attesting to that itself. That
+	// observation implies writability (a pooler advertises leadership only once it
+	// is the writable routing primary), so draining the failover buffer toward it
+	// is safe without a separate writability check.
 	if !proto.Equal(health.LeaderObservation.GetLeaderId(), connID) {
-		return
-	}
-	// Gate write-resume on writability, not just leadership. A leader can answer
-	// reads (CONSISTENT) and report SERVING before it has finished promoting,
-	// while postgres is still in recovery. Draining the failover buffer then would
-	// route buffered writes to a read-only node ("cannot ... during recovery" /
-	// read-only transaction). isWritable() reflects postgres being out of recovery.
-	if !health.isWritable() {
 		return
 	}
 	lb.onLeaderServing(summary.shardKey)
@@ -409,7 +435,7 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 			if conn == nil {
 				continue
 			}
-			if matchesReplicaTarget(conn, target) {
+			if lb.matchesReplicaTarget(conn, target) {
 				candidates = append(candidates, conn)
 			}
 		}
@@ -573,27 +599,35 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*poolerConnection) 
 // release healthMu before invoking this callback.
 func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	health := conn.Health()
-	if health == nil || health.LeaderObservation == nil {
+	if health == nil {
 		return
 	}
 
-	obs := health.LeaderObservation
+	poolerID := topoclient.ComponentIDString(conn.PoolerInfo().GetId())
 	summary := lb.summaryForPooler(conn.PoolerInfo().MultiPooler)
-	if summary.mergeLeader(obs) {
-		lb.logger.Debug("leader observation recorded",
-			"tablegroup", summary.shardKey.GetTableGroup(),
-			"shard", summary.shardKey.GetShard(),
-			"leader_id", topoclient.ComponentIDString(obs.LeaderId),
-			"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
+
+	// A pooler is a routing primary iff its broadcast observation names itself.
+	// The observation implies writability: a pooler only advertises itself as the
+	// leader once it is the writable routing primary (out of recovery and the
+	// active committed leader), so the gateway needs no separate writability
+	// check. Anything else — a follower naming another leader, or no observation —
+	// retracts any prior claim (demotion / no-longer-primary).
+	obs := health.LeaderObservation
+	if obs != nil && proto.Equal(obs.GetLeaderId(), conn.PoolerInfo().GetId()) {
+		if summary.setPrimary(poolerID, obs) {
+			lb.logger.Debug("routing primary recorded",
+				"tablegroup", summary.shardKey.GetTableGroup(),
+				"shard", summary.shardKey.GetShard(),
+				"leader_id", poolerID,
+				"rule", commonconsensus.FormatRuleNumber(obs.GetLeaderRuleNumber()))
+		}
+	} else {
+		summary.clearPrimary(poolerID)
 	}
 
-	// Whether or not the observation was newly installed, re-check the
-	// SERVING-leader notification. A stale-rule observation can be ignored
-	// here entirely (mergeLeader returned false and the existing leader is
-	// unrelated), but for the "same rule, leader has just become SERVING"
-	// case we still need to notify. notifyIfLeaderServing's checks are
-	// idempotent and cheap, so always calling it is simpler than retaining
-	// the cmp>0 / cmp==0 / cmp<0 split.
+	// Re-check the SERVING-leader notification: if the elected routing primary is
+	// this (or any) connected pooler and it is serving, drain the failover buffer.
+	// Idempotent and cheap, so always calling it is simpler than tracking deltas.
 	leader := summary.leader()
 	if leader == nil || lb.cache == nil {
 		return
@@ -626,26 +660,48 @@ func matchesShardTarget(conn *poolerConnection, target *query.Target) bool {
 }
 
 // matchesReplicaTarget reports whether conn is eligible to serve REPLICA
-// traffic for target: it is in the shard and does not believe itself the shard
-// leader. Leadership is judged per-connection from the better of the pooler's
-// etcd self_leadership and its health-stream observation (see
-// believesSelfLeader), never from the topology Type label.
+// traffic for target: it is in the shard and does not claim to be a routing
+// primary. Leadership is judged from the shard summary's routing-primary set
+// (fed by health-stream observations, see claimsPrimary), never from the
+// topology Type label.
 //
-// Excluding self-believed leaders covers both the current leader and a stale
-// leader — a pooler whose own view still names it the leader even though a
-// newer leader has been observed. Either would serve reads as a primary or from
-// a diverged timeline, so neither is a replica candidate.
+// Any primary claimant is excluded, not just the elected one. The reason is
+// forward-looking, not about stale timelines: a pooler that claims primary but
+// is not (or is no longer) the winning leader is headed for demotion, and
+// demoting it back to a replica restarts postgres — often with a pg_rewind to
+// discard diverged WAL. That restart drains gracefully (in-flight queries get a
+// grace period to finish), so it is not an abrupt kill; but any query slow
+// enough to outlast the grace period is interrupted. Sending fresh replica reads
+// to a pooler we expect to restart soon needlessly exposes them to that risk, so
+// a lower-rule (stale) claimant is excluded too, until it stops claiming primary.
 //
 // TODO(replica-quality): eligibility is otherwise binary. Longer term, treat a
 // replica as degraded when it is not actively replicating or has fallen behind,
 // and prefer non-degraded replicas when several are available. That belongs in
 // selectReplicaConnection (which already tiers by lag), with the per-pooler
 // signal carried on the health observation.
-func matchesReplicaTarget(conn *poolerConnection, target *query.Target) bool {
+func (lb *loadBalancer) matchesReplicaTarget(conn *poolerConnection, target *query.Target) bool {
 	if !matchesShardTarget(conn, target) {
 		return false
 	}
-	return !conn.believesSelfLeader()
+	return !lb.claimsPrimary(conn)
+}
+
+// claimsPrimary reports whether conn currently claims to be a routing primary
+// for its shard, per the shard summary's routing-primary set. It is the single
+// authority for the "believes itself the writable primary" signal — the same
+// signal onPoolerHealthUpdate folds into the summary — consulted by both
+// leadershipFor (stale-leader label) and matchesReplicaTarget (replica
+// exclusion).
+func (lb *loadBalancer) claimsPrimary(conn *poolerConnection) bool {
+	if conn == nil {
+		return false
+	}
+	key := shardKeyOf(conn.PoolerInfo().GetShardKey())
+	lb.mu.Lock()
+	summary := lb.shards[key]
+	lb.mu.Unlock()
+	return summary != nil && summary.hasPrimary(conn.ID())
 }
 
 // connectionCount returns the number of active connections, sourced from the
@@ -671,10 +727,9 @@ const (
 )
 
 // leadershipFor returns the consensus leadership role of a single connected
-// pooler for the admin/status page. The role reflects the gateway's merged
-// view — the shard's shardSummary (self_leadership combined with
-// health-stream observations) and the pooler's own belief — never the
-// topology Type label.
+// pooler for the admin/status page. The role reflects the gateway's live view —
+// the shard's shardSummary routing-primary set, fed by health-stream
+// observations — never the topology Type label.
 func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 	if conn == nil {
 		return leadershipFollower
@@ -685,19 +740,19 @@ func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 	lb.mu.Lock()
 	summary := lb.shards[key]
 	lb.mu.Unlock()
-	var leader *clustermetadatapb.LeaderObservation
-	if summary != nil {
-		leader = summary.leader()
+	if summary == nil {
+		return leadershipFollower
 	}
+	leader := summary.leader()
 
-	// The shard's consensus leader (merged across every pooler's
-	// self_leadership and health-stream reports) takes precedence, so a
-	// leader whose own record lags is still reported as the leader.
-	// Otherwise a pooler that still believes itself leader is stale.
+	// The shard's elected routing primary (highest-rule claimant across all
+	// health-stream reports) takes precedence. A pooler that still claims to be
+	// a routing primary but is not the elected one is stale — consensus has
+	// moved on to a higher rule.
 	switch {
 	case leader != nil && topoclient.ComponentIDString(leader.LeaderId) == conn.ID():
 		return leadershipLeader
-	case conn.believesSelfLeader():
+	case summary.hasPrimary(conn.ID()):
 		return leadershipStaleLeader
 	}
 	return leadershipFollower
@@ -727,11 +782,23 @@ func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.MultiPooler) {
 		return
 	}
 	sk := p.GetShardKey()
+	key := shardKeyOf(sk)
+
+	lb.mu.Lock()
+	summary := lb.shards[key]
+	lb.mu.Unlock()
+
+	// Retract the departing pooler's routing-primary claim even when other
+	// poolers remain — otherwise a leader that left the topology would stick in
+	// the set as a phantom primary.
+	if summary != nil {
+		summary.clearPrimary(topoclient.ComponentIDString(p.GetId()))
+	}
+
+	// Drop the summary entirely once no poolers remain in the shard.
 	if len(lb.cache.GetByShard(sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())) > 0 {
 		return
 	}
-	key := shardKeyOf(sk)
-
 	lb.mu.Lock()
 	delete(lb.shards, key)
 	lb.mu.Unlock()

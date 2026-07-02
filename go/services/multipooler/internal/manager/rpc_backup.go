@@ -353,14 +353,6 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Clear the in-memory leader observation. The restored PGDATA may have been
-	// from a different point in time, so the previously observed leader may no
-	// longer be accurate. The term revocation is intentionally preserved: it is
-	// monotonically increasing and the restore does not change who is allowed to
-	// lead — only a coordinator with a term >= the revocation term may configure
-	// this node, which is exactly the right safety property.
-	pm.healthStreamer.UpdateLeaderObservation(nil)
-
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
 		return pm.reopenPoolerManager(ctx)
 	}); err != nil {

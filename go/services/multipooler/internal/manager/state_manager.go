@@ -37,6 +37,14 @@ type StateAware interface {
 	// role (writability) and the serving intent — see servingstate.State. A
 	// component that needs consensus leadership reads it from the consensus
 	// snapshot directly; the serving layer does not carry it.
+	//
+	// INVARIANT — OnStateChange must be a pure sink: it consumes the state
+	// (transition, publish, project) and must NOT initiate a state change.
+	// Specifically it must not call StateManager.Mutate/Recalc (they assert the
+	// action lock and re-enter ssm.mu, which is held across the fan-out —
+	// deadlock) nor trigger a consensus mutation that would loop back into a
+	// recalc. Handlers run concurrently under ssm.mu; keep them non-blocking
+	// beyond waiting on their own subsystem.
 	OnStateChange(ctx context.Context, state servingstate.State) error
 }
 
@@ -150,10 +158,21 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	})
 }
 
+// sameFanout reports whether two states are equivalent for fan-out dedup. It
+// compares only RoutingRole and ServingStatus — the facts components react to —
+// and deliberately ignores Leadership: that observation is derived from
+// RoutingRole, and a same-leader rule bump (RoutingRole unchanged) need not
+// re-fan, while a rule change that matters (supersession) flips RoutingRole and
+// re-fans anyway. Comparing the pointer-valued Leadership here would also defeat
+// dedup, since Mutate builds a fresh observation each call.
+func sameFanout(a, b servingstate.State) bool {
+	return a.RoutingRole == b.RoutingRole && a.ServingStatus == b.ServingStatus
+}
+
 // fanOutLocked notifies every registered component of the target effective state
 // in parallel and waits for them to converge. Caller must hold mu.
 func (ssm *StateManager) fanOutLocked(ctx context.Context, target servingstate.State) error {
-	if ssm.lastFannedOut != nil && *ssm.lastFannedOut == target {
+	if ssm.lastFannedOut != nil && sameFanout(*ssm.lastFannedOut, target) {
 		// Components are already at this effective state; nothing to notify.
 		return nil
 	}
@@ -227,14 +246,21 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// the whole target against the last fan-out is what ensures OnStateChange fires
 	// on ANY effective-state change.
 	cs := ssm.consensusStatus()
+	routingRole := deriveRoutingRole(next.PostgresPrimary, cs)
 	target := servingstate.State{
-		RoutingRole:   deriveRoutingRole(next.PostgresPrimary, cs),
+		RoutingRole:   routingRole,
 		ServingStatus: next.ServingStatus,
+		// The self-leadership observation is derived here, so components that
+		// advertise it (the health streamer, the record projection below) publish
+		// it as a pure function of the fanned state — no explicit push. Non-nil
+		// (naming self at the committed rule) iff routing PRIMARY.
+		Leadership: routingLeadershipObs(routingRole, cs),
 	}
-	if ssm.lastFannedOut != nil && *ssm.lastFannedOut == target {
-		// Nothing components react to changed; no fan-out, no record write. (An
-		// obs rule-number bump that keeps the same routing role is published via
-		// the health stream, not the record.)
+	if ssm.lastFannedOut != nil && sameFanout(*ssm.lastFannedOut, target) {
+		// Nothing components react to changed; no fan-out, no record write. Dedup
+		// ignores Leadership: it is derived from RoutingRole, and a same-leader
+		// rule bump need not re-fan — a rule change that matters (supersession by
+		// a higher rule) flips RoutingRole to REPLICA and re-fans anyway.
 		//
 		// Still refresh the cached recovery fact: postgres may have left/entered
 		// recovery without flipping the derived routing role (e.g. while this
@@ -246,9 +272,18 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		return nil
 	}
 
-	ssm.logger.InfoContext(ctx, "Applying serving state",
-		"routing_role", target.RoutingRole, "status", target.ServingStatus, "postgres_primary", next.PostgresPrimary,
-		"prev_status", cur.ServingStatus, "prev_postgres_primary", cur.PostgresPrimary)
+	// This point is only reached when the effective state actually changed (the
+	// dedup above returned otherwise), so log it as a transition with prev -> new
+	// for each field. prev_routing_role comes from the last fan-out; it is unknown
+	// on the first transition (nil lastFannedOut).
+	prevRoutingRole := servingstate.RoutingRoleUnknown
+	if ssm.lastFannedOut != nil {
+		prevRoutingRole = ssm.lastFannedOut.RoutingRole
+	}
+	ssm.logger.InfoContext(ctx, "Serving state changed",
+		"routing_role", target.RoutingRole, "prev_routing_role", prevRoutingRole,
+		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
+		"postgres_primary", next.PostgresPrimary, "prev_postgres_primary", cur.PostgresPrimary)
 
 	// Fan out first so a failed transition leaves the record untouched.
 	if err := ssm.fanOutLocked(ctx, target); err != nil {
@@ -258,7 +293,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// received before the (fallible) record write.
 	ssm.postgresPrimary = next.PostgresPrimary
 
-	// Project the routing role onto the topology record: Type PRIMARY and a
+	// Project the routing role onto the topology record: Type PRIMARY and the
 	// self-leadership observation iff routing PRIMARY (writable). Type and obs move
 	// together, preserving the record's Type ⇔ SelfLeadership invariant. Write only
 	// when the projected Type or serving status actually differs from the record.
@@ -266,9 +301,8 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// TODO: this record projection could itself be a StateAware — give poolerRecord
 	// an OnStateChange(State) that projects routing role onto Type/SelfLeadership and
 	// register it as a component, so Mutate just fans out and owns no special-case
-	// record write. It would need the ServingStatus (already on State) and to be
-	// ordered so the record write follows component convergence.
-	obs := routingLeadershipObs(target.RoutingRole, cs)
+	// record write.
+	obs := target.Leadership
 	nextType := poolerTypeForLeader(obs != nil)
 	if nextType != ssm.record.Type() || next.ServingStatus != cur.ServingStatus {
 		if err := ssm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
@@ -304,7 +338,11 @@ func (ssm *StateManager) hasDrift(postgresPrimary bool) bool {
 		RoutingRole:   deriveRoutingRole(postgresPrimary, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	}
-	return *ssm.lastFannedOut != observed
+	// Compare with sameFanout, not raw struct equality: the fanned-out state
+	// carries a derived Leadership pointer that `observed` intentionally leaves
+	// nil, and Mutate itself dedups on sameFanout (RoutingRole + ServingStatus).
+	// Using != here would treat the derived pointer as drift and re-fan forever.
+	return !sameFanout(*ssm.lastFannedOut, observed)
 }
 
 // fixDrift re-applies the effective state from a freshly-observed recovery flag
@@ -320,4 +358,20 @@ func (ssm *StateManager) fixDrift(ctx context.Context, postgresPrimary bool) err
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
 	})
+}
+
+// Recalc re-derives the effective state from the live consensus snapshot and the
+// last-known postgres recovery mode, fanning out only if something components
+// react to changed (deduped like any other Mutate). It exists for consensus-only
+// transitions — a revocation, a superseding committed rule — that flip the
+// routing role with no recovery or serving event to carry them, so components
+// (the query gate, the health stream advertising writable) converge immediately
+// instead of waiting for the monitor's next drift tick.
+//
+// It reuses the stored postgresPrimary rather than taking a fresh one: a pure
+// consensus change does not move postgres recovery mode, and any transition that
+// does move it already flows through Mutate. Like Mutate it requires the action
+// lock; today it is only called from consensus RPC handlers that already hold it.
+func (ssm *StateManager) Recalc(ctx context.Context) error {
+	return ssm.Mutate(ctx, func(*servingStateMutation) {})
 }

@@ -472,6 +472,17 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 //
 // Returns an error if postgres is unreachable or if the current_rule sentinel
 // row is missing (which indicates the tables are not initialized).
+//
+// TODO: a position observation is how a node first learns its committed rule was
+// superseded by a higher one — a consensus change that flips the routing role
+// with no revoke/promote to carry it. Ideally observing such a change would
+// trigger a state recalc here too (like the revoke path does), so the routing
+// role converges immediately instead of on the monitor's next drift tick. The
+// obstacle is layering + locking: ObservePosition is a hot read path called
+// without the action lock, and it lives below the manager's StateManager, so it
+// cannot call Recalc directly. Figure out if/how to surface "the observed rule
+// moved" to the StateManager (a lock-free recalc, or an observer the manager
+// wires up) without coupling this layer to serving state.
 func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.RuleReadTimeout)
 	defer cancel()

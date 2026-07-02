@@ -62,7 +62,6 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 				t.Errorf("newPoolerConnection failed: %v", err)
 				return nil
 			}
-			lb.mergeTopologyLeader(p)
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
@@ -71,7 +70,6 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.mergeTopologyLeader(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
@@ -111,9 +109,10 @@ func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPoole
 	return conn
 }
 
-// setLeaderForTest installs a LeaderObservation directly into the LB's
-// per-shard leader map. Used by tests that need to model a peer observation
-// without wiring a second connection.
+// setLeaderForTest installs a routing-primary claim directly into the LB's
+// per-shard summary. Used by tests that need to model a peer observation
+// without wiring a second connection. The observation's LeaderId is the pooler
+// claiming primary.
 func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shard string, obs *clustermetadatapb.LeaderObservation) {
 	t.Helper()
 	sk := &clustermetadatapb.ShardKey{
@@ -121,10 +120,11 @@ func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shar
 		TableGroup: tableGroup,
 		Shard:      shard,
 	}
+	summary := &shardSummary{shardKey: sk}
+	if obs != nil {
+		summary.setPrimary(topoclient.ComponentIDString(obs.GetLeaderId()), obs)
+	}
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	lb.shards[shardKeyOf(sk)] = &shardSummary{
-		shardKey:  sk,
-		leaderObs: obs,
-	}
+	lb.shards[shardKeyOf(sk)] = summary
 }

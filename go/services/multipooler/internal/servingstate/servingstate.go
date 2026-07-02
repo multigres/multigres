@@ -37,6 +37,20 @@ type State struct {
 
 	// ServingStatus is the serving intent (SERVING / DISABLED / DRAINING).
 	ServingStatus clustermetadatapb.PoolerServingStatus
+
+	// Leadership is the self-leadership observation to advertise while this pooler
+	// is the writable routing primary: non-nil (naming self at the committed rule)
+	// iff RoutingRole is PRIMARY, else nil. It is derived alongside RoutingRole so
+	// consumers publish "I am the writable primary at rule N" as a pure function of
+	// the fanned state — the topology record projects it onto Type/SelfLeadership,
+	// and the health streamer publishes it to the gateway — with no explicit
+	// push. A follower carries nil and therefore advertises no leader.
+	//
+	// TODO: RoutingRole and Leadership are two fields carrying one fact — a PRIMARY
+	// role always pairs with a self-naming observation, a REPLICA with nil. They
+	// collapse into a single RoutingState{role, rule} once the proto is evolved
+	// (see the RoutingState plan); this struct should follow suit then.
+	Leadership *clustermetadatapb.LeaderObservation
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
