@@ -208,14 +208,14 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 // disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
 // in the multigateway and multiorch — both the .Type field and the generated
 // GetType() getter — which must derive leader identity from consensus state
-// (self_leadership / the highest known shard rule), never from the topology role
+// (routing_state / the highest known shard rule), never from the topology role
 // label. The PoolerType routing label on a query.Target is a different field and
 // is unaffected; constructing a record with a Type (struct literal) is also
 // unaffected — only reading the Type off a discovered MultiPooler /
 // MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
 // pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.SelfConsensusRole).
+// Use consensus instead (GetRoutingState() != nil / commonconsensus.SelfConsensusRole).
 //
 // TODO: broaden this to also ban reading MultiPooler.ServingStatus (and Type
 // generally) off the etcd topology record anywhere in the repo.
@@ -232,14 +232,14 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
 				m.File().PkgPath.Matches(`services/(multigateway|multiorch|multiadmin)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
+		Report("do not consult MultiPooler.Type for leader identity; use routing_state / consensus")
 }
 
 // disallowPoolerTypeEnumInGateway forbids mentions of the clustermetadata.PoolerType
 // enum constants in gateway production code. PoolerType is a topology role label
 // that conflates classification (PRIMARY/REPLICA) with routing intent; the gateway
 // should express intent through query.Mode (WRITABLE / CONSISTENT / INCONSISTENT)
-// and identity through consensus state (self_leadership / LeaderObservation).
+// and identity through consensus state (routing_state / RoutingState).
 //
 // Sibling to disallowMultiPoolerTypeForRouting, which forbids reading a discovered
 // MultiPooler's .Type field. This rule additionally bans bare references to the
@@ -260,7 +260,7 @@ func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
 	).Where(
 		m.File().PkgPath.Matches(`services/multigateway`) &&
 			!m.File().Name.Matches(`_test\.go$`)).
-		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (LeaderObservation / self_leadership) for identity")
+		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (RoutingState / routing_state) for identity")
 }
 
 // disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's

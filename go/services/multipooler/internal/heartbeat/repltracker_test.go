@@ -179,7 +179,7 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
 			defer rt.Close()
 
-			err := rt.OnStateChange(context.Background(), servingstate.State{RoutingRole: tt.routingRole, ServingStatus: tt.servingStatus})
+			err := rt.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			assert.NoError(t, err)
 			assert.Equal(t, tt.wantPrimary, rt.IsPrimary())
 			assert.Equal(t, tt.wantPrimary, rt.hw.IsOpen(), "writer open state must match primary mode")

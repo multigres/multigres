@@ -74,16 +74,16 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "pooler1",
 		}
-		primaryObs := &clustermetadatapb.LeaderObservation{LeaderId: poolerID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
+		primaryRS := &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
 		original := &poolerHealth{
-			PoolerID:          poolerID,
-			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			LeaderObservation: primaryObs,
-			LastError:         lastErr,
-			LastResponse:      lastResp,
+			PoolerID:      poolerID,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			RoutingState:  primaryRS,
+			LastError:     lastErr,
+			LastResponse:  lastResp,
 		}
 
 		copy := original.simpleCopy()
@@ -92,7 +92,7 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		require.NotNil(t, copy)
 		prototest.AssertEqual(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
-		prototest.AssertEqual(t, original.LeaderObservation, copy.LeaderObservation)
+		prototest.AssertEqual(t, original.RoutingState, copy.RoutingState)
 		assert.Equal(t, original.LastError, copy.LastError)
 		assert.Equal(t, original.LastResponse, copy.LastResponse)
 
@@ -101,7 +101,7 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 
 		// Verify pointer fields point to same underlying objects (shallow copy)
 		assert.Same(t, original.PoolerID, copy.PoolerID)
-		assert.Same(t, original.LeaderObservation, copy.LeaderObservation)
+		assert.Same(t, original.RoutingState, copy.RoutingState)
 	})
 
 	t.Run("modifying copy does not affect original", func(t *testing.T) {

@@ -75,7 +75,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
@@ -758,9 +758,9 @@ func TestPromote(t *testing.T) {
 				assert.Empty(t, update.GetAcceptedMembers())
 
 				state := pm.healthStreamer.getState()
-				require.NotNil(t, state.LeaderObservation)
-				assert.True(t, proto.Equal(selfID, state.LeaderObservation.LeaderID))
-				assert.Equal(t, int64(7), state.LeaderObservation.LeaderTerm)
+				require.NotNil(t, state.RoutingState)
+				assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, state.RoutingState.GetRole())
+				assert.Equal(t, int64(7), state.RoutingState.GetRule().GetCoordinatorTerm())
 
 				assert.Equal(t, int64(0), pm.consensusMgr.ResignedLeaderAtTerm(), "clearResignedLeaderAtTerm should have cleared the term")
 

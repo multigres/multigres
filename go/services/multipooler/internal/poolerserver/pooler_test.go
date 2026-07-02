@@ -400,7 +400,7 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	pooler.gracePeriod = 5 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// One in-flight transaction (reserved) and one in-flight single query (regular).
 	mock.reservedAdd(1)
@@ -409,7 +409,7 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
+		_ = pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
 	}()
 
 	// Stage 1: blocked on the in-flight transaction. Single queries are served,
@@ -447,13 +447,13 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 	pooler.gracePeriod = 100 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// A transaction that never commits — stage 1 (WaitForReservedDrain) blocks.
 	mock.reservedAdd(1)
 
 	start := time.Now()
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 	elapsed := time.Since(start)
 
 	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should block ~grace period waiting on the held transaction")
@@ -472,7 +472,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	pooler.gracePeriod = 5 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// Simulate two in-flight connections
 	mock.regularAdd(1)
@@ -481,7 +481,7 @@ func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
+		_ = pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
 	}()
 
 	// Drain should not complete while connections are in-flight
@@ -514,7 +514,7 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 	pooler.gracePeriod = 100 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// Simulate a connection that will never return
 	mock.regularAdd(1)
@@ -523,7 +523,7 @@ func TestOnStateChange_GracePeriodExpires(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
+		_ = pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
 	}()
 
 	select {
@@ -550,14 +550,14 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 	ctx := t.Context()
 
 	// SERVING → DISABLED → SERVING
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	assert.True(t, pooler.IsServing())
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 	assert.False(t, pooler.IsServing())
 
 	// Transition back to SERVING
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	assert.True(t, pooler.IsServing())
 
 	// Requests should work again
@@ -573,7 +573,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	pooler.gracePeriod = 2 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	const numRequests = 50
 	var wg sync.WaitGroup
@@ -599,7 +599,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = pooler.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
+		_ = pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED})
 	}()
 
 	// Wait for all goroutines and drain to complete
@@ -618,7 +618,7 @@ func TestAwaitStateChange_AlreadyMatches(t *testing.T) {
 	ctx := t.Context()
 
 	// Transition to PRIMARY/SERVING
-	require.NoError(t, s.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, s.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// AwaitStateChange should return immediately when state already matches
 	done := make(chan struct{})
@@ -653,7 +653,7 @@ func TestAwaitStateChange_BlocksUntilTransition(t *testing.T) {
 	}
 
 	// Transition to the awaited state
-	require.NoError(t, s.OnStateChange(ctx, servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, s.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	select {
 	case <-done:

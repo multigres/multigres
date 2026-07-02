@@ -210,11 +210,11 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	}
 	primaryBaseline := pm.stateManager.pgMode.OutOfRecovery()
 	baseline := servingstate.State{
-		RoutingRole:   servingstate.RoutingRoleReplica,
+		Routing:       servingstate.RoutingState{Role: servingstate.RoutingRoleReplica},
 		ServingStatus: pm.record.ServingStatus(),
 	}
 	if primaryBaseline {
-		baseline.RoutingRole = servingstate.RoutingRolePrimary
+		baseline.Routing.Role = servingstate.RoutingRolePrimary
 	}
 	pm.stateManager.lastFannedOut = &baseline
 	return pm

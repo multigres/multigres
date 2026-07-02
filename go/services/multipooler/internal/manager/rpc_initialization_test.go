@@ -323,10 +323,10 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())
-	obs := pm.record.SelfLeadership()
-	require.NotNil(t, obs, "promotion must publish a self-leadership observation")
-	assert.Equal(t, multipooler.Id, obs.GetLeaderId())
-	assert.Equal(t, rule.GetRuleNumber(), obs.GetLeaderRuleNumber())
+	obs := pm.record.RoutingState()
+	require.NotNil(t, obs, "promotion must publish a PRIMARY routing_state")
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, obs.GetRole())
+	assert.Equal(t, rule.GetRuleNumber(), obs.GetRule())
 }
 
 // Integration Tests for MonitorPostgres

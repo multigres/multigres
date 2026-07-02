@@ -26,7 +26,7 @@ import (
 //
 // The previous Target *query.Target field was removed alongside
 // StreamPoolerHealthResponse.target — the gateway derives shard identity
-// from topology and role from serving_status + leader_observation.
+// from topology and routing role from serving_status + routing_state.
 type HealthState struct {
 	// PoolerID identifies this multipooler instance.
 	PoolerID *clustermetadatapb.ID
@@ -34,9 +34,9 @@ type HealthState struct {
 	// ServingStatus is the current serving state of the pooler.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains this pooler's view of who the consensus leader is.
-	// May be nil if no leader observation is available.
-	LeaderObservation *LeaderObservation
+	// RoutingState is this pooler's self-reported routing/HA role plus the rule
+	// that qualifies it. Always populated: role == PRIMARY is the writable signal.
+	RoutingState *clustermetadatapb.RoutingState
 
 	// RecommendedStalenessTimeout is the duration clients should use
 	// to detect a stale/dead health stream.
@@ -45,18 +45,6 @@ type HealthState struct {
 	// ReplicationLagNs is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64
-}
-
-// LeaderObservation represents a pooler's view of who the consensus leader is.
-type LeaderObservation struct {
-	// LeaderID is the ID of the pooler this node believes is the consensus leader.
-	// May be this pooler's own ID if it believes itself to be leader.
-	LeaderID *clustermetadatapb.ID
-
-	// LeaderTerm is the consensus term at which this observation was made.
-	// The leader never changes within a leader term. Higher values indicate
-	// more recent leader appointments.
-	LeaderTerm int64
 }
 
 // HealthProvider provides health information for the pooler.

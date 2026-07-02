@@ -56,9 +56,8 @@ type healthStreamer struct {
 	shard      string
 
 	// Mutable fields (updated via typed methods)
-	servingStatus     clustermetadatapb.PoolerServingStatus
-	poolerType        clustermetadatapb.PoolerType
-	leaderObservation *poolerserver.LeaderObservation
+	servingStatus clustermetadatapb.PoolerServingStatus
+	routingState  *clustermetadatapb.RoutingState
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -130,47 +129,24 @@ func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.
 	// not-serving: advertise-then-drain), so the phases would need to account for
 	// that. Low priority: the SERVING transition waited on here is fast.
 	if state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, state.RoutingRole, state.ServingStatus)
+		hs.queryServer.AwaitStateChange(ctx, state.Routing.Role, state.ServingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// PoolerType and the leader observation both derive from the routing role:
-	// PRIMARY / self-naming observation iff this pooler is the writable leader,
-	// REPLICA / nil otherwise. A leader mid-promotion is not yet routing PRIMARY,
-	// so it does not advertise itself until its rule commits.
-	hs.poolerType = poolerTypeForLeader(state.RoutingRole.Writable())
-	hs.leaderObservation = leaderObsFromState(state)
+	// The routing_state is published verbatim and is always set — role PRIMARY
+	// (with the committed rule) iff writable, else REPLICA (with the highest-known
+	// rule). A leader mid-promotion is not yet routing PRIMARY, so it advertises
+	// REPLICA until its rule commits.
+	hs.routingState = state.Routing.ToProto()
 	hs.servingStatus = state.ServingStatus
 	hs.broadcastLocked()
 	if prev != state.ServingStatus {
 		hs.metrics.recordTransition(ctx, prev, state.ServingStatus)
 	}
 	return nil
-}
-
-// leaderObsFromState converts the fanned self-leadership observation into the
-// health-stream form (self id + coordinator term), or nil when this pooler is
-// not the writable routing primary.
-func leaderObsFromState(state servingstate.State) *poolerserver.LeaderObservation {
-	if state.Leadership == nil {
-		return nil
-	}
-	return &poolerserver.LeaderObservation{
-		LeaderID:   state.Leadership.GetLeaderId(),
-		LeaderTerm: state.Leadership.GetLeaderRuleNumber().GetCoordinatorTerm(),
-	}
-}
-
-// poolerTypeForLeader maps a writable-leader boolean to the PoolerType label
-// (published on the health stream and persisted to the topology record).
-func poolerTypeForLeader(writableLeader bool) clustermetadatapb.PoolerType {
-	if writableLeader {
-		return clustermetadatapb.PoolerType_PRIMARY
-	}
-	return clustermetadatapb.PoolerType_REPLICA
 }
 
 // Broadcast sends the current state to all clients without changing any state.
@@ -194,7 +170,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
-		LeaderObservation:           hs.leaderObservation,
+		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}

@@ -186,7 +186,7 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
-	routingRole := state.RoutingRole
+	routingRole := state.Routing.Role
 	servingStatus := state.ServingStatus
 	s.mu.Lock()
 

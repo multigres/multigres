@@ -558,9 +558,13 @@ message StreamPoolerHealthResponse {
   // serving_status is the current serving state of the pooler.
   clustermetadata.PoolerServingStatus serving_status = 3;
 
-  // leader_observation contains this pooler's view of who the consensus leader is.
-  // Used by clients to identify the true leader when multiple poolers exist.
-  clustermetadata.LeaderObservation leader_observation = 4;
+  // routing_state is this pooler's self-reported routing/HA role plus the rule
+  // that qualifies it. It is always populated: role == PRIMARY means this pooler
+  // is the writable leader (the signal clients gate write traffic on, replacing
+  // the former separate leader_observation + writable fields), role == REPLICA
+  // means it is not. Clients route writes to the PRIMARY and buffer when there
+  // is none. This is a routing/writability signal, not a consensus signal.
+  clustermetadata.RoutingState routing_state = 4;
 
   // recommended_staleness_timeout is the duration clients should use
   // to detect a stale/dead health stream. If no message is received within

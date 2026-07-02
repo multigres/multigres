@@ -337,9 +337,9 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			TableGroup: "default",
 		},
 		Type: clustermetadatapb.PoolerType_PRIMARY,
-		SelfLeadership: &clustermetadatapb.LeaderObservation{
-			LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary-pooler"},
-			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		RoutingState: &clustermetadatapb.RoutingState{
+			Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+			Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 		},
 	}
 	replicaPooler := &clustermetadatapb.MultiPooler{
@@ -431,9 +431,9 @@ func TestBackup_ForcePrimary(t *testing.T) {
 				TableGroup: "default",
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
-			SelfLeadership: &clustermetadatapb.LeaderObservation{
-				LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "primary-only"},
-				LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			RoutingState: &clustermetadatapb.RoutingState{
+				Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+				Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 			},
 		}
 		require.NoError(t, ts.CreateMultiPooler(ctx, primaryOnly))

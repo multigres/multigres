@@ -88,7 +88,7 @@ func (rt *ReplTracker) makeNonPrimary() {
 // otherwise the reader runs. Writability already folds in the out-of-recovery
 // requirement, so heartbeats are never written to a standby.
 func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
-	if state.RoutingRole.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+	if state.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		rt.makePrimary()
 	} else {
 		rt.makeNonPrimary()
