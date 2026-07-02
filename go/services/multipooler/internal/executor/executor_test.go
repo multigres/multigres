@@ -1452,16 +1452,16 @@ func TestDescribeReservedConnDeadSocket_BindAndDescribeError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
-// TestReservedDescribeError_NonConnectionErrorIsWrappedNotReleased verifies
-// that reservedDescribeError only treats connection-level failures as a
+// TestReservedConnError_NonConnectionErrorIsWrappedNotReleased verifies
+// that reservedConnError only treats connection-level failures as a
 // signal to release the reservation. An ordinary (non-connection) error, such
 // as a syntax error, must be wrapped with the given context and must leave
 // the reservation intact for the client to keep using.
-func TestReservedDescribeError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) {
+func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) {
 	e, pool, rconn := newDeadReservedConnTestExecutor(t)
 	connID := rconn.ConnID()
 
-	err := e.reservedDescribeError(rconn, uint64(connID), "failed to ensure prepared statement", errors.New("syntax error"))
+	err := e.reservedConnError(rconn, "failed to ensure prepared statement", errors.New("syntax error"))
 
 	require.EqualError(t, err, "failed to ensure prepared statement: syntax error")
 

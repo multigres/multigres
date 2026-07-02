@@ -1040,18 +1040,20 @@ func (e *Executor) portalExecuteWithRegular(
 	return nil, nil
 }
 
-// reservedDescribeError converts an error from an operation on an EXISTING reserved
+// reservedConnError converts an error from an operation on an EXISTING reserved
 // connection into a client-actionable result. On a connection-level failure (dead
 // backend socket — broken pipe, ECONNRESET, EOF, server shutdown) the reserved backend
-// is gone and its session state (e.g. a temporary logical replication slot) cannot be
-// recreated on a fresh socket, so release the reservation and return a clean, retryable
-// "reserved connection terminated" error (the same signal returned when the reservation
-// is already gone) instead of wrapping the raw broken pipe into an opaque MTD06. Other
-// errors are wrapped with the given context.
-func (e *Executor) reservedDescribeError(rc *reserved.Conn, connID uint64, wrap string, err error) error {
+// is gone and its session state (e.g. a temporary logical replication slot, an open
+// transaction, pinned portals) cannot be recreated on a fresh socket, so release the
+// reservation and return a clean, retryable "reserved connection terminated" error (the
+// same signal already returned when the reservation is already gone) instead of
+// wrapping the raw broken pipe into an opaque, non-retryable error. Other errors are
+// wrapped with the given context and leave the reservation untouched — the backend is
+// still usable (e.g. an aborted-transaction PG ErrorResponse).
+func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error) error {
 	if mterrors.IsConnectionError(err) {
 		rc.Release(reserved.ReleaseError, nil)
-		return mterrors.NewReservedConnectionTerminated(connID)
+		return mterrors.NewReservedConnectionTerminated(uint64(rc.ConnID()))
 	}
 	return fmt.Errorf("%s: %w", wrap, err)
 }
@@ -1096,7 +1098,7 @@ func (e *Executor) Describe(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to prepare reserved connection", err)
+			return nil, e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
 		}
 
 		conn = reservedConn.Conn()
@@ -1115,7 +1117,7 @@ func (e *Executor) Describe(
 	canonicalName, err := e.ensurePrepared(ctx, conn, preparedStatement)
 	if err != nil {
 		if reservedConn != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to ensure prepared statement", err)
+			return nil, e.reservedConnError(reservedConn, "failed to ensure prepared statement", err)
 		}
 		return nil, err
 	}
@@ -1127,7 +1129,7 @@ func (e *Executor) Describe(
 		desc, err := conn.BindAndDescribe(ctx, canonicalName, params, paramFormats, resultFormats)
 		if err != nil {
 			if reservedConn != nil {
-				return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to describe portal", err)
+				return nil, e.reservedConnError(reservedConn, "failed to describe portal", err)
 			}
 			return nil, fmt.Errorf("failed to describe portal: %w", err)
 		}
@@ -1138,7 +1140,7 @@ func (e *Executor) Describe(
 	desc, err := conn.DescribePrepared(ctx, canonicalName)
 	if err != nil {
 		if reservedConn != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to describe prepared statement", err)
+			return nil, e.reservedConnError(reservedConn, "failed to describe prepared statement", err)
 		}
 		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
 	}
