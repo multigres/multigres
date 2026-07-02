@@ -772,7 +772,7 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// reconciles it to the rule-derived role. Leaving DRAINING for the monitor is
 	// only the fallback for the error paths above that return before this point.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = false
+		s.PostgresMode = PostgresModeInRecovery
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}

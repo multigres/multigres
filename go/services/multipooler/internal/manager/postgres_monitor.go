@@ -108,7 +108,7 @@ type postgresState struct {
 	dirInitialized           bool
 	postgresRunning          bool
 	backupsAvailable         bool
-	isPrimary                bool
+	pgMode                   PostgresMode
 	bootstrapSentinelPresent bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
@@ -123,7 +123,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.dirInitialized == b.dirInitialized &&
 		a.postgresRunning == b.postgresRunning &&
 		a.backupsAvailable == b.backupsAvailable &&
-		a.isPrimary == b.isPrimary &&
+		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
@@ -273,21 +273,22 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	state.postgresRunning = (statusResp.Status == pgctldpb.ServerStatus_RUNNING)
 	if state.postgresRunning {
 		var err error
-		state.isPrimary, err = pm.isPrimary(ctx)
+		state.pgMode, err = pm.postgresMode(ctx)
 		if err != nil {
 			// Postgres is running but we can't read its recovery mode, leaving the
-			// role genuinely ambiguous. Acting on a guessed value is dangerous:
-			// isPrimary defaults to true on error, which would make a healthy but
-			// momentarily-unqueryable replica look like a stale primary and trigger a
-			// destructive demote (pg_rewind), or flip the published writable bit on a
-			// guess. Surface the error so the monitor skips remediation this tick and
+			// role genuinely ambiguous. Acting on a guessed value is dangerous: a
+			// guessed primary would make a healthy but momentarily-unqueryable replica
+			// look like a stale primary and trigger a destructive demote (pg_rewind),
+			// or flip the published writable bit on a guess. The probe returns
+			// PostgresModeUnknown on error, which never derives a writable role;
+			// surface the error so the monitor skips remediation this tick and
 			// retries, matching the bootstrap-sentinel handling below.
-			return state, fmt.Errorf("determine primary status: %w", err)
+			return state, fmt.Errorf("determine recovery mode: %w", err)
 		}
 		// A primary is a rewind source only once it has checkpointed onto its
 		// current timeline. Cheap to skip on standbys (rewindSourceReady would
 		// return false anyway).
-		if state.isPrimary {
+		if state.pgMode.OutOfRecovery() {
 			ready, rrErr := pm.rewindSourceReady(ctx)
 			if rrErr != nil {
 				// Unlike isPrimary above, this is safe to leave best-effort: a failed
@@ -437,7 +438,7 @@ func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// Diagnosis: Stale primary. We should restart as a replica, but we anticipate
 	// having extra / phantom transactions so don't restart until we've been informed
 	// the current leader to allow rewinding.
-	if role != commonconsensus.ConsensusRoleLeader && state.isPrimary {
+	if role != commonconsensus.ConsensusRoleLeader && state.pgMode.OutOfRecovery() {
 		if pm.staleStandbyDemoteTarget() != nil {
 			return remedialActionDemoteStalePrimary
 		}
@@ -454,7 +455,7 @@ func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// Promote's promoteStandbyToPrimary), and disambiguate resign (we lost our
 	// postgres) from promote (newly elected). Embedding the leader host/port in the
 	// WAL rule would also let replicas reconcile without waiting for SetPrimary.
-	if role == commonconsensus.ConsensusRoleLeader && !state.isPrimary {
+	if role == commonconsensus.ConsensusRoleLeader && !state.pgMode.OutOfRecovery() {
 		if pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
 			return remedialActionResignLeadership
 		}
@@ -467,7 +468,7 @@ func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// committed rule landing after pg_promote, or a revocation) to the query
 	// server's write gate, and completes a transient DRAINING. hasDrift reads the
 	// consensus snapshot itself, so it and fixDrift derive from the same inputs.
-	if pm.stateManager.hasDrift(state.isPrimary) {
+	if pm.stateManager.hasDrift(state.pgMode) {
 		return remedialActionReconcileState
 	}
 
@@ -480,7 +481,7 @@ func (pm *MultiPoolerManager) determineReplicationSettingsAction(ctx context.Con
 	// primary_conninfo is a standby concern: reconcile it to the recorded
 	// ReplicationPrimary when it has drifted from what we've been told via
 	// SetPrimary/Promote.
-	if !state.isPrimary {
+	if !state.pgMode.OutOfRecovery() {
 		if pm.primaryConnInfoDiffersFromRecorded(ctx) {
 			return remedialActionFixPrimaryConnInfo
 		}
@@ -501,7 +502,7 @@ func (pm *MultiPoolerManager) determineReplicationSettingsAction(ctx context.Con
 
 	// synchronous_standby_names is a primary concern: it has no effect on a
 	// standby, and setting it there leaks state.
-	if state.isPrimary && pm.consensusMgr.Rules().HasInconsistentGUC(ctx) {
+	if state.pgMode.OutOfRecovery() && pm.consensusMgr.Rules().HasInconsistentGUC(ctx) {
 		return remedialActionReconcileGUC
 	}
 
@@ -634,7 +635,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// self-leadership and the writable signal). Serving status is unchanged (a
 		// healthy standby keeps serving reads).
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresPrimary = false
+			s.PostgresMode = PostgresModeInRecovery
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err)
 		}
@@ -648,8 +649,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// path for a committed-rule landing after pg_promote or a revocation reaching
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
-		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_primary", state.isPrimary)
-		if err := pm.stateManager.fixDrift(ctx, state.isPrimary); err != nil {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode)
+		if err := pm.stateManager.fixDrift(ctx, state.pgMode); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err)
 		}
 
@@ -673,7 +674,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// the writer keeps issuing INSERTs against a read-only standby every
 		// interval until re-election.
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresPrimary = false
+			s.PostgresMode = PostgresModeInRecovery
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err)
 		}
@@ -749,7 +750,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionReconcileGUC:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
-		if err := pm.consensusMgr.Rules().ReconcileGUC(ctx, !state.isPrimary); err != nil {
+		if err := pm.consensusMgr.Rules().ReconcileGUC(ctx, !state.pgMode.OutOfRecovery()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
 		}
 

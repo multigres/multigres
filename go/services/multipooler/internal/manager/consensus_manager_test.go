@@ -203,8 +203,11 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	// (which the tables passed as state.isPrimary): a freshly-built manager is NOT
 	// drifted relative to its seed, so drift is registered only when the observed
 	// postgresState / consensus diverges from the seeded label.
-	primaryBaseline := pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY
-	pm.stateManager.postgresPrimary = primaryBaseline
+	pm.stateManager.pgMode = PostgresModeInRecovery
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		pm.stateManager.pgMode = PostgresModePrimary
+	}
+	primaryBaseline := pm.stateManager.pgMode.OutOfRecovery()
 	baseline := servingstate.State{
 		RoutingRole:   servingstate.RoutingRoleReplica,
 		ServingStatus: pm.record.ServingStatus(),

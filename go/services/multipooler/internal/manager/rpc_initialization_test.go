@@ -303,7 +303,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	}
 	// The committed consensus position names self as leader under that rule, so the
 	// StateManager derives routing role PRIMARY (IsActiveLeader) once the promotion
-	// pokes PostgresPrimary.
+	// pokes PostgresMode.
 	pm := newRemedialActionTestManager(t, multipooler,
 		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule}}))
 
@@ -314,7 +314,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	// postgres is now primary and any drain completes, so the routing role derives
 	// PRIMARY and the record projects the self-leadership observation.
 	require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
-		s.PostgresPrimary = true
+		s.PostgresMode = PostgresModePrimary
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}

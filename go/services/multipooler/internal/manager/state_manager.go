@@ -65,10 +65,9 @@ type StateManager struct {
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
 	record *poolerRecord
 
-	// postgresPrimary is the physical recovery state (!pg_is_in_recovery), fed by
-	// the postgres monitor via Mutate's PostgresPrimary field. Unlike
-	// Type/ServingStatus it is local-only and never published to topology. Guarded by mu.
-	postgresPrimary bool
+	// pgMode is the physical postgres recovery mode (see PostgresMode), fed by the
+	// postgres monitor via Mutate's PostgresMode field. Guarded by mu.
+	pgMode PostgresMode
 
 	// consensusStatus returns this pooler's live consensus snapshot (e.g.
 	// ConsensusManager.CachedConsensusStatus). Injected — queried live, not stored —
@@ -92,8 +91,8 @@ type StateManager struct {
 // not superseded by a higher known rule — see commonconsensus.IsActiveLeader);
 // REPLICA otherwise. cs may be nil (treated as not a leader). This is the single
 // place the base facts (recovery, consensus) become the effective routing role.
-func deriveRoutingRole(postgresPrimary bool, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingRole {
-	if postgresPrimary && commonconsensus.IsActiveLeader(cs) {
+func deriveRoutingRole(pgMode PostgresMode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingRole {
+	if pgMode.OutOfRecovery() && commonconsensus.IsActiveLeader(cs) {
 		return servingstate.RoutingRolePrimary
 	}
 	return servingstate.RoutingRoleReplica
@@ -153,7 +152,7 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	defer ssm.mu.Unlock()
 	ssm.components = append(ssm.components, component)
 	return component.OnStateChange(ctx, servingstate.State{
-		RoutingRole:   deriveRoutingRole(ssm.postgresPrimary, ssm.consensusStatus()),
+		RoutingRole:   deriveRoutingRole(ssm.pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	})
 }
@@ -194,22 +193,20 @@ func (ssm *StateManager) fanOutLocked(ctx context.Context, target servingstate.S
 
 // servingStateMutation is the mutable view passed to Mutate. A callback changes
 // any subset of fields and sees the previous values; fields it leaves alone are
-// carried forward. These are the base facts callers poke: PostgresPrimary is the
-// physical recovery state (local-only); ServingStatus is the serving intent
+// carried forward. These are the base facts callers poke: PostgresMode is the
+// physical recovery mode (local-only); ServingStatus is the serving intent
 // (topology-backed).
 //
 // There is deliberately no leadership or PoolerType field. The routing role, the
 // record's SelfLeadership observation, and PoolerType are all *derived* from the
-// live consensus snapshot plus PostgresPrimary — see deriveRoutingRole /
+// live consensus snapshot plus PostgresMode — see deriveRoutingRole /
 // routingLeadershipObs. Callers change consensus (via the rule store) and poke
 // recovery/serving here; leadership follows.
 type servingStateMutation struct {
-	// PostgresPrimary is the physical recovery state (!pg_is_in_recovery).
-	// TODO: flip to an InRecovery field (invert the sense) so callers state the
-	// base fact postgres reports directly, removing the double-negative ambiguity
-	// ("primary" is overloaded; "in recovery" is what pg_is_in_recovery() means).
-	PostgresPrimary bool
-	ServingStatus   clustermetadatapb.PoolerServingStatus
+	// PostgresMode is the physical recovery mode postgres reports
+	// (pg_is_in_recovery): PostgresModePrimary or PostgresModeInRecovery.
+	PostgresMode  PostgresMode
+	ServingStatus clustermetadatapb.PoolerServingStatus
 }
 
 // Mutate applies fn to the current state, fans the resulting effective state out
@@ -234,8 +231,8 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	defer ssm.mu.Unlock()
 
 	cur := servingStateMutation{
-		PostgresPrimary: ssm.postgresPrimary,
-		ServingStatus:   ssm.record.ServingStatus(),
+		PostgresMode:  ssm.pgMode,
+		ServingStatus: ssm.record.ServingStatus(),
 	}
 	next := cur
 	fn(&next)
@@ -246,7 +243,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// the whole target against the last fan-out is what ensures OnStateChange fires
 	// on ANY effective-state change.
 	cs := ssm.consensusStatus()
-	routingRole := deriveRoutingRole(next.PostgresPrimary, cs)
+	routingRole := deriveRoutingRole(next.PostgresMode, cs)
 	target := servingstate.State{
 		RoutingRole:   routingRole,
 		ServingStatus: next.ServingStatus,
@@ -268,7 +265,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		// cache is a physical observation independent of the fan-out, and
 		// RegisterAndSync reads it to derive the role for a late-registered
 		// component — leaving it stale could hand that component the wrong role.
-		ssm.postgresPrimary = next.PostgresPrimary
+		ssm.pgMode = next.PostgresMode
 		return nil
 	}
 
@@ -283,7 +280,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	ssm.logger.InfoContext(ctx, "Serving state changed",
 		"routing_role", target.RoutingRole, "prev_routing_role", prevRoutingRole,
 		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
-		"postgres_primary", next.PostgresPrimary, "prev_postgres_primary", cur.PostgresPrimary)
+		"postgres_mode", next.PostgresMode, "prev_postgres_mode", cur.PostgresMode)
 
 	// Fan out first so a failed transition leaves the record untouched.
 	if err := ssm.fanOutLocked(ctx, target); err != nil {
@@ -291,7 +288,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	}
 	// Components converged — keep the local physical state in step with what they
 	// received before the (fallible) record write.
-	ssm.postgresPrimary = next.PostgresPrimary
+	ssm.pgMode = next.PostgresMode
 
 	// Project the routing role onto the topology record: Type PRIMARY and the
 	// self-leadership observation iff routing PRIMARY (writable). Type and obs move
@@ -317,7 +314,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 }
 
 // hasDrift reports whether the effective state last fanned out to components is
-// stale relative to freshly-observed inputs — postgres recovery (postgresPrimary)
+// stale relative to freshly-observed inputs — postgres recovery (pgMode)
 // and the live consensus snapshot, from which the routing role is derived, plus
 // the record's serving status. When true, the monitor calls fixDrift to
 // re-derive and re-fan-out under the action lock, so components (notably the
@@ -328,14 +325,14 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // A never-fanned state and DRAINING both always report drift: DRAINING is a
 // transient drain this loop owns, and reconciling re-verifies it (completing the
 // DRAINING->SERVING transition once the node is healthy and role-aligned).
-func (ssm *StateManager) hasDrift(postgresPrimary bool) bool {
+func (ssm *StateManager) hasDrift(pgMode PostgresMode) bool {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	if ssm.lastFannedOut == nil || ssm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_DRAINING {
 		return true
 	}
 	observed := servingstate.State{
-		RoutingRole:   deriveRoutingRole(postgresPrimary, ssm.consensusStatus()),
+		RoutingRole:   deriveRoutingRole(pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	}
 	// Compare with sameFanout, not raw struct equality: the fanned-out state
@@ -351,9 +348,9 @@ func (ssm *StateManager) hasDrift(postgresPrimary bool) bool {
 // hasDrift's detection. A DRAINING status is completed to SERVING (the transient
 // drain the monitor owns); any other status is preserved (DISABLED stays
 // not-serving). Requires the action lock (asserted by Mutate).
-func (ssm *StateManager) fixDrift(ctx context.Context, postgresPrimary bool) error {
+func (ssm *StateManager) fixDrift(ctx context.Context, pgMode PostgresMode) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = postgresPrimary
+		s.PostgresMode = pgMode
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
@@ -368,7 +365,7 @@ func (ssm *StateManager) fixDrift(ctx context.Context, postgresPrimary bool) err
 // (the query gate, the health stream advertising writable) converge immediately
 // instead of waiting for the monitor's next drift tick.
 //
-// It reuses the stored postgresPrimary rather than taking a fresh one: a pure
+// It reuses the stored pgMode rather than taking a fresh one: a pure
 // consensus change does not move postgres recovery mode, and any transition that
 // does move it already flows through Mutate. Like Mutate it requires the action
 // lock; today it is only called from consensus RPC handlers that already hold it.

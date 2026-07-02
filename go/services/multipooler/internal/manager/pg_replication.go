@@ -61,6 +61,21 @@ func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
 	return !inRecovery, err
 }
 
+// postgresMode reports the physical recovery mode as a PostgresMode, converting
+// the raw pg_is_in_recovery() result at this boundary so callers propagate the
+// typed value rather than a bool. On error returns PostgresModeUnknown so a
+// failed probe never reads as a writable primary.
+func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (PostgresMode, error) {
+	inRecovery, err := pm.isInRecovery(ctx)
+	if err != nil {
+		return PostgresModeUnknown, err
+	}
+	if inRecovery {
+		return PostgresModeInRecovery, nil
+	}
+	return PostgresModePrimary, nil
+}
+
 // isInRecovery checks if the connected database is in recovery mode (standby).
 // Returns true if the database is a standby, false if it's a primary.
 func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {

@@ -450,7 +450,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	//
 	// Promotion has already waited for postgres to leave recovery AND for the new
 	// rule to commit, so the consensus snapshot now names this pooler the active
-	// committed leader: poking PostgresPrimary here derives routing role PRIMARY
+	// committed leader: poking PostgresMode here derives routing role PRIMARY
 	// and its leadership observation, starting the heartbeat writer / LISTEN and
 	// opening the gateway immediately rather than waiting for the next monitor tick.
 	//
@@ -459,7 +459,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// left Type=PRIMARY but serving=DRAINING, and skipping this would strand the
 	// pooler at PRIMARY/DRAINING and prevent the gateway buffer from draining.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = true
+		s.PostgresMode = PostgresModePrimary
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
@@ -698,7 +698,7 @@ func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// cycle. Serving status is owned by the lifecycle and the monitor's reconcile,
 	// not by "here is your primary" bookkeeping.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = false
+		s.PostgresMode = PostgresModeInRecovery
 	}); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
 	}
