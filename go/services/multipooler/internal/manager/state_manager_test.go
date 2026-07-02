@@ -571,8 +571,8 @@ func TestStateManager_Recalc(t *testing.T) {
 	assert.Equal(t, servingstate.RoutingRoleReplica, comp.lastRole,
 		"revoked leader routes as REPLICA")
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
-	assert.Nil(t, r.RoutingState(),
-		"revoked leader must clear its self-leadership observation immediately")
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, r.RoutingState().GetRole(),
+		"revoked leader must route as REPLICA immediately (publishing drops it from etcd)")
 }
 
 // TestStateManager_Recalc_NoChangeIsNoOp verifies Recalc does not re-fan when the

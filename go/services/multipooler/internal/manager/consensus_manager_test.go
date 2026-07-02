@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
@@ -208,13 +209,23 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
 		pm.stateManager.pgMode = pgmode.Primary
 	}
-	primaryBaseline := pm.stateManager.pgMode.OutOfRecovery()
-	baseline := servingstate.State{
-		Routing:       servingstate.RoutingState{Role: servingstate.RoutingRoleReplica},
-		ServingStatus: pm.record.ServingStatus(),
+	// Prime lastFannedOut to reflect what components last saw: the seeded record's
+	// LABEL (PRIMARY <-> primary) plus the rule that qualifies that role, chosen
+	// exactly as deriveRoutingState would (committed rule when PRIMARY, highest-
+	// known when REPLICA) so sameFanout — which now compares the rule — sees no
+	// drift at seed time. Drift is registered only when the observed
+	// postgresState / consensus later diverges from this seeded label.
+	cs := pm.consensusMgr.CachedConsensusStatus()
+	baselineRouting := servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		baselineRouting.Role = servingstate.RoutingRolePrimary
+		baselineRouting.Rule = cs.GetCurrentPosition().GetRule().GetRuleNumber()
+	} else {
+		baselineRouting.Rule = commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber()
 	}
-	if primaryBaseline {
-		baseline.Routing.Role = servingstate.RoutingRolePrimary
+	baseline := servingstate.State{
+		Routing:       baselineRouting,
+		ServingStatus: pm.record.ServingStatus(),
 	}
 	pm.stateManager.lastFannedOut = &baseline
 	return pm
