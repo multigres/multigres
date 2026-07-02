@@ -85,6 +85,9 @@ func (s *shardSummary) leader() *clustermetadatapb.LeaderObservation {
 // mergeLeader installs obs as this shard's leader if it strictly
 // supersedes whatever's there now (or there's nothing there). Returns
 // true if installed. Safe to call concurrently.
+//
+// TODO: rename LeadershipObservation to RoutingState and make sure only active primaries
+// publish routing state.
 func (s *shardSummary) mergeLeader(obs *clustermetadatapb.LeaderObservation) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

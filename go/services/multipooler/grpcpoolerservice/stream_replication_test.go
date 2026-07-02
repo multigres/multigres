@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // fakeReplStream is a test double for MultiPoolerService_StreamReplicationServer.
@@ -224,10 +225,11 @@ func (f *fakeReplPoolManager) NewLogicalReplicationConn(context.Context, string,
 func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.QueryPoolerServer {
 	t.Helper()
 	p := poolerserver.NewQueryPoolerServer(slog.Default(), pm, nil, "", "", nil, 0, false)
-	// isConsensusLeader=true so a serving primary admits the stream (#1184/#1194:
-	// admission keys off consensus leadership, not the topology PoolerType label).
+	// SERVING so the pooler admits the stream. These replication requests carry a
+	// nil Target, so admission skips the routing-role gate and keys only off the
+	// serving status; the routing role is therefore immaterial here.
 	require.NoError(t, p.OnStateChange(t.Context(),
-		true, false, clustermetadatapb.PoolerServingStatus_SERVING))
+		servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	return p
 }
 

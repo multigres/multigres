@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,59 +44,47 @@ func newTestListener(t *testing.T) *Listener {
 }
 
 // TestListenerOnStateChangeGating verifies the LISTEN/NOTIFY listener runs only
-// when this pooler is the consensus leader AND postgres is out of recovery AND
-// serving. postgresPrimary is the key gate: LISTEN/NOTIFY only delivers on the
-// actual postgres primary, so a leader whose postgres is still in recovery must
-// not run the listener.
+// when this pooler is the writable leader (RoutingRolePrimary) AND serving. The
+// routing role folds in both the consensus-leader and out-of-recovery facts:
+// LISTEN/NOTIFY only delivers on the actual postgres primary, so a pooler that is
+// not the writable leader must not run the listener.
 func TestListenerOnStateChangeGating(t *testing.T) {
 	tests := []struct {
-		name              string
-		isConsensusLeader bool
-		postgresPrimary   bool
-		servingStatus     clustermetadatapb.PoolerServingStatus
-		wantRunning       bool
+		name          string
+		routingRole   servingstate.RoutingRole
+		servingStatus clustermetadatapb.PoolerServingStatus
+		wantRunning   bool
 	}{
 		{
-			name:              "leader, writable, serving -> listener runs",
-			isConsensusLeader: true,
-			postgresPrimary:   true,
-			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			wantRunning:       true,
+			name:          "writable leader, serving -> listener runs",
+			routingRole:   servingstate.RoutingRolePrimary,
+			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			wantRunning:   true,
 		},
 		{
-			name:              "leader but not yet writable -> listener stays off",
-			isConsensusLeader: true,
-			postgresPrimary:   false,
-			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			wantRunning:       false,
+			name:          "not the writable leader, serving -> listener stays off",
+			routingRole:   servingstate.RoutingRoleReplica,
+			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			wantRunning:   false,
 		},
 		{
-			name:              "writable but not leader -> listener stays off",
-			isConsensusLeader: false,
-			postgresPrimary:   true,
-			servingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			wantRunning:       false,
+			name:          "writable leader but draining -> listener stays off",
+			routingRole:   servingstate.RoutingRolePrimary,
+			servingStatus: clustermetadatapb.PoolerServingStatus_DRAINING,
+			wantRunning:   false,
 		},
 		{
-			name:              "leader and writable but draining -> listener stays off",
-			isConsensusLeader: true,
-			postgresPrimary:   true,
-			servingStatus:     clustermetadatapb.PoolerServingStatus_DRAINING,
-			wantRunning:       false,
-		},
-		{
-			name:              "leader and writable but disabled -> listener stays off",
-			isConsensusLeader: true,
-			postgresPrimary:   true,
-			servingStatus:     clustermetadatapb.PoolerServingStatus_DISABLED,
-			wantRunning:       false,
+			name:          "writable leader but disabled -> listener stays off",
+			routingRole:   servingstate.RoutingRolePrimary,
+			servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+			wantRunning:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := newTestListener(t)
-			err := l.OnStateChange(context.Background(), tt.isConsensusLeader, tt.postgresPrimary, tt.servingStatus)
+			err := l.OnStateChange(context.Background(), servingstate.State{RoutingRole: tt.routingRole, ServingStatus: tt.servingStatus})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantRunning, running(l))
 		})
@@ -108,11 +97,11 @@ func TestListenerOnStateChangeGating(t *testing.T) {
 func TestListenerOnStateChangeStopsOnDemotion(t *testing.T) {
 	l := newTestListener(t)
 
-	require.NoError(t, l.OnStateChange(context.Background(), true, true, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	require.True(t, running(l), "listener should run while leader+writable+serving")
 
 	// Postgres falls back into recovery (demoted to standby) while still nominally
 	// the leader: the listener must stop.
-	require.NoError(t, l.OnStateChange(context.Background(), true, false, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, l.OnStateChange(context.Background(), servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	assert.False(t, running(l), "listener must stop once postgres is no longer writable")
 }
