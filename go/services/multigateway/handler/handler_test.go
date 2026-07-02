@@ -95,6 +95,16 @@ func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state 
 }
 
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
+func TestMultiGatewayHandler_IdleSessionTimeoutProvider(t *testing.T) {
+	h := NewMultiGatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := NewMultiGatewayConnectionState()
+	state.SetIdleSessionTimeout(5 * time.Second)
+	testConn.SetConnectionState(state)
+
+	require.Equal(t, 5*time.Second, h.IdleSessionTimeout(testConn.Conn))
+}
+
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}

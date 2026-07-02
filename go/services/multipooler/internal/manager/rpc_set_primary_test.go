@@ -291,7 +291,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// 2. After restart, every subsequent pg_is_in_recovery must report standby.
-	// Covers isInRecovery (verify after restart) and setPrimaryConnInfoLocked's
+	// Covers postgresMode (verify after restart) and setPrimaryConnInfoLocked's
 	// guardrail. The post-demotion sync clear goes through the (fake) rule store's
 	// ClearSyncStandby, asserted below, so it issues no SQL here.
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
@@ -360,11 +360,15 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	assert.True(t, ruleStore.clearSyncCalled,
 		"stale-primary demotion should clear sync standby names via ClearSyncStandby")
 
-	// Gateway leader observation should reflect the new primary.
+	// A demoted pooler advertises no leader observation. The health-stream
+	// observation is derived from this pooler's own routing role: non-nil
+	// (naming self) only while it is the writable routing primary, and nil once
+	// demoted to a standby. A follower never advertises another pooler as the
+	// leader — the gateway learns the new primary from that primary's own health
+	// stream, not from this demoted node.
 	healthState := pm.healthStreamer.getState()
-	require.NotNil(t, healthState.LeaderObservation)
-	assert.Equal(t, "new-primary", healthState.LeaderObservation.LeaderID.Name)
-	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
+	assert.Nil(t, healthState.LeaderObservation,
+		"a demoted pooler must not advertise a leader observation")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is

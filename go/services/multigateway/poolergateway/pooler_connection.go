@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -62,11 +61,6 @@ type poolerHealth struct {
 	// Zero on the primary or when not yet measured.
 	ReplicationLagNs int64
 
-	// Writable reports whether the pooler can accept writes (postgres out of
-	// recovery). A consensus leader mid-promotion is SERVING (reads) but not yet
-	// Writable; the failover buffer holds write traffic until this is true.
-	Writable bool
-
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -80,12 +74,6 @@ func (h *poolerHealth) isServing() bool {
 		return false
 	}
 	return h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING
-}
-
-// isWritable returns true if the pooler can accept writes (postgres out of
-// recovery). The failover buffer drains write traffic only once this is true.
-func (h *poolerHealth) isWritable() bool {
-	return h != nil && h.Writable
 }
 
 // simpleCopy returns a shallow copy of the poolerHealth.
@@ -102,7 +90,6 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		ServingStatus:     h.ServingStatus,
 		LeaderObservation: h.LeaderObservation,
 		ReplicationLagNs:  h.ReplicationLagNs,
-		Writable:          h.Writable,
 		LastError:         h.LastError,
 		LastResponse:      h.LastResponse,
 	}
@@ -243,20 +230,6 @@ func (pc *poolerConnection) ID() topoclient.ComponentID {
 // Cell returns the cell where this pooler is located.
 func (pc *poolerConnection) Cell() string {
 	return pc.poolerInfo.Load().Id.GetCell()
-}
-
-// believesSelfLeader reports whether this pooler considers itself the shard
-// leader, judged from the better of its topology self_leadership (read at
-// discovery) and its latest health-stream observation. A pooler in this state
-// is either the current leader or a stale leader that has not yet learned of a
-// newer one; either way it must not be selected for replica reads.
-func (pc *poolerConnection) believesSelfLeader() bool {
-	var healthObs *clustermetadatapb.LeaderObservation
-	if h := pc.Health(); h != nil {
-		healthObs = h.LeaderObservation
-	}
-	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
-	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
 // UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from
@@ -440,7 +413,6 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 		ServingStatus:     response.ServingStatus,
 		LeaderObservation: response.LeaderObservation,
 		ReplicationLagNs:  response.ReplicationLagNs,
-		Writable:          response.Writable,
 		LastError:         nil,
 		LastResponse:      time.Now(),
 	}

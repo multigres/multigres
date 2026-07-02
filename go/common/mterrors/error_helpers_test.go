@@ -69,6 +69,26 @@ func TestExtractSQLSTATE(t *testing.T) {
 	}
 }
 
+func TestIsCachedPlanError(t *testing.T) {
+	cachedPlan := &PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR",
+		Code:    PgSSFeatureNotSupported, // "0A000"
+		Message: "cached plan must not change result type",
+	}
+	otherFeature := &PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR",
+		Code: PgSSFeatureNotSupported, Message: "cannot insert multiple commands into a prepared statement",
+	}
+	syntax := &PgDiagnostic{MessageType: 'E', Code: "42601", Message: "syntax error"}
+
+	require.True(t, IsCachedPlanError(cachedPlan))
+	require.True(t, IsCachedPlanError(fmt.Errorf("wrapped: %w", cachedPlan)))
+	require.False(t, IsCachedPlanError(otherFeature), "other 0A000 errors are not cached-plan")
+	require.False(t, IsCachedPlanError(syntax))
+	require.False(t, IsCachedPlanError(nil))
+	require.False(t, IsCachedPlanError(errors.New("plain")))
+}
+
 func TestClassifyErrorSource(t *testing.T) {
 	tests := []struct {
 		name string

@@ -21,8 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func durationPtr(d time.Duration) *time.Duration { return &d }
-
 func TestResolveStatementTimeout(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -38,13 +36,13 @@ func TestResolveStatementTimeout(t *testing.T) {
 		},
 		{
 			name:      "directive wins over effective",
-			directive: durationPtr(500 * time.Millisecond),
+			directive: new(500 * time.Millisecond),
 			effective: 10 * time.Second,
 			want:      500 * time.Millisecond,
 		},
 		{
 			name:      "directive=0 disables timeout",
-			directive: durationPtr(0),
+			directive: new(time.Duration(0)),
 			effective: 10 * time.Second,
 			want:      0,
 		},
@@ -55,7 +53,7 @@ func TestResolveStatementTimeout(t *testing.T) {
 		},
 		{
 			name:      "directive wins even when larger",
-			directive: durationPtr(60 * time.Second),
+			directive: new(60 * time.Second),
 			effective: 10 * time.Second,
 			want:      60 * time.Second,
 		},

@@ -1562,13 +1562,28 @@ export class PoolerPosition extends Message<PoolerPosition> {
 }
 
 /**
- * LeaderObservation represents a pooler's view of who the consensus leader is.
- * It is carried in two places:
- *   - the leader's own MultiPooler topology record (self_leadership field), so
- *     multigateway can bootstrap leader routing from etcd at discovery time
- *     without relying on MultiPooler.type as a hint; and
+ * LeaderObservation is a pooler's report of the writable routing primary — in
+ * practice a pooler reporting itself once it is the active, writable leader. It
+ * is carried in two places:
  *   - the multipooler health stream
- *     (StreamPoolerHealthResponse.leader_observation).
+ *     (StreamPoolerHealthResponse.leader_observation), which multigateway uses as
+ *     the live, authoritative signal for routing writes; and
+ *   - the leader's own MultiPooler topology record (self_leadership field), a
+ *     projection of the same fact. NOTE: multigateway no longer consults the
+ *     topology record for leader identity — routing is driven purely by the live
+ *     health stream.
+ *
+ * TODO(routing-state, fast-follow): the gateway now reasons about *routing*
+ * (which pooler is the writable primary), not consensus leadership, so this
+ * message should evolve into
+ *     message RoutingState { RoutingRole role = 1; RuleNumber rule = 2; }
+ * with a new prefixed proto3 enum
+ *     enum RoutingRole { ROUTING_ROLE_UNKNOWN = 0; ROUTING_ROLE_PRIMARY = 1;
+ *                        ROUTING_ROLE_REPLICA = 2; }
+ * leader_id then drops out: a pooler only reports its own routing state, so the
+ * identity is contextual. This mirrors the internal servingstate.RoutingRole /
+ * State.Leadership pair. Keep RoutingState off the orch-facing consensus-fitness
+ * path — orch derives writability from consensus state, not this routing label.
  *
  * @generated from message clustermetadata.LeaderObservation
  */

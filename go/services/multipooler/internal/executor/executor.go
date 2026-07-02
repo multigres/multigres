@@ -445,9 +445,9 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Do the first state-modifying writes on a newly borrowed socket inside the
 	// reserved-pool validate callback. If the regular pool hands us a stale socket
-	// that PostgreSQL closed while idle (for example after a backend restart), the
-	// validate path taints it and retries on a fresh socket before this reserved
-	// connection is registered.
+	// that PostgreSQL closed while idle (for example after a backend restart or a
+	// client-set idle_session_timeout), the validate path taints it and retries on
+	// a fresh socket before registering the reserved connection.
 	//
 	// Parse is a session-level operation in PostgreSQL, so running it before BEGIN
 	// is safe; the prepared statement persists into the transaction. VPID stamping
@@ -926,8 +926,19 @@ func (e *Executor) portalExecuteWithReserved(
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
 	if err != nil {
-		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, wrapQueryError(err)
+		// A PostgreSQL statement error (division_by_zero, a constraint violation,
+		// an RLS WITH CHECK denial, …) only ABORTS the transaction; the backend
+		// stays usable for ROLLBACK [TO SAVEPOINT]. Destroy the reserved conn only
+		// on a genuine connection failure, or when THIS call created the
+		// reservation (newlyReserved) — matching the sibling error sites above and
+		// the COPY path. Otherwise keep the session-owned reservation and return
+		// its state so the gateway keeps tracking it; releasing here would make the
+		// client's next statement fail with 40001 "reserved connection not found".
+		if newlyReserved || mterrors.IsConnectionError(err) {
+			reservedConn.Release(reserved.ReleaseError, nil)
+			return nil, wrapQueryError(err)
+		}
+		return e.buildReservedState(reservedConn), wrapQueryError(err)
 	}
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
@@ -985,21 +996,41 @@ func (e *Executor) portalExecuteWithRegular(
 	// Stamp multigres_vpid on this pooled regular conn for lock-detection.
 	e.stampVpidOnRegular(ctx, conn.Conn, options)
 
-	// Ensure the statement is prepared on this connection (with consolidation)
+	// Bind and execute, healing a stale cached plan transparently. If a DDL has
+	// changed the result type of the cached plan, PostgreSQL returns 0A000
+	// "cached plan must not change result type". Because prepared statements are
+	// shared by canonical name, the client cannot recover by re-preparing (a new
+	// client name maps back to the same stale backend statement), so we do it
+	// here: close the stale backend statement, drop the per-connection cache
+	// entry, re-Parse against the current schema, and retry once.
+	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
+
+	bindExecute := func(canonicalName string) error {
+		if includeDescribe {
+			_, err := conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+			return err
+		}
+		_, err := conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+		return err
+	}
+
 	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
 	if err != nil {
 		return nil, err
 	}
 
-	// Bind and execute with maxRows=0 (fetch all) using the portal's own name and canonical statement name.
-	// When the protocol layer folded Describe('P') into Execute, fuse the
-	// backend round trip too so the portal description rides on the Execute
-	// response.
-	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	if includeDescribe {
-		_, err = conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
-	} else {
-		_, err = conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+	err = bindExecute(canonicalName)
+	if err != nil && mterrors.IsCachedPlanError(err) {
+		// 0A000 is raised during plan revalidation, before any row is streamed, so
+		// no partial results reached the callback — retrying is safe.
+		_ = conn.Conn.CloseStatement(ctx, canonicalName)
+		conn.Conn.State().DeletePreparedStatement(canonicalName)
+
+		canonicalName, err = e.ensurePrepared(ctx, conn.Conn, preparedStatement)
+		if err != nil {
+			return nil, err
+		}
+		err = bindExecute(canonicalName)
 	}
 	if err != nil {
 		return nil, wrapQueryError(err)

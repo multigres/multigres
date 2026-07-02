@@ -23,6 +23,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 const (
@@ -58,12 +59,6 @@ type healthStreamer struct {
 	servingStatus     clustermetadatapb.PoolerServingStatus
 	poolerType        clustermetadatapb.PoolerType
 	leaderObservation *poolerserver.LeaderObservation
-
-	// writable reports whether postgres can accept writes (!pg_is_in_recovery).
-	// Published separately from poolerType (which tracks the consensus term, not
-	// writability) so the gateway can hold write traffic for a leader that is
-	// SERVING but still mid-promotion.
-	writable bool
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -108,54 +103,71 @@ func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
 	hs.queryServer = qs
 }
 
-// UpdateLeaderObservation updates the primary observation (term + primary ID)
-// and broadcasts to clients.
-func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObservation) {
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.leaderObservation = obs
-	hs.broadcastLocked()
-}
-
-// OnStateChange updates both poolerType and servingStatus atomically with a single
-// broadcast. This implements the StateAware interface so the healthStreamer can be
-// registered with StateManager.
+// OnStateChange updates the health stream's poolerType, leader observation, and
+// servingStatus atomically with a single broadcast. This implements the
+// StateAware interface so the healthStreamer can be registered with StateManager.
 //
-// For SERVING transitions, it waits for the query server (via queryReadyGate)
-// to finish updating before broadcasting. This prevents the gateway from
-// discovering the new primary before the pooler can actually serve that type.
-// not-serving transitions broadcast immediately so the gateway can start
-// buffering without delay.
-func (hs *healthStreamer) OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, isConsensusLeader, servingStatus)
+// The leader observation is DERIVED from the fanned routing state — non-nil
+// (naming self) iff routing PRIMARY — rather than pushed by callers. So a pooler
+// advertises itself as leader to the gateway exactly when it is the writable
+// routing primary, and clears it on demotion, automatically. Followers never
+// advertise a leader.
+//
+// For SERVING transitions, it waits for the query server to finish transitioning
+// before broadcasting. This prevents the gateway from discovering the new primary
+// before the pooler can actually serve that type. not-serving transitions
+// broadcast immediately so the gateway can start buffering without delay.
+func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.State) error {
+	// We wait so we don't advertise SERVING before the query server can actually
+	// serve the new role. This is a rendezvous with a sibling component in the
+	// same (concurrent) fan-out.
+	//
+	// TODO: this explicit wait could go away if StateManager grew multi-phase
+	// fan-out — deliver an "after applied" phase to advertise-style components
+	// once the transition-style components (the query server) have converged, so
+	// ordering lives in the orchestrator instead of a per-component wait. Note
+	// the required order is direction-dependent (serving: ready-then-advertise;
+	// not-serving: advertise-then-drain), so the phases would need to account for
+	// that. Low priority: the SERVING transition waited on here is fast.
+	if state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
+		hs.queryServer.AwaitStateChange(ctx, state.RoutingRole, state.ServingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// The health stream still reports the PoolerType routing label to the gateway.
-	// PoolerType tracks the consensus term (leadership), not postgres writability —
-	// a leader can be the term leader before it has finished promoting. Translate
-	// the leader fact to the wire label: a non-leader is a read replica for routing.
-	hs.poolerType = poolerTypeForLeader(isConsensusLeader)
-	// writable is published separately so the gateway gates write traffic on actual
-	// write-readiness (postgres out of recovery), not on leadership.
-	hs.writable = postgresPrimary
-	hs.servingStatus = servingStatus
+	// PoolerType and the leader observation both derive from the routing role:
+	// PRIMARY / self-naming observation iff this pooler is the writable leader,
+	// REPLICA / nil otherwise. A leader mid-promotion is not yet routing PRIMARY,
+	// so it does not advertise itself until its rule commits.
+	hs.poolerType = poolerTypeForLeader(state.RoutingRole.Writable())
+	hs.leaderObservation = leaderObsFromState(state)
+	hs.servingStatus = state.ServingStatus
 	hs.broadcastLocked()
-	if prev != servingStatus {
-		hs.metrics.recordTransition(ctx, prev, servingStatus)
+	if prev != state.ServingStatus {
+		hs.metrics.recordTransition(ctx, prev, state.ServingStatus)
 	}
 	return nil
 }
 
-// poolerTypeForLeader maps the consensus-leadership fact to the PoolerType routing
-// label published on the health stream.
-func poolerTypeForLeader(isConsensusLeader bool) clustermetadatapb.PoolerType {
-	if isConsensusLeader {
+// leaderObsFromState converts the fanned self-leadership observation into the
+// health-stream form (self id + coordinator term), or nil when this pooler is
+// not the writable routing primary.
+func leaderObsFromState(state servingstate.State) *poolerserver.LeaderObservation {
+	if state.Leadership == nil {
+		return nil
+	}
+	return &poolerserver.LeaderObservation{
+		LeaderID:   state.Leadership.GetLeaderId(),
+		LeaderTerm: state.Leadership.GetLeaderRuleNumber().GetCoordinatorTerm(),
+	}
+}
+
+// poolerTypeForLeader maps a writable-leader boolean to the PoolerType label
+// (published on the health stream and persisted to the topology record).
+func poolerTypeForLeader(writableLeader bool) clustermetadatapb.PoolerType {
+	if writableLeader {
 		return clustermetadatapb.PoolerType_PRIMARY
 	}
 	return clustermetadatapb.PoolerType_REPLICA
@@ -185,7 +197,6 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		LeaderObservation:           hs.leaderObservation,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
-		Writable:                    hs.writable,
 	}
 }
 

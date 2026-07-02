@@ -216,6 +216,12 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 // pooler's health Status (Status.PoolerType) is also a different field.
 //
 // Use consensus instead (GetSelfLeadership() != nil / commonconsensus.SelfConsensusRole).
+//
+// TODO: broaden this to also ban reading MultiPooler.ServingStatus (and Type
+// generally) off the etcd topology record anywhere in the repo.
+// Add a companion rule reporting reads of $x.ServingStatus / $x.GetServingStatus()
+// on *clustermetadata.MultiPooler / *topoclient.MultiPoolerInfo outside the
+// pooler that owns the record.
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
