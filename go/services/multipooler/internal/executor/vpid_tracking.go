@@ -16,7 +16,6 @@ package executor
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/pb/query"
@@ -30,16 +29,18 @@ import (
 // this table against pg_stat_activity to translate the virtual pids that
 // isolationtester sees into real backend pids for pg_blocking_pids probes.
 //
-// The mapping row is written on the session's own backend connection, but
-// only at hand-off points where the connection is guaranteed to be in
-// autocommit (a fresh regular-conn checkout, or a new reservation before its
-// BEGIN runs). That guarantee matters: a row written inside an open
-// transaction would be invisible to the probing session until commit, and
-// would entangle the metadata write with the client transaction (extra
-// predicate locks under SERIALIZABLE, rollback on abort). Mid-transaction
-// re-stamping is unnecessary — a reserved backend stays bound to one gateway
-// session for the life of the reservation, and the mapping lives outside
-// PostgreSQL session GUC state, so RESET ALL / DISCARD ALL do not affect it.
+// The mapping row is written through the multipooler's admin pool, using the
+// backend pid learned from PostgreSQL's BackendKeyData during startup. Client
+// roles only need SELECT on the table for lock-wait probes; they never receive
+// INSERT/UPDATE/DELETE privileges and cannot corrupt the mapping. Admin-pool
+// writes are independent of the borrowed backend's current role, transaction,
+// and GUC state, so metadata is immediately visible to probing sessions and is
+// not rolled back with client work. We still stamp only at hand-off points: a
+// fresh regular-conn checkout, or a new reservation before its BEGIN runs.
+// Mid-transaction re-stamping is unnecessary — a reserved backend stays bound
+// to one gateway session for the life of the reservation, and the mapping
+// lives outside PostgreSQL session GUC state, so RESET ALL / DISCARD ALL do not
+// affect it.
 //
 // Rows are deleted at the release/recycle boundary so the table reflects only
 // backends currently associated with a gateway connection. That keeps metadata
@@ -51,12 +52,12 @@ import (
 const vpidCleanupTimeout = 250 * time.Millisecond
 
 // trackVpidOnRegular upserts the (backend_pid → vpid) mapping row for the given
-// connection's backend. Must only be called while the connection is in
-// autocommit (fresh checkout / pre-BEGIN) — see the package comment above.
+// connection's backend. Must only be called at a hand-off point (fresh checkout
+// / pre-BEGIN) — see the package comment above.
 //
-// The write deliberately uses only pg_backend_pid() and a literal vpid: it
-// reads no catalog/stats views, so it cannot be perturbed by the session's
-// current role (e.g. a client SET ROLE to an unprivileged role).
+// The write uses the admin pool and the backend pid already known from the
+// PostgreSQL startup handshake, so client roles do not need DML privileges on
+// the sidecar table.
 //
 // If the upsert fails, the query still runs; the affected behavior is lock-wait
 // translation for this gateway/backend association. No-op when tracking is
@@ -71,16 +72,15 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 		return
 	}
 	if !conn.IsIdle() {
-		e.logger.DebugContext(ctx, "skipping vpid mapping upsert outside autocommit")
+		e.logger.DebugContext(ctx, "skipping vpid mapping upsert because backend is not idle at handoff")
 		return
 	}
 
-	upsert := fmt.Sprintf(
+	if err := e.execBackendVpidMutation(ctx,
 		"INSERT INTO multigres.backend_vpid (backend_pid, vpid) "+
-			"VALUES (pg_backend_pid(), %d) "+
+			"VALUES ($1::int4, $2::int8) "+
 			"ON CONFLICT (backend_pid) DO UPDATE SET vpid = EXCLUDED.vpid, updated_at = now()",
-		options.ClientConnectionId)
-	if _, err := conn.Query(ctx, upsert); err != nil {
+		conn.ProcessID(), options.ClientConnectionId); err != nil {
 		e.logger.DebugContext(ctx, "vpid mapping upsert failed", "error", err)
 		return
 	}
@@ -88,8 +88,9 @@ func (e *Executor) trackVpidOnRegular(ctx context.Context, conn *regular.Conn, o
 }
 
 // trackVpidOnReserved records the mapping for a freshly reserved backend.
-// Must be called before the reservation's BEGIN so the row commits in
-// autocommit and is visible to other sessions for the whole transaction.
+// Must be called before the reservation can be handed to another gateway
+// session flow; the admin-pool write is immediately visible to probes and the
+// row stays valid for the whole transaction.
 func (e *Executor) trackVpidOnReserved(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) {
 	if !e.backendVpidTrackingEnabled || options == nil || options.ClientConnectionId == 0 {
 		return
@@ -117,19 +118,31 @@ func (e *Executor) clearVpidOnRegular(ctx context.Context, conn *regular.Conn) b
 	}
 	defer state.SetTrackedVpid(0)
 
-	if !conn.IsIdle() {
-		e.logger.DebugContext(ctx, "skipping vpid mapping cleanup outside autocommit")
-		return false
-	}
-
 	cleanupCtx, cancel := context.WithTimeout(ctx, vpidCleanupTimeout)
 	defer cancel()
 
-	if _, err := conn.Query(cleanupCtx, "DELETE FROM multigres.backend_vpid WHERE backend_pid = pg_backend_pid()"); err != nil {
+	if err := e.execBackendVpidMutation(cleanupCtx,
+		"DELETE FROM multigres.backend_vpid WHERE backend_pid = $1::int4",
+		conn.ProcessID()); err != nil {
 		e.logger.DebugContext(cleanupCtx, "vpid mapping cleanup failed", "error", err)
 		return false
 	}
+	if !conn.IsIdle() {
+		e.logger.DebugContext(ctx, "vpid mapping cleanup succeeded, but backend is not idle")
+		return false
+	}
 	return true
+}
+
+func (e *Executor) execBackendVpidMutation(ctx context.Context, sql string, args ...any) error {
+	adminConn, err := e.poolManager.GetAdminConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer adminConn.Recycle()
+
+	_, err = adminConn.Conn.QueryArgsWithRetry(ctx, sql, args...)
+	return err
 }
 
 func (e *Executor) recycleTrackedRegularConn(conn regular.PooledConn) {

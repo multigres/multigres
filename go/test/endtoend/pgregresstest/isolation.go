@@ -184,9 +184,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // never autovacuum/background workers, so no blocked_by intersection is
 // needed. Both inputs are multigateway virtual pids; we map them to real
 // PostgreSQL backend pids via the multigres.backend_vpid table, which the
-// multipooler upserts whenever it hands a backend to a gateway session (the
-// row commits in autocommit before any BEGIN, so it is visible to this probe
-// for the whole transaction). The row is deleted when the backend is released
+// multipooler upserts through its admin pool whenever it hands a backend to a
+// gateway session. The admin-pool write is immediately visible to this probe
+// for the whole transaction. The row is deleted when the backend is released
 // or recycled, so the table represents active gateway-to-backend associations.
 // The wait-check aggregates over every matching backend rather than picking one
 // non-deterministically; rows of dead backends are ignored via the join against

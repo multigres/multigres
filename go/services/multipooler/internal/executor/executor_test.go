@@ -143,13 +143,15 @@ func (m *mockReservedConn) MarkSessionStateUntrusted() {
 var _ reservedConnAPI = (*mockReservedConn)(nil)
 
 type stubPoolManager struct {
-	reservedConn    *reserved.Conn
-	reservedConnOK  bool
-	regularConn     regular.PooledConn
-	regularErr      error
-	newReservedConn *reserved.Conn
-	newReservedPool *reserved.Pool
-	newReservedErr  error
+	reservedConn     *reserved.Conn
+	reservedConnOK   bool
+	regularConn      regular.PooledConn
+	regularErr       error
+	newReservedConn  *reserved.Conn
+	newReservedPool  *reserved.Pool
+	newReservedErr   error
+	adminConnFactory func(context.Context) (admin.PooledConn, error)
+	adminErr         error
 }
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
@@ -157,7 +159,16 @@ func (m *stubPoolManager) Close()                                               
 func (m *stubPoolManager) CloseForReopen()                                         {}
 func (m *stubPoolManager) PgUser() string                                          { return "postgres" }
 func (m *stubPoolManager) PgPassword() (string, bool)                              { return "", true }
-func (m *stubPoolManager) GetAdminConn(context.Context) (admin.PooledConn, error)  { return nil, nil }
+func (m *stubPoolManager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
+	if m.adminErr != nil {
+		return nil, m.adminErr
+	}
+	if m.adminConnFactory != nil {
+		return m.adminConnFactory(ctx)
+	}
+	return nil, nil
+}
+
 func (m *stubPoolManager) GetRegularConn(context.Context, string, []byte, []byte) (regular.PooledConn, error) {
 	return nil, nil
 }
@@ -202,6 +213,17 @@ func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQu
 }
 
 var _ connpoolmanager.PoolManager = (*stubPoolManager)(nil)
+
+func newAdminConnFactory(t *testing.T, server *fakepgserver.Server) func(context.Context) (admin.PooledConn, error) {
+	t.Helper()
+	return func(ctx context.Context) (admin.PooledConn, error) {
+		clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+		if err != nil {
+			return nil, err
+		}
+		return &connpool.Pooled[*admin.Conn]{Conn: admin.NewConn(clientConn)}, nil
+	}
+}
 
 // newTestExecutor returns an Executor that has just enough wiring to exercise
 // streamExecuteOnReservedConn. The pool manager is left nil because the helper
@@ -896,13 +918,18 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
+		backendVpidTrackingEnabled: true,
+	}
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
-	assert.Contains(t, log, "values (pg_backend_pid(), 99)")
+	assert.NotContains(t, log, "pg_backend_pid()", "tracking writes must not require client-side DML")
+	assert.Contains(t, log, "values ($1::int4, $2::int8)")
 
 	// Same vpid again: the per-conn cache skips the redundant upsert.
 	server.ResetQueryLog()
@@ -912,20 +939,51 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	// Cleanup deletes this backend's row and resets the per-conn cache so a
 	// later hand-off to the same vpid records a fresh association.
 	server.ResetQueryLog()
-	e.clearVpidOnRegular(ctx, conn)
-	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
+	require.True(t, e.clearVpidOnRegular(ctx, conn))
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = $1::int4")
 	assert.Zero(t, conn.State().TrackedVpid())
 
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
-	assert.Contains(t, server.QueryLog(), "values (pg_backend_pid(), 99)", "same vpid after cleanup must upsert again")
+	assert.Contains(t, server.QueryLog(), "values ($1::int4, $2::int8)", "same vpid after cleanup must upsert again")
 
 	// A different vpid re-upserts.
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 100})
 	log = server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table")
-	assert.Contains(t, log, "values (pg_backend_pid(), 100)")
+	assert.NotContains(t, log, "pg_backend_pid()")
+	assert.Contains(t, log, "values ($1::int4, $2::int8)")
+}
+
+func TestTrackVpidOnRegular_UsesAdminPool(t *testing.T) {
+	targetServer := fakepgserver.New(t)
+	defer targetServer.Close()
+	adminServer := fakepgserver.New(t)
+	defer adminServer.Close()
+	adminServer.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, targetServer.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, adminServer)},
+		backendVpidTrackingEnabled: true,
+	}
+	targetServer.ResetQueryLog()
+	adminServer.ResetQueryLog()
+
+	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
+	require.True(t, e.clearVpidOnRegular(ctx, conn))
+
+	assert.Empty(t, targetServer.QueryLog(), "vpid tracking must not issue DML on the borrowed client backend")
+	adminLog := adminServer.QueryLog()
+	assert.Contains(t, adminLog, "insert into multigres.backend_vpid")
+	assert.Contains(t, adminLog, "delete from multigres.backend_vpid")
 }
 
 func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
@@ -946,7 +1004,11 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
+		backendVpidTrackingEnabled: true,
+	}
 	rconn, err := pool.NewConn(ctx, nil, reserved.WithReleaseCleanup(e.vpidReleaseCleanup()))
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
@@ -956,11 +1018,12 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
-	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
+	assert.NotContains(t, log, "pg_backend_pid()", "tracking writes must not require client-side DML")
+	assert.Contains(t, log, "values ($1::int4, $2::int8)")
 
 	server.ResetQueryLog()
 	rconn.Release(reserved.ReleaseCommit, nil)
-	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = $1::int4")
 }
 
 func TestReservedConnOptionsAttachVpidCleanup(t *testing.T) {
@@ -981,17 +1044,21 @@ func TestReservedConnOptionsAttachVpidCleanup(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
+		backendVpidTrackingEnabled: true,
+	}
 	rconn, err := pool.NewConn(ctx, nil, e.reservedConnOptions()...)
 	require.NoError(t, err)
 
 	server.ResetQueryLog()
 	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 321})
-	assert.Contains(t, server.QueryLog(), "values (pg_backend_pid(), 321)")
+	assert.Contains(t, server.QueryLog(), "values ($1::int4, $2::int8)")
 
 	server.ResetQueryLog()
 	rconn.Release(reserved.ReleaseCommit, nil)
-	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = $1::int4")
 }
 
 // TestTrackVpidOnRegular_BestEffortOnError verifies the failure path: when
@@ -1008,14 +1075,19 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	e := &Executor{
+		logger:                     slog.Default(),
+		poolManager:                &stubPoolManager{adminConnFactory: newAdminConnFactory(t, server)},
+		backendVpidTrackingEnabled: true,
+	}
 	server.ResetQueryLog()
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "upsert failure must not trigger hot-path DDL")
-	assert.Contains(t, log, "values (pg_backend_pid(), 7)")
+	assert.NotContains(t, log, "pg_backend_pid()")
+	assert.Contains(t, log, "values ($1::int4, $2::int8)")
 	assert.Zero(t, conn.State().TrackedVpid())
 }
 

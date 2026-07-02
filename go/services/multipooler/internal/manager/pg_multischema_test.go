@@ -225,6 +225,23 @@ func TestCreateSidecarSchema(t *testing.T) {
 	}
 }
 
+func TestCreateBackendVpidTableGrantsReadOnlyPublicAccess(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+
+	seen := false
+	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil), func(q string) {
+		seen = true
+		assert.Contains(t, q, "REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC")
+		assert.Contains(t, q, "GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC")
+		assert.NotContains(t, q, "GRANT SELECT, INSERT")
+		assert.NotContains(t, q, "UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC")
+	})
+
+	err := pm.createBackendVpidTable(context.Background())
+	assert.NoError(t, err)
+	assert.True(t, seen, "backend_vpid DDL should run")
+}
+
 func TestInitializeMultischemaData(t *testing.T) {
 	tests := []struct {
 		name          string

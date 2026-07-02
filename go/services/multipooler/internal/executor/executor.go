@@ -435,9 +435,8 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.SnapshotTxnState()
 	} else {
 		// When tracking is enabled, record the vpid mapping for the freshly
-		// reserved backend so lock-detection probes can map vpid → real pid. Done
-		// before BEGIN so the row commits in autocommit and stays visible to other
-		// sessions for the entire transaction lifecycle.
+		// reserved backend so lock-detection probes can map vpid → real pid for
+		// the entire transaction lifecycle.
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}
 
@@ -820,10 +819,9 @@ func (e *Executor) portalExecuteWithReserved(
 	}
 
 	// When tracking is enabled, record the vpid mapping only for a freshly
-	// reserved backend — at this point it is still in autocommit (the BEGIN below
-	// has not run). A resumed reservation already has its row; the mapping lives
-	// outside PostgreSQL session GUC state, so ApplySettings RESET ALL does not
-	// affect it.
+	// reserved backend before the BEGIN below can run. A resumed reservation
+	// already has its row; the mapping lives outside PostgreSQL session GUC
+	// state, so ApplySettings RESET ALL does not affect it.
 	if newlyReserved {
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}
@@ -1181,11 +1179,9 @@ func (e *Executor) CopyReady(
 		}
 
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			// When tracking is enabled, record the vpid mapping BEFORE any BEGIN:
-			// the upsert must commit in autocommit to be visible to lock-detection
-			// probes during the COPY. The *regular.Conn is the same underlying socket
-			// that NewReservedConn will promote to a *reserved.Conn, so the row carries
-			// through.
+			// When tracking is enabled, record the vpid mapping before any BEGIN. The
+			// *regular.Conn is the same underlying socket that NewReservedConn will
+			// promote to a *reserved.Conn, so the row carries through COPY mode.
 			e.trackVpidOnRegular(ctx, conn, options)
 			if requiresBegin {
 				if _, err := conn.Query(ctx, beginQuery); err != nil {
@@ -1523,8 +1519,8 @@ func (e *Executor) CopyOutReady(
 		}
 
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			// When tracking is enabled, record the vpid mapping BEFORE any BEGIN so
-			// the row commits in autocommit (see the CopyReady FROM-STDIN counterpart).
+			// When tracking is enabled, record the vpid mapping before any BEGIN (see
+			// the CopyReady FROM-STDIN counterpart).
 			e.trackVpidOnRegular(ctx, conn, options)
 			if requiresBegin {
 				if _, err := conn.Query(ctx, beginQuery); err != nil {

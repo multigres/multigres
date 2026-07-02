@@ -167,7 +167,8 @@ func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error 
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
 GRANT USAGE ON SCHEMA multigres TO PUBLIC;
-GRANT SELECT, INSERT, UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC`); err != nil {
+REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
+GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create backend_vpid table")
 	}
 	return nil
