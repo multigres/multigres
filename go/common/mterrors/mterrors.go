@@ -453,8 +453,9 @@ func IsConnectionError(err error) bool {
 		// generic 57000 since those don't indicate a lost connection.
 		switch diag.Code {
 		case "57P01", // admin_shutdown
-			"57P02", // crash_shutdown
-			"57P03": // cannot_connect_now
+			"57P02",                // crash_shutdown
+			"57P03",                // cannot_connect_now
+			PgSSIdleSessionTimeout: // idle_session_timeout
 			return true
 		}
 		// Don't return false here — fall through to check for I/O errors.

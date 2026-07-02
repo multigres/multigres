@@ -150,6 +150,12 @@ type MultiGatewayConnectionState struct {
 	// repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
 
+	// idleSessionTimeout is managed entirely by the gateway and is NOT forwarded
+	// to PostgreSQL. It applies to the client-facing gateway session while idle
+	// outside a transaction; forwarding it to pooled PostgreSQL backends would
+	// make backend sockets die independently of the client session.
+	idleSessionTimeout GatewayManagedVariable[time.Duration]
+
 	// savepoints is the stack of per-savepoint snapshots driving GUC revert
 	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings
 	// and OpenHoldCursors; gateway-managed variables maintain parallel
@@ -438,9 +444,10 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 // transaction-boundary paths and a slice literal would escape to the heap on
 // every call. Adding a GMV means bumping the array size and adding the element
 // here; the compiler flags a size mismatch if you forget one.
-func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [1]gmvLifecycle {
-	return [1]gmvLifecycle{
+func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [2]gmvLifecycle {
+	return [2]gmvLifecycle{
 		&m.statementTimeout,
+		&m.idleSessionTimeout,
 	}
 }
 
@@ -481,6 +488,41 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 	m.statementTimeout.SetLocalToDefault()
 }
 
+// SetIdleSessionTimeout sets the session-level idle-session timeout override.
+func (m *MultiGatewayConnectionState) SetIdleSessionTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.Set(d)
+}
+
+// ResetIdleSessionTimeout clears both the session-level override and any active
+// transaction-local override, reverting to the default (0 unless set at startup).
+func (m *MultiGatewayConnectionState) ResetIdleSessionTimeout() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.Reset()
+}
+
+// SetLocalIdleSessionTimeout stores a transaction-local idle-session timeout
+// override, cleared on COMMIT/ROLLBACK. While the transaction is active the
+// protocol layer does not enforce idle_session_timeout; idle-in-transaction
+// semantics are governed by idle_in_transaction_session_timeout, which is not a
+// gateway-managed variable here.
+func (m *MultiGatewayConnectionState) SetLocalIdleSessionTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.SetLocal(d)
+}
+
+// SetLocalIdleSessionTimeoutToDefault sets a transaction-local override to the
+// startup/default idle_session_timeout value without destroying any session
+// override, matching SET LOCAL ... TO DEFAULT GUC semantics.
+func (m *MultiGatewayConnectionState) SetLocalIdleSessionTimeoutToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.SetLocalToDefault()
+}
+
 // gatewayManagedVariableNames is the canonical set of session variables the
 // gateway manages itself: SET / SHOW / RESET are handled locally and the value
 // is never written to SessionSettings (so it is not replayed to backends on
@@ -488,7 +530,8 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 // (routing decisions) and the engine (set_config execution). Names compare
 // case-insensitively.
 var gatewayManagedVariableNames = map[string]struct{}{
-	"statement_timeout": {},
+	"statement_timeout":    {},
+	"idle_session_timeout": {},
 }
 
 // IsGatewayManagedVariable reports whether name (case-insensitive) is a session
@@ -522,6 +565,17 @@ func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value st
 			m.SetLocalStatementTimeout(d)
 		} else {
 			m.SetStatementTimeout(d)
+		}
+		return true, nil
+	case "idle_session_timeout":
+		d, err := ParsePostgresInterval("idle_session_timeout", value)
+		if err != nil {
+			return true, err
+		}
+		if isLocal {
+			m.SetLocalIdleSessionTimeout(d)
+		} else {
+			m.SetIdleSessionTimeout(d)
 		}
 		return true, nil
 	default:
@@ -789,6 +843,30 @@ func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Dur
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// GetIdleSessionTimeout returns the effective idle_session_timeout. A zero
+// duration disables idle-session termination, matching PostgreSQL's default.
+func (m *MultiGatewayConnectionState) GetIdleSessionTimeout() time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.idleSessionTimeout.GetEffective()
+}
+
+// ShowIdleSessionTimeout returns the effective idle_session_timeout formatted
+// using PostgreSQL's GUC_UNIT_MS display convention for SHOW output.
+func (m *MultiGatewayConnectionState) ShowIdleSessionTimeout() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return formatDurationPg(m.idleSessionTimeout.GetEffective())
+}
+
+// InitIdleSessionTimeout sets the default for idle_session_timeout. Called once
+// during connection initialization with the value from startup params, or 0.
+func (m *MultiGatewayConnectionState) InitIdleSessionTimeout(defaultValue time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout = NewGatewayManagedVariable(defaultValue)
 }
 
 // TargetReplica returns true if this connection targets a replica.

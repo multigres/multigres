@@ -445,9 +445,9 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Do the first state-modifying writes on a newly borrowed socket inside the
 	// reserved-pool validate callback. If the regular pool hands us a stale socket
-	// that PostgreSQL closed while idle (for example after a backend restart), the
-	// validate path taints it and retries on a fresh socket before this reserved
-	// connection is registered.
+	// that PostgreSQL closed while idle (for example after a backend restart or a
+	// client-set idle_session_timeout), the validate path taints it and retries on
+	// a fresh socket before registering the reserved connection.
 	//
 	// Parse is a session-level operation in PostgreSQL, so running it before BEGIN
 	// is safe; the prepared statement persists into the transaction. VPID stamping
