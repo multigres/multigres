@@ -21,6 +21,7 @@ import (
 	"time"
 
 	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
+	"github.com/multigres/multigres/go/common/version"
 	"github.com/multigres/multigres/go/common/web"
 )
 
@@ -83,24 +84,26 @@ func (sv *ServEnv) RegisterCommonHTTPEndpoints() {
 	sv.HTTPHandleFunc("/version", versionHandler)
 }
 
-// versionHandler renders the binary's VCS identity as JSON. Uniform
+// versionHandler renders the binary's build identity as JSON. Uniform
 // across every multigres service since servenv registers it for all.
 func versionHandler(w http.ResponseWriter, _ *http.Request) {
-	snap := readBuildSnapshot()
+	snap := version.Read()
 	payload := struct {
+		Version    string `json:"version"`
 		Revision   string `json:"revision,omitempty"`
 		Modified   bool   `json:"modified"`
 		CommitTime string `json:"commit_time,omitempty"`
 		GoVersion  string `json:"go_version,omitempty"`
 		MainPath   string `json:"main_path,omitempty"`
 	}{
-		Revision:  snap.revision,
-		Modified:  snap.modified,
-		GoVersion: snap.goVersion,
-		MainPath:  snap.mainPath,
+		Version:   version.Version,
+		Revision:  snap.Revision,
+		Modified:  snap.Modified,
+		GoVersion: snap.GoVersion,
+		MainPath:  snap.MainPath,
 	}
-	if !snap.commitTime.IsZero() {
-		payload.CommitTime = snap.commitTime.UTC().Format(time.RFC3339)
+	if !snap.CommitTime.IsZero() {
+		payload.CommitTime = snap.CommitTime.UTC().Format(time.RFC3339)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
