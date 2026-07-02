@@ -492,6 +492,8 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
+	// Recreate the unlogged backend_vpid sidecar table after the sweep.
+	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
 func TestPromote(t *testing.T) {
@@ -975,13 +977,13 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 	t.Run("drops every unlogged table", func(t *testing.T) {
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
-			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar"})
+			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar", "multigres.backend_vpid"})
 			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
 				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
 			})
 		})
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar", "multigres.backend_vpid"}, dropped)
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
 

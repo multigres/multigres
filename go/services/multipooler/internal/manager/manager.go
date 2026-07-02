@@ -1448,6 +1448,14 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
 	pm.dropUnloggedTablesAfterPromotion(ctx)
 
+	// backend_vpid is an unlogged Multigres sidecar table, so the sweep above drops
+	// it too. Recreate the empty relation before the pooler is marked serving; the
+	// rows are intentionally ephemeral, but lock-wait probes need the relation to
+	// exist whenever backend VPID tracking is enabled.
+	if err := pm.createBackendVpidTable(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to recreate backend_vpid table after promotion", "error", err)
+	}
+
 	return nil
 }
 
