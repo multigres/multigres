@@ -996,11 +996,11 @@ func (e *Executor) portalExecuteWithRegular(
 
 	bindExecute := func(canonicalName string) error {
 		if includeDescribe {
-			_, e := conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
-			return e
+			_, err := conn.Conn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+			return err
 		}
-		_, e := conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
-		return e
+		_, err := conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
+		return err
 	}
 
 	canonicalName, err := e.ensurePrepared(ctx, conn.Conn, preparedStatement)
