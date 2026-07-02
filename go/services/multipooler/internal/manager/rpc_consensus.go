@@ -444,11 +444,27 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
-	// IMPORTANT: updateTopologyAfterPromotion must only be called after UpdateRule
-	// succeeds. It advertises PRIMARY + SERVING to the gateway, opening write traffic.
-	// UpdateRule is the durability gate: it waits for sync-standby acknowledgment.
-	if err := pm.updateTopologyAfterPromotion(ctx, state, proposedRule); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update topology after promote", "error", err)
+	// Advertise PRIMARY + SERVING now that the rule has committed — this opens the
+	// gateway to write traffic, so it must run only after UpdateRule succeeds
+	// (UpdateRule is the durability gate: it waits for sync-standby acknowledgment).
+	//
+	// Promotion has already waited for postgres to leave recovery AND for the new
+	// rule to commit, so the consensus snapshot now names this pooler the active
+	// committed leader: poking PostgresPrimary here derives routing role PRIMARY
+	// and its leadership observation, starting the heartbeat writer / LISTEN and
+	// opening the gateway immediately rather than waiting for the next monitor tick.
+	//
+	// The serving transition must run even when topology already reports PRIMARY:
+	// on re-promotion of the same pooler at a higher term, demoteToStandbyLocked
+	// left Type=PRIMARY but serving=DRAINING, and skipping this would strand the
+	// pooler at PRIMARY/DRAINING and prevent the gateway buffer from draining.
+	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update serving state after promote", "error", err)
 	}
 
 	// Record the (rule, primary) — this pooler IS now the primary. Stamping

@@ -287,10 +287,11 @@ func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.M
 	return pm
 }
 
-// TestUpdateTopologyAfterPromotion_PublishesSelfLeadership verifies the
-// promotion path records a self-leadership observation naming this pooler under
-// the rule it was promoted under, alongside Type=PRIMARY + SERVING.
-func TestUpdateTopologyAfterPromotion_PublishesSelfLeadership(t *testing.T) {
+// TestPromotion_PublishesSelfLeadership verifies the promotion serving-state
+// transition records a self-leadership observation naming this pooler under the
+// rule it was promoted under, alongside Type=PRIMARY + SERVING. It exercises the
+// Mutate that promoteLocked performs after the rule commits.
+func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	multipooler := &clustermetadatapb.MultiPooler{
 		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 		Type: clustermetadatapb.PoolerType_REPLICA,
@@ -309,7 +310,15 @@ func TestUpdateTopologyAfterPromotion_PublishesSelfLeadership(t *testing.T) {
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
-	require.NoError(t, pm.updateTopologyAfterPromotion(lockCtx, &promotionState{}, rule))
+	// Mirror the Mutate promoteLocked performs after DoUpdateRule commits the rule:
+	// postgres is now primary and any drain completes, so the routing role derives
+	// PRIMARY and the record projects the self-leadership observation.
+	require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+		s.PostgresPrimary = true
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}))
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())

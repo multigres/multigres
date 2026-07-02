@@ -1525,40 +1525,6 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 	}
 }
 
-// updateTopologyAfterPromotion updates the pooler type in topology to PRIMARY
-// and transitions the serving state to SERVING.
-//
-// The serving-state transition must always run, even when the topology already
-// reports PRIMARY. That can happen on re-promotion of the same pooler at a
-// higher term: demoteToStandbyLocked left the topology Type=PRIMARY (only
-// stale-primary demote updates topology) but transitioned serving status to
-// DRAINING. Skipping the Mutate call left the pooler stuck at
-// PRIMARY/DRAINING, which prevented the multigateway buffer from draining
-// after the failover.
-func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, state *promotionState, rule *clustermetadatapb.ShardRule) error {
-	if state.isPrimaryInTopology {
-		pm.logger.InfoContext(ctx, "Topology type already PRIMARY; ensuring serving status is SERVING")
-	} else {
-		pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
-	}
-
-	// Promotion has already waited for postgres to leave recovery AND for the new
-	// rule to commit (DoUpdateRule blocks on the sync-standby ack before this
-	// runs), so the consensus snapshot now names this pooler the active committed
-	// leader: poking PostgresPrimary here derives routing role PRIMARY and its
-	// leadership observation, letting the heartbeat writer / LISTEN and the gateway
-	// start immediately rather than waiting for the next monitor tick. Mutate is
-	// idempotent — if already at this state it short-circuits.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = true
-		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-	}); err != nil {
-		return mterrors.Wrap(err, "failed to set serving state for promotion")
-	}
-
-	return nil
-}
-
 // ReplicationLag returns the current replication lag from the heartbeat reader
 func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration, error) {
 	if err := pm.checkReady(); err != nil {

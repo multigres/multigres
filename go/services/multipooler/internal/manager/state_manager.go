@@ -272,9 +272,18 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		return nil
 	}
 
-	ssm.logger.InfoContext(ctx, "Applying serving state",
-		"routing_role", target.RoutingRole, "status", target.ServingStatus, "postgres_primary", next.PostgresPrimary,
-		"prev_status", cur.ServingStatus, "prev_postgres_primary", cur.PostgresPrimary)
+	// This point is only reached when the effective state actually changed (the
+	// dedup above returned otherwise), so log it as a transition with prev -> new
+	// for each field. prev_routing_role comes from the last fan-out; it is unknown
+	// on the first transition (nil lastFannedOut).
+	prevRoutingRole := servingstate.RoutingRoleUnknown
+	if ssm.lastFannedOut != nil {
+		prevRoutingRole = ssm.lastFannedOut.RoutingRole
+	}
+	ssm.logger.InfoContext(ctx, "Serving state changed",
+		"routing_role", target.RoutingRole, "prev_routing_role", prevRoutingRole,
+		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
+		"postgres_primary", next.PostgresPrimary, "prev_postgres_primary", cur.PostgresPrimary)
 
 	// Fan out first so a failed transition leaves the record untouched.
 	if err := ssm.fanOutLocked(ctx, target); err != nil {
