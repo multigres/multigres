@@ -866,6 +866,18 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	}
 }
 
+func TestReservedConnOptionsGatesVpidCleanup(t *testing.T) {
+	validate := reserved.WithValidate(func(context.Context, *regular.Conn) error { return nil })
+
+	disabled := &Executor{}
+	assert.Empty(t, disabled.reservedConnOptions())
+	assert.Len(t, disabled.reservedConnOptions(validate), 1)
+
+	enabled := &Executor{backendVpidTrackingEnabled: true}
+	assert.Len(t, enabled.reservedConnOptions(), 1)
+	assert.Len(t, enabled.reservedConnOptions(validate), 2)
+}
+
 // --- trackVpid* happy-path tests ---
 //
 // These wire a real *regular.Conn / *reserved.Conn against a fakepgserver and
@@ -945,6 +957,37 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	log := server.QueryLog()
 	assert.NotContains(t, log, "create unlogged table", "tracking must not run DDL on the query path")
 	assert.Contains(t, log, "values (pg_backend_pid(), 123)")
+
+	server.ResetQueryLog()
+	rconn.Release(reserved.ReleaseCommit, nil)
+	assert.Contains(t, server.QueryLog(), "delete from multigres.backend_vpid where backend_pid = pg_backend_pid()")
+}
+
+func TestReservedConnOptionsAttachVpidCleanup(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
+	rconn, err := pool.NewConn(ctx, nil, e.reservedConnOptions()...)
+	require.NoError(t, err)
+
+	server.ResetQueryLog()
+	e.trackVpidOnReserved(ctx, rconn, &query.ExecuteOptions{ClientConnectionId: 321})
+	assert.Contains(t, server.QueryLog(), "values (pg_backend_pid(), 321)")
 
 	server.ResetQueryLog()
 	rconn.Release(reserved.ReleaseCommit, nil)
