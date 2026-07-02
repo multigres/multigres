@@ -1641,6 +1641,34 @@ func TestStreamExecuteReservedConnDeadSocket_QueryStreamingError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
+// TestPortalExecuteWithReservedDeadSocket_SettingsApplyError covers the existing-conn
+// branch of portalExecuteWithReserved's applyReservedSessionSettingsIfNeeded call,
+// which previously never checked IsConnectionError and never released.
+func TestPortalExecuteWithReservedDeadSocket_SettingsApplyError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutorApplySettings(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		SessionSettings:      map[string]string{"search_path": "foo"},
+	}
+	stmt := &query.PreparedStatement{Name: "s1", Query: "SELECT 1"}
+	portal := &query.Portal{Name: "p1"}
+
+	state, err := e.portalExecuteWithReserved(context.Background(), stmt, portal, options, nil, nil, "postgres", 0, false, nil, nil, noopCallback)
+
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to prepare reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
 // the regression test for the reserved connection being destroyed on a plain
 // SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error

@@ -889,6 +889,9 @@ func (e *Executor) portalExecuteWithReserved(
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, err
 		}
+		if mterrors.IsConnectionError(err) {
+			return nil, e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+		}
 		return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 	}
 
