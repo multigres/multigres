@@ -73,17 +73,21 @@ func SelfConsensusRole(cs *clustermetadatapb.ConsensusStatus) ConsensusRole {
 	return ConsensusRoleObserver
 }
 
-// IsNonRevokedCommittedLeader reports whether cs's committed position names its
-// own pooler as leader and that committed rule has not been revoked. This is the
-// write-safety leadership input: it stays false in the window between pg_promote
-// and the new rule being committed to WAL, so a freshly-promoted pooler is not
-// treated as the writable leader until its leadership is durably committed.
-func IsNonRevokedCommittedLeader(cs *clustermetadatapb.ConsensusStatus) bool {
+// IsActiveLeader reports whether cs names its own pooler as a leader fit to accept
+// write transactions. That means:
+// - Highest leader known to the pooler (it hasn't been asked to replicate from somewhere else)
+// - Highest leader written to the pooler's WAL
+// - The pooler hasn't been recruited to revoke that rule
+func IsActiveLeader(cs *clustermetadatapb.ConsensusStatus) bool {
 	committed := cs.GetCurrentPosition().GetRule()
 	if !RuleNamesLeader(committed, cs.GetId()) {
 		return false
 	}
-	return !IsRuleRevoked(committed, cs.GetTermRevocation())
+	if IsRuleRevoked(committed, cs.GetTermRevocation()) {
+		return false
+	}
+	// Not superseded: still the leader of the highest rule we know about.
+	return SelfConsensusRole(cs) == ConsensusRoleLeader
 }
 
 // LeaderTerm returns the coordinator term of the pooler's current recorded

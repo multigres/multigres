@@ -117,7 +117,7 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		// GracefulShutdown transitions serving state to DISABLED; wire a real
 		// StateManager (fanning out to the healthStreamer) so the shutdown path
 		// runs as in production rather than relying on a nil-check.
-		stateManager: NewStateManager(logger, record, hs),
+		stateManager: NewStateManager(logger, record, nilConsensusStatus, hs),
 	}
 }
 

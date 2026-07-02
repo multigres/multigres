@@ -369,7 +369,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.stateManager = NewStateManager(logger, pm.record, pm.qsc, pm.healthStreamer)
+	pm.stateManager = NewStateManager(logger, pm.record, pm.consensusMgr.CachedConsensusStatus, pm.qsc, pm.healthStreamer)
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
@@ -841,17 +841,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.record.Type()
-}
-
-// leaderObs builds the LeaderObservation this pooler records when it is the
-// leader under rule. The caller supplies the rule it knows names this pooler as
-// leader — the proposed rule on promotion, the recorded rule in the monitor —
-// so the source is explicit rather than read implicitly here.
-func (pm *MultiPoolerManager) leaderObs(rule *clustermetadatapb.ShardRule) *clustermetadatapb.LeaderObservation {
-	return &clustermetadatapb.LeaderObservation{
-		LeaderId:         rule.GetLeaderId(),
-		LeaderRuleNumber: rule.GetRuleNumber(),
-	}
 }
 
 // shardKey returns a ShardKey identifying this pooler's shard.
@@ -1569,14 +1558,14 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
 	}
 
-	// rule is the rule this pooler was just promoted under; it names this pooler
-	// as leader, so the leadership observation built from it is authoritative.
-	// Promotion has already waited for postgres to leave recovery, so set the
-	// writable state in the same Mutate — this lets the heartbeat writer / LISTEN
-	// start immediately rather than waiting for the next monitor tick to observe
-	// it. Mutate is idempotent — if already at this state it short-circuits.
+	// Promotion has already waited for postgres to leave recovery AND for the new
+	// rule to commit (DoUpdateRule blocks on the sync-standby ack before this
+	// runs), so the consensus snapshot now names this pooler the active committed
+	// leader: poking PostgresPrimary here derives routing role PRIMARY and its
+	// leadership observation, letting the heartbeat writer / LISTEN and the gateway
+	// start immediately rather than waiting for the next monitor tick. Mutate is
+	// idempotent — if already at this state it short-circuits.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.SelfLeadership = pm.leaderObs(rule)
 		s.PostgresPrimary = true
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 	}); err != nil {

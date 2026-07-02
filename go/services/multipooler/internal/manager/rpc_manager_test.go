@@ -364,9 +364,17 @@ func TestReplicationStatus(t *testing.T) {
 			PgctldAddr: pgctldAddr,
 		}
 		mockQueryService := mock.NewQueryService()
+		// The committed consensus position names self as leader, so the derived
+		// routing role is PRIMARY (with postgres out of recovery below), matching the
+		// seeded PRIMARY label rather than the monitor reconciling it to REPLICA.
 		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
-			withFakeRules(&fakeRuleStore{}))
+			withFakeRules(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+				Rule: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   serviceID,
+				},
+			}}))
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
@@ -392,6 +400,15 @@ func TestReplicationStatus(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// PoolerType is now derived from the live routing role, which the postgres
+		// monitor converges once postgres is probed (running, out of recovery) and the
+		// consensus rule names self. The fast-start monitor tick can race ahead of
+		// Ready, so drive an explicit iteration and wait for the derived PRIMARY.
+		require.Eventually(t, func() bool {
+			_, _ = pm.monitorPostgresIteration(ctx)
+			return pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
 
 		// Call ReplicationStatus
 		status, err := pm.Status(ctx)
@@ -569,8 +586,12 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
-		// PoolerType from topology says PRIMARY, but status shows standby state
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.Status.PoolerType)
+		// The record is seeded PRIMARY, but PoolerType is now derived from the live
+		// routing role: postgres reports recovery (standby), so the routing role is
+		// REPLICA and the monitor reconciles the label to REPLICA. Status therefore
+		// reports REPLICA with a populated ReplicationStatus (not a lasting
+		// PRIMARY-label / standby-postgres mismatch, which the derived model prevents).
+		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.Status.PoolerType)
 		assert.Nil(t, status.Status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
 		assert.NotNil(t, status.Status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
 	})
