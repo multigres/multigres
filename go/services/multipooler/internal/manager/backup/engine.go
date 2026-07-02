@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -56,19 +57,12 @@ type Settings struct {
 // lifecycle/logging policy.
 type RunFunc func(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error)
 
-// RoleFunc reports whether the local PostgreSQL is currently a primary. It is
-// injected by the manager (which owns the pg connection) so the health poller
-// can be role-aware — e.g. only a primary archives WAL — without the engine
-// owning a connection.
-//
-// TODO: reconsider this bool. The manager elsewhere models this as the
-// PostgresMode enum (out of recovery vs in recovery); decide whether the
-// backup engine should take PostgresMode (physical recovery state — what
-// actually governs WAL archiving) or the routing role, and thread that typed
-// value through instead of a bare "isPrimary" bool. Blocked on giving the enum
-// a home the backup package can import (manager imports backup, so it can't
-// reach back into package manager).
-type RoleFunc func(ctx context.Context) (isPrimary bool, err error)
+// RoleFunc reports the local PostgreSQL's physical recovery mode. It is injected
+// by the manager (which owns the pg connection) so the health poller can be
+// role-aware — e.g. only a primary (out of recovery) archives WAL — without the
+// engine owning a connection. See refreshHealth for how the mode is applied and
+// whether it should instead track the routing role.
+type RoleFunc func(ctx context.Context) (pgmode.Mode, error)
 
 // ArchiverStats is a snapshot of pg_stat_archiver relevant to WAL archive lag.
 // Zero time fields mean the corresponding timestamp was NULL (never archived /
@@ -166,9 +160,9 @@ func (e *Engine) SetPgpassPath(path string) {
 	e.pgpassPath = path
 }
 
-// SetRoleProvider injects the function the health poller uses to learn whether
-// the local postgres is a primary. The manager wires this to its own role
-// check (which owns the pg connection).
+// SetRoleProvider injects the function the health poller uses to learn the local
+// postgres recovery mode. The manager wires this to its own recovery-mode probe
+// (which owns the pg connection).
 func (e *Engine) SetRoleProvider(fn RoleFunc) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

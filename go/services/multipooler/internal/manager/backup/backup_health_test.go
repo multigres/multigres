@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
 func TestBackupTracker_SetLeaseHeld(t *testing.T) {
@@ -84,57 +86,57 @@ func TestResolveReadiness(t *testing.T) {
 
 func TestClassifyBackupSettings(t *testing.T) {
 	tests := []struct {
-		name      string
-		settings  PGSettings
-		isPrimary bool
-		want      string
+		name     string
+		settings PGSettings
+		pgMode   pgmode.Mode
+		want     string
 	}{
 		{
-			name:      "primary fully configured",
-			settings:  PGSettings{ArchiveCommand: "pgbackrest archive-push %p", ArchiveMode: "on", RestoreCommand: "pgbackrest archive-get %f %p"},
-			isPrimary: true,
-			want:      "",
+			name:     "primary fully configured",
+			settings: PGSettings{ArchiveCommand: "pgbackrest archive-push %p", ArchiveMode: "on", RestoreCommand: "pgbackrest archive-get %f %p"},
+			pgMode:   pgmode.Primary,
+			want:     "",
 		},
 		{
-			name:      "primary archive_command unset",
-			settings:  PGSettings{ArchiveCommand: "  ", ArchiveMode: "on", RestoreCommand: "x"},
-			isPrimary: true,
-			want:      ReadyReasonArchiveCommandUnset,
+			name:     "primary archive_command unset",
+			settings: PGSettings{ArchiveCommand: "  ", ArchiveMode: "on", RestoreCommand: "x"},
+			pgMode:   pgmode.Primary,
+			want:     ReadyReasonArchiveCommandUnset,
 		},
 		{
-			name:      "primary archive_mode off",
-			settings:  PGSettings{ArchiveCommand: "x", ArchiveMode: "off", RestoreCommand: "x"},
-			isPrimary: true,
-			want:      ReadyReasonArchiveModeOff,
+			name:     "primary archive_mode off",
+			settings: PGSettings{ArchiveCommand: "x", ArchiveMode: "off", RestoreCommand: "x"},
+			pgMode:   pgmode.Primary,
+			want:     ReadyReasonArchiveModeOff,
 		},
 		{
-			name:      "archive_mode always is enabled",
-			settings:  PGSettings{ArchiveCommand: "x", ArchiveMode: "always", RestoreCommand: "x"},
-			isPrimary: true,
-			want:      "",
+			name:     "archive_mode always is enabled",
+			settings: PGSettings{ArchiveCommand: "x", ArchiveMode: "always", RestoreCommand: "x"},
+			pgMode:   pgmode.Primary,
+			want:     "",
 		},
 		{
-			name:      "restore_command unset flagged on both roles",
-			settings:  PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: ""},
-			isPrimary: true,
-			want:      ReadyReasonRestoreCommandUnset,
+			name:     "restore_command unset flagged on both roles",
+			settings: PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: ""},
+			pgMode:   pgmode.Primary,
+			want:     ReadyReasonRestoreCommandUnset,
 		},
 		{
-			name:      "standby ignores archive settings",
-			settings:  PGSettings{ArchiveCommand: "", ArchiveMode: "off", RestoreCommand: "x"},
-			isPrimary: false,
-			want:      "",
+			name:     "standby ignores archive settings",
+			settings: PGSettings{ArchiveCommand: "", ArchiveMode: "off", RestoreCommand: "x"},
+			pgMode:   pgmode.InRecovery,
+			want:     "",
 		},
 		{
-			name:      "standby still needs restore_command",
-			settings:  PGSettings{ArchiveCommand: "", ArchiveMode: "off", RestoreCommand: ""},
-			isPrimary: false,
-			want:      ReadyReasonRestoreCommandUnset,
+			name:     "standby still needs restore_command",
+			settings: PGSettings{ArchiveCommand: "", ArchiveMode: "off", RestoreCommand: ""},
+			pgMode:   pgmode.InRecovery,
+			want:     ReadyReasonRestoreCommandUnset,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, classifyBackupSettings(tt.settings, tt.isPrimary))
+			assert.Equal(t, tt.want, classifyBackupSettings(tt.settings, tt.pgMode))
 		})
 	}
 }
@@ -153,7 +155,7 @@ func TestRefreshHealth_OKWhenRepoReachableAndConfigured(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetRoleProvider(func(context.Context) (bool, error) { return true, nil })
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: "x"}, nil
 	})
@@ -183,7 +185,7 @@ func TestRefreshHealth_ArchiveCommandUnset(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetRoleProvider(func(context.Context) (bool, error) { return true, nil })
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "", ArchiveMode: "on", RestoreCommand: "x"}, nil
 	})
@@ -199,7 +201,7 @@ func TestRefreshHealth_ArchiveModeOff(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetRoleProvider(func(context.Context) (bool, error) { return true, nil })
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "off", RestoreCommand: "x"}, nil
 	})
@@ -215,7 +217,7 @@ func TestRefreshHealth_RestoreCommandUnset(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetRoleProvider(func(context.Context) (bool, error) { return true, nil })
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: ""}, nil
 	})
@@ -231,7 +233,7 @@ func TestRefreshHealth_ArchivingFailing(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetRoleProvider(func(context.Context) (bool, error) { return true, nil })
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	// Config is healthy, so archiving failure is the dominant reason.
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: "x"}, nil
@@ -341,7 +343,7 @@ func TestRefreshArchiver_ComputesLagOnPrimary(t *testing.T) {
 		return ArchiverStats{LastArchived: archived}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), true)
+	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
 	assert.False(t, failing)
 	snap := e.Health().Snapshot()
 	assert.Equal(t, archived, snap.LastArchived)
@@ -358,7 +360,7 @@ func TestRefreshArchiver_SkipsOnStandby(t *testing.T) {
 		return ArchiverStats{}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), false)
+	failing := e.refreshArchiver(t.Context(), pgmode.InRecovery)
 	assert.False(t, failing)
 	snap := e.Health().Snapshot()
 	assert.True(t, snap.LastArchived.IsZero(), "standby should report no archive lag")
@@ -374,7 +376,7 @@ func TestRefreshArchiver_ReportsFailingWhenLastFailedNewer(t *testing.T) {
 		return ArchiverStats{LastArchived: archived, LastFailed: failed, FailedCount: 3}, nil
 	})
 
-	failing := e.refreshArchiver(t.Context(), true)
+	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
 	assert.True(t, failing, "a failure newer than the last success means archiving is failing")
 	snap := e.Health().Snapshot()
 	assert.Equal(t, archived, snap.LastArchived)
@@ -449,25 +451,25 @@ func TestRefreshFromRepo_MalformedJSONRetainsCache(t *testing.T) {
 
 func TestResolveRole(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
-	assert.True(t, e.resolveRole(t.Context()), "nil provider defaults to primary")
+	assert.Equal(t, pgmode.Primary, e.resolveRole(t.Context()), "nil provider defaults to primary")
 
-	e.SetRoleProvider(func(context.Context) (bool, error) { return false, errors.New("boom") })
-	assert.True(t, e.resolveRole(t.Context()), "role error must assume primary, not suppress archiving issues")
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Unknown, errors.New("boom") })
+	assert.Equal(t, pgmode.Primary, e.resolveRole(t.Context()), "role error must assume primary, not suppress archiving issues")
 
-	e.SetRoleProvider(func(context.Context) (bool, error) { return false, nil })
-	assert.False(t, e.resolveRole(t.Context()))
+	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.InRecovery, nil })
+	assert.Equal(t, pgmode.InRecovery, e.resolveRole(t.Context()))
 }
 
 func TestCheckBackupSettings_DoesNotBlockOnNilOrError(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 	// nil provider → cannot check → don't block readiness.
-	assert.Equal(t, "", e.checkBackupSettings(t.Context(), true))
+	assert.Equal(t, "", e.checkBackupSettings(t.Context(), pgmode.Primary))
 
 	// provider error → don't block readiness.
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{}, errors.New("query failed")
 	})
-	assert.Equal(t, "", e.checkBackupSettings(t.Context(), true))
+	assert.Equal(t, "", e.checkBackupSettings(t.Context(), pgmode.Primary))
 }
 
 func TestRefreshArchiver_QueryErrorKeepsCache(t *testing.T) {
@@ -478,12 +480,12 @@ func TestRefreshArchiver_QueryErrorKeepsCache(t *testing.T) {
 		return ArchiverStats{}, errors.New("query failed")
 	})
 
-	failing := e.refreshArchiver(t.Context(), true)
+	failing := e.refreshArchiver(t.Context(), pgmode.Primary)
 	assert.False(t, failing, "a query error is not an archiving failure")
 	assert.Equal(t, primed.Unix(), e.Health().Snapshot().LastArchived.Unix(), "cached lag retained on query error")
 }
 
 func TestRefreshArchiver_NilProvider(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
-	assert.False(t, e.refreshArchiver(t.Context(), true), "no provider → cannot be failing")
+	assert.False(t, e.refreshArchiver(t.Context(), pgmode.Primary), "no provider → cannot be failing")
 }
