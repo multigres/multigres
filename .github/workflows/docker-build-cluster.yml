@@ -64,11 +64,17 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
+      - name: Read Go version from go.mod
+        id: goversion
+        uses: ./.github/actions/go-version
+
       - name: Build and push cluster Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           file: ./Dockerfile.cluster
+          build-args: |
+            GO_VERSION=${{ steps.goversion.outputs.version }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
