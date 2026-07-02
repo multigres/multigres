@@ -337,7 +337,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +

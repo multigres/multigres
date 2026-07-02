@@ -49,6 +49,12 @@ type Executor struct {
 	poolerConsolidator *preparedstatement.PoolerConsolidator
 	poolerID           *clustermetadatapb.ID
 	metrics            *queryStats
+
+	// backendVpidTrackingEnabled controls whether gateway-vpid/backend-pid
+	// associations are written to multigres.backend_vpid. The table is always
+	// provisioned, but writes are opt-in because they add metadata round trips on
+	// the query path and are currently needed only by pgregress isolation tests.
+	backendVpidTrackingEnabled bool
 }
 
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
@@ -74,6 +80,9 @@ func (e *Executor) vpidReleaseCleanup() reserved.ReleaseCleanup {
 }
 
 func (e *Executor) reservedConnOptions(opts ...reserved.ReservedConnOption) []reserved.ReservedConnOption {
+	if !e.backendVpidTrackingEnabled {
+		return opts
+	}
 	reservedOpts := make([]reserved.ReservedConnOption, 0, len(opts)+1)
 	reservedOpts = append(reservedOpts, reserved.WithReleaseCleanup(e.vpidReleaseCleanup()))
 	reservedOpts = append(reservedOpts, opts...)
@@ -81,13 +90,14 @@ func (e *Executor) reservedConnOptions(opts ...reserved.ReservedConnOption) []re
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, backendVpidTrackingEnabled bool) *Executor {
 	return &Executor{
-		logger:             logger,
-		poolManager:        poolManager,
-		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
-		poolerID:           poolerID,
-		metrics:            newQueryStats(),
+		logger:                     logger,
+		poolManager:                poolManager,
+		poolerConsolidator:         preparedstatement.NewPoolerConsolidator(),
+		poolerID:                   poolerID,
+		metrics:                    newQueryStats(),
+		backendVpidTrackingEnabled: backendVpidTrackingEnabled,
 	}
 }
 
@@ -153,10 +163,10 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply session settings: %w", err)
 		}
 
-		// No vpid tracking here: the mapping row was written when this
-		// connection was reserved, the backend stays bound to the same
-		// gateway session for the life of the reservation, and the conn may
-		// be mid-transaction (a row written now would be invisible to the
+		// No vpid tracking here: when tracking is enabled, the mapping row was
+		// written when this connection was reserved. The backend stays bound to
+		// the same gateway session for the life of the reservation, and the conn
+		// may be mid-transaction (a row written now would be invisible to the
 		// probing session anyway).
 
 		results, err := reservedConn.Query(ctx, sql)
@@ -187,8 +197,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
-	// Record the vpid mapping for this pooled regular conn; the defer above
-	// clears it before the backend returns to the idle pool.
+	// When tracking is enabled, record the vpid mapping for this pooled regular
+	// conn; the defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
@@ -275,8 +285,8 @@ func (e *Executor) StreamExecute(
 			return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
-		// No vpid tracking here — the mapping row was written at
-		// reservation time and survives RESET ALL (see ExecuteQuery).
+		// No vpid tracking here — when tracking is enabled, the mapping row was
+		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
 		// If the query references a SQL-level prepared statement wrapper,
 		// materialize it now. We do this before delegating to
@@ -317,8 +327,8 @@ func (e *Executor) StreamExecute(
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
-	// Record the vpid mapping for this pooled regular conn (lock detection).
-	// The defer above clears it before the backend returns to the idle pool.
+	// When tracking is enabled, record the vpid mapping for this pooled regular
+	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
@@ -384,9 +394,9 @@ func (e *Executor) reserveAndStreamExecute(
 	// a fresh socket before registering the reserved connection.
 	//
 	// Parse is a session-level operation in PostgreSQL, so running it before BEGIN
-	// is safe; the prepared statement persists into the transaction. VPID stamping
-	// must happen before BEGIN so lock-detection can map this backend for the full
-	// transaction lifetime.
+	// is safe; the prepared statement persists into the transaction. When VPID
+	// tracking is enabled, stamping happens before BEGIN so lock-detection can map
+	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
 	if executeSQLPreparedStmt != nil || beginTx {
@@ -424,10 +434,10 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		reservedConn.SnapshotTxnState()
 	} else {
-		// Record the vpid mapping for the freshly reserved backend so
-		// lock-detection probes can map vpid → real pid. Done before BEGIN so
-		// the row commits in autocommit and stays visible to other sessions for
-		// the entire transaction lifecycle.
+		// When tracking is enabled, record the vpid mapping for the freshly
+		// reserved backend so lock-detection probes can map vpid → real pid. Done
+		// before BEGIN so the row commits in autocommit and stays visible to other
+		// sessions for the entire transaction lifecycle.
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}
 
@@ -809,10 +819,11 @@ func (e *Executor) portalExecuteWithReserved(
 		return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 	}
 
-	// Record the vpid mapping only for a freshly reserved backend — at this
-	// point it is still in autocommit (the BEGIN below has not run). A
-	// resumed reservation already has its row; the mapping lives outside
-	// PostgreSQL session GUC state, so ApplySettings RESET ALL does not affect it.
+	// When tracking is enabled, record the vpid mapping only for a freshly
+	// reserved backend — at this point it is still in autocommit (the BEGIN below
+	// has not run). A resumed reservation already has its row; the mapping lives
+	// outside PostgreSQL session GUC state, so ApplySettings RESET ALL does not
+	// affect it.
 	if newlyReserved {
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}
@@ -930,8 +941,8 @@ func (e *Executor) portalExecuteWithRegular(
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
-	// Record the vpid mapping for this pooled regular conn (lock detection).
-	// The defer above clears it before the backend returns to the idle pool.
+	// When tracking is enabled, record the vpid mapping for this pooled regular
+	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
 	// Ensure the statement is prepared on this connection (with consolidation)
@@ -1128,8 +1139,9 @@ func (e *Executor) CopyReady(
 		// Existing reserved conns are actively held (never idle in the
 		// regular pool), so PostgreSQL's idle timeout cannot have closed
 		// the socket between uses. InitiateCopyFromStdin runs directly
-		// here without a stale-socket retry hop. The vpid mapping row was
-		// written at reservation time and stays valid through COPY mode.
+		// here without a stale-socket retry hop. When tracking is enabled, the
+		// vpid mapping row was written at reservation time and stays valid through
+		// COPY mode.
 		// InitiateCopyFromStdin may return NoticeResponse diagnostics that
 		// arrive before CopyInResponse (e.g. BEFORE STATEMENT triggers).
 		// They are uncommon and harmless to drop here; the gateway's main
@@ -1169,11 +1181,11 @@ func (e *Executor) CopyReady(
 		}
 
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			// Record the vpid mapping BEFORE any BEGIN: the upsert must
-			// commit in autocommit to be visible to lock-detection probes
-			// during the COPY. The *regular.Conn is the same underlying
-			// socket that NewReservedConn will promote to a
-			// *reserved.Conn, so the row carries through.
+			// When tracking is enabled, record the vpid mapping BEFORE any BEGIN:
+			// the upsert must commit in autocommit to be visible to lock-detection
+			// probes during the COPY. The *regular.Conn is the same underlying socket
+			// that NewReservedConn will promote to a *reserved.Conn, so the row carries
+			// through.
 			e.trackVpidOnRegular(ctx, conn, options)
 			if requiresBegin {
 				if _, err := conn.Query(ctx, beginQuery); err != nil {
@@ -1488,8 +1500,8 @@ func (e *Executor) CopyOutReady(
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
 			return 0, nil, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
-		// The vpid mapping row was written at reservation time; no
-		// re-tracking needed (and the conn may be mid-transaction).
+		// When tracking is enabled, the vpid mapping row was written at reservation
+		// time; no re-tracking needed (and the conn may be mid-transaction).
 		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
 		if err != nil {
 			// Same dual failure handling as CopyReady (FROM STDIN): a PG
@@ -1511,8 +1523,8 @@ func (e *Executor) CopyOutReady(
 		}
 
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			// Record the vpid mapping BEFORE any BEGIN so the row commits
-			// in autocommit (see the CopyReady FROM-STDIN counterpart).
+			// When tracking is enabled, record the vpid mapping BEFORE any BEGIN so
+			// the row commits in autocommit (see the CopyReady FROM-STDIN counterpart).
 			e.trackVpidOnRegular(ctx, conn, options)
 			if requiresBegin {
 				if _, err := conn.Query(ctx, beginQuery); err != nil {

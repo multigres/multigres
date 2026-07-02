@@ -22,12 +22,13 @@ import (
 
 // Config holds configuration for the MultiPoolerManager
 type Config struct {
-	SocketFilePath      string
-	TopoClient          topoclient.Store
-	HeartbeatIntervalMs int
-	PgctldAddr          string                  // Address of pgctld gRPC service
-	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
+	SocketFilePath             string
+	TopoClient                 topoclient.Store
+	HeartbeatIntervalMs        int
+	PgctldAddr                 string                  // Address of pgctld gRPC service
+	ConsensusEnabled           bool                    // Whether consensus gRPC service is enabled
+	ConnPoolConfig             *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
+	BackendVpidTrackingEnabled bool                    // Whether to write active gateway-vpid/backend-pid mappings
 
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 	PgBackRestCertFile string // TLS client certificate file path

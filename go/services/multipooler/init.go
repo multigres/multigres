@@ -53,10 +53,11 @@ type MultiPooler struct {
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
-	pgBackRestCertFile viperutil.Value[string]
-	pgBackRestKeyFile  viperutil.Value[string]
-	pgBackRestCAFile   viperutil.Value[string]
-	pgBackRestPort     viperutil.Value[int]
+	pgBackRestCertFile         viperutil.Value[string]
+	pgBackRestKeyFile          viperutil.Value[string]
+	pgBackRestCAFile           viperutil.Value[string]
+	pgBackRestPort             viperutil.Value[int]
+	backendVpidTrackingEnabled viperutil.Value[bool]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -153,6 +154,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
+		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "backend-vpid-tracking-enabled",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -188,6 +194,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
+	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -204,6 +211,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
+		mp.backendVpidTrackingEnabled,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -312,12 +320,13 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:      mp.socketFilePath.Get(),
-		TopoClient:          mp.ts,
-		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:          mp.pgctldAddr.Get(),
-		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
-		ConnPoolConfig:      mp.connPoolConfig,
+		SocketFilePath:             mp.socketFilePath.Get(),
+		TopoClient:                 mp.ts,
+		HeartbeatIntervalMs:        mp.heartbeatIntervalMs.Get(),
+		PgctldAddr:                 mp.pgctldAddr.Get(),
+		ConsensusEnabled:           mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:             mp.connPoolConfig,
+		BackendVpidTrackingEnabled: mp.backendVpidTrackingEnabled.Get(),
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),

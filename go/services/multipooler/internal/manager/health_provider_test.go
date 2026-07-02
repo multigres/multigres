@@ -307,7 +307,7 @@ func TestHealthStreamer_WaitsForQueryServerOnServing(t *testing.T) {
 	hs := newHealthStreamer(logger, nil, "tg1", "0")
 
 	// Create a real QueryPoolerServer to use as the gate.
-	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0)
+	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
 	hs.SetQueryServer(qps)
 
 	// Subscribe to health updates.

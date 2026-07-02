@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1571,6 +1572,40 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
+	}
+}
+
+// AddMultipoolerExtraArgs appends extra CLI arguments to every multipooler
+// instance. The arguments take effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) AddMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		for _, arg := range args {
+			if !slices.Contains(inst.Multipooler.ExtraArgs, arg) {
+				inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, arg)
+			}
+		}
+	}
+}
+
+// RemoveMultipoolerExtraArgs removes exact CLI arguments from every multipooler
+// instance. The removal takes effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) RemoveMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		filtered := inst.Multipooler.ExtraArgs[:0]
+		for _, existing := range inst.Multipooler.ExtraArgs {
+			if !slices.Contains(args, existing) {
+				filtered = append(filtered, existing)
+			}
+		}
+		inst.Multipooler.ExtraArgs = filtered
 	}
 }
 

@@ -823,22 +823,24 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 // --- trackVpid* early-return tests ---
 //
 // The happy-path upsert is covered below with a fakepgserver. Here we lock in
-// the guard semantics: the helpers must be safe no-ops when options is nil or
-// ClientConnectionId is zero. A nil conn is intentionally passed to prove the
-// helpers return before touching it.
+// the guard semantics: the helpers must be safe no-ops when tracking is
+// disabled, options is nil, or ClientConnectionId is zero. A nil conn is
+// intentionally passed to prove the helpers return before touching it.
 
 func TestTrackVpidOnReserved_NoOpGuards(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
 		options *query.ExecuteOptions
+		enabled bool
 	}{
-		{"nil options", nil},
-		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"tracking disabled", &query.ExecuteOptions{ClientConnectionId: 1}, false},
+		{"nil options", nil, true},
+		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{}
+			e := &Executor{backendVpidTrackingEnabled: tc.enabled}
 			// nil conn would panic on Query — guard must short-circuit first.
 			e.trackVpidOnReserved(ctx, nil, tc.options)
 		})
@@ -850,13 +852,15 @@ func TestTrackVpidOnRegular_NoOpGuards(t *testing.T) {
 	cases := []struct {
 		name    string
 		options *query.ExecuteOptions
+		enabled bool
 	}{
-		{"nil options", nil},
-		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}},
+		{"tracking disabled", &query.ExecuteOptions{ClientConnectionId: 1}, false},
+		{"nil options", nil, true},
+		{"zero id", &query.ExecuteOptions{ClientConnectionId: 0}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := &Executor{}
+			e := &Executor{backendVpidTrackingEnabled: tc.enabled}
 			e.trackVpidOnRegular(ctx, nil, tc.options)
 		})
 	}
@@ -880,7 +884,7 @@ func TestTrackVpidOnRegular_HappyPath(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 99})
 
@@ -930,7 +934,7 @@ func TestTrackVpidOnReserved_HappyPath(t *testing.T) {
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	rconn, err := pool.NewConn(ctx, nil, reserved.WithReleaseCleanup(e.vpidReleaseCleanup()))
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
@@ -961,7 +965,7 @@ func TestTrackVpidOnRegular_BestEffortOnError(t *testing.T) {
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := &Executor{logger: slog.Default()}
+	e := &Executor{logger: slog.Default(), backendVpidTrackingEnabled: true}
 	server.ResetQueryLog()
 	// Must not panic or block the caller even though every statement fails.
 	e.trackVpidOnRegular(ctx, conn, &query.ExecuteOptions{ClientConnectionId: 7})
@@ -1052,7 +1056,7 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 	conn := regular.NewConn(clientConn, nil)
 	defer conn.Close()
 
-	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	first := &query.ExecuteSqlPreparedStatement{
 		PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
@@ -1078,7 +1082,7 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 }
 
 func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
-	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	_, err := e.materializeExecuteSQLPreparedStatement(context.Background(), nil, nil)
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement is required")
@@ -1099,7 +1103,7 @@ func TestStreamExecuteMaterializesExecuteSQLOnRegularConnection(t *testing.T) {
 	pm := &stubPoolManager{
 		regularConn: &connpool.Pooled[*regular.Conn]{Conn: regular.NewConn(clientConn, nil)},
 	}
-	e := NewExecutor(slog.Default(), pm, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), pm, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt ( 1 )", &query.ExecuteOptions{
 		User: "postgres",
@@ -1136,7 +1140,7 @@ func TestStreamExecuteMaterializesExecuteSQLOnExistingReservedConnection(t *test
 	require.NoError(t, err)
 	defer rconn.Release(reserved.ReleaseCommit, nil)
 
-	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	state, err := e.StreamExecute(ctx, &query.Target{}, "EXPLAIN EXECUTE gateway_stmt", &query.ExecuteOptions{
 		User:                 "postgres",
@@ -1170,7 +1174,7 @@ func TestStreamExecuteMaterializesExecuteSQLOnNewReservedConnection(t *testing.T
 	defer pool.Close()
 
 	ctx := context.Background()
-	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	state, err := e.StreamExecute(ctx, &query.Target{}, "CREATE TEMP TABLE t AS EXECUTE gateway_stmt", &query.ExecuteOptions{
 		User: "postgres",
@@ -1206,7 +1210,7 @@ func TestStreamExecuteRollsBackNewReservedTransactionOnMaterializationError(t *t
 	ctx := context.Background()
 	rconn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
-	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"})
+	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt", &query.ExecuteOptions{
 		User: "postgres",
@@ -1225,10 +1229,11 @@ func TestNewExecutor(t *testing.T) {
 	logger := slog.Default()
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 
-	e := NewExecutor(logger, nil, poolerID)
+	e := NewExecutor(logger, nil, poolerID, true)
 	require.NotNil(t, e)
 	assert.Equal(t, poolerID, e.poolerID)
 	assert.NotNil(t, e.poolerConsolidator, "constructor must initialise the consolidator")
+	assert.True(t, e.backendVpidTrackingEnabled)
 }
 
 func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {

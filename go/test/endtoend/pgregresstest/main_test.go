@@ -79,6 +79,24 @@ func externalServerConfPaths() []string {
 	return paths
 }
 
+const backendVpidTrackingFlag = "--backend-vpid-tracking-enabled=true"
+
+func pgregressRunsRegression() bool {
+	return os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1" || os.Getenv("RUN_PGREGRESS") == "1"
+}
+
+// pgregressRunsIsolation reports whether this run includes the isolation suite.
+func pgregressRunsIsolation() bool {
+	return os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1" || os.Getenv("RUN_PGISOLATION") == "1"
+}
+
+// pgregressIsolationStartsFirst reports whether the initial shared cluster
+// serves the isolation phase. If regression also runs, regression uses the
+// initial cluster and isolation gets a fresh cluster via ReinitializeCluster.
+func pgregressIsolationStartsFirst() bool {
+	return pgregressRunsIsolation() && !pgregressRunsRegression()
+}
+
 // externalOnlySuite reports whether this run executes ONLY the external suite,
 // in which case there is no later reinitialization and the external server
 // config must be applied at initial cluster setup.
@@ -176,6 +194,10 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 		// matches upstream expected fixtures.
 		shardsetup.WithPgInitdbExtraConfFiles(regressionOverridesConfPath()),
 	}
+	if pgregressIsolationStartsFirst() {
+		opts = append(opts, shardsetup.WithMultipoolerExtraArgs(backendVpidTrackingFlag))
+	}
+
 	// Some external extensions need server-level config the pooled query path
 	// can't set (pg_cron's background worker needs shared_preload_libraries).
 	// Apply their snippets at initial setup ONLY when the external suite is the
