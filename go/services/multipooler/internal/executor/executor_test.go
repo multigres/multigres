@@ -1669,6 +1669,63 @@ func TestPortalExecuteWithReservedDeadSocket_SettingsApplyError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
+// TestCopyReadyReservedConnDeadSocket_SettingsApplyError covers CopyReady's
+// applyReservedSessionSettingsIfNeeded call, which previously never checked
+// IsConnectionError. CopyReady's own InitiateCopyFromStdin call already gates
+// correctly — this is specifically the earlier settings-apply step.
+func TestCopyReadyReservedConnDeadSocket_SettingsApplyError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutorApplySettings(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		SessionSettings:      map[string]string{"search_path": "foo"},
+	}
+
+	format, columnFormats, state, err := e.CopyReady(context.Background(), &query.Target{}, "COPY t FROM STDIN", options, nil)
+
+	assert.Zero(t, format)
+	assert.Nil(t, columnFormats)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to prepare reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestCopyOutReadyReservedConnDeadSocket_SettingsApplyError mirrors the CopyReady case
+// for COPY ... TO STDOUT.
+func TestCopyOutReadyReservedConnDeadSocket_SettingsApplyError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutorApplySettings(t)
+	connID := rconn.ConnID()
+
+	rconn.Conn().RawConn().ForceClose()
+
+	options := &query.ExecuteOptions{
+		ReservedConnectionId: uint64(connID),
+		SessionSettings:      map[string]string{"search_path": "foo"},
+	}
+
+	format, columnFormats, notices, state, err := e.CopyOutReady(context.Background(), &query.Target{}, "COPY t TO STDOUT", options, nil)
+
+	assert.Zero(t, format)
+	assert.Nil(t, columnFormats)
+	assert.Nil(t, notices)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to prepare reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
 // TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection is
 // the regression test for the reserved connection being destroyed on a plain
 // SQL error (e.g. division_by_zero, an RLS WITH CHECK denial). Such an error

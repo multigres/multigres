@@ -1253,6 +1253,9 @@ func (e *Executor) CopyReady(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
+			if mterrors.IsConnectionError(err) {
+				return 0, nil, nil, e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			}
 			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 
@@ -1620,6 +1623,9 @@ func (e *Executor) CopyOutReady(
 			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
+			if mterrors.IsConnectionError(err) {
+				return 0, nil, nil, nil, e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			}
 			return 0, nil, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
 		}
 		e.stampVpidOnReserved(ctx, reservedConn, options)
