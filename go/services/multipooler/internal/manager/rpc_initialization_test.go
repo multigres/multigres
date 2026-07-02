@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -314,7 +315,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	// postgres is now primary and any drain completes, so the routing role derives
 	// PRIMARY and the record projects the self-leadership observation.
 	require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
-		s.PostgresMode = PostgresModePrimary
+		s.PostgresMode = pgmode.Primary
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}

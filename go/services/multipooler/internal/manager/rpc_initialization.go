@@ -162,11 +162,11 @@ func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolerma
 	if pm.promotionInProgress.Load() {
 		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 	}
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_UNKNOWN
 	}
-	if isPrimary {
+	if pgMode.OutOfRecovery() {
 		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY
 	}
 	return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STANDBY
@@ -174,12 +174,12 @@ func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolerma
 
 // getWALPosition returns the current WAL position and any error encountered
 func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error) {
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	if isPrimary {
+	if pgMode.OutOfRecovery() {
 		return pm.getPrimaryLSN(ctx)
 	}
 	return pm.getStandbyReplayLSN(ctx)

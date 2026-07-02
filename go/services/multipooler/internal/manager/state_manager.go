@@ -24,6 +24,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
@@ -67,7 +68,7 @@ type StateManager struct {
 
 	// pgMode is the physical postgres recovery mode (see PostgresMode), fed by the
 	// postgres monitor via Mutate's PostgresMode field. Guarded by mu.
-	pgMode PostgresMode
+	pgMode pgmode.Mode
 
 	// consensusStatus returns this pooler's live consensus snapshot (e.g.
 	// ConsensusManager.CachedConsensusStatus). Injected — queried live, not stored —
@@ -91,7 +92,7 @@ type StateManager struct {
 // not superseded by a higher known rule — see commonconsensus.IsActiveLeader);
 // REPLICA otherwise. cs may be nil (treated as not a leader). This is the single
 // place the base facts (recovery, consensus) become the effective routing role.
-func deriveRoutingRole(pgMode PostgresMode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingRole {
+func deriveRoutingRole(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingRole {
 	if pgMode.OutOfRecovery() && commonconsensus.IsActiveLeader(cs) {
 		return servingstate.RoutingRolePrimary
 	}
@@ -204,8 +205,8 @@ func (ssm *StateManager) fanOutLocked(ctx context.Context, target servingstate.S
 // recovery/serving here; leadership follows.
 type servingStateMutation struct {
 	// PostgresMode is the physical recovery mode postgres reports
-	// (pg_is_in_recovery): PostgresModePrimary or PostgresModeInRecovery.
-	PostgresMode  PostgresMode
+	// (pg_is_in_recovery): pgmode.Primary or pgmode.InRecovery.
+	PostgresMode  pgmode.Mode
 	ServingStatus clustermetadatapb.PoolerServingStatus
 }
 
@@ -325,7 +326,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 // A never-fanned state and DRAINING both always report drift: DRAINING is a
 // transient drain this loop owns, and reconciling re-verifies it (completing the
 // DRAINING->SERVING transition once the node is healthy and role-aligned).
-func (ssm *StateManager) hasDrift(pgMode PostgresMode) bool {
+func (ssm *StateManager) hasDrift(pgMode pgmode.Mode) bool {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	if ssm.lastFannedOut == nil || ssm.record.ServingStatus() == clustermetadatapb.PoolerServingStatus_DRAINING {
@@ -348,7 +349,7 @@ func (ssm *StateManager) hasDrift(pgMode PostgresMode) bool {
 // hasDrift's detection. A DRAINING status is completed to SERVING (the transient
 // drain the monitor owns); any other status is preserved (DISABLED stays
 // not-serving). Requires the action lock (asserted by Mutate).
-func (ssm *StateManager) fixDrift(ctx context.Context, pgMode PostgresMode) error {
+func (ssm *StateManager) fixDrift(ctx context.Context, pgMode pgmode.Mode) error {
 	return ssm.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgMode
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {

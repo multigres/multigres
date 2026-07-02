@@ -60,6 +60,14 @@ type RunFunc func(ctx context.Context, cmd *executil.Cmd, operationName string) 
 // injected by the manager (which owns the pg connection) so the health poller
 // can be role-aware — e.g. only a primary archives WAL — without the engine
 // owning a connection.
+//
+// TODO: reconsider this bool. The manager elsewhere models this as the
+// PostgresMode enum (out of recovery vs in recovery); decide whether the
+// backup engine should take PostgresMode (physical recovery state — what
+// actually governs WAL archiving) or the routing role, and thread that typed
+// value through instead of a bare "isPrimary" bool. Blocked on giving the enum
+// a home the backup package can import (manager imports backup, so it can't
+// reach back into package manager).
 type RoleFunc func(ctx context.Context) (isPrimary bool, err error)
 
 // ArchiverStats is a snapshot of pg_stat_archiver relevant to WAL archive lag.

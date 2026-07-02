@@ -22,6 +22,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -108,7 +109,7 @@ type postgresState struct {
 	dirInitialized           bool
 	postgresRunning          bool
 	backupsAvailable         bool
-	pgMode                   PostgresMode
+	pgMode                   pgmode.Mode
 	bootstrapSentinelPresent bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
 	// checkpoint is on its current running timeline, so it is safe to pg_rewind
@@ -280,7 +281,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 			// guessed primary would make a healthy but momentarily-unqueryable replica
 			// look like a stale primary and trigger a destructive demote (pg_rewind),
 			// or flip the published writable bit on a guess. The probe returns
-			// PostgresModeUnknown on error, which never derives a writable role;
+			// pgmode.Unknown on error, which never derives a writable role;
 			// surface the error so the monitor skips remediation this tick and
 			// retries, matching the bootstrap-sentinel handling below.
 			return state, fmt.Errorf("determine recovery mode: %w", err)
@@ -635,7 +636,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// self-leadership and the writable signal). Serving status is unchanged (a
 		// healthy standby keeps serving reads).
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresMode = PostgresModeInRecovery
+			s.PostgresMode = pgmode.InRecovery
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err)
 		}
@@ -674,7 +675,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// the writer keeps issuing INSERTs against a read-only standby every
 		// interval until re-election.
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresMode = PostgresModeInRecovery
+			s.PostgresMode = pgmode.InRecovery
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err)
 		}

@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -55,25 +56,19 @@ import (
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// isPrimary checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
-	inRecovery, err := pm.isInRecovery(ctx)
-	return !inRecovery, err
-}
-
-// postgresMode reports the physical recovery mode as a PostgresMode, converting
+// postgresMode reports the physical recovery mode as a pgmode.Mode, converting
 // the raw pg_is_in_recovery() result at this boundary so callers propagate the
-// typed value rather than a bool. On error returns PostgresModeUnknown so a
+// typed value rather than a bool. On error returns pgmode.Unknown so a
 // failed probe never reads as a writable primary.
-func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (PostgresMode, error) {
+func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	inRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
-		return PostgresModeUnknown, err
+		return pgmode.Unknown, err
 	}
 	if inRecovery {
-		return PostgresModeInRecovery, nil
+		return pgmode.InRecovery, nil
 	}
-	return PostgresModePrimary, nil
+	return pgmode.Primary, nil
 }
 
 // isInRecovery checks if the connected database is in recovery mode (standby).

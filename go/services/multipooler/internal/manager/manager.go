@@ -381,7 +381,10 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	// Wire the backup-health poller to the manager's pg connection: role
 	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and
 	// the backup-relevant settings (archive/restore config).
-	pm.backup.SetRoleProvider(pm.isPrimary)
+	pm.backup.SetRoleProvider(func(ctx context.Context) (bool, error) {
+		mode, err := pm.postgresMode(ctx)
+		return mode.OutOfRecovery(), err
+	})
 	pm.backup.SetArchiverStatsProvider(pm.archiverStats)
 	pm.backup.SetPGSettingsProvider(pm.backupSettings)
 
@@ -1098,12 +1101,12 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
-	state.isReadOnly = !isPrimary
+	state.isReadOnly = !pgMode.OutOfRecovery()
 
 	// Capture current LSN
 	state.finalLSN, err = pm.getWALPosition(ctx)
@@ -1115,7 +1118,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.logger.InfoContext(ctx, "Checked demotion state",
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
-		"is_primary", isPrimary,
+		"postgres_mode", pgMode,
 		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 
