@@ -29,8 +29,8 @@ import (
 )
 
 // ResolveTrackSetConfig handles a SELECT whose target list is entirely
-// set_config(...) calls where at least one argument can't be resolved at plan
-// time — the shape pg_dump uses on PG17+:
+// set_config(...) calls in the narrow PG17+ pg_dump shape where the GUC name is
+// pg_settings.name and the value/is_local arguments are static:
 //
 //	SELECT set_config(name, 'view, foreign-table', false)
 //	FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'
@@ -42,18 +42,18 @@ import (
 //
 //  1. Resolve: execute the "unroll" projection — the original SELECT with each
 //     set_config(a, b, c) target replaced by its three arguments a, b, c — once,
-//     reading the rows internally. This is a pure read that yields the concrete
-//     (name, value, is_local) tuple per row. It runs through ResolveRoute, an
-//     ordinary Route (or an AdvisoryLockRoute when a set_config argument
-//     acquires/releases a session advisory lock), so backend pinning and
-//     bindVar reconstruction reuse the existing routing machinery.
+//     reading the rows internally. The planner restricts this to a simple
+//     pg_settings lookup so the resolve phase is a side-effect-free catalog read
+//     yielding the concrete (name, value, is_local) tuple per row. It runs
+//     through ResolveRoute, an ordinary Route, so bindVar reconstruction reuses
+//     the existing routing machinery.
 //  2. Prepare tracking: validate gateway-managed values and capture closures
 //     for the state changes, without mutating gateway state yet.
 //  3. Apply: synthesize a set_config(...) query from the *captured literals* and
 //     run it, forwarding PostgreSQL's authoritative result to the client. Using
 //     the captured literals — not a re-run of the original dynamic query — is
 //     essential: the original could resolve to different rows/values the second
-//     time (concurrent catalog change, volatile FROM).
+//     time (for example after a concurrent catalog change).
 //  4. Track: run the prepared closures only after step 3 succeeds. Ordinary
 //     session-scoped (is_local=false) tuples are recorded in SessionSettings for
 //     pool-rotation replay. Gateway-managed tuples update gateway-local state;
@@ -73,10 +73,8 @@ type ResolveTrackSetConfig struct {
 	// Query is the original SQL string, kept for GetQuery/debug output.
 	Query string
 
-	// ResolveRoute runs the unroll projection. It is a Route, or an
-	// AdvisoryLockRoute wrapping one when the projection acquires/releases a
-	// session-level advisory lock — so opts/advisory pinning and $N bindVar
-	// reconstruction flow through the same primitives as ordinary queries. It is
+	// ResolveRoute runs the unroll projection. It is a Route, so $N bindVar
+	// reconstruction flows through the same primitives as ordinary queries. It is
 	// executed with a capturing callback: the resolve reads the rows, the client
 	// never sees them.
 	ResolveRoute Primitive

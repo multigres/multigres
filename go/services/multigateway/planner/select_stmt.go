@@ -87,15 +87,16 @@ func (p *Planner) planSelectStmt(
 	return plan, nil
 }
 
-// planResolveSetConfig plans a SELECT whose target list is entirely
-// set_config(...) calls where at least one argument can't be resolved at plan
-// time (the analyzer set DynamicSetConfig). We can't mint a literal SET to
-// track, so the plan is a single ResolveTrackSetConfig primitive that:
+// planResolveSetConfig plans the narrow dynamic SELECT set_config shape the
+// analyzer accepts for pg_dump: the target list is entirely set_config(...), at
+// least one name argument is pg_settings.name, and every value/is_local argument
+// is static. We can't mint a literal SET to track before reading pg_settings, so
+// the plan is a single ResolveTrackSetConfig primitive that:
 //
 //  1. runs an "unroll" projection — the SELECT with each set_config(a, b, c)
 //     target replaced by its three arguments a, b, c — once, to learn the
-//     concrete (name, value, is_local) tuples per row (pure read, no
-//     set_config side effect);
+//     concrete (name, value, is_local) tuples per row (side-effect-free
+//     pg_settings read, no set_config side effect);
 //  2. prepares and validates gateway tracking actions without mutating state;
 //  3. applies all tuples with literals (a synthesized set_config(...) over the
 //     captured values) and forwards that authoritative result to the client;
@@ -103,14 +104,8 @@ func (p *Planner) planSelectStmt(
 //     synthesized apply query.
 //
 // Running the projection once is essential: re-running the original dynamic
-// query could resolve to different rows/values (concurrent catalog change,
-// volatile FROM), so the first resolution is the source of truth.
-//
-// opts carries advisory-lock pinning intent. A set_config argument can itself
-// acquire a session-level advisory lock (e.g.
-// set_config('x', pg_try_advisory_lock(1)::text, false)); that call runs when
-// the resolve projection evaluates the arguments, so the primitive must pin the
-// backend the same way routePrimitive would for an ordinary query.
+// query could resolve to different rows/values after a concurrent catalog
+// change, so the first resolution is the source of truth.
 func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts PlanOptions) (*engine.Plan, error) {
 	// Clone before mutating: the AST may be a cached plan's normalized tree
 	// shared across executions.

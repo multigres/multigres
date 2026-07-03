@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync/atomic"
 	"time"
 
@@ -69,6 +70,13 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 		return nil
 	}
 	return options.SessionSettings
+}
+
+func (e *Executor) sessionSettingsForPool(settings map[string]string) map[string]string {
+	if len(settings) == 0 {
+		return nil
+	}
+	return maps.Clone(settings)
 }
 
 func (e *Executor) postQuerySessionSettingsFromOptions(options *query.ExecuteOptions) (map[string]string, bool) {
@@ -597,6 +605,8 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	reasons := protoutil.GetReasons(reservationOptions)
+	preQueryReasons := rc.RemainingReasons()
+	addedStatementLocalReasons := uint32(0)
 
 	// If the caller is adding reservation reasons (e.g., promoting a temp-table
 	// reservation to also hold a transaction), apply them now.
@@ -613,8 +623,13 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 			}
 		}
 		// Add all requested non-transaction reasons to the reservation
-		// (BeginWithQuery already added ReasonTransaction internally).
+		// (BeginWithQuery already added ReasonTransaction internally). Track the
+		// statement-local bits that were not present before this query so we can
+		// unwind them if PostgreSQL rejects the statement. Session-level reasons
+		// such as advisory locks are deliberately not included here: if the lock
+		// was acquired before a later statement error, PostgreSQL can keep it.
 		if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+			addedStatementLocalReasons = (nonBeginReasons &^ preQueryReasons) & (protoutil.ReasonTempTable | protoutil.ReasonPortal)
 			rc.AddReservationReason(nonBeginReasons)
 		}
 	}
@@ -652,6 +667,16 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		shouldRelease := false
 		for _, name := range pinNames {
 			if rc.ReleasePortal(name) {
+				shouldRelease = true
+			}
+		}
+		if addedStatementLocalReasons&protoutil.ReasonTempTable != 0 {
+			if rc.RemoveReservationReason(protoutil.ReasonTempTable) {
+				shouldRelease = true
+			}
+		}
+		if len(pinNames) == 0 && addedStatementLocalReasons&protoutil.ReasonPortal != 0 {
+			if rc.RemoveReservationReason(protoutil.ReasonPortal) {
 				shouldRelease = true
 			}
 		}
@@ -950,7 +975,7 @@ func (e *Executor) portalExecuteWithReserved(
 	// already parsed it; for the existing-conn branch this is the only call.
 	canonicalName, err := e.ensurePrepared(ctx, reservedConn.Conn(), preparedStatement)
 	if err != nil {
-		return e.portalReservedError(reservedConn, portal.Name, options, err)
+		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
 
 	// Bind and execute using the portal's own name and the canonical statement name.
@@ -965,7 +990,7 @@ func (e *Executor) portalExecuteWithReserved(
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
 	if err != nil {
-		return e.portalReservedError(reservedConn, portal.Name, options, err)
+		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
 
 	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
@@ -1007,17 +1032,18 @@ func (e *Executor) portalExecuteWithReserved(
 // protocol-synchronized (the client drains through ReadyForQuery), so an
 // explicit transaction/temp/advisory reservation must survive for the client to
 // observe normal failed-transaction semantics and issue ROLLBACK. Only
-// connection-level failures taint the backend. If the portal was the only reason
-// for reservation, release the backend and return a zero ReservedState.
-func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, err error) (*query.ReservedState, error) {
+// connection-level failures taint the backend. If this call created the
+// reservation and no reason survived the failed statement, release the backend
+// and return a zero ReservedState.
+func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionError(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, wrapQueryError(err)
 	}
 
 	shouldRelease := reservedConn.ReleasePortal(portalName)
-	if shouldRelease || reservedConn.RemainingReasons() == 0 {
-		e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+	if shouldRelease || (newlyReserved && reservedConn.RemainingReasons() == 0) {
+		reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
 		return nil, wrapQueryError(err)
 	}
 	return e.buildReservedState(reservedConn), wrapQueryError(err)
@@ -1511,7 +1537,7 @@ func (e *Executor) CopyFinalize(
 		// against upstream PostgreSQL.
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-				e.releaseReservedConn(reservedConn, reserved.ReleasePortalComplete, options)
+				reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
 				return noticeResult, nil, err
 			}
 			return noticeResult, e.buildReservedState(reservedConn), err

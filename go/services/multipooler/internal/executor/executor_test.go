@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -575,6 +576,82 @@ func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 	require.Equal(t, protoutil.ReasonTempTable, rc.addedReasons,
 		"temp_table reason should be added to the reservation")
 	require.True(t, rc.streamingCalled)
+}
+
+func TestStreamExecuteOnReservedConn_FailedTempTablePromotionRollsBackNewReason(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+		streamingErr:     errors.New("backend rejected CREATE TEMP TABLE"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE bad (id missing_type)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, protoutil.ReasonTempTable, rc.addedReasons,
+		"temp-table reason is installed before the query so the bitmask is consistent while it runs")
+	require.Equal(t, protoutil.ReasonTempTable, rc.removedReasons,
+		"failed statement must unwind the temp-table reason it just added")
+	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons,
+		"surviving transaction reservation must be preserved after a PostgreSQL statement error")
+	require.Empty(t, rc.releaseCalls, "connection must stay reserved while the transaction reason persists")
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons())
+}
+
+func TestStreamExecuteOnReservedConn_FailedTempTablePromotionPreservesExistingReason(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+		streamingErr:     errors.New("backend rejected CREATE TEMP TABLE"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE bad (id missing_type)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, protoutil.ReasonTempTable, rc.addedReasons)
+	require.Zero(t, rc.removedReasons,
+		"failed statement must not remove a temp-table reason that existed before this query")
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, rc.remainingReasons)
+	require.Empty(t, rc.releaseCalls)
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, state.GetReservationReasons())
+}
+
+func TestStreamExecuteOnReservedConn_ConnectionErrorReleasesReservedConn(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+		streamingErr:     io.EOF,
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, state)
+	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseError}, rc.releaseCalls,
+		"connection-level errors must taint/release the reserved backend")
 }
 
 // TestStreamExecuteOnReservedConn_BeginErrorPropagates covers the failure path
