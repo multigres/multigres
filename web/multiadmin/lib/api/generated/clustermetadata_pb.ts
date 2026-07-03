@@ -848,7 +848,12 @@ export class MultiPooler extends Message<MultiPooler> {
    * those reads to routing_state.role == PRIMARY, this field can stop being
    * published and then be removed.
    *
-   * @generated from field: clustermetadata.PoolerType type = 6;
+   * Deprecated to surface every remaining reader via staticcheck SA1019: the
+   * multipooler derives/publishes it (pooler_record) and reports it on Status;
+   * new decision reads should use routing_state instead.
+   *
+   * @generated from field: clustermetadata.PoolerType type = 6 [deprecated = true];
+   * @deprecated
    */
   type = PoolerType.UNKNOWN;
 

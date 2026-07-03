@@ -340,6 +340,11 @@ linters:
           - staticcheck
         path: ^go/common/topoclient/etcdtopo/store\.go$
         text: "SA1019: grpc.WithBlock"
+      # Test fixtures legitimately construct/read MultiPooler.Type.
+      - linters:
+          - staticcheck
+        path: _test\.go$
+        text: "SA1019: .*Type is deprecated: Marked as deprecated in clustermetadata"
 formatters:
   enable:
     - gofumpt

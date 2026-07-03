@@ -870,32 +870,12 @@ func (pm *MultiPoolerManager) checkReady() error {
 	}
 }
 
-// checkPoolerType verifies that the pooler matches the expected type
-func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
-	pm.mu.Lock()
-	poolerType := pm.record.Type()
-	pm.mu.Unlock()
-
-	if poolerType != expectedType {
-		pm.logger.Error(operationName+" called on incorrect pooler type",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String(),
-			"expected_type", expectedType.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be %s (service_id: %s)",
-				poolerType.String(), expectedType.String(), pm.serviceID.String()))
-	}
-	return nil
-}
-
-// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
-// This is a common guardrail for replication-related operations on standby servers
+// checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
+// the authoritative precondition for replication-related operations. The physical
+// recovery state — not the topology PoolerType label — is what governs whether a
+// standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
+// (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
 func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "Replication operation"); err != nil {
-		return err
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {

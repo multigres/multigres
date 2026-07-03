@@ -1103,6 +1103,12 @@ type MultiPooler struct {
 	// (FindPrimaryPooler + drain + status role map). Once the operator switches
 	// those reads to routing_state.role == PRIMARY, this field can stop being
 	// published and then be removed.
+	//
+	// Deprecated to surface every remaining reader via staticcheck SA1019: the
+	// multipooler derives/publishes it (pooler_record) and reports it on Status;
+	// new decision reads should use routing_state instead.
+	//
+	// Deprecated: Marked as deprecated in clustermetadata.proto.
 	Type PoolerType `protobuf:"varint,6,opt,name=type,proto3,enum=clustermetadata.PoolerType" json:"type,omitempty"`
 	// PoolerServingStatus is the current type of the pooler.
 	ServingStatus PoolerServingStatus `protobuf:"varint,7,opt,name=serving_status,json=servingStatus,proto3,enum=clustermetadata.PoolerServingStatus" json:"serving_status,omitempty"`
@@ -1182,6 +1188,7 @@ func (x *MultiPooler) GetKeyRange() *KeyRange {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in clustermetadata.proto.
 func (x *MultiPooler) GetType() PoolerType {
 	if x != nil {
 		return x.Type
@@ -2590,12 +2597,12 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rPoolerAddress\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
-	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x8e\x05\n" +
+	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x92\x05\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
 	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
-	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x12/\n" +
-	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\x04type\x12K\n" +
+	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x123\n" +
+	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeB\x02\x18\x01R\x04type\x12K\n" +
 	"\x0eserving_status\x18\a \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12\x1a\n" +
 	"\bhostname\x18\b \x01(\tR\bhostname\x12D\n" +
 	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x12\x1d\n" +

@@ -101,17 +101,20 @@ type poolerRecord struct {
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
 //
-// Returns an error if the seed violates the Type ↔ routing_state invariant
-// (see validateState). Every mutation is validated, so the seed must be too —
-// otherwise the record could hold a state Mutate would reject, surfacing only
-// at the first transition.
+// The seeded PoolerType is normalized via typeForState so the record's derived
+// label is correct even before the first Mutate/publish — callers (init) need not
+// set it. Returns an error to preserve the constructor's signature; it does not
+// currently fail.
 func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
 	}
-	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.MultiPooler))
+	seed := proto.Clone(initial).(*clustermetadatapb.MultiPooler)
+	//nolint:staticcheck // SA1019: pooler_record owns the derived PoolerType label; removal pending operator migration off it.
+	seed.Type = typeForState(seed.LifecycleStatus, seed.RoutingState)
+	r.desired.Store(seed)
 	return r, nil
 }
 
@@ -137,6 +140,8 @@ func (r *poolerRecord) Hostname() string { return r.desired.Load().Hostname }
 func (r *poolerRecord) Port(name string) int32 { return r.desired.Load().PortMap[name] }
 
 // Type returns the current pooler type.
+//
+//nolint:staticcheck // SA1019: exposes the derived PoolerType label to callers; removal pending operator migration off it.
 func (r *poolerRecord) Type() clustermetadatapb.PoolerType { return r.desired.Load().Type }
 
 // ServingStatus returns the current serving status.
@@ -207,6 +212,7 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 	}
 	fn(&state)
 	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
+	//nolint:staticcheck // SA1019: pooler_record owns the derived PoolerType label; removal pending operator migration off it.
 	next.Type = typeForState(state.LifecycleStatus, state.RoutingState)
 	next.ServingStatus = state.ServingStatus
 	next.LifecycleStatus = state.LifecycleStatus
@@ -318,7 +324,6 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 			if err := r.topoClient.RegisterMultiPooler(ctx, pub, true); err != nil {
 				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
 					"error", err,
-					"type", pub.Type,
 					"serving_status", pub.ServingStatus)
 			} else {
 				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.MultiPooler))
@@ -367,7 +372,6 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	}
 
 	r.logger.InfoContext(ctx, "Publishing multipooler state to topology",
-		"type", pub.Type,
 		"serving_status", pub.ServingStatus)
 
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
@@ -376,7 +380,6 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	if err := r.topoClient.RegisterMultiPooler(publishCtx, pub, true); err != nil {
 		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
 			"error", err,
-			"type", pub.Type,
 			"serving_status", pub.ServingStatus)
 		return
 	}
@@ -384,6 +387,5 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.MultiPooler))
 
 	r.logger.InfoContext(ctx, "Published multipooler state to topology",
-		"type", desired.Type,
 		"serving_status", desired.ServingStatus)
 }
