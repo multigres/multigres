@@ -208,9 +208,9 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isReplicaInTopology bool   // PoolerType == REPLICA
-	isReadOnly          bool   // default_transaction_read_only = on
-	finalLSN            string // Captured LSN before demotion
+	routingState *clustermetadatapb.RoutingState
+	isReadOnly   bool   // default_transaction_read_only = on
+	finalLSN     string // Captured LSN before demotion
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
@@ -1071,11 +1071,9 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 
 	// Check topology state
 	pm.mu.Lock()
-	poolerType := pm.record.Type()
+	state.routingState = pm.record.RoutingState()
 	servingStatus := pm.record.ServingStatus()
 	pm.mu.Unlock()
-
-	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	pgMode, err := pm.postgresMode(ctx)
@@ -1093,10 +1091,9 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_replica_in_topology", state.isReplicaInTopology,
+		"routing_role", state.routingState.GetRole(),
 		"is_read_only", state.isReadOnly,
 		"postgres_mode", pgMode,
-		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 
 	return state, nil

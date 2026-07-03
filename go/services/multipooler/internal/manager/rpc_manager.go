@@ -701,8 +701,9 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		return err
 	}
 
-	// If everything is already complete, return early (fully idempotent)
-	if state.isReplicaInTopology && state.isReadOnly {
+	// If everything is already complete, return early (fully idempotent): the
+	// record no longer advertises PRIMARY and postgres is read-only.
+	if state.routingState.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY && state.isReadOnly {
 		return nil
 	}
 
