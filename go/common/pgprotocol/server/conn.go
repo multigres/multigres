@@ -757,6 +757,13 @@ func (c *Conn) serve() error {
 				c.logger.Debug("client closed connection")
 				return nil
 			}
+			// A FATAL ErrorResponse is already on the wire; PostgreSQL closes
+			// without a ReadyForQuery, so flush and tear down without emitting
+			// any further frames.
+			if errors.Is(err, errFatalDiagnosticSent) {
+				_ = c.endWriterBuffering()
+				return nil
+			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
@@ -1032,6 +1039,12 @@ func (c *Conn) handleQuery() error {
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
+		}
+		// A relayed FATAL ends the session: PostgreSQL sends the
+		// ErrorResponse and closes without a ReadyForQuery.
+		if diag := fatalDiagnostic(err); diag != nil {
+			c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+			return errFatalDiagnosticSent
 		}
 	}
 
@@ -1598,7 +1611,16 @@ func (c *Conn) drainExtendedQueryMessage() error {
 // drain ends at).
 func (c *Conn) writeExtendedQueryError(err error) error {
 	c.discardingUntilSync = true
-	return c.writeError(err)
+	if writeErr := c.writeError(err); writeErr != nil {
+		return writeErr
+	}
+	// A relayed FATAL ends the session immediately — no drain-until-Sync, no
+	// ReadyForQuery. PostgreSQL closes right after the ErrorResponse.
+	if diag := fatalDiagnostic(err); diag != nil {
+		c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+		return errFatalDiagnosticSent
+	}
+	return nil
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.

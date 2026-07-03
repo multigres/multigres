@@ -464,7 +464,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -660,7 +660,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -708,7 +708,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -755,7 +755,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -795,7 +795,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -886,7 +886,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1010,7 +1010,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1119,7 +1119,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1264,7 +1264,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {

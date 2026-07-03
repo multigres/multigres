@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -198,6 +199,22 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 	return c.flush()
 }
 
+// responseReadError shapes the error returned when a response read loop dies
+// before reaching ReadyForQuery. When the backend has already sent an
+// ErrorResponse (captured holds its *PgDiagnostic), the connection loss is the
+// normal epilogue of a FATAL: PostgreSQL sends the diagnostic and closes the
+// socket without a ReadyForQuery. The diagnostic is the real error and must
+// not be masked by the I/O failure. The read error stays in the chain so
+// mterrors.IsConnectionError classifies the connection as dead regardless of
+// the diagnostic's SQLSTATE.
+func responseReadError(captured, readErr error) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(captured, &diag) {
+		return fmt.Errorf("%w (connection lost before ReadyForQuery: %w)", captured, readErr)
+	}
+	return fmt.Errorf("failed to read message: %w", readErr)
+}
+
 // processQueryResponses processes all responses to a query until ReadyForQuery.
 // The callback is invoked in a streaming fashion with batched rows:
 // - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
@@ -241,7 +258,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		// Read message.
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {

@@ -531,3 +531,55 @@ func TestErrorFormat_UndefinedTable(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorFormat_TerminateBackendFatal tests that a backend FATAL — here
+// self-inflicted via pg_terminate_backend(pg_backend_pid()) — reaches the
+// client verbatim (severity FATAL, SQLSTATE 57P01, PostgreSQL's exact
+// message) and that the connection is closed afterwards, exactly as native
+// PostgreSQL behaves. Before the fix, multigateway reported a wrapped
+// internal error ("query execution failed: ... EOF") with severity ERROR and
+// kept the client connection open.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
+func TestErrorFormat_TerminateBackendFatal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			// BEGIN pins the session to one backend on the pooled path, the
+			// same shape as the temp-schema-cleanup isolation test. The
+			// terminate then kills exactly the backend this session is on.
+			_, err = conn.Exec(ctx, "BEGIN")
+			require.NoError(t, err)
+
+			_, err = conn.Exec(ctx, "SELECT pg_terminate_backend(pg_backend_pid())")
+			require.Error(t, err)
+
+			var pgErr *pgconn.PgError
+			require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T: %v", err, err)
+			assert.Equal(t, "FATAL", pgErr.Severity, "backend FATAL must be relayed verbatim")
+			assert.Equal(t, "57P01", pgErr.Code, "SQLSTATE should be 57P01 (admin_shutdown)")
+			assert.Equal(t, "terminating connection due to administrator command", pgErr.Message)
+
+			// PostgreSQL closes the connection after a FATAL; the proxy must too.
+			_, err = conn.Exec(ctx, "SELECT 1")
+			require.Error(t, err, "connection must be closed after a FATAL")
+			assert.True(t, conn.IsClosed(), "pgx should observe the closed connection")
+		})
+	}
+}
