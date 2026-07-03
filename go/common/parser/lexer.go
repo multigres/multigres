@@ -1912,8 +1912,11 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 	}
 	e := errors[0]
 	return &ParseSyntaxError{
-		Message:        e.Message,
-		Hint:           e.HintText,
+		Message: e.Message,
+		// Only the PostgreSQL-mirroring WireHint reaches clients; the
+		// internal HintText recovery guidance has no PG counterpart and
+		// would diverge from stock PostgreSQL output.
+		Hint:           e.WireHint,
 		Position:       e.Position,
 		CursorPosition: e.CursorPosition(),
 	}

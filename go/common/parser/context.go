@@ -123,9 +123,16 @@ type ParseError struct {
 
 	// Context and hints
 	Context     string // Additional context information (e.g., "in quoted string")
-	HintText    string // Helpful hint for user
+	HintText    string // Helpful hint for user (internal/tooling; never sent to clients)
 	SourceText  string // Original source text
 	ErrorLength int    // Length of problematic text
+
+	// WireHint is the PostgreSQL-visible HINT for this error, mirroring an
+	// ereport errhint in PostgreSQL's own grammar. Unlike HintText — internal
+	// recovery guidance whose wording PostgreSQL never emits — WireHint is
+	// forwarded to clients on the ErrorResponse HINT field. Set only by
+	// AddSyntaxErrorHint (grammar actions that reproduce a PG errhint).
+	WireHint string
 }
 
 // Error implements the error interface
@@ -701,7 +708,14 @@ func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 		}
 	}
 
-	return ctx.AddErrorWithHint(message, location, hint)
+	pe := ctx.AddError(message, location)
+	if hint != "" {
+		// The stored slice holds a copy of *pe; set the wire hint on both so
+		// GetErrors-based readers and the returned pointer agree.
+		pe.WireHint = hint
+		ctx.errors[len(ctx.errors)-1].WireHint = hint
+	}
+	return pe
 }
 
 // AddWarning adds a parsing warning to the context

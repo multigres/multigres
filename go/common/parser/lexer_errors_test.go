@@ -768,3 +768,16 @@ func TestDropOperatorMissingArgumentHint(t *testing.T) {
 	assert.Equal(t, "Use NONE to denote the missing argument of a unary operator.", se.Hint)
 	assert.Positive(t, se.CursorPosition, "the error position must be carried for the P field")
 }
+
+// TestInternalLexerHintsStayOffTheWire pins that the lexer's internal recovery
+// hints (HintText) never surface as a client-visible HINT: PostgreSQL 17 emits
+// no hint for trailing junk after a numeric literal, so neither may we.
+func TestInternalLexerHintsStayOffTheWire(t *testing.T) {
+	_, err := ParseSQL("SELECT 123abc;")
+	require.Error(t, err)
+
+	var se *ParseSyntaxError
+	require.ErrorAs(t, err, &se)
+	assert.Contains(t, se.Message, "trailing junk after numeric literal")
+	assert.Empty(t, se.Hint, "internal recovery hints must not reach the ErrorResponse HINT field")
+}
