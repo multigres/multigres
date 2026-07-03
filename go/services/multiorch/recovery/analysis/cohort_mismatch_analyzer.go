@@ -78,7 +78,7 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache
-	// cohort member (no PoolerAnalysis carries its ID otherwise).
+	// cohort member (no pooler rider carries its ID otherwise).
 	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(sa.HighestShardRule.GetCohortMembers()))
 	for _, id := range sa.HighestShardRule.GetCohortMembers() {
 		cohortIDs[topoclient.ComponentIDString(id)] = id

@@ -285,7 +285,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 		return nil, nil
 	}
 
-	// At this point, LeaderReachable is false. This can happen in three cases:
+	// At this point, the leader is not observed live. This can happen in three cases:
 	//
 	// 1. Leader pooler is unreachable (e.g. pooler process crashed).
 	//    Postgres may still be running; followers can still receive WAL.
