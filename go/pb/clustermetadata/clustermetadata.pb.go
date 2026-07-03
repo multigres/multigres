@@ -1093,7 +1093,16 @@ type MultiPooler struct {
 	ShardKey *ShardKey `protobuf:"bytes,2,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"` //
 	// If range based sharding is used, range for the pooler's shard.
 	KeyRange *KeyRange `protobuf:"bytes,5,opt,name=key_range,json=keyRange,proto3" json:"key_range,omitempty"`
-	// PoolerType is the kind of pooler: PRIMARY or REPLICA
+	// PoolerType is the kind of pooler: PRIMARY or REPLICA.
+	//
+	// TODO(pooler-type-removal): this label is now derived, not authoritative —
+	// the multipooler computes it at publish from routing_state + lifecycle
+	// (SHUTDOWN->UNKNOWN, else PRIMARY iff routing_state PRIMARY, else REPLICA;
+	// DRAINED is no longer produced) and nothing inside multigres reads it for
+	// identity. The remaining reader is the external multigres-operator
+	// (FindPrimaryPooler + drain + status role map). Once the operator switches
+	// those reads to routing_state.role == PRIMARY, this field can stop being
+	// published and then be removed.
 	Type PoolerType `protobuf:"varint,6,opt,name=type,proto3,enum=clustermetadata.PoolerType" json:"type,omitempty"`
 	// PoolerServingStatus is the current type of the pooler.
 	ServingStatus PoolerServingStatus `protobuf:"varint,7,opt,name=serving_status,json=servingStatus,proto3,enum=clustermetadata.PoolerServingStatus" json:"serving_status,omitempty"`

@@ -95,7 +95,6 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 				"database", p.GetShardKey().GetDatabase(),
 				"tablegroup", p.GetShardKey().GetTableGroup(),
 				"shard", p.GetShardKey().GetShard(),
-				"leader", p.GetRoutingState() != nil,
 			)
 			return store.NewPooler(
 				&multiorchdatapb.PoolerHealthState{
