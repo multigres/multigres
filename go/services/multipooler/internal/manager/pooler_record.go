@@ -101,20 +101,16 @@ type poolerRecord struct {
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
 //
-// The seeded PoolerType is normalized via typeForState so the record's derived
-// label is correct even before the first Mutate/publish — callers (init) need not
-// set it. Returns an error to preserve the constructor's signature; it does not
-// currently fail.
+// The seed need not carry a PoolerType: it is a derived, publish-only label (see
+// Type / routingStateForPublish). Returns an error to preserve the constructor's
+// signature; it does not currently fail.
 func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
 	}
-	seed := proto.Clone(initial).(*clustermetadatapb.MultiPooler)
-	//nolint:staticcheck // SA1019: pooler_record owns the derived PoolerType label; removal pending operator migration off it.
-	seed.Type = typeForState(seed.LifecycleStatus, seed.RoutingState)
-	r.desired.Store(seed)
+	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.MultiPooler))
 	return r, nil
 }
 
@@ -139,10 +135,14 @@ func (r *poolerRecord) Hostname() string { return r.desired.Load().Hostname }
 // the port map.
 func (r *poolerRecord) Port(name string) int32 { return r.desired.Load().PortMap[name] }
 
-// Type returns the current pooler type.
-//
-//nolint:staticcheck // SA1019: exposes the derived PoolerType label to callers; removal pending operator migration off it.
-func (r *poolerRecord) Type() clustermetadatapb.PoolerType { return r.desired.Load().Type }
+// Type returns the pooler's derived PoolerType label (see typeForState). It is
+// computed from lifecycle + routing_state, not read from the stored proto field:
+// PoolerType is a publish-only projection, set on the wire copy by
+// routingStateForPublish and never held as internal state.
+func (r *poolerRecord) Type() clustermetadatapb.PoolerType {
+	m := r.desired.Load()
+	return typeForState(m.LifecycleStatus, m.RoutingState)
+}
 
 // ServingStatus returns the current serving status.
 func (r *poolerRecord) ServingStatus() clustermetadatapb.PoolerServingStatus {
@@ -212,8 +212,6 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 	}
 	fn(&state)
 	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
-	//nolint:staticcheck // SA1019: pooler_record owns the derived PoolerType label; removal pending operator migration off it.
-	next.Type = typeForState(state.LifecycleStatus, state.RoutingState)
 	next.ServingStatus = state.ServingStatus
 	next.LifecycleStatus = state.LifecycleStatus
 	next.RoutingState = state.RoutingState
@@ -234,19 +232,24 @@ func typeForState(lifecycle *clustermetadatapb.PoolerLifecycle, routing *cluster
 	return clustermetadatapb.PoolerType_REPLICA
 }
 
-// routingStateForPublish reduces a to-be-published record to the etcd form: the
-// full routing state lives in the in-memory record (so internal readers and the
-// derived Type see role + rule for replicas too), but only the writable PRIMARY's
-// routing_state is persisted to etcd. Replicas — whose highest-known rule bumps
-// frequently — publish nil, so those bumps never churn etcd (successive replica
-// states reduce to an identical published form and dedup away). Returns a clone;
-// the input is not mutated.
+// routingStateForPublish produces the etcd form of a record. Two projections
+// happen only on the wire, never in stored state:
+//   - PoolerType is stamped from the derived label (typeForState) — it is a
+//     publish-only field, kept for the external operator until it migrates to
+//     routing_state.
+//   - Only the writable PRIMARY's routing_state is persisted; replicas — whose
+//     highest-known rule bumps frequently — publish nil, so those bumps never
+//     churn etcd (successive replica states reduce to an identical published form
+//     and dedup away).
+//
+// Returns a clone; the input is not mutated.
 func routingStateForPublish(m *clustermetadatapb.MultiPooler) *clustermetadatapb.MultiPooler {
-	if m.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return m
-	}
 	out := proto.Clone(m).(*clustermetadatapb.MultiPooler)
-	out.RoutingState = nil
+	//nolint:staticcheck // SA1019: PoolerType is a publish-only projection for the external operator; removal pending its migration to routing_state.
+	out.Type = typeForState(out.LifecycleStatus, out.RoutingState)
+	if out.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		out.RoutingState = nil
+	}
 	return out
 }
 
