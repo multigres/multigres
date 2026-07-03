@@ -43,6 +43,10 @@ const (
 // immutable — exposing only this struct in the mutation API makes that
 // contract a property of the type system rather than a runtime check.
 type MutablePoolerRecordState struct {
+	// TODO: ServingStatus and LifecycleStatus are still owned here (the record is
+	// their source of truth). The direction is to move their ownership into the
+	// StateManager so the record only reflects effective state — see the ownership
+	// TODO on StateManager.
 	ServingStatus   clustermetadatapb.PoolerServingStatus
 	LifecycleStatus *clustermetadatapb.PoolerLifecycle
 	// RoutingState is the pooler's self-reported routing/HA advertisement. Set

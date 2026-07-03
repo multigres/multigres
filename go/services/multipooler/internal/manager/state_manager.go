@@ -65,6 +65,13 @@ type StateManager struct {
 
 	// Current state lives in record.Type() / .ServingStatus(). The StateManager
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
+	//
+	// TODO: move serving status (and lifecycle status) ownership into the
+	// StateManager so the poolerRecord becomes a pure reflection of effective
+	// state rather than its source of truth — the record would register as a
+	// StateAware sink and republish in the background, and nothing in multipooler
+	// would read pm.record.* for a decision. Routing role already works this way
+	// (derived here, not stored); serving/lifecycle are the remaining SoT to flip.
 	record *poolerRecord
 
 	// pgMode is the physical postgres recovery mode (see PostgresMode), fed by the
