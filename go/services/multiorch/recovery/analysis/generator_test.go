@@ -32,7 +32,7 @@ import (
 
 // primaryConsensusStatus builds a ConsensusStatus that names id as the leader
 // in its current rule with the given coordinator term. This is the minimal
-// fixture required for commonconsensus.NamesSelfAsLeader to return true for a given pooler.
+// fixture required for SelfConsensusRole to report ConsensusRoleLeader for a given pooler.
 func primaryConsensusStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,

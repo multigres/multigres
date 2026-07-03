@@ -61,7 +61,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 
 	// The shard's leader is the pooler named by the highest known consensus rule.
 	// Any reachable pooler whose own consensus status says it believes itself the
-	// leader of its term (commonconsensus.NamesSelfAsLeader) but is not that named leader is
+	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
 	leaderID := sa.HighestShardRule.GetLeaderId()
 	if leaderID == nil {

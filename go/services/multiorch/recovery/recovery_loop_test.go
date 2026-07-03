@@ -46,10 +46,11 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// tNamesSelfAsLeader / tWalReplayNotPaused mirror the analysis-package
-// derivations for the mock analyzers in this package's tests, which now operate
-// on riders rather than the removed PoolerAnalysis digest.
-func tNamesSelfAsLeader(p *store.Pooler) bool {
+// tSelfIsLeader / tWalReplayNotPaused mirror the analysis-package derivations
+// for the mock analyzers in this package's tests, which operate on riders
+// rather than the removed PoolerAnalysis digest. tSelfIsLeader reports whether
+// the pooler's own consensus status names itself the leader.
+func tSelfIsLeader(p *store.Pooler) bool {
 	return commonconsensus.SelfConsensusRole(p.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader
 }
 
@@ -586,7 +587,7 @@ func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 func (m *mockPrimaryDeadAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if tNamesSelfAsLeader(a) && !a.Health().IsLastCheckValid {
+		if tSelfIsLeader(a) && !a.Health().IsLastCheckValid {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemLeaderIsDead,
 				CheckName:      m.Name(),
@@ -623,7 +624,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if !tNamesSelfAsLeader(a) && !tWalReplayNotPaused(a) {
+		if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
@@ -1389,7 +1390,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.Pooler) *types.Problem {
-			if !tNamesSelfAsLeader(a) && !tWalReplayNotPaused(a) {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "NormalPriorityAnalyzer",
@@ -1411,7 +1412,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	emergencyAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.Pooler) *types.Problem {
-			if !tNamesSelfAsLeader(a) && !tWalReplayNotPaused(a) {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "EmergencyPriorityAnalyzer",
@@ -1433,7 +1434,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *store.Pooler) *types.Problem {
-			if !tNamesSelfAsLeader(a) && !tWalReplayNotPaused(a) {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "HighPriorityAnalyzer",
@@ -1549,7 +1550,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	analyzeFunc := func(a *store.Pooler) *types.Problem {
 		// Detect replica with paused WAL replay
-		if !tNamesSelfAsLeader(a) && !tWalReplayNotPaused(a) {
+		if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 			return &types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      "TracingTestAnalyzer",
