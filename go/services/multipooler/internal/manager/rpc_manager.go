@@ -313,6 +313,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	// Get WAL position (ignore errors, just return empty string)
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
+	poolerStatus.PgVersion = pm.getServerVersion(ctx)
 
 	// Get cohort members from the current rule (best-effort).
 	if pos, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {

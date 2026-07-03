@@ -82,8 +82,10 @@ type poolerStatusResult struct {
 }
 
 type componentStatus[T any] struct {
-	component T
-	healthy   bool
+	component   T
+	healthy     bool
+	connCount   uint32
+	connCountOK bool
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -191,10 +193,17 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	hg, _ := errgroup.WithContext(ctx)
 	for i, gw := range gateways {
 		hg.Go(func() error {
-			gwStatuses[i] = &componentStatus[*clustermetadatapb.MultiGateway]{
+			cs := &componentStatus[*clustermetadatapb.MultiGateway]{
 				component: gw,
 				healthy:   grpcHealthy(ctx, gw.GetHostname(), int(gw.GetPortMap()["grpc"])),
 			}
+			if resp, err := client.GetGatewayConsolidator(ctx, &multiadminpb.GetGatewayConsolidatorRequest{
+				GatewayId: gw.GetId(),
+			}); err == nil && resp != nil {
+				cs.connCount = resp.GetStats().GetConnectionCount()
+				cs.connCountOK = true
+			}
+			gwStatuses[i] = cs
 			return nil
 		})
 	}
@@ -276,6 +285,9 @@ func printStatusText(
 		if gs.healthy {
 			label = labelHealthy
 		}
+		if gs.connCountOK {
+			label = fmt.Sprintf("%s, connections: %d)", strings.TrimSuffix(label, ")"), gs.connCount)
+		}
 		cmd.Printf("%s%s:%d %s\n", branch, gs.component.GetHostname(), pgPort, label)
 	}
 	cmd.Println()
@@ -342,10 +354,20 @@ func postgresLabel(s *mpmdpb.Status, poolerType clustermetadatapb.PoolerType) st
 	default:
 		state = strings.ToLower(strings.TrimPrefix(s.GetPostgresStatus().String(), "POSTGRES_STATUS_"))
 	}
+	parts := []string{state}
 	if wal := s.GetWalPosition(); wal != "" {
-		return fmt.Sprintf("(%s, LSN: %s)", state, wal)
+		parts = append(parts, "LSN: "+wal)
 	}
-	return fmt.Sprintf("(%s)", state)
+	if poolerType == clustermetadatapb.PoolerType_REPLICA {
+		if lag := s.GetReplicationStatus().GetLag(); lag != nil {
+			parts = append(parts, "lag: "+lag.AsDuration().Truncate(time.Millisecond).String())
+		}
+	}
+	detail := "(" + strings.Join(parts, ", ") + ")"
+	if v := s.GetPgVersion(); v != "" {
+		return v + " " + detail
+	}
+	return detail
 }
 
 func grpcHealthy(ctx context.Context, host string, port int) bool {
@@ -375,23 +397,26 @@ type databaseJSON struct {
 }
 
 type poolerJSON struct {
-	Cell            string `json:"cell"`
-	Name            string `json:"name"`
-	Type            string `json:"type"`
-	ServingStatus   string `json:"serving_status"`
-	StatusAvailable bool   `json:"status_available"`
-	Healthy         bool   `json:"healthy"`
-	PostgresRunning bool   `json:"postgres_running"`
-	PostgresStatus  string `json:"postgres_status"`
-	WalPosition     string `json:"wal_position"`
+	Cell             string `json:"cell"`
+	Name             string `json:"name"`
+	Type             string `json:"type"`
+	ServingStatus    string `json:"serving_status"`
+	StatusAvailable  bool   `json:"status_available"`
+	Healthy          bool   `json:"healthy"`
+	PostgresRunning  bool   `json:"postgres_running"`
+	PostgresStatus   string `json:"postgres_status"`
+	WalPosition      string `json:"wal_position"`
+	PgVersion        string `json:"pg_version,omitempty"`
+	ReplicationLagMs *int64 `json:"replication_lag_ms,omitempty"`
 }
 
 type gatewayJSON struct {
-	Cell     string `json:"cell"`
-	Name     string `json:"name"`
-	Hostname string `json:"hostname"`
-	PgPort   int    `json:"pg_port"`
-	Healthy  bool   `json:"healthy"`
+	Cell            string  `json:"cell"`
+	Name            string  `json:"name"`
+	Hostname        string  `json:"hostname"`
+	PgPort          int     `json:"pg_port"`
+	Healthy         bool    `json:"healthy"`
+	ConnectionCount *uint32 `json:"connection_count,omitempty"`
 }
 
 type orchJSON struct {
@@ -439,6 +464,11 @@ func printStatusJSON(
 			pj.PostgresRunning = ps.status.GetPostgresRunning()
 			pj.PostgresStatus = strings.TrimPrefix(ps.status.GetPostgresStatus().String(), "POSTGRES_STATUS_")
 			pj.WalPosition = ps.status.GetWalPosition()
+			pj.PgVersion = ps.status.GetPgVersion()
+			if lag := ps.status.GetReplicationStatus().GetLag(); lag != nil {
+				ms := lag.AsDuration().Milliseconds()
+				pj.ReplicationLagMs = &ms
+			}
 		}
 		dbPoolers[db] = append(dbPoolers[db], pj)
 	}
@@ -448,13 +478,18 @@ func printStatusJSON(
 
 	for _, gs := range gateways {
 		pgPort := int(gs.component.GetPortMap()["postgres"])
-		out.Gateways = append(out.Gateways, gatewayJSON{
+		gj := gatewayJSON{
 			Cell:     gs.component.GetId().GetCell(),
 			Name:     gs.component.GetId().GetName(),
 			Hostname: gs.component.GetHostname(),
 			PgPort:   pgPort,
 			Healthy:  gs.healthy,
-		})
+		}
+		if gs.connCountOK {
+			cc := gs.connCount
+			gj.ConnectionCount = &cc
+		}
+		out.Gateways = append(out.Gateways, gj)
 	}
 
 	for _, os := range orchs {
