@@ -23,9 +23,6 @@ type Analyzer interface {
 	// Name returns the unique name of this analyzer.
 	Name() types.CheckName
 
-	// ProblemCode returns the problem code this analyzer detects.
-	ProblemCode() types.ProblemCode
-
 	// RecoveryAction returns the action to take when this problem is detected.
 	RecoveryAction() types.RecoveryAction
 

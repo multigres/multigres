@@ -46,10 +46,6 @@ func (a *StaleLeaderAnalyzer) Name() types.CheckName {
 	return "StaleLeader"
 }
 
-func (a *StaleLeaderAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemStaleLeader
-}
-
 func (a *StaleLeaderAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewDemoteStaleLeaderAction()
 }

@@ -71,10 +71,6 @@ func (c *customAnalyzer) Name() types.CheckName {
 	return types.CheckName(c.name)
 }
 
-func (c *customAnalyzer) ProblemCode() types.ProblemCode {
-	return c.problemCode
-}
-
 func (c *customAnalyzer) RecoveryAction() types.RecoveryAction {
 	return c.recoveryAction
 }
@@ -576,10 +572,6 @@ func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 	return "MockPrimaryDeadCheck"
 }
 
-func (m *mockPrimaryDeadAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemLeaderIsDead
-}
-
 func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return m.recoveryAction
 }
@@ -611,10 +603,6 @@ type mockReplicaNotReplicatingAnalyzer struct {
 
 func (m *mockReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "MockReplicationStoppedCheck"
-}
-
-func (m *mockReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemReplicaNotReplicating
 }
 
 func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
@@ -1124,8 +1112,8 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	require.Len(t, problems, 1, "should detect primary dead problem")
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
-	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.recoveryGracePeriodTracker.Observe(types.ProblemLeaderIsDead, problems[0].EntityID(), problems[0].RecoveryAction, false)
+	// Reconcile the detected problems (this would normally happen in performRecoveryCycle)
+	engine.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{
@@ -1923,34 +1911,32 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 		return executionCount == 1
 	}, 500*time.Millisecond, 10*time.Millisecond, "action should execute after grace period expires")
 
-	// Problem is resolved, analyzer returns nil, deadline should reset
+	// Problem is resolved: the analyzer returns nil, so the next cycle no longer
+	// detects it and Reconcile evicts its deadline.
 	problemDetected = false
 
 	engine.performRecoveryCycle(t.Context())
 
-	// Verify deadline was reset (should be different from initial)
 	engine.recoveryGracePeriodTracker.mu.Lock()
-	resetDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
+	_, exists = engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
 		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
-	require.True(t, exists, "deadline should still exist after problem resolved")
-	assert.True(t, resetDeadline.After(initialDeadline),
-		"deadline should be reset (pushed forward) after problem is resolved")
+	require.False(t, exists, "deadline should be evicted once the problem is no longer detected")
 
+	// Problem recurs: a fresh grace period starts, so the action must not fire
+	// immediately even though it already succeeded once.
 	problemDetected = true
 
 	engine.performRecoveryCycle(t.Context())
 
-	// Should NOT execute immediately (deadline from previous cycle still active)
 	mu.Lock()
 	count3 := executionCount
 	mu.Unlock()
 	assert.Equal(t, 1, count3, "action should not execute immediately when problem recurs")
 
-	// Verify the deadline is still the reset one from Phase 3 (frozen when problem recurs)
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	recurrenceDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
@@ -1958,10 +1944,9 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
-	require.True(t, exists, "deadline should exist when problem recurs")
-	// The deadline should be the same as resetDeadline from Phase 3 (frozen when unhealthy)
-	assert.Equal(t, resetDeadline, recurrenceDeadline,
-		"when problem recurs, deadline should be frozen at the value from last healthy observation")
+	require.True(t, exists, "a fresh deadline should be created when the problem recurs")
+	assert.True(t, recurrenceDeadline.After(initialDeadline),
+		"a recurrence should start a fresh countdown, later than the original")
 
 	// Wait for new grace period to expire and action to execute again
 	require.Eventually(t, func() bool {

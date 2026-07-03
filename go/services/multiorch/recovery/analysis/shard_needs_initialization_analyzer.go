@@ -40,10 +40,6 @@ func (a *ShardNeedsInitializationAnalyzer) Name() types.CheckName {
 	return "ShardNeedsInitialization"
 }
 
-func (a *ShardNeedsInitializationAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemShardNeedsInitialization
-}
-
 func (a *ShardNeedsInitializationAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewShardInitAction()
 }

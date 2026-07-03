@@ -54,10 +54,6 @@ func (a *LeaderNeedsReplacementAnalyzer) Name() types.CheckName {
 	return "LeaderNeedsReplacement"
 }
 
-func (a *LeaderNeedsReplacementAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemLeaderIsDead
-}
-
 func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }

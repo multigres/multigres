@@ -54,13 +54,6 @@ func (a *CohortMismatchAnalyzer) Name() types.CheckName {
 	return "CohortMismatch"
 }
 
-func (a *CohortMismatchAnalyzer) ProblemCode() types.ProblemCode {
-	// This analyzer can produce two problem codes; ProblemCode() returns the
-	// primary one. The recovery loop uses this for routing/logging — the
-	// per-problem code on each emitted Problem is what matters at execution.
-	return types.ProblemPoolerNotInCohort
-}
-
 func (a *CohortMismatchAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewReconcileCohortAction()
 }

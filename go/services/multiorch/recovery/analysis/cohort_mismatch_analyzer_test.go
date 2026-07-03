@@ -238,7 +238,6 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("metadata accessors return expected values", func(t *testing.T) {
 		assert.Equal(t, types.CheckName("CohortMismatch"), analyzer.Name())
-		assert.Equal(t, types.ProblemPoolerNotInCohort, analyzer.ProblemCode())
 		require.NotNil(t, analyzer.RecoveryAction())
 	})
 

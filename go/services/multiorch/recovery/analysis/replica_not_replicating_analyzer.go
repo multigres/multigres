@@ -34,10 +34,6 @@ func (a *ReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "ReplicaNotReplicating"
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemReplicaNotReplicating
-}
-
 func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewFixReplicationAction()
 }
