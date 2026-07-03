@@ -546,7 +546,7 @@
   {
     "comment": "create_function_sql - Statement 116",
     "query": "CREATE FUNCTION functest_sri2() RETURNS SETOF int LANGUAGE SQL STABLE BEGIN ATOMIC SELECT * FROM functest3",
-    "error": "parse error at position 106: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "create_function_sql - Statement 117",

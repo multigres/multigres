@@ -50,7 +50,7 @@ import (
 // derivations for the mock analyzers in this package's tests, which now operate
 // on riders rather than the removed PoolerAnalysis digest.
 func tNamesSelfAsLeader(p *store.Pooler) bool {
-	return commonconsensus.NamesSelfAsLeader(p.Health().GetConsensusStatus())
+	return commonconsensus.SelfConsensusRole(p.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader
 }
 
 func tWalReplayNotPaused(p *store.Pooler) bool {

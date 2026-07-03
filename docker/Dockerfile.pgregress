@@ -38,8 +38,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   liblz4-dev : ./configure --with-lz4       (compression regression suite)
 #   uuid-dev   : ./configure --with-uuid       (uuid-ossp contrib)
 #   libssl-dev : ./configure --with-ssl=openssl (pgcrypto, PG16+; pgjwt depends on it)
-#   libsodium-dev pkg-config : pgsodium external extension (PkgConfigDeps)
-#   libcurl4-openssl-dev : http external extension (curl-config)
+#   libsodium-dev pkg-config : pgsodium/supabase_vault external extensions (PkgConfigDeps)
+#   libcurl4-openssl-dev : http/pg_net external extensions (curl-config/libcurl.pc)
+#   cmake : wrappers' Rust dependency graph (aws-lc-rs)
 #   autoconf automake libtool libgeos-dev libproj-dev libxml2-dev gettext xsltproc
 #       libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev :
 #       PostGIS autotools build and optional raster/SFCGAL/protobuf/json-c components
@@ -51,7 +52,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   locales : glibc locales the regression collate suite needs (see locale-gen below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential autoconf automake libtool bison flex libreadline-dev zlib1g-dev \
-      liblz4-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev \
+      liblz4-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev cmake \
       libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
       libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev \
       clang libclang-dev \

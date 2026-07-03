@@ -2546,7 +2546,7 @@ type BackupMetadata struct {
 	Shard      string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
 	Status     BackupMetadata_Status  `protobuf:"varint,3,opt,name=status,proto3,enum=multipoolermanagerdata.BackupMetadata_Status" json:"status,omitempty"`
 	BackupId   string                 `protobuf:"bytes,4,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
-	FinalLsn   string                 `protobuf:"bytes,5,opt,name=final_lsn,json=finalLsn,proto3" json:"final_lsn,omitempty"` // Final checkpoint LSN (stop LSN) for this backup
+	StopLsn    string                 `protobuf:"bytes,5,opt,name=stop_lsn,json=stopLsn,proto3" json:"stop_lsn,omitempty"` // Stop (final checkpoint) LSN for this backup, from pgbackrest info backup[].lsn.stop
 	// Job ID annotation if present (for cross-process tracking)
 	JobId string `protobuf:"bytes,6,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	// Size of the backup in bytes (original database size before compression)
@@ -2561,8 +2561,13 @@ type BackupMetadata struct {
 	// backup[].timestamp.{start,stop}. Unset if unknown.
 	StartTimestamp *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=start_timestamp,json=startTimestamp,proto3" json:"start_timestamp,omitempty"`
 	StopTimestamp  *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=stop_timestamp,json=stopTimestamp,proto3" json:"stop_timestamp,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Start LSN for this backup, from pgbackrest info backup[].lsn.start. Empty if unknown.
+	StartLsn string `protobuf:"bytes,13,opt,name=start_lsn,json=startLsn,proto3" json:"start_lsn,omitempty"`
+	// Full PostgreSQL server_version (e.g. "16.2") captured at backup time via the
+	// pg_version pgbackrest annotation. Empty if it could not be captured.
+	PgVersion     string `protobuf:"bytes,14,opt,name=pg_version,json=pgVersion,proto3" json:"pg_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BackupMetadata) Reset() {
@@ -2623,9 +2628,9 @@ func (x *BackupMetadata) GetBackupId() string {
 	return ""
 }
 
-func (x *BackupMetadata) GetFinalLsn() string {
+func (x *BackupMetadata) GetStopLsn() string {
 	if x != nil {
-		return x.FinalLsn
+		return x.StopLsn
 	}
 	return ""
 }
@@ -2677,6 +2682,20 @@ func (x *BackupMetadata) GetStopTimestamp() *timestamppb.Timestamp {
 		return x.StopTimestamp
 	}
 	return nil
+}
+
+func (x *BackupMetadata) GetStartLsn() string {
+	if x != nil {
+		return x.StartLsn
+	}
+	return ""
+}
+
+func (x *BackupMetadata) GetPgVersion() string {
+	if x != nil {
+		return x.PgVersion
+	}
+	return ""
 }
 
 // RewindToSourceRequest requests pg_rewind to synchronize with a source server.
@@ -3011,14 +3030,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
-	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xc1\x04\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xfb\x04\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12E\n" +
 	"\x06status\x18\x03 \x01(\x0e2-.multipoolermanagerdata.BackupMetadata.StatusR\x06status\x12\x1b\n" +
-	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\x12\x1b\n" +
-	"\tfinal_lsn\x18\x05 \x01(\tR\bfinalLsn\x12\x15\n" +
+	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\x12\x19\n" +
+	"\bstop_lsn\x18\x05 \x01(\tR\astopLsn\x12\x15\n" +
 	"\x06job_id\x18\x06 \x01(\tR\x05jobId\x12*\n" +
 	"\x11backup_size_bytes\x18\a \x01(\x04R\x0fbackupSizeBytes\x12\x12\n" +
 	"\x04type\x18\b \x01(\tR\x04type\x12%\n" +
@@ -3027,7 +3046,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12C\n" +
 	"\x0fstart_timestamp\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x0estartTimestamp\x12A\n" +
-	"\x0estop_timestamp\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rstopTimestamp\"3\n" +
+	"\x0estop_timestamp\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rstopTimestamp\x12\x1b\n" +
+	"\tstart_lsn\x18\r \x01(\tR\bstartLsn\x12\x1d\n" +
+	"\n" +
+	"pg_version\x18\x0e \x01(\tR\tpgVersion\"3\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +

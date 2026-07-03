@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -55,28 +56,27 @@ import (
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// isPrimary checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
-	inRecovery, err := pm.isInRecovery(ctx)
-	return !inRecovery, err
-}
-
-// isInRecovery checks if the connected database is in recovery mode (standby).
-// Returns true if the database is a standby, false if it's a primary.
-func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
+// postgresMode reports the physical recovery mode postgres is in, querying
+// pg_is_in_recovery() and converting the raw bool to a pgmode.Mode at this
+// boundary so callers propagate the typed value rather than a bool. On error
+// returns pgmode.Unknown so a failed probe never reads as a writable primary.
+func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
-		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
 
 	var inRecovery bool
 	if err := executor.ScanSingleRow(result, &inRecovery); err != nil {
-		return false, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
 	}
 
-	return inRecovery, nil
+	if inRecovery {
+		return pgmode.InRecovery, nil
+	}
+	return pgmode.Primary, nil
 }
 
 // archiverStats reads pg_stat_archiver for the backup-health poller. NULL
@@ -112,8 +112,9 @@ func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.A
 	return stats, nil
 }
 
-// backupSettings reads the backup-relevant PostgreSQL settings for the
-// backup-health poller. These are cheap pg_settings reads (no forced I/O). It
+// backupSettings reads the backup-relevant PostgreSQL settings, used both by
+// the backup-health poller and to capture server_version for the backup-time
+// pg_version annotation. These are cheap pg_settings reads (no forced I/O). It
 // reuses the manager's query path and is injected into the backup engine via
 // SetPGSettingsProvider.
 func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
@@ -123,20 +124,22 @@ func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.
 	sql := `SELECT
 		COALESCE(current_setting('archive_command', true), '') AS archive_command,
 		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
-		COALESCE(current_setting('restore_command', true), '') AS restore_command`
+		COALESCE(current_setting('restore_command', true), '') AS restore_command,
+		COALESCE(split_part(current_setting('server_version', true), ' ', 1), '') AS server_version`
 	result, err := pm.query(queryCtx, sql)
 	if err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
 	}
 
-	var archiveCommand, archiveMode, restoreCommand string
-	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand); err != nil {
+	var archiveCommand, archiveMode, restoreCommand, serverVersion string
+	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand, &serverVersion); err != nil {
 		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to scan backup settings result")
 	}
 	return backupengine.PGSettings{
 		ArchiveCommand: archiveCommand,
 		ArchiveMode:    archiveMode,
 		RestoreCommand: restoreCommand,
+		ServerVersion:  serverVersion,
 	}, nil
 }
 
@@ -153,6 +156,45 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 		return "", mterrors.Wrap(err, "failed to scan WAL LSN result")
 	}
 	return lsn, nil
+}
+
+// rewindSourceReady reports whether this pooler is safe to pg_rewind from: it is
+// a primary (not in recovery) AND its last completed checkpoint is on its current
+// running timeline. The check matters because pg_rewind copies the source's
+// checkpoint-timeline into the target's minRecoveryPoint; a freshly promoted
+// primary runs on a new timeline but its lazy post-promotion checkpoint may not
+// have rewritten the control file yet, so it would hand a diverged follower a
+// stale timeline that FATALs on startup. Compares pg_control_checkpoint().
+// timeline_id against the running timeline parsed from the current WAL filename.
+//
+// Returns false (not an error) on a standby: pg_current_wal_lsn() errors during
+// recovery, so the CASE guards it — a standby is never a rewind source.
+//
+// Design assumption: the rewind source must be a writable primary. A node that is
+// the rule-named leader but still in recovery (e.g. it has not yet been promoted to
+// a writable primary) never advertises rewind_ready, so a diverged follower's
+// rewind against it stays deferred until it becomes a writable primary. This is the
+// safe behavior — you cannot rewind a target off a still-replaying source without
+// risking the stale-minRecoveryPoint FATAL this gating exists to prevent. A future
+// enhancement could let a standby on a matching timeline serve as a rewind source
+// (using pg_last_wal_replay_lsn() instead of pg_current_wal_lsn()), but the common
+// case rewinds a diverged old primary against a writable leader.
+func (pm *MultiPoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	const sql = `SELECT CASE WHEN pg_is_in_recovery() THEN false ELSE
+		(SELECT timeline_id FROM pg_control_checkpoint())
+		= ('x' || substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8))::bit(32)::int
+	END`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to query rewind-source readiness")
+	}
+	var ready bool
+	if err := executor.ScanSingleRow(result, &ready); err != nil {
+		return false, mterrors.Wrap(err, "failed to scan rewind-source readiness result")
+	}
+	return ready, nil
 }
 
 // getStandbyReplayLSN gets the last replayed WAL location (standby only)
@@ -890,28 +932,6 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully cleared synchronous replication for demotion")
-	return nil
-}
-
-// resetSynchronousReplication clears the synchronous standby list
-// This should be called after the server is read-only to safely clear settings
-func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	// Clear synchronous_standby_names to remove all standbys
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
-	}
-
-	if err := pm.reloadPostgresConfig(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
 	return nil
 }
 

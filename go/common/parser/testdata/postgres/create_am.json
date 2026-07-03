@@ -145,17 +145,17 @@
   {
     "comment": "create_am - Statement 33",
     "query": "SELECT INTO tableam_tblselectinto_heap2 USING heap2 FROM tableam_tbl_heap2",
-    "error": "parse error at position 45: syntax error"
+    "error": "syntax error at or near \"USING\""
   },
   {
     "comment": "create_am - Statement 34",
     "query": "CREATE VIEW tableam_view_heap2 USING heap2 AS SELECT * FROM tableam_tbl_heap2",
-    "error": "parse error at position 36: syntax error"
+    "error": "syntax error at or near \"USING\""
   },
   {
     "comment": "create_am - Statement 35",
     "query": "CREATE SEQUENCE tableam_seq_heap2 USING heap2",
-    "error": "parse error at position 39: syntax error"
+    "error": "syntax error at or near \"USING\""
   },
   {
     "comment": "create_am - Statement 36",

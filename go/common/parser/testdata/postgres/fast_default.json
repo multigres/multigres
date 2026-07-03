@@ -535,7 +535,7 @@
   {
     "comment": "fast_default - Statement 123",
     "query": "CREATE FUNCTION test_trigger() RETURNS trigger LANGUAGE plpgsql AS $$  begin     raise notice 'old tuple: %', to_json(OLD)::text;     if TG_OP = 'DELETE'     then        return OLD;     else        return NEW;     end if; end;",
-    "error": "parse error at position 68: syntax error"
+    "error": "syntax error at or near \"$\""
   },
   {
     "comment": "fast_default - Statement 127",

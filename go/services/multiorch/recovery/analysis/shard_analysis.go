@@ -31,7 +31,8 @@ type ShardAnalysis struct {
 	ShardKey *clustermetadatapb.ShardKey
 	// Analyses holds the cache rider for every pooler in the shard. Analyzers
 	// read raw health via Rider.Health() and derive judgments through the
-	// package helpers (namesSelfAsLeader, walReplayNotPaused, …) rather than
+	// package helpers (walReplayNotPaused, primaryConnInfoHost, …) and the
+	// consensus SelfConsensusRole API rather than
 	// reading pre-baked digest fields.
 	Analyses []*store.Pooler
 
@@ -134,7 +135,7 @@ func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
 func (sa *ShardAnalysis) Replicas() []*store.Pooler {
 	var replicas []*store.Pooler
 	for _, p := range sa.Analyses {
-		if !namesSelfAsLeader(p) {
+		if commonconsensus.SelfConsensusRole(p.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 			replicas = append(replicas, p)
 		}
 	}
@@ -148,12 +149,6 @@ func (sa *ShardAnalysis) Replicas() []*store.Pooler {
 // poolerID returns the pooler's ID from its health record.
 func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 	return p.Health().GetMultiPooler().GetId()
-}
-
-// namesSelfAsLeader reports whether the pooler's own consensus status claims it
-// is the leader of its term.
-func namesSelfAsLeader(p *store.Pooler) bool {
-	return commonconsensus.NamesSelfAsLeader(p.Health().GetConsensusStatus())
 }
 
 // walReplayNotPaused reports whether the standby's WAL replay is active. A

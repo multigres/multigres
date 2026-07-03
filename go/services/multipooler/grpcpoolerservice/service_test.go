@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -200,7 +201,7 @@ func (m *mockCopyQueryService) CopyOutStream(ctx context.Context, target *query.
 	return m.copyOutStreamFn(ctx, target, options, onMessage)
 }
 
-func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool) (*sqltypes.Result, *query.ReservedState, error) {
+func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool) (*sqltypes.Result, *query.ReservedState, error) {
 	return nil, nil, nil
 }
 
@@ -239,7 +240,7 @@ func TestCopyBidiExecuteToStdout_Success(t *testing.T) {
 	}
 
 	req := &multipoolerpb.CopyBidiExecuteRequest{
-		Target:  &query.Target{TableGroup: "tg"},
+		Target:  protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		Query:   "COPY t TO STDOUT",
 		Options: &query.ExecuteOptions{User: "postgres"},
 	}
@@ -278,7 +279,7 @@ func TestCopyBidiExecuteToStdout_ReadySendFailureCallsCopyAbort(t *testing.T) {
 	}
 
 	req := &multipoolerpb.CopyBidiExecuteRequest{
-		Target:  &query.Target{TableGroup: "tg"},
+		Target:  protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		Query:   "COPY t TO STDOUT",
 		Options: &query.ExecuteOptions{User: "postgres"},
 	}
@@ -305,7 +306,7 @@ func TestCopyBidiExecuteToStdout_StreamErrorSendsErrorPhase(t *testing.T) {
 	}
 
 	req := &multipoolerpb.CopyBidiExecuteRequest{
-		Target:  &query.Target{TableGroup: "tg"},
+		Target:  protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
 		Query:   "COPY t TO STDOUT",
 		Options: &query.ExecuteOptions{User: "postgres"},
 	}

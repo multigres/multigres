@@ -391,7 +391,7 @@
   {
     "comment": "collate.windows.win1252 - Statement 91",
     "query": "SELECT CAST('42' AS text COLLATE \"C\")",
-    "error": "parse error at position 32: syntax error"
+    "error": "syntax error at or near \"COLLATE\""
   },
   {
     "comment": "collate.windows.win1252 - Statement 92",

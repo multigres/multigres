@@ -26,12 +26,12 @@ import (
 )
 
 // consensusTermPath returns the path to the consensus term file
-func (cs *ConsensusState) consensusTermPath() string {
+func (cs *ConsensusPromises) consensusTermPath() string {
 	return filepath.Join(cs.poolerDir, constants.ConsensusTermFile)
 }
 
 // getRevocation retrieves the current term revocation from disk.
-func (cs *ConsensusState) getRevocation() (*clustermetadatapb.TermRevocation, error) {
+func (cs *ConsensusPromises) getRevocation() (*clustermetadatapb.TermRevocation, error) {
 	termPath := cs.consensusTermPath()
 
 	// Check if consensus term file exists
@@ -56,7 +56,7 @@ func (cs *ConsensusState) getRevocation() (*clustermetadatapb.TermRevocation, er
 }
 
 // setRevocation saves the term revocation to disk atomically.
-func (cs *ConsensusState) setRevocation(revocation *clustermetadatapb.TermRevocation) error {
+func (cs *ConsensusPromises) setRevocation(revocation *clustermetadatapb.TermRevocation) error {
 	termPath := cs.consensusTermPath()
 
 	// Marshal protobuf to JSON

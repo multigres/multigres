@@ -486,7 +486,8 @@ func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
 
 	errs := ctx.GetErrors()
 	require.NotEmpty(t, errs)
-	assert.Equal(t, "unsafe use of string constant with Unicode escapes", errs[0].Message)
+	// Lexer errors now carry PostgreSQL's `at or near`/`at end of input` suffix.
+	assert.Contains(t, errs[0].Message, "unsafe use of string constant with Unicode escapes")
 }
 
 // TestStringConcatenation tests string concatenation across whitespace

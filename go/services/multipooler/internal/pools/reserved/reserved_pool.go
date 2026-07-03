@@ -97,6 +97,10 @@ type Pool struct {
 	timeoutCount    atomic.Int64
 	txCommitCount   atomic.Int64
 	txRollbackCount atomic.Int64
+
+	// txnMetrics publishes transaction outcomes (commit/rollback/abort) and
+	// durations as OTel metrics.
+	txnMetrics *txnMetrics
 }
 
 // NewPool creates a new reserved connection pool.
@@ -119,12 +123,13 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	regularPool.Open()
 
 	p := &Pool{
-		config: config,
-		logger: logger,
-		conns:  regularPool,
-		active: make(map[int64]*Conn),
-		ctx:    poolCtx,
-		cancel: cancel,
+		config:     config,
+		logger:     logger,
+		conns:      regularPool,
+		active:     make(map[int64]*Conn),
+		ctx:        poolCtx,
+		cancel:     cancel,
+		txnMetrics: newTxnMetrics(),
 	}
 
 	// Initialize lastID with current Unix nanoseconds to prevent ID collisions
@@ -187,7 +192,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 	connID := p.lastID.Add(1)
 
 	// Create reserved connection.
-	rc := newConn(pooled, connID, p)
+	rc := newConn(pooled, connID, p, o.releaseCleanups)
 	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
@@ -345,12 +350,26 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 // pool; reasons that prevent reuse taint/close instead. OnRelease is
 // intentionally invoked after finalization/recycle so finalizing backends
 // remain counted as lent.
-func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string) {
+func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string, cleanups []ReleaseCleanup) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
+
+	// A connection still flagged in-transaction here was never concluded by a
+	// successful Commit/Rollback (both remove the transaction reason), so it
+	// ended via error/timeout/kill — count it as an abort. This single check
+	// covers every scattered ReleaseError path without instrumenting each.
+	if rc.IsInTransaction() {
+		var d time.Duration
+		if !rc.txnStartTime.IsZero() {
+			d = time.Since(rc.txnStartTime)
+		}
+		// p.ctx is the pool's lifecycle context, matching the pool's other OTel
+		// calls; metric recording is synchronous and unaffected by cancellation.
+		p.txnMetrics.record(p.ctx, txnOutcomeAbort, d)
+	}
 
 	// Update metrics based on reason.
 	switch reason {
@@ -366,6 +385,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 
 	// Uncertain-state releases must never be reused.
 	if reason.preventsReuse() {
+		rc.pooled.Taint()
+	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
 		rc.pooled.Taint()
 	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
 		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
@@ -386,6 +407,21 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 	p.logger.Debug("reserved connection released",
 		"conn_id", rc.ConnID(),
 		"reason", reason.String())
+}
+
+func (p *Pool) runReleaseCleanups(rc *Conn, reason ReleaseReason, cleanups []ReleaseCleanup) bool {
+	for _, cleanup := range cleanups {
+		if cleanup == nil {
+			continue
+		}
+		if !cleanup(rc.Conn()) {
+			p.logger.Warn("reserved clean-release cleanup failed; tainting backend",
+				"conn_id", rc.ConnID(),
+				"reason", reason.String())
+			return false
+		}
+	}
+	return true
 }
 
 // finalizeCleanRelease syncs connstate to the gateway's authoritative session

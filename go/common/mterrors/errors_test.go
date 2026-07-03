@@ -417,6 +417,11 @@ func TestIsConnectionError(t *testing.T) {
 			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P03"},
 			expected: true,
 		},
+		{
+			name:     "57P05 idle_session_timeout",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: PgSSIdleSessionTimeout},
+			expected: true,
+		},
 
 		// PgDiagnostic: Class 57 codes that are NOT connection errors.
 		{

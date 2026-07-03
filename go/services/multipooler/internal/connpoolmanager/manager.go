@@ -136,7 +136,7 @@ type Manager struct {
 	reservedAllocator *FairShareAllocator
 
 	// Drain tracking: counts connections currently lent out across all pools.
-	// Used for graceful drain during state transitions (NOT_SERVING).
+	// Used for graceful drain during state transitions (not-serving).
 	//
 	// regularCount tracks regular (single-query) borrows; reservedCount tracks
 	// reserved connections (transactions, temp tables, portals, COPY, etc.). They
@@ -204,10 +204,12 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
-		Name:           "admin",
-		Capacity:       m.config.AdminCapacity(),
-		ConnectTimeout: connectTimeout,
-		Logger:         m.logger,
+		Name:              "admin",
+		PoolType:          "admin",
+		Capacity:          m.config.AdminCapacity(),
+		ConnectTimeout:    connectTimeout,
+		ServerConnMetrics: m.metrics.ServerConnMetrics(),
+		Logger:            m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
@@ -398,22 +400,26 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		ClientConfig: m.buildUserClientConfig(user, clientKey, serverKey),
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
-			Name:            "regular:" + user,
-			Capacity:        initialRegularCap,
-			IdleTimeout:     m.config.UserRegularIdleTimeout(),
-			MaxLifetime:     m.config.UserRegularMaxLifetime(),
-			ConnectTimeout:  userConnectTimeout,
-			ConnectionCount: m.metrics.RegularConnCount(),
-			Logger:          m.logger,
+			Name:              "regular:" + user,
+			PoolType:          "regular",
+			Capacity:          initialRegularCap,
+			IdleTimeout:       m.config.UserRegularIdleTimeout(),
+			MaxLifetime:       m.config.UserRegularMaxLifetime(),
+			ConnectTimeout:    userConnectTimeout,
+			ConnectionCount:   m.metrics.RegularConnCount(),
+			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			Logger:            m.logger,
 		},
 		ReservedPoolConfig: &connpool.Config{
-			Name:            "reserved:" + user,
-			Capacity:        initialReservedCap,
-			IdleTimeout:     m.config.UserReservedIdleTimeout(),
-			MaxLifetime:     m.config.UserReservedMaxLifetime(),
-			ConnectTimeout:  userConnectTimeout,
-			ConnectionCount: m.metrics.ReservedConnCount(),
-			Logger:          m.logger,
+			Name:              "reserved:" + user,
+			PoolType:          "reserved",
+			Capacity:          initialReservedCap,
+			IdleTimeout:       m.config.UserReservedIdleTimeout(),
+			MaxLifetime:       m.config.UserReservedMaxLifetime(),
+			ConnectTimeout:    userConnectTimeout,
+			ConnectionCount:   m.metrics.ReservedConnCount(),
+			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			Logger:            m.logger,
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
 		DemandWindow:              m.config.DemandWindow(),

@@ -121,7 +121,12 @@ func assertBackupComplete(t *testing.T, backup *multipoolermanagerdata.BackupMet
 	assert.Equal(t, expectedID, backup.BackupId, "Backup ID should match")
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, backup.Status,
 		"Backup status should be COMPLETE")
-	assert.NotEmpty(t, backup.FinalLsn, "Backup should have final LSN")
+	assert.NotEmpty(t, backup.StopLsn, "Backup should have stop LSN")
+	assert.NotEmpty(t, backup.StartLsn, "Backup should have start LSN")
+	// pg_version capture is best-effort in production (a failed server_version
+	// read never fails the backup); this assertion assumes the read succeeds,
+	// which it always does in the controlled endtoend environment.
+	assert.NotEmpty(t, backup.PgVersion, "Backup should have pg_version")
 }
 
 // connectToPostgresViaSocket establishes a connection to PostgreSQL using Unix socket.

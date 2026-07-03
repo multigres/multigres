@@ -61,20 +61,22 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 	}{
 		{
 			name:           "NilLeader",
-			req:            &consensusdatapb.SetPrimaryRequest{Rule: ruleAtTermForLeader(validLeader, 5)},
-			expectErrMatch: "leader is required",
+			req:            &consensusdatapb.SetPrimaryRequest{ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Rule: ruleAtTermForLeader(validLeader, 5)}},
+			expectErrMatch: "replication_primary.primary is required",
 		},
 		{
 			name:           "NilRule",
-			req:            &consensusdatapb.SetPrimaryRequest{Leader: validLeader},
-			expectErrMatch: "rule is required",
+			req:            &consensusdatapb.SetPrimaryRequest{ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Primary: validLeader}},
+			expectErrMatch: "replication_primary.rule is required",
 		},
 		{
 			name: "RuleMissingLeaderId",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: validLeader,
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					},
+					Primary: validLeader,
 				},
 			},
 			expectErrMatch: "rule.leader_id is required",
@@ -82,12 +84,14 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 		{
 			name: "LeaderIdMismatchesRule",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: validLeader,
-				Rule: &clustermetadatapb.ShardRule{
-					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-					LeaderId: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "different",
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+						LeaderId: &clustermetadatapb.ID{
+							Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "different",
+						},
 					},
+					Primary: validLeader,
 				},
 			},
 			expectErrMatch: "does not match rule.leader_id",
@@ -95,16 +99,20 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 		{
 			name: "MissingHost",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
-				Rule:   ruleAtTermForLeader(validLeader, 5),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(validLeader, 5),
+					Primary: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), PostgresPort: 5432},
+				},
 			},
 			expectErrMatch: "leader host is required",
 		},
 		{
 			name: "MissingPostgresPort",
 			req: &consensusdatapb.SetPrimaryRequest{
-				Leader: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
-				Rule:   ruleAtTermForLeader(validLeader, 5),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(validLeader, 5),
+					Primary: &clustermetadatapb.PoolerAddress{Id: validLeader.GetId(), Host: "host"},
+				},
 			},
 			expectErrMatch: "has no postgres port configured",
 		},
@@ -121,8 +129,10 @@ func TestSetPrimary_ValidationErrors(t *testing.T) {
 			req: func() *consensusdatapb.SetPrimaryRequest {
 				selfLeader := newLeaderAddress("test-pooler", "host", 5432)
 				return &consensusdatapb.SetPrimaryRequest{
-					Leader: selfLeader,
-					Rule:   ruleAtTermForLeader(selfLeader, 5),
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Rule:    ruleAtTermForLeader(selfLeader, 5),
+						Primary: selfLeader,
+					},
 				}
 			}(),
 			expectErrMatch: "leader is self; designated leaders are appointed via Promote",
@@ -176,8 +186,10 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			incomingRule := tt.incomingPos.GetRule()
 			incomingRule.LeaderId = leader.GetId()
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   incomingRule,
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    incomingRule,
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.NoError(t, err)
@@ -189,7 +201,7 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 			// future redundant SetPrimary calls. The proof that the apply
 			// branch wasn't reached is that no apply-path postgres queries
 			// were issued (ExpectationsWereMet below).
-			highest := pm.consensusState.GetReplicationPrimary()
+			highest := pm.consensusMgr.GetReplicationPrimary()
 			require.NotNil(t, highest, "SetPrimary should record the rule even on no-op")
 			assert.Equal(t, tt.incomingPos.GetRule().GetRuleNumber().GetCoordinatorTerm(),
 				highest.GetRule().GetRuleNumber().GetCoordinatorTerm())
@@ -242,8 +254,13 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 10),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 10),
+			Primary: leader,
+			// Leader is rewind-ready, so a stale-primary demote proceeds rather than
+			// deferring the pg_rewind (no-op for the standby-update path).
+			RewindReady: true,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -253,7 +270,7 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
 		"rendered primary_conninfo should reference the new primary host")
 
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded, "primary should be recorded after standby update")
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -274,20 +291,16 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// 2. After restart, every subsequent pg_is_in_recovery must report standby.
-	// Covers isInRecovery (verify after restart), resetSynchronousReplication's
-	// role check, and setPrimaryConnInfoLocked's guardrail.
+	// Covers postgresMode (verify after restart) and setPrimaryConnInfoLocked's
+	// guardrail. The post-demotion sync clear goes through the (fake) rule store's
+	// ClearSyncStandby, asserted below, so it issues no SQL here.
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
 	// 3. waitForDatabaseConnection polls SELECT 1 after the standby restart.
 	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 
-	// 4. resetSynchronousReplication clears sync standby list and reloads.
-	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names",
-		mock.MakeQueryResult(nil, nil))
-	expectReloadConfig(mockQueryService)
-
-	// 5. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
+	// 4. setPrimaryConnInfoLocked(false, false): rewrite primary_conninfo + reload.
 	var capturedConnInfoSQL string
 	mockQueryService.AddQueryPatternWithCallback(
 		"ALTER SYSTEM SET primary_conninfo",
@@ -300,18 +313,24 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000"}}))
 
-	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	ruleStore := &fakeRuleStore{pos: makeRulePosition(3)}
+	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, ruleStore)
 
 	// Seed an initial revocation so we can verify SetPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
 	consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
-	_, err := pm.consensusState.Load()
+	_, err := pm.consensusMgr.Promises().Load()
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 10),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 10),
+			Primary: leader,
+			// Leader is rewind-ready, so a stale-primary demote proceeds rather than
+			// deferring the pg_rewind (no-op for the standby-update path).
+			RewindReady: true,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -323,7 +342,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		"rendered primary_conninfo should reference the new primary host")
 
 	// Manager state recorded the new primary.
-	recorded := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	recorded := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	require.NotNil(t, recorded)
 	assert.Equal(t, "new-primary", recorded.GetId().GetName())
 	assert.Equal(t, "primary-host", recorded.GetHost())
@@ -331,16 +350,25 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetPrimary.
-	rev, err := pm.consensusState.GetInconsistentRevocation()
-	require.NoError(t, err)
+	rev := pm.consensusMgr.Promises().GetInconsistentRevocation()
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 
-	// Gateway leader observation should reflect the new primary.
+	// Demoting a stale primary clears synchronous_standby_names through the rule
+	// store's SyncStandbyManager (keeping its cache coherent), not via a direct
+	// ALTER SYSTEM that would bypass the cache.
+	assert.True(t, ruleStore.clearSyncCalled,
+		"stale-primary demotion should clear sync standby names via ClearSyncStandby")
+
+	// A demoted pooler advertises no leader observation. The health-stream
+	// observation is derived from this pooler's own routing role: non-nil
+	// (naming self) only while it is the writable routing primary, and nil once
+	// demoted to a standby. A follower never advertises another pooler as the
+	// leader — the gateway learns the new primary from that primary's own health
+	// stream, not from this demoted node.
 	healthState := pm.healthStreamer.getState()
-	require.NotNil(t, healthState.LeaderObservation)
-	assert.Equal(t, "new-primary", healthState.LeaderObservation.LeaderID.Name)
-	assert.Equal(t, int64(10), healthState.LeaderObservation.LeaderTerm)
+	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
+		"a demoted pooler must not advertise itself as the routing primary")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is
@@ -385,13 +413,15 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 				RevokedBelowTerm: tt.revokedBelow,
 				OutgoingRule:     tt.outgoing,
 			})
-			_, err := pm.consensusState.Load()
+			_, err := pm.consensusMgr.Promises().Load()
 			require.NoError(t, err)
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   ruleAtTermForLeader(leader, tt.incomingTerm),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(leader, tt.incomingTerm),
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.NoError(t, err, "SetPrimary should silently ignore revoked rules")
@@ -401,7 +431,7 @@ func TestSetPrimary_IgnoresRevokedRule(t *testing.T) {
 			// RecordTermPrimary must not have run: the (rule, leader) tuple
 			// is not the substrate multiorch should read from a refused FYI.
 			// This is also the proof the apply branch wasn't reached.
-			highest := pm.consensusState.GetReplicationPrimary()
+			highest := pm.consensusMgr.GetReplicationPrimary()
 			assert.Nil(t, highest, "revoked SetPrimary should not be recorded")
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -429,13 +459,15 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 		RevokedBelowTerm: 5,
 		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 	})
-	_, err := pm.consensusState.Load()
+	_, err := pm.consensusMgr.Promises().Load()
 	require.NoError(t, err)
 
 	leader := newLeaderAddress("new-primary", "primary-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
-		Leader: leader,
-		Rule:   ruleAtTermForLeader(leader, 3),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 3),
+			Primary: leader,
+		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
 	require.NoError(t, err)
@@ -443,7 +475,7 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	require.NotNil(t, resp.ConsensusStatus)
 
 	// Override fired → RecordTermPrimary ran → the rule + primary are observable.
-	highest := pm.consensusState.GetReplicationPrimary()
+	highest := pm.consensusMgr.GetReplicationPrimary()
 	require.NotNil(t, highest, "override should let RecordTermPrimary persist the rule")
 	require.NotNil(t, highest.GetPrimary())
 	assert.Equal(t, "new-primary", highest.GetPrimary().Id.Name)
@@ -530,8 +562,10 @@ func TestSetPrimary_ApplyPathErrors(t *testing.T) {
 
 			leader := newLeaderAddress("new-primary", "primary-host", 5432)
 			req := &consensusdatapb.SetPrimaryRequest{
-				Leader: leader,
-				Rule:   ruleAtTermForLeader(leader, 10),
+				ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+					Rule:    ruleAtTermForLeader(leader, 10),
+					Primary: leader,
+				},
 			}
 			resp, err := pm.SetPrimary(t.Context(), req)
 			require.Error(t, err)

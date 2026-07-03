@@ -211,6 +211,25 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	}
 }
 
+// SetStatementDescriptionHasFields records, on desc.HasFields, whether desc.Fields
+// was non-nil before crossing a gRPC boundary. Protobuf encodes both nil and empty
+// repeated fields identically (as absent), so this flag preserves the
+// RowDescription(0 fields) vs NoData distinction. Mirrors Result.ToProto.
+func SetStatementDescriptionHasFields(desc *query.StatementDescription) {
+	if desc != nil {
+		desc.HasFields = desc.GetFields() != nil
+	}
+}
+
+// RestoreStatementDescriptionFields restores the non-nil empty Fields slice that
+// protobuf collapsed to nil on the wire, using HasFields to distinguish "no result
+// set" from "zero-column result". Mirrors ResultFromProto.
+func RestoreStatementDescriptionFields(desc *query.StatementDescription) {
+	if desc != nil && desc.GetHasFields() && desc.GetFields() == nil {
+		desc.Fields = []*query.Field{}
+	}
+}
+
 // ToProto converts Row to proto format (lengths+values) for gRPC serialization.
 // Encoding: -1 = NULL, 0 = empty string, >0 = actual length.
 func (r *Row) ToProto() *query.Row {

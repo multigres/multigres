@@ -2722,6 +2722,291 @@
       ],
       "title": "Credential Query Errors",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 234 },
+      "id": 403,
+      "panels": [],
+      "title": "Multigateway - Query Phase Latency",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Per-phase p99 latency of gateway query handling. Decomposes mg.gateway.query.duration into parse, plan, and downstream exec so 'is it planning or execution that's slow?' is answerable. exec is the gateway's view of the pooler hop.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 235 },
+      "id": 404,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(mg_gateway_query_parse_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "legendFormat": "parse p99",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(mg_gateway_query_plan_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "legendFormat": "plan p99",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(mg_gateway_query_exec_duration_seconds_bucket{job=\"multigateway\"}[$__rate_interval])))",
+          "legendFormat": "exec p99",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Query Phase Latency (p99)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 244 },
+      "id": 405,
+      "panels": [],
+      "title": "Multipooler - Query Execution",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Pooler-side query execution time (excludes gRPC framing). The gap between mg.gateway.query.exec.duration and this approximates the network/queue cost of the gateway->pooler hop.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 245 },
+      "id": 406,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(mg_pooler_query_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mg_pooler_query_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(mg_pooler_query_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Pooler Query Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Pooler-side query errors per second by SQLSTATE and source (backend/internal/routing/client). Distinct from gateway-side errors.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 245 },
+      "id": 407,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (sqlstate, error_source) (rate(mg_pooler_query_errors_total{job=\"multipooler\"}[$__rate_interval]))",
+          "legendFormat": "{{sqlstate}} / {{error_source}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Pooler Query Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "p99 time to acquire a server connection from the pool before executing, by pool_type. A rise here is pool contention rather than slow execution.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 254 },
+      "id": 408,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le, pool_type) (rate(mg_pooler_query_pool_acquire_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "{{pool_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Pool Acquire Duration (p99)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 263 },
+      "id": 409,
+      "panels": [],
+      "title": "Multipooler - Transactions",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Reserved-connection transaction outcomes per second. commit/rollback are client-driven conclusions; abort is a connection released mid-transaction (error/timeout/kill).",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 264 },
+      "id": 410,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (outcome) (rate(mg_pooler_txn_outcomes_total{job=\"multipooler\"}[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Transaction Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "p99 reserved-connection transaction lifetime by outcome.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 264 },
+      "id": 411,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le, outcome) (rate(mg_pooler_txn_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "{{outcome}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Transaction Duration (p99)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 273 },
+      "id": 412,
+      "panels": [],
+      "title": "Multipooler - Server Connections",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "New PostgreSQL connection establishment rate by pool_type, and establishment failures by pool_type/reason. A high open rate with steady load indicates connection churn.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 274 },
+      "id": 413,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (pool_type) (rate(mg_pooler_server_conn_opened_total{job=\"multipooler\"}[$__rate_interval]))",
+          "legendFormat": "opened {{pool_type}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (pool_type, reason) (rate(mg_pooler_server_conn_open_errors_total{job=\"multipooler\"}[$__rate_interval]))",
+          "legendFormat": "error {{pool_type}}/{{reason}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Connection Establishment",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "p99 time to establish a PostgreSQL server connection (connect + auth) by pool_type.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 274 },
+      "id": 414,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, sum by (le, pool_type) (rate(mg_pooler_server_conn_setup_duration_seconds_bucket{job=\"multipooler\"}[$__rate_interval])))",
+          "legendFormat": "{{pool_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Connection Setup Duration (p99)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 283 },
+      "id": 415,
+      "panels": [],
+      "title": "Multipooler - Replication & Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Replication lag observed by this pooler. 0 on a primary or before the first measurement.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 284 },
+      "id": 416,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "mg_pooler_replication_lag_seconds{job=\"multipooler\"}",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Replication Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "Serving-state transitions per second by from/to status (e.g. NOT_SERVING->SERVING). Spikes indicate failover/recovery churn.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 284 },
+      "id": 417,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (from, to) (rate(mg_pooler_serving_transitions_total{job=\"multipooler\"}[$__rate_interval]))",
+          "legendFormat": "{{from}} -> {{to}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Serving State Transitions",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",

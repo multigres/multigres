@@ -51,7 +51,7 @@ type mockExec struct {
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	_ *querypb.PreparedStatement,
+	_ *querypb.ExecuteSqlPreparedStatement,
 	_ *handler.MultiGatewayConnectionState,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -77,7 +77,7 @@ func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *hand
 	return nil, nil
 }
 
-func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 

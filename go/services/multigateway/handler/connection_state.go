@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -91,6 +92,14 @@ type MultiGatewayConnectionState struct {
 	// so it genuinely belongs to connection state.
 	PendingBeginQuery string
 
+	// ActiveTransactionBeginQuery stores the BEGIN/START statement that describes
+	// the current transaction's characteristics. PendingBeginQuery is consumed when
+	// the first backend reservation starts the transaction; this copy survives that
+	// consumption so COMMIT/ROLLBACK AND CHAIN can start the next transaction with
+	// the same isolation/read-only/deferrable options even when no backend was ever
+	// reserved for the old transaction.
+	ActiveTransactionBeginQuery string
+
 	// PendingMarkSessionStateUntrusted is set by the TransactionPrimitive after a
 	// successful ROLLBACK TO SAVEPOINT. PostgreSQL may have reverted session GUCs
 	// on the backend without the pooler observing the exact reverted values, so
@@ -140,6 +149,12 @@ type MultiGatewayConnectionState struct {
 	// present) or the --statement-timeout flag. Parsed at SET time to avoid
 	// repeated parsing on every query.
 	statementTimeout GatewayManagedVariable[time.Duration]
+
+	// idleSessionTimeout is managed entirely by the gateway and is NOT forwarded
+	// to PostgreSQL. It applies to the client-facing gateway session while idle
+	// outside a transaction; forwarding it to pooled PostgreSQL backends would
+	// make backend sockets die independently of the client session.
+	idleSessionTimeout GatewayManagedVariable[time.Duration]
 
 	// savepoints is the stack of per-savepoint snapshots driving GUC revert
 	// semantics on ROLLBACK / ROLLBACK TO. Each frame captures SessionSettings
@@ -397,21 +412,23 @@ func (m *MultiGatewayConnectionState) ClearAllReservedConnections() {
 }
 
 // SetSessionVariable sets a session variable (from SET command).
-// The variable name and value are stored to be propagated to multipooler.
+// The variable name is canonicalized using PostgreSQL's GUC-name comparison
+// rules before storage, so later SETs for the same GUC in different ASCII case
+// overwrite the previous value like PostgreSQL would.
 func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.SessionSettings == nil {
 		m.SessionSettings = make(map[string]string)
 	}
-	m.SessionSettings[name] = value
+	m.SessionSettings[pgsettings.CanonicalGUCName(name)] = value
 }
 
 // ResetSessionVariable removes a session variable (from RESET command).
 func (m *MultiGatewayConnectionState) ResetSessionVariable(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.SessionSettings, name)
+	delete(m.SessionSettings, pgsettings.CanonicalGUCName(name))
 }
 
 // ResetAllSessionVariables clears all session variables (from RESET ALL command).
@@ -427,9 +444,10 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 // transaction-boundary paths and a slice literal would escape to the heap on
 // every call. Adding a GMV means bumping the array size and adding the element
 // here; the compiler flags a size mismatch if you forget one.
-func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [1]gmvLifecycle {
-	return [1]gmvLifecycle{
+func (m *MultiGatewayConnectionState) gatewayManagedVariablesLocked() [2]gmvLifecycle {
+	return [2]gmvLifecycle{
 		&m.statementTimeout,
+		&m.idleSessionTimeout,
 	}
 }
 
@@ -470,6 +488,41 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 	m.statementTimeout.SetLocalToDefault()
 }
 
+// SetIdleSessionTimeout sets the session-level idle-session timeout override.
+func (m *MultiGatewayConnectionState) SetIdleSessionTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.Set(d)
+}
+
+// ResetIdleSessionTimeout clears both the session-level override and any active
+// transaction-local override, reverting to the default (0 unless set at startup).
+func (m *MultiGatewayConnectionState) ResetIdleSessionTimeout() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.Reset()
+}
+
+// SetLocalIdleSessionTimeout stores a transaction-local idle-session timeout
+// override, cleared on COMMIT/ROLLBACK. While the transaction is active the
+// protocol layer does not enforce idle_session_timeout; idle-in-transaction
+// semantics are governed by idle_in_transaction_session_timeout, which is not a
+// gateway-managed variable here.
+func (m *MultiGatewayConnectionState) SetLocalIdleSessionTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.SetLocal(d)
+}
+
+// SetLocalIdleSessionTimeoutToDefault sets a transaction-local override to the
+// startup/default idle_session_timeout value without destroying any session
+// override, matching SET LOCAL ... TO DEFAULT GUC semantics.
+func (m *MultiGatewayConnectionState) SetLocalIdleSessionTimeoutToDefault() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout.SetLocalToDefault()
+}
+
 // gatewayManagedVariableNames is the canonical set of session variables the
 // gateway manages itself: SET / SHOW / RESET are handled locally and the value
 // is never written to SessionSettings (so it is not replayed to backends on
@@ -477,7 +530,8 @@ func (m *MultiGatewayConnectionState) SetLocalStatementTimeoutToDefault() {
 // (routing decisions) and the engine (set_config execution). Names compare
 // case-insensitively.
 var gatewayManagedVariableNames = map[string]struct{}{
-	"statement_timeout": {},
+	"statement_timeout":    {},
+	"idle_session_timeout": {},
 }
 
 // IsGatewayManagedVariable reports whether name (case-insensitive) is a session
@@ -511,6 +565,17 @@ func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value st
 			m.SetLocalStatementTimeout(d)
 		} else {
 			m.SetStatementTimeout(d)
+		}
+		return true, nil
+	case "idle_session_timeout":
+		d, err := ParsePostgresInterval("idle_session_timeout", value)
+		if err != nil {
+			return true, err
+		}
+		if isLocal {
+			m.SetLocalIdleSessionTimeout(d)
+		} else {
+			m.SetIdleSessionTimeout(d)
 		}
 		return true, nil
 	default:
@@ -780,6 +845,30 @@ func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Dur
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
 }
 
+// GetIdleSessionTimeout returns the effective idle_session_timeout. A zero
+// duration disables idle-session termination, matching PostgreSQL's default.
+func (m *MultiGatewayConnectionState) GetIdleSessionTimeout() time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.idleSessionTimeout.GetEffective()
+}
+
+// ShowIdleSessionTimeout returns the effective idle_session_timeout formatted
+// using PostgreSQL's GUC_UNIT_MS display convention for SHOW output.
+func (m *MultiGatewayConnectionState) ShowIdleSessionTimeout() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return formatDurationPg(m.idleSessionTimeout.GetEffective())
+}
+
+// InitIdleSessionTimeout sets the default for idle_session_timeout. Called once
+// during connection initialization with the value from startup params, or 0.
+func (m *MultiGatewayConnectionState) InitIdleSessionTimeout(defaultValue time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleSessionTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
 // TargetReplica returns true if this connection targets a replica.
 // Set once at connection initialization based on which port the connection arrived on.
 func (m *MultiGatewayConnectionState) TargetReplica() bool {
@@ -797,10 +886,17 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 	if len(m.StartupParams) == 0 && len(m.SessionSettings) == 0 {
 		return nil
 	}
-	// Start with startup params, then overlay session settings (which take precedence)
+	// Start with startup params, then overlay session settings. Canonicalizing
+	// keys here preserves PostgreSQL's ASCII-case-insensitive GUC semantics and
+	// guarantees SET/session values win over same-GUC startup params regardless
+	// of spelling (for example TimeZone vs timezone).
 	merged := make(map[string]string, len(m.StartupParams)+len(m.SessionSettings))
-	maps.Copy(merged, m.StartupParams)
-	maps.Copy(merged, m.SessionSettings)
+	for k, v := range m.StartupParams {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
+	for k, v := range m.SessionSettings {
+		merged[pgsettings.CanonicalGUCName(k)] = v
+	}
 	return merged
 }
 
@@ -809,7 +905,7 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	value, exists := m.SessionSettings[name]
+	value, exists := m.SessionSettings[pgsettings.CanonicalGUCName(name)]
 	return value, exists
 }
 

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -85,7 +86,7 @@ func replicasStreamingFromLeader(sa *ShardAnalysis) bool {
 			continue
 		}
 		// Skip the leader itself and any node that self-claims leadership.
-		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || namesSelfAsLeader(pa) {
+		if topoclient.ComponentIDString(poolerID(pa)) == leaderKey || commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			continue
 		}
 		// Ignore followers with no fresh observation (never reported, or a stale

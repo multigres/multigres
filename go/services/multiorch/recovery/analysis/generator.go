@@ -319,7 +319,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
 	for _, pa := range sa.Analyses {
-		if !namesSelfAsLeader(pa) && pa.Health().IsLastCheckValid && pa.IsInitialized() {
+		if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader && pa.Health().IsLastCheckValid && pa.IsInitialized() {
 			sa.HasInitializedReplica = true
 			break
 		}

@@ -18,7 +18,9 @@ package servenv
 
 import (
 	"context"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +87,27 @@ func newEnabledGRPCServerForTest() *GrpcServer {
 	g := NewGrpcServer(reg)
 	g.port.Set(12345)
 	return g
+}
+
+// TestGrpcServerKeepaliveDefaults guards the keepalive invariant that long-lived
+// streams depend on. The StreamReplication tunnel has no client-side
+// reconnect/resume, so a finite MaxConnectionAge (server sends GoAway) or a set
+// MaxConnectionIdle (idle reap) would tear an active replication stream down with
+// no recovery. These params are global to every servenv gRPC server and nothing
+// else enforces the requirement, so this test fails loudly if a future change
+// makes them finite — forcing a conscious decision (and the per-workload
+// dedicated-listener follow-up) rather than silently breaking replication.
+func TestGrpcServerKeepaliveDefaults(t *testing.T) {
+	g := NewGrpcServer(viperutil.NewRegistry())
+	ka := g.keepaliveServerParameters()
+
+	const unbounded = time.Duration(math.MaxInt64)
+	assert.Equal(t, unbounded, ka.MaxConnectionAge,
+		"MaxConnectionAge must stay unbounded; long-lived replication streams have no resume")
+	assert.Equal(t, unbounded, ka.MaxConnectionAgeGrace,
+		"MaxConnectionAgeGrace must stay unbounded")
+	assert.Zero(t, ka.MaxConnectionIdle,
+		"MaxConnectionIdle must stay unset; an idle replication stream must not be reaped")
 }
 
 func TestGrpcServerCreate_SucceedsWithoutTLS(t *testing.T) {

@@ -174,10 +174,10 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	}
 
 	// Replica poolers MUST have primary info to backup from primary. The
-	// canonical source is consensusState.ReplicationPrimary, populated by
+	// canonical source is consensusPromises.ReplicationPrimary, populated by
 	// every RPC that informs this pooler of a primary (SetPrimary and
 	// Promote's leader path for the rare self-as-primary case).
-	primary := pm.consensusState.GetReplicationPrimary().GetPrimary()
+	primary := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	primaryHost := primary.GetHost()
 	primaryPort := primary.GetPostgresPort()
 	primaryPoolerID := primary.GetId()
@@ -353,18 +353,19 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Clear the in-memory leader observation. The restored PGDATA may have been
-	// from a different point in time, so the previously observed leader may no
-	// longer be accurate. The term revocation is intentionally preserved: it is
-	// monotonically increasing and the restore does not change who is allowed to
-	// lead — only a coordinator with a term >= the revocation term may configure
-	// this node, which is exactly the right safety property.
-	pm.healthStreamer.UpdateLeaderObservation(nil)
-
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {
 		return pm.reopenPoolerManager(ctx)
 	}); err != nil {
 		return err
+	}
+
+	// Best-effort refresh of the rule observation cache. The restore restarted
+	// postgres with the backup's current_rule row and reopenPoolerManager just
+	// re-established the query-service connection, so observe the position now
+	// rather than leaving the cache stale until the next monitor tick. A failure
+	// here is non-fatal — the next ObservePosition will refresh it.
+	if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
 	}
 
 	// Mark as initialized after successful restore

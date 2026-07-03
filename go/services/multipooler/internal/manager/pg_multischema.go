@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -55,7 +56,15 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		return err
 	}
 
-	if err := pm.rules.CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
+	// backend_vpid maps live backend pids to gateway virtual pids. Like the
+	// other sidecar tables it is created here, once, on the bootstrapping
+	// primary and before the first backup, so standbys inherit it via restore
+	// and post-failover primaries already have it.
+	if err := pm.createBackendVpidTable(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
 		return err
 	}
 
@@ -139,6 +148,34 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 		ts BIGINT NOT NULL
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
+	}
+	return nil
+}
+
+// createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
+// backend-pid mapping read by lock-wait probes).
+func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for backend_vpid provisioning")
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := queryService.QueryMultiStatement(execCtx, `CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
+	backend_pid integer PRIMARY KEY,
+	vpid bigint NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE multigres.backend_vpid SET (
+	autovacuum_vacuum_scale_factor = 0,
+	autovacuum_vacuum_threshold = 100,
+	autovacuum_analyze_scale_factor = 0,
+	autovacuum_analyze_threshold = 100
+);
+GRANT USAGE ON SCHEMA multigres TO PUBLIC;
+REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
+GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
+		return mterrors.Wrap(err, "failed to create backend_vpid table")
 	}
 	return nil
 }

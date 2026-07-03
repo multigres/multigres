@@ -31,7 +31,6 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -309,6 +308,12 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 		// Convert errors to gRPC format, preserving PostgreSQL error details
 		return nil, mterrors.ToGRPC(err)
 	}
+
+	// protobuf collapses an empty `repeated fields` to nil on the wire, losing
+	// the RowDescription(0 fields) vs NoData distinction. Record it explicitly
+	// so the gateway can restore it. nil Fields => NoData (no result set);
+	// non-nil (incl. empty) => RowDescription.
+	sqltypes.SetStatementDescriptionHasFields(desc)
 
 	return &multipoolerpb.DescribeResponse{
 		Description: desc,
@@ -751,7 +756,7 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// e.g. for older gateways that don't compute the diff).
 	result, reservedState, err := executor.ConcludeTransaction(
 		ctx, req.Target, req.Options, req.Conclusion,
-		req.GetReleasePortalNames(), req.GetReleaseAllPortals(),
+		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
 	)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -856,20 +861,9 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 // healthStateToProto converts internal health state to proto response.
 func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
 	resp := &multipoolerpb.StreamPoolerHealthResponse{
-		Target:        state.Target,
 		PoolerId:      state.PoolerID,
 		ServingStatus: state.ServingStatus,
-	}
-
-	if state.LeaderObservation != nil {
-		// The pooler still tracks the observation by integer term internally;
-		// map it onto the rule-number-based wire type with leader_subterm 0.
-		// TODO: drive this from the (rule, primary) consensus state directly so
-		// the rule number (including subterm) is carried end to end.
-		resp.LeaderObservation = &clustermetadatapb.LeaderObservation{
-			LeaderId:         state.LeaderObservation.LeaderID,
-			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: state.LeaderObservation.LeaderTerm},
-		}
+		RoutingState:  state.RoutingState,
 	}
 
 	if state.RecommendedStalenessTimeout > 0 {

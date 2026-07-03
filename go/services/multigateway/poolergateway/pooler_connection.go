@@ -24,14 +24,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -45,19 +43,19 @@ var errPoolerUninitialized = errors.New("pooler health not initialized")
 // This is a snapshot of health state that can be safely passed around
 // without synchronization.
 type poolerHealth struct {
-	// Target identifies the tablegroup, shard, and pooler type.
-	Target *query.Target
-
 	// PoolerID identifies the multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
-	// ServingStatus is the serving state reported by the pooler.
+	// ServingStatus is the serving state reported by the pooler. Buffer
+	// drain (notifyIfLeaderServing) requires both SERVING and the broadcast's
+	// RoutingState advertising role PRIMARY — see that function for the race the
+	// dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains the pooler's view of who the consensus leader
-	// is, identified by leader id and the rule number under which the
-	// observation was made. Used for rule-number-based leader reconciliation.
-	LeaderObservation *clustermetadatapb.LeaderObservation
+	// RoutingState is the pooler's self-reported routing/HA role plus the rule
+	// that qualifies it. role == PRIMARY marks the writable routing primary; the
+	// rule number is used as the failover-overlap tiebreaker among primaries.
+	RoutingState *clustermetadatapb.RoutingState
 
 	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
 	// Zero on the primary or when not yet measured.
@@ -88,13 +86,12 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		return nil
 	}
 	return &poolerHealth{
-		Target:            h.Target,
-		PoolerID:          h.PoolerID,
-		ServingStatus:     h.ServingStatus,
-		LeaderObservation: h.LeaderObservation,
-		ReplicationLagNs:  h.ReplicationLagNs,
-		LastError:         h.LastError,
-		LastResponse:      h.LastResponse,
+		PoolerID:         h.PoolerID,
+		ServingStatus:    h.ServingStatus,
+		RoutingState:     h.RoutingState,
+		ReplicationLagNs: h.ReplicationLagNs,
+		LastError:        h.LastError,
+		LastResponse:     h.LastResponse,
 	}
 }
 
@@ -177,7 +174,7 @@ func newPoolerConnection(
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
-		"is_leader", pooler.GetSelfLeadership() != nil)
+		"is_leader", pooler.GetRoutingState() != nil)
 
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
@@ -195,15 +192,9 @@ func newPoolerConnection(
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
-	// Initialize health state to NOT_SERVING until health stream provides data.
-	// PoolerType is left UNKNOWN until the health stream reports it — the gateway
-	// derives role from consensus observations, not the topology Type label.
-	initialTarget := &query.Target{
-		TableGroup: pooler.GetShardKey().GetTableGroup(),
-		Shard:      pooler.GetShardKey().GetShard(),
-		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
-	}
-
+	// Initialize health state to DISABLED until the health stream provides data.
+	// Shard identity is available via poolerInfo; the gateway derives role from
+	// consensus observations, not the topology Type label.
 	pc := &poolerConnection{
 		conn:           conn,
 		client:         multipoolerservice.NewMultiPoolerServiceClient(conn),
@@ -214,9 +205,8 @@ func newPoolerConnection(
 		checkConnDone:  make(chan struct{}),
 		onHealthUpdate: onHealthUpdate,
 		health: &poolerHealth{
-			Target:        initialTarget,
 			PoolerID:      pooler.Id,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			LastError:     errPoolerUninitialized,
 		},
 	}
@@ -240,20 +230,6 @@ func (pc *poolerConnection) ID() topoclient.ComponentID {
 // Cell returns the cell where this pooler is located.
 func (pc *poolerConnection) Cell() string {
 	return pc.poolerInfo.Load().Id.GetCell()
-}
-
-// believesSelfLeader reports whether this pooler considers itself the shard
-// leader, judged from the better of its topology self_leadership (read at
-// discovery) and its latest health-stream observation. A pooler in this state
-// is either the current leader or a stale leader that has not yet learned of a
-// newer one; either way it must not be selected for replica reads.
-func (pc *poolerConnection) believesSelfLeader() bool {
-	var healthObs *clustermetadatapb.LeaderObservation
-	if h := pc.Health(); h != nil {
-		healthObs = h.LeaderObservation
-	}
-	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
-	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
 // UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from
@@ -433,13 +409,12 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 
 	// Build new health snapshot from the response.
 	newHealth := &poolerHealth{
-		Target:            response.Target,
-		PoolerID:          response.PoolerId,
-		ServingStatus:     response.ServingStatus,
-		LeaderObservation: response.LeaderObservation,
-		ReplicationLagNs:  response.ReplicationLagNs,
-		LastError:         nil,
-		LastResponse:      time.Now(),
+		PoolerID:         response.PoolerId,
+		ServingStatus:    response.ServingStatus,
+		RoutingState:     response.RoutingState,
+		ReplicationLagNs: response.ReplicationLagNs,
+		LastError:        nil,
+		LastResponse:     time.Now(),
 	}
 
 	pc.healthMu.Lock()
@@ -468,7 +443,7 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 func (pc *poolerConnection) setHealthError(err error) {
 	pc.healthMu.Lock()
 	newHealth := pc.health.simpleCopy()
-	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	newHealth.LastError = err
 	pc.health = newHealth
 	pc.healthMu.Unlock()

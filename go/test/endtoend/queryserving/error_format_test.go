@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -338,6 +339,157 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 			assert.Equal(t, "Try doing something else", pgErr.Hint)
 			t.Logf("Error with Hint/Detail: Message=%s, Detail=%s, Hint=%s",
 				pgErr.Message, pgErr.Detail, pgErr.Hint)
+		})
+	}
+}
+
+// TestErrorFormat_CopyFromStdinContext tests that errors raised during
+// COPY FROM STDIN preserve PostgreSQL's COPY context (the Where field, e.g.
+// "COPY t, line 1, column id: ...") instead of being wrapped into a flat
+// Go-formatted string. This is the regression guard for MUL-621 / GitHub
+// issue #1128, where multigateway used to return
+//
+//	ERROR: failed to finalize COPY: COPY finalization failed: COPY operation failed: ...
+//
+// losing the CONTEXT line that tells users which COPY line/column failed.
+//
+// The cases mirror the issue's repro plus its "additional examples": a type
+// error, missing data, extra data, and a NOT NULL constraint violation. Each
+// runs against both direct PostgreSQL and multigateway, so the proxy must
+// surface the same structured diagnostic native PostgreSQL does.
+func TestErrorFormat_CopyFromStdinContext(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			// copyFromStdin sends raw text-format rows through the low-level
+			// PgConn so the failures reproduce exactly as psql triggers them.
+			// The high-level conn.CopyFrom would convert values client-side and
+			// use the binary format, which would not surface these text-protocol
+			// parse errors.
+			copyFromStdin := func(table, data string) error {
+				_, copyErr := conn.PgConn().CopyFrom(ctx,
+					strings.NewReader(data),
+					fmt.Sprintf("COPY %s FROM STDIN", table))
+				return copyErr
+			}
+
+			t.Run("type_error", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_type_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "not_an_int\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P02 = invalid_text_representation
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P02", pgErr.Code, "SQLSTATE should be 22P02 for invalid integer input")
+				assert.Contains(t, pgErr.Message, "invalid input syntax for type integer")
+				// The COPY context rides in the Where field and is the whole point
+				// of MUL-621: it must name the table, line, and offending column.
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, "COPY")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				assert.Contains(t, pgErr.Where, "column id")
+				t.Logf("COPY type error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("missing_data", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_missing_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "1\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P04 = bad_copy_file_format
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P04", pgErr.Code, "SQLSTATE should be 22P04 for bad COPY file format")
+				assert.Contains(t, pgErr.Message, "missing data for column")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY missing-data error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("extra_data", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_extra_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "1\t2\t3\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P04 = bad_copy_file_format
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P04", pgErr.Code, "SQLSTATE should be 22P04 for bad COPY file format")
+				assert.Contains(t, pgErr.Message, "extra data after last expected column")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY extra-data error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("not_null_violation", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_notnull_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int NOT NULL, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "\\N\t2\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 23502 = not_null_violation. Both DETAIL (failing row) and the
+				// COPY context (Where) must survive.
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "23502", pgErr.Code, "SQLSTATE should be 23502 for not-null violation")
+				assert.Contains(t, pgErr.Message, "not-null constraint")
+				assert.Contains(t, pgErr.Detail, "Failing row contains", "DETAIL with the failing row should survive")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY not-null error: Code=%s Message=%s Detail=%q Where=%q",
+					pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Where)
+			})
 		})
 	}
 }

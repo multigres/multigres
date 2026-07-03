@@ -22,6 +22,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // TODO: add stats for heartbeat reads and writes
@@ -82,9 +83,12 @@ func (rt *ReplTracker) makeNonPrimary() {
 }
 
 // OnStateChange transitions the heartbeat tracker based on the serving state.
-// Starts the heartbeat writer for (PRIMARY, SERVING), stops it otherwise.
-func (rt *ReplTracker) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+// The writer runs only when this pooler is the writable leader (routing role
+// PRIMARY — out of recovery AND the active consensus leader) AND serving;
+// otherwise the reader runs. Writability already folds in the out-of-recovery
+// requirement, so heartbeats are never written to a standby.
+func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
+	if state.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		rt.makePrimary()
 	} else {
 		rt.makeNonPrimary()

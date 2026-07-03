@@ -544,7 +544,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
-  string final_lsn = 5; // Final checkpoint LSN (stop LSN) for this backup
+  string stop_lsn = 5; // Stop (final checkpoint) LSN for this backup, from pgbackrest info backup[].lsn.stop
 
   // Job ID annotation if present (for cross-process tracking)
   string job_id = 6;
@@ -565,6 +565,13 @@ message BackupMetadata {
   // backup[].timestamp.{start,stop}. Unset if unknown.
   google.protobuf.Timestamp start_timestamp = 11;
   google.protobuf.Timestamp stop_timestamp = 12;
+
+  // Start LSN for this backup, from pgbackrest info backup[].lsn.start. Empty if unknown.
+  string start_lsn = 13;
+
+  // Full PostgreSQL server_version (e.g. "16.2") captured at backup time via the
+  // pg_version pgbackrest annotation. Empty if it could not be captured.
+  string pg_version = 14;
 
   // Status represents the state of a backup
   enum Status {

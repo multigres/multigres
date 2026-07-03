@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -96,7 +97,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	assert.Equal(t, "testdb", analysis.Health().GetMultiPooler().GetShardKey().GetDatabase())
 	assert.Equal(t, "testtg", analysis.Health().GetMultiPooler().GetShardKey().GetTableGroup())
 	assert.Equal(t, "0", analysis.Health().GetMultiPooler().GetShardKey().GetShard())
-	assert.True(t, namesSelfAsLeader(analysis))
+	assert.True(t, commonconsensus.SelfConsensusRole(analysis.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 	assert.True(t, analysis.Health().IsLastCheckValid)
 }
 
@@ -201,14 +202,14 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 	// Find the primary analysis
 	var primaryAnalysis *store.Pooler
 	for _, a := range analyses {
-		if namesSelfAsLeader(a) {
+		if commonconsensus.SelfConsensusRole(a.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			primaryAnalysis = a
 			break
 		}
 	}
 
 	require.NotNil(t, primaryAnalysis, "should find primary analysis")
-	assert.True(t, namesSelfAsLeader(primaryAnalysis))
+	assert.True(t, commonconsensus.SelfConsensusRole(primaryAnalysis.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
@@ -281,7 +282,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 	// Find the replica analysis
 	replicaAnalysis := sa.Replicas()
 	require.Len(t, replicaAnalysis, 1, "should find one replica")
-	assert.False(t, namesSelfAsLeader(replicaAnalysis[0]))
+	assert.NotEqual(t, commonconsensus.ConsensusRoleLeader, commonconsensus.SelfConsensusRole(replicaAnalysis[0].Health().GetConsensusStatus()))
 
 	// Primary health is now a shard-level field
 	assert.NotNil(t, sa.HighestShardRule.GetLeaderId(), "should have topology primary ID populated")

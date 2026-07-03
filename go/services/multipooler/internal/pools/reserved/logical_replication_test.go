@@ -210,6 +210,89 @@ func TestNewLogicalReplicationConnDialFailureFreesSlot(t *testing.T) {
 	recovered.Release(ReleaseError, nil)
 }
 
+// TestNewLogicalReplicationConnDetachThenReleaseFreesSlot verifies the pooler's
+// accounting survives the StreamReplication handoff: detaching the raw socket
+// (and closing it externally, as the tunnel does) must not strand the cap slot.
+// After Release the active counts return to zero and the slot is reclaimable.
+func TestNewLogicalReplicationConnDetachThenReleaseFreesSlot(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetCredentialProvider(fakeReplicationCredentialProvider{})
+
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+		},
+	})
+	defer pool.Close()
+
+	conn, err := pool.NewLogicalReplicationConn(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, pool.Stats().Active)
+	require.Equal(t, 1, pool.Stats().LogicalReplicationActive)
+
+	// Simulate the tunnel handoff: detach the raw socket and close it ourselves,
+	// exactly as the StreamReplication handler + byte tunnel do.
+	raw, _, err := conn.Conn().RawConn().DetachConn()
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+
+	// Release must free the cap slot and clear the active counts even though the
+	// socket was detached and closed out from under the pool.
+	conn.Release(ReleaseError, nil)
+	assert.Equal(t, 0, pool.Stats().Active, "a detached+released conn must not leak an active slot")
+	assert.Equal(t, 0, pool.Stats().LogicalReplicationActive)
+
+	// The freed slot must be reusable within a tight deadline; a leak would make
+	// this block on the empty cap=1 pool until the short context fires.
+	shortCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	c2, err := pool.NewLogicalReplicationConn(shortCtx)
+	require.NoError(t, err, "slot from a detached+released conn must be reclaimable")
+	c2.Release(ReleaseError, nil)
+}
+
+// TestNewLogicalReplicationConnDetachReleaseFreesExactlyOneSlot guards against a
+// double-free: detaching the socket (so the tunnel owns/closes it) and then
+// Release must release the cap semaphore exactly once. If it freed twice, the
+// semaphore would be over-released and a second concurrent acquire would wrongly
+// succeed past cap=1.
+func TestNewLogicalReplicationConnDetachReleaseFreesExactlyOneSlot(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetCredentialProvider(fakeReplicationCredentialProvider{})
+
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+		},
+	})
+	defer pool.Close()
+
+	conn, err := pool.NewLogicalReplicationConn(context.Background())
+	require.NoError(t, err)
+	raw, _, err := conn.Conn().RawConn().DetachConn()
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	conn.Release(ReleaseError, nil)
+
+	// Exactly one slot is available: the first acquire takes it...
+	c1, err := pool.NewLogicalReplicationConn(context.Background())
+	require.NoError(t, err)
+	defer c1.Release(ReleaseError, nil)
+
+	// ...and a second must block (double-free would have over-released cap=1).
+	shortCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	c2, err := pool.NewLogicalReplicationConn(shortCtx)
+	require.Error(t, err, "cap slot was freed more than once: the semaphore is over-released")
+	assert.Nil(t, c2)
+}
+
 func TestPoolStatsLogicalReplicationActive(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

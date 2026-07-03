@@ -23,10 +23,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -71,41 +69,9 @@ type PoolerInfo struct {
 
 // Config holds environment configuration
 type Config struct {
-	MultiadminURL       string
 	MultiadminGRPC      string
 	KubectlContext      string
 	KubernetesNamespace string
-}
-
-// PoolerStatus represents the status returned from the HTTP API
-type PoolerStatus struct {
-	Status struct {
-		PoolerType    string `json:"pooler_type"`
-		PostgresReady bool   `json:"postgres_ready"`
-		PrimaryStatus *struct {
-			Ready              bool `json:"ready"`
-			ConnectedFollowers []struct {
-				Cell string `json:"cell"`
-				Name string `json:"name"`
-			} `json:"connected_followers"`
-		} `json:"primary_status"`
-		ReplicationStatus *struct {
-			LastReceiveLSN    string `json:"last_receive_lsn"`
-			LastReplayLSN     string `json:"last_replay_lsn"`
-			IsWALReplayPaused bool   `json:"is_wal_replay_paused"`
-		} `json:"replication_status"`
-	} `json:"status"`
-}
-
-// PoolersResponse represents the poolers list from HTTP API
-type PoolersResponse struct {
-	Poolers []struct {
-		ID struct {
-			Cell string `json:"cell"`
-			Name string `json:"name"`
-		} `json:"id"`
-		Type string `json:"type"`
-	} `json:"poolers"`
 }
 
 func main() {
@@ -121,7 +87,6 @@ var rootCmd = &cobra.Command{
 for a new primary to be elected and the old primary to become a replica.
 
 Environment variables:
-  MULTIADMIN_URL          MultiAdmin API URL (default: http://localhost:18000)
   MULTIADMIN_GRPC         MultiAdmin gRPC address (default: localhost:18070)
   KUBECTL_CONTEXT         kubectl context to use (default: kind-multidemo)
   KUBERNETES_NAMESPACE    Kubernetes namespace (default: default)
@@ -134,7 +99,7 @@ Examples:
   go run failover-test.go --yes
 
   # Use custom settings
-  MULTIADMIN_URL=http://localhost:8000 go run failover-test.go --yes`,
+  MULTIADMIN_GRPC=localhost:8070 go run failover-test.go --yes`,
 	RunE: runFailoverTest,
 }
 
@@ -155,7 +120,7 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 	config := loadConfig()
 
 	logInfo("Multigres Failover Test Script (Kubernetes)")
-	logInfo("MultiAdmin API: " + config.MultiadminURL)
+	logInfo("MultiAdmin gRPC: " + config.MultiadminGRPC)
 	logInfo("Kubectl context: " + config.KubectlContext)
 	logInfo("Namespace: " + config.KubernetesNamespace)
 
@@ -185,7 +150,6 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 
 func loadConfig() *Config {
 	return &Config{
-		MultiadminURL:       getEnvOrDefault("MULTIADMIN_URL", "http://localhost:18000"),
 		MultiadminGRPC:      getEnvOrDefault("MULTIADMIN_GRPC", "localhost:18070"),
 		KubectlContext:      getEnvOrDefault("KUBECTL_CONTEXT", "kind-multidemo"),
 		KubernetesNamespace: getEnvOrDefault("KUBERNETES_NAMESPACE", "default"),
@@ -210,19 +174,22 @@ func verifyPrerequisites(config *Config) error {
 		return err
 	}
 
-	// Test API connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //nolint:gocritic // short-lived connectivity check
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, "GET", config.MultiadminURL+"/api/v1/poolers", nil)
-	resp, err := http.DefaultClient.Do(req)
+	// Test MultiAdmin gRPC connectivity
+	client, err := newAdminClient(config.MultiadminGRPC)
 	if err != nil {
-		logError("Cannot connect to MultiAdmin API at " + config.MultiadminURL)
+		logError("Cannot connect to MultiAdmin at " + config.MultiadminGRPC)
 		logError("Make sure port-forwarding is set up:")
-		logError("  kubectl --context " + config.KubectlContext + " port-forward service/multiadmin 18000:18000")
+		logError("  kubectl --context " + config.KubectlContext + " port-forward service/multiadmin 18070:18070")
 		return err
 	}
-	resp.Body.Close()
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //nolint:gocritic // short-lived connectivity check
+	defer cancel()
+	if _, err := getPoolers(ctx, client); err != nil {
+		logError("Cannot reach MultiAdmin gRPC API at " + config.MultiadminGRPC)
+		return err
+	}
 
 	return nil
 }
@@ -230,7 +197,13 @@ func verifyPrerequisites(config *Config) error {
 func disablePostgresMonitoring(ctx context.Context, config *Config) error {
 	logInfo("Disabling PostgreSQL monitoring on all poolers...")
 
-	poolers, err := getPoolers(config)
+	client, err := newAdminClient(config.MultiadminGRPC)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	poolers, err := getPoolers(ctx, client)
 	if err != nil {
 		return err
 	}
@@ -240,15 +213,9 @@ func disablePostgresMonitoring(ctx context.Context, config *Config) error {
 		return nil
 	}
 
-	client, err := newAdminClient(config.MultiadminGRPC)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
 	for _, pooler := range poolers.Poolers {
-		cell := pooler.ID.Cell
-		serviceID := pooler.ID.Name
+		cell := pooler.GetId().GetCell()
+		serviceID := pooler.GetId().GetName()
 		poolerName := fmt.Sprintf("multipooler-%s-%s", cell, serviceID)
 
 		logInfo(fmt.Sprintf("  Disabling monitoring on: %s (cell=%s, service_id=%s)", poolerName, cell, serviceID))
@@ -295,55 +262,39 @@ func (c *adminClient) Close() error {
 	return c.conn.Close()
 }
 
-func getPoolers(config *Config) (*PoolersResponse, error) {
-	resp, err := http.Get(config.MultiadminURL + "/api/v1/poolers")
+func getPoolers(ctx context.Context, client multiadminpb.MultiAdminServiceClient) (*multiadminpb.GetPoolersResponse, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	resp, err := client.GetPoolers(reqCtx, &multiadminpb.GetPoolersRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get poolers: %w", err)
 	}
-	defer resp.Body.Close()
-
-	var poolers PoolersResponse
-	if err := json.NewDecoder(resp.Body).Decode(&poolers); err != nil {
-		return nil, fmt.Errorf("failed to decode poolers response: %w", err)
-	}
-
-	return &poolers, nil
+	return resp, nil
 }
 
-func getPoolerStatus(config *Config, cell, serviceID string) (*PoolerStatus, error) {
-	url := fmt.Sprintf("%s/api/v1/poolers/%s/%s/status", config.MultiadminURL, cell, serviceID)
-	resp, err := http.Get(url) //nolint:gosec // URL constructed from trusted config and validated inputs
+func getPoolerStatus(ctx context.Context, client multiadminpb.MultiAdminServiceClient, cell, serviceID string) (*multiadminpb.GetPoolerStatusResponse, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	resp, err := client.GetPoolerStatus(reqCtx, &multiadminpb.GetPoolerStatusRequest{
+		PoolerId: &clustermetadatapb.ID{Cell: cell, Name: serviceID},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pooler status: %w", err)
 	}
-	defer resp.Body.Close()
-
-	var status PoolerStatus
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		return nil, fmt.Errorf("failed to decode status response: %w", err)
-	}
-
-	return &status, nil
+	return resp, nil
 }
 
-func findPrimary(config *Config) (*PoolerInfo, error) {
+func findPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClient) (*PoolerInfo, error) {
 	logInfo("Searching for current primary...")
 
-	poolers, err := getPoolers(config)
+	poolers, err := getPoolers(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
-	var primaries []struct {
-		ID struct {
-			Cell string `json:"cell"`
-			Name string `json:"name"`
-		} `json:"id"`
-		Type string `json:"type"`
-	}
-
+	var primaries []*clustermetadatapb.MultiPooler
 	for _, p := range poolers.Poolers {
-		if p.Type == "PRIMARY" {
+		if p.GetType() == clustermetadatapb.PoolerType_PRIMARY {
 			primaries = append(primaries, p)
 		}
 	}
@@ -359,16 +310,16 @@ func findPrimary(config *Config) (*PoolerInfo, error) {
 
 	// Check each primary to find a healthy one
 	for _, primary := range primaries {
-		cell := primary.ID.Cell
-		serviceID := primary.ID.Name
+		cell := primary.GetId().GetCell()
+		serviceID := primary.GetId().GetName()
 
-		status, err := getPoolerStatus(config, cell, serviceID)
+		status, err := getPoolerStatus(ctx, client, cell, serviceID)
 		if err != nil {
 			continue
 		}
 
-		postgresReady := status.Status.PostgresReady
-		primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+		postgresReady := status.GetStatus().GetPostgresReady()
+		primaryIsOperational := status.GetStatus().GetPrimaryStatus() != nil && status.GetStatus().GetPrimaryStatus().GetReady()
 
 		if postgresReady && primaryIsOperational {
 			poolerInfo := getPoolerInfo(cell, serviceID)
@@ -414,11 +365,11 @@ func stopPooler(poolerInfo *PoolerInfo, config *Config) error {
 	return nil
 }
 
-func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) error {
+func waitForNewPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClient, oldServiceID string, maxAttempts int) error {
 	logInfo("Waiting for new primary to be elected...")
 
 	for attempt := range maxAttempts {
-		poolers, err := getPoolers(config)
+		poolers, err := getPoolers(ctx, client)
 		if err != nil {
 			fmt.Fprint(os.Stderr, ".")
 			time.Sleep(checkInterval)
@@ -428,7 +379,7 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 		if debug && attempt%10 == 0 {
 			var primaryCount int
 			for _, p := range poolers.Poolers {
-				if p.Type == "PRIMARY" {
+				if p.GetType() == clustermetadatapb.PoolerType_PRIMARY {
 					primaryCount++
 				}
 			}
@@ -436,12 +387,12 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 		}
 
 		for _, primary := range poolers.Poolers {
-			if primary.Type != "PRIMARY" {
+			if primary.GetType() != clustermetadatapb.PoolerType_PRIMARY {
 				continue
 			}
 
-			cell := primary.ID.Cell
-			serviceID := primary.ID.Name
+			cell := primary.GetId().GetCell()
+			serviceID := primary.GetId().GetName()
 
 			if serviceID == oldServiceID {
 				if debug && attempt%10 == 0 {
@@ -454,7 +405,7 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 				fmt.Fprintf(os.Stderr, "  [DEBUG] Checking candidate: %s\n", serviceID)
 			}
 
-			status, err := getPoolerStatus(config, cell, serviceID)
+			status, err := getPoolerStatus(ctx, client, cell, serviceID)
 			if err != nil {
 				if debug && attempt%10 == 0 {
 					fmt.Fprintf(os.Stderr, "  [DEBUG]   error getting status: %v\n", err)
@@ -462,8 +413,8 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 				continue
 			}
 
-			postgresReady := status.Status.PostgresReady
-			primaryIsOperational := status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready
+			postgresReady := status.GetStatus().GetPostgresReady()
+			primaryIsOperational := status.GetStatus().GetPrimaryStatus() != nil && status.GetStatus().GetPrimaryStatus().GetReady()
 
 			if debug && attempt%10 == 0 {
 				fmt.Fprintf(os.Stderr, "  [DEBUG]   postgres_ready=%v, primary_is_operational=%v\n", postgresReady, primaryIsOperational)
@@ -485,31 +436,31 @@ func waitForNewPrimary(config *Config, oldServiceID string, maxAttempts int) err
 	return errors.New("timeout waiting for new primary")
 }
 
-func waitForReplicaHealth(config *Config, cell, serviceID string, maxAttempts int) error {
+func waitForReplicaHealth(ctx context.Context, client multiadminpb.MultiAdminServiceClient, cell, serviceID string, maxAttempts int) error {
 	logInfo(fmt.Sprintf("Waiting for %s/%s to become a healthy replica...", cell, serviceID))
 
 	var lastLSN string
 
 	for range maxAttempts {
-		status, err := getPoolerStatus(config, cell, serviceID)
+		status, err := getPoolerStatus(ctx, client, cell, serviceID)
 		if err != nil {
 			fmt.Fprint(os.Stderr, ".")
 			time.Sleep(checkInterval)
 			continue
 		}
 
-		poolerType := status.Status.PoolerType
-		postgresReady := status.Status.PostgresReady
-		replStatus := status.Status.ReplicationStatus
+		poolerType := status.GetStatus().GetPoolerType()
+		postgresReady := status.GetStatus().GetPostgresReady()
+		replStatus := status.GetStatus().GetReplicationStatus()
 
-		if poolerType == "REPLICA" && postgresReady && replStatus != nil {
-			lastReceiveLSN := replStatus.LastReceiveLSN
-			lastReplayLSN := replStatus.LastReplayLSN
-			isPaused := replStatus.IsWALReplayPaused
+		if poolerType == clustermetadatapb.PoolerType_REPLICA && postgresReady && replStatus != nil {
+			lastReceiveLSN := replStatus.GetLastReceiveLsn()
+			lastReplayLSN := replStatus.GetLastReplayLsn()
+			isPaused := replStatus.GetIsWalReplayPaused()
 
 			if lastReceiveLSN != "" && lastReplayLSN != "" && !isPaused {
 				// Verify this replica is connected to the primary
-				poolers, err := getPoolers(config)
+				poolers, err := getPoolers(ctx, client)
 				if err != nil {
 					fmt.Fprint(os.Stderr, ".")
 					time.Sleep(checkInterval)
@@ -518,30 +469,30 @@ func waitForReplicaHealth(config *Config, cell, serviceID string, maxAttempts in
 
 				// Find the healthy primary
 				for _, primary := range poolers.Poolers {
-					if primary.Type != "PRIMARY" {
+					if primary.GetType() != clustermetadatapb.PoolerType_PRIMARY {
 						continue
 					}
 
-					primaryCell := primary.ID.Cell
-					primaryServiceID := primary.ID.Name
+					primaryCell := primary.GetId().GetCell()
+					primaryServiceID := primary.GetId().GetName()
 
-					primaryStatus, err := getPoolerStatus(config, primaryCell, primaryServiceID)
+					primaryStatus, err := getPoolerStatus(ctx, client, primaryCell, primaryServiceID)
 					if err != nil {
 						continue
 					}
 
-					if !primaryStatus.Status.PostgresReady {
+					if !primaryStatus.GetStatus().GetPostgresReady() {
 						continue
 					}
 
-					if primaryStatus.Status.PrimaryStatus == nil || !primaryStatus.Status.PrimaryStatus.Ready {
+					if primaryStatus.GetStatus().GetPrimaryStatus() == nil || !primaryStatus.GetStatus().GetPrimaryStatus().GetReady() {
 						continue
 					}
 
 					// Check if this replica is in the primary's connected followers
 					isConnected := false
-					for _, follower := range primaryStatus.Status.PrimaryStatus.ConnectedFollowers {
-						if follower.Cell == cell && follower.Name == serviceID {
+					for _, follower := range primaryStatus.GetStatus().GetPrimaryStatus().GetConnectedFollowers() {
+						if follower.GetCell() == cell && follower.GetName() == serviceID {
 							isConnected = true
 							break
 						}
@@ -574,13 +525,13 @@ func waitForReplicaHealth(config *Config, cell, serviceID string, maxAttempts in
 	return errors.New("timeout waiting for replica to become healthy")
 }
 
-func printReplicationStatus(config *Config) {
+func printReplicationStatus(ctx context.Context, client multiadminpb.MultiAdminServiceClient, config *Config) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "============================================================")
 	logInfo("Replication Status")
 	fmt.Fprintln(os.Stderr, "============================================================")
 
-	poolers, err := getPoolers(config)
+	poolers, err := getPoolers(ctx, client)
 	if err != nil {
 		logError(fmt.Sprintf("Failed to get replication status: %v", err))
 		return
@@ -589,19 +540,19 @@ func printReplicationStatus(config *Config) {
 	// Find the healthy primary
 	var primaryCell, primaryServiceID, primaryPodName string
 	for _, pooler := range poolers.Poolers {
-		if pooler.Type != "PRIMARY" {
+		if pooler.GetType() != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
 
-		cell := pooler.ID.Cell
-		serviceID := pooler.ID.Name
+		cell := pooler.GetId().GetCell()
+		serviceID := pooler.GetId().GetName()
 
-		status, err := getPoolerStatus(config, cell, serviceID)
+		status, err := getPoolerStatus(ctx, client, cell, serviceID)
 		if err != nil {
 			continue
 		}
 
-		if status.Status.PostgresReady && status.Status.PrimaryStatus != nil && status.Status.PrimaryStatus.Ready {
+		if status.GetStatus().GetPostgresReady() && status.GetStatus().GetPrimaryStatus() != nil && status.GetStatus().GetPrimaryStatus().GetReady() {
 			primaryCell = cell
 			primaryServiceID = serviceID
 			primaryPodName = serviceID // Pod name is same as service ID
@@ -632,8 +583,8 @@ func printReplicationStatus(config *Config) {
 
 	// Print replica info
 	for _, pooler := range poolers.Poolers {
-		cell := pooler.ID.Cell
-		serviceID := pooler.ID.Name
+		cell := pooler.GetId().GetCell()
+		serviceID := pooler.GetId().GetName()
 		podName := serviceID
 
 		// Skip the primary
@@ -644,13 +595,13 @@ func printReplicationStatus(config *Config) {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintf(os.Stderr, "%sREPLICA: %s/%s (pod: %s)%s\n", colorBlue, cell, serviceID, podName, colorReset)
 
-		status, err := getPoolerStatus(config, cell, serviceID)
+		status, err := getPoolerStatus(ctx, client, cell, serviceID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %sCannot get status%s\n", colorRed, colorReset)
 			continue
 		}
 
-		if !status.Status.PostgresReady {
+		if !status.GetStatus().GetPostgresReady() {
 			fmt.Fprintf(os.Stderr, "  %sPostgreSQL not ready%s\n", colorRed, colorReset)
 			continue
 		}
@@ -706,6 +657,12 @@ func runSQLQueryInPod(config *Config, podName, query string) string {
 }
 
 func failoverLoop(ctx context.Context, config *Config) error {
+	client, err := newAdminClient(config.MultiadminGRPC)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
 	iteration := 1
 
 	for {
@@ -724,7 +681,7 @@ func failoverLoop(ctx context.Context, config *Config) error {
 		fmt.Fprintln(os.Stderr)
 
 		// Find current primary
-		primaryInfo, err := findPrimary(config)
+		primaryInfo, err := findPrimary(ctx, client)
 		if err != nil {
 			logError("Could not find primary. Exiting.")
 			return err
@@ -759,7 +716,7 @@ func failoverLoop(ctx context.Context, config *Config) error {
 		}
 
 		// Wait for new primary
-		if err := waitForNewPrimary(config, primaryInfo.ServiceID, 60); err != nil {
+		if err := waitForNewPrimary(ctx, client, primaryInfo.ServiceID, 60); err != nil {
 			logError("Failed to detect new primary. Manual intervention required.")
 			return err
 		}
@@ -769,17 +726,17 @@ func failoverLoop(ctx context.Context, config *Config) error {
 		fmt.Fprintln(os.Stderr)
 
 		// Wait for the old primary to become a healthy replica
-		if err := waitForReplicaHealth(config, primaryInfo.Cell, primaryInfo.ServiceID, 60); err != nil {
+		if err := waitForReplicaHealth(ctx, client, primaryInfo.Cell, primaryInfo.ServiceID, 60); err != nil {
 			logError("Replica did not become healthy within 60 seconds!")
 			logError("Printing final replication status for diagnostics...")
-			printReplicationStatus(config)
+			printReplicationStatus(ctx, client, config)
 			return err
 		}
 
 		logSuccess(fmt.Sprintf("Failover iteration %d complete!", iteration))
 
 		// Print detailed replication status
-		printReplicationStatus(config)
+		printReplicationStatus(ctx, client, config)
 
 		// Re-disable monitoring for the next iteration
 		if err := disablePostgresMonitoring(ctx, config); err != nil {

@@ -208,14 +208,20 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 // disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
 // in the multigateway and multiorch — both the .Type field and the generated
 // GetType() getter — which must derive leader identity from consensus state
-// (self_leadership / the highest known shard rule), never from the topology role
+// (routing_state / the highest known shard rule), never from the topology role
 // label. The PoolerType routing label on a query.Target is a different field and
 // is unaffected; constructing a record with a Type (struct literal) is also
 // unaffected — only reading the Type off a discovered MultiPooler /
 // MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
 // pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.NamesSelfAsLeader).
+// Use consensus instead (GetRoutingState() != nil / commonconsensus.SelfConsensusRole).
+//
+// TODO: broaden this to also ban reading MultiPooler.ServingStatus (and Type
+// generally) off the etcd topology record anywhere in the repo.
+// Add a companion rule reporting reads of $x.ServingStatus / $x.GetServingStatus()
+// on *clustermetadata.MultiPooler / *topoclient.MultiPoolerInfo outside the
+// pooler that owns the record.
 func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
@@ -224,9 +230,37 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 		Where(
 			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
 				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
-				m.File().PkgPath.Matches(`services/(multigateway|multiorch)`) &&
+				m.File().PkgPath.Matches(`services/(multigateway|multiorch|multiadmin)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
+		Report("do not consult MultiPooler.Type for leader identity; use routing_state / consensus")
+}
+
+// disallowPoolerTypeEnumInGateway forbids mentions of the clustermetadata.PoolerType
+// enum constants in gateway production code. PoolerType is a topology role label
+// that conflates classification (PRIMARY/REPLICA) with routing intent; the gateway
+// should express intent through query.Mode (WRITABLE / CONSISTENT / INCONSISTENT)
+// and identity through consensus state (routing_state / RoutingState).
+//
+// Sibling to disallowMultiPoolerTypeForRouting, which forbids reading a discovered
+// MultiPooler's .Type field. This rule additionally bans bare references to the
+// enum constants themselves — e.g. comparing health.poolerType to PRIMARY — so
+// the enum is fully banished from gateway routing decisions, not just topology
+// reads.
+//
+// Test files are excluded; constructing test MultiPooler fixtures with a Type is
+// fine.
+func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+
+	m.Match(
+		`clustermetadata.PoolerType_UNKNOWN`,
+		`clustermetadata.PoolerType_PRIMARY`,
+		`clustermetadata.PoolerType_REPLICA`,
+		`clustermetadata.PoolerType_DRAINED`,
+	).Where(
+		m.File().PkgPath.Matches(`services/multigateway`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (RoutingState / routing_state) for identity")
 }
 
 // disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's
@@ -238,12 +272,13 @@ func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
 // commonconsensus.ReplicationPrimaryOrNil, which returns nil for a 0/0 entry.
 //
 // Excluded:
-//   - go/common/consensus: implements the safe accessor (reads the field itself).
-//   - rpc_consensus.go: builds a ConsensusStatus and must assign the field; the
-//     DSL can't distinguish an assignment target from a read.
+//   - any .../consensus package: go/common/consensus implements the safe accessor
+//     (reads the field itself), and the multipooler's manager/consensus package
+//     builds a ConsensusStatus and must assign the field — the DSL can't
+//     distinguish an assignment target from a read.
 //   - test files.
 //
-// The unrelated ConsensusState.GetReplicationPrimary() (the multipooler's
+// The unrelated ConsensusPromises.GetReplicationPrimary() (the multipooler's
 // in-memory holder) is a different receiver type and is not matched.
 func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
@@ -251,8 +286,7 @@ func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 	m.Match(`$x.GetReplicationPrimary()`, `$x.ReplicationPrimary`).
 		Where(
 			m["x"].Type.Is("*clustermetadata.ConsensusStatus") &&
-				!m.File().PkgPath.Matches(`common/consensus`) &&
-				!m.File().Name.Matches(`rpc_consensus\.go$`) &&
+				!m.File().PkgPath.Matches(`/consensus$`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
 }

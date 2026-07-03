@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
@@ -48,14 +47,7 @@ func TestPoolerHealthIsServing(t *testing.T) {
 		{
 			name: "NOT_SERVING returns false",
 			health: &poolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-			},
-			expected: false,
-		},
-		{
-			name: "BACKUP returns false",
-			health: &poolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_BACKUP,
+				ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			},
 			expected: false,
 		},
@@ -77,37 +69,30 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 	})
 
 	t.Run("copies all fields", func(t *testing.T) {
-		target := &query.Target{
-			TableGroup: "tg1",
-			Shard:      "0",
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
 		poolerID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "pooler1",
 		}
-		primaryObs := &clustermetadatapb.LeaderObservation{LeaderId: poolerID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
+		primaryRS := &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
 		original := &poolerHealth{
-			Target:            target,
-			PoolerID:          poolerID,
-			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			LeaderObservation: primaryObs,
-			LastError:         lastErr,
-			LastResponse:      lastResp,
+			PoolerID:      poolerID,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			RoutingState:  primaryRS,
+			LastError:     lastErr,
+			LastResponse:  lastResp,
 		}
 
 		copy := original.simpleCopy()
 
 		// Verify all fields are copied
 		require.NotNil(t, copy)
-		prototest.AssertEqual(t, original.Target, copy.Target)
 		prototest.AssertEqual(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
-		prototest.AssertEqual(t, original.LeaderObservation, copy.LeaderObservation)
+		prototest.AssertEqual(t, original.RoutingState, copy.RoutingState)
 		assert.Equal(t, original.LastError, copy.LastError)
 		assert.Equal(t, original.LastResponse, copy.LastResponse)
 
@@ -115,9 +100,8 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		assert.NotSame(t, original, copy)
 
 		// Verify pointer fields point to same underlying objects (shallow copy)
-		assert.Same(t, original.Target, copy.Target)
 		assert.Same(t, original.PoolerID, copy.PoolerID)
-		assert.Same(t, original.LeaderObservation, copy.LeaderObservation)
+		assert.Same(t, original.RoutingState, copy.RoutingState)
 	})
 
 	t.Run("modifying copy does not affect original", func(t *testing.T) {
@@ -127,7 +111,7 @@ func TestPoolerHealthSimpleCopy(t *testing.T) {
 		}
 
 		copy := original.simpleCopy()
-		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 		copy.LastError = errors.New("new error")
 
 		// Original should be unchanged

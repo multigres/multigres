@@ -26,6 +26,33 @@ func rn(term, subterm int64) *clustermetadatapb.RuleNumber {
 	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: subterm}
 }
 
+func TestRuleNamesLeader(t *testing.T) {
+	id := func(cell, name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{Cell: cell, Name: name}
+	}
+	self := id("zone1", "pooler-1")
+
+	tests := []struct {
+		name string
+		rule *clustermetadatapb.ShardRule
+		id   *clustermetadatapb.ID
+		want bool
+	}{
+		{name: "nil rule", rule: nil, id: self, want: false},
+		{name: "nil leader id", rule: &clustermetadatapb.ShardRule{}, id: self, want: false},
+		{name: "nil leader id and nil id", rule: &clustermetadatapb.ShardRule{}, id: nil, want: false},
+		{name: "leader present but nil id", rule: &clustermetadatapb.ShardRule{LeaderId: self}, id: nil, want: false},
+		{name: "leader matches", rule: &clustermetadatapb.ShardRule{LeaderId: self}, id: self, want: true},
+		{name: "leader differs", rule: &clustermetadatapb.ShardRule{LeaderId: id("zone1", "pooler-2")}, id: self, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, RuleNamesLeader(tt.rule, tt.id))
+		})
+	}
+}
+
 func pos(term int64, lsn string) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
 		Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)},
@@ -239,38 +266,6 @@ func TestComparePosition(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func obs(name string, term, subterm int64) *clustermetadatapb.LeaderObservation {
-	return &clustermetadatapb.LeaderObservation{
-		LeaderId:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name},
-		LeaderRuleNumber: rn(term, subterm),
-	}
-}
-
-func TestMostAuthoritativeObservation(t *testing.T) {
-	a := obs("a", 5, 0)
-	b := obs("b", 6, 0)
-	c := obs("c", 6, 1)
-
-	t.Run("all nil returns nil", func(t *testing.T) {
-		assert.Nil(t, MostAuthoritativeObservation(nil, nil))
-		assert.Nil(t, MostAuthoritativeObservation())
-	})
-
-	t.Run("skips nil entries", func(t *testing.T) {
-		assert.Same(t, a, MostAuthoritativeObservation(nil, a, nil))
-	})
-
-	t.Run("highest rule number wins", func(t *testing.T) {
-		assert.Same(t, b, MostAuthoritativeObservation(a, b))
-		assert.Same(t, c, MostAuthoritativeObservation(a, b, c)) // subterm breaks the term tie
-	})
-
-	t.Run("first wins on an exact rule tie", func(t *testing.T) {
-		tie := obs("tie", 6, 1)
-		assert.Same(t, c, MostAuthoritativeObservation(c, tie))
-	})
 }
 
 func leaderID(name string) *clustermetadatapb.ID {

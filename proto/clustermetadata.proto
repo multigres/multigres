@@ -186,16 +186,12 @@ message MultiPooler {
   // lifecycle states even on cold start, not only over the health stream.
   PoolerLifecycle lifecycle_status = 12;
 
-  // self_leadership is set ONLY when this pooler currently considers itself
-  // the leader of its shard (it names this pooler). Replicas leave it empty —
-  // a replica has no self-leadership — which avoids high-volume etcd writes by
+  // routing_state advertises this pooler's routing/HA role. It is set ONLY when
+  // this pooler is the writable PRIMARY (postgres out of recovery AND highest
+  // non-revoked committed leader). Replicas — including a consensus leader that
+  // is not yet writable — leave it empty, which avoids high-volume etcd writes by
   // every replica during failovers.
-  //
-  // Consumers (multigateway) will read this on discovery to bootstrap leader
-  // routing without relying on `type` as a hint. Best-effort: empty until the
-  // pooler has been told (via SetTermPrimary / Propose / Recruit) that it is
-  // the leader; cleared again on demotion.
-  LeaderObservation self_leadership = 13;
+  RoutingState routing_state = 13;
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -345,22 +341,27 @@ message PoolerLifecycle {
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
+//
+// To test "not serving", compare `!= SERVING` rather than against a specific
+// not-serving value: both DISABLED and DRAINING are non-serving, and checking one
+// alone would silently miss the other.
 enum PoolerServingStatus {
-  // SERVING is the status a server during normal operations when it is serving traffic.
+  // SERVING is the status during normal operations when the pooler is serving traffic.
   SERVING = 0;
 
-  // NOT_SERVING is the status of a server when it is not serving traffic.
-  // This typically occurs during startup, shutdown, or when the server is
-  // in an error state and cannot accept connections.
-  NOT_SERVING = 1;
+  // DISABLED means not serving and NOT brought back automatically: the pooler is
+  // stopping/restarting, paused, or has been deliberately drained (operator or
+  // config). The postgres monitor does not re-enable serving from this state; an
+  // explicit action (Open/resume, promotion) does.
+  DISABLED = 1;
 
-  // BACKUP is the status of a server when it is taking a backup. No queries
-  // can be served in BACKUP mode.
-  BACKUP = 2;
-
-  // RESTORE is the status a server uses when restoring a backup, at
-  // startup time.  No queries can be served in RESTORE mode.
-  RESTORE = 3;
+  // DRAINING is a transient non-serving state used while a node drains for an
+  // in-place transition (demotion). The ONLY thing distinguishing it from DISABLED
+  // is that the postgres monitor will re-enable serving (DRAINING -> SERVING) on
+  // its own once the node is healthy and role-aligned. The drain always completes
+  // while the action lock is held, so an actionable DRAINING the monitor observes
+  // means the drain has finished and restoring SERVING is safe.
+  DRAINING = 4;
 }
 
 // =============================================================================
@@ -460,22 +461,48 @@ message PoolerPosition {
   string lsn = 2;
 }
 
-// LeaderObservation represents a pooler's view of who the consensus leader is.
-// It is carried in two places:
-//   - the leader's own MultiPooler topology record (self_leadership field), so
-//     multigateway can bootstrap leader routing from etcd at discovery time
-//     without relying on MultiPooler.type as a hint; and
-//   - the multipooler health stream
-//     (StreamPoolerHealthResponse.leader_observation).
-message LeaderObservation {
-  // leader_id is the ID of the pooler this node believes is the consensus leader.
-  // May be this pooler's own ID if it believes itself to be leader.
-  ID leader_id = 1;
+// RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
+// WRITABILITY, not consensus: PRIMARY means this pooler is the writable leader,
+// REPLICA means it is not. This is deliberately distinct from consensus
+// leadership (leader/follower, tracked in ConsensusStatus and rule history) and
+// from postgres recovery mode (primary/standby). Consensus consumers
+// (multiorch) must NOT read this — they read consensus state directly.
+enum RoutingRole {
+  // ROUTING_ROLE_UNKNOWN is the proto3 zero value: the routing role has not been
+  // established yet (cold start) or comes from a record predating this field.
+  // Treated as "not the writable leader" — never routed writes.
+  ROUTING_ROLE_UNKNOWN = 0;
 
-  // leader_rule_number identifies the rule under which this observation was
-  // made. Lexicographic comparison over (coordinator_term, leader_subterm)
-  // disambiguates concurrent observations during stand-in promotion windows.
-  RuleNumber leader_rule_number = 2;
+  // ROUTING_ROLE_PRIMARY: this pooler is the writable leader. Postgres is out of
+  // recovery AND it is the highest non-revoked committed leader. Writes route here.
+  ROUTING_ROLE_PRIMARY = 1;
+
+  // ROUTING_ROLE_REPLICA: this pooler is not the writable leader.
+  ROUTING_ROLE_REPLICA = 2;
+}
+
+// RoutingState is a pooler's self-reported routing/HA state: its writability
+// role plus the rule that qualifies it. The pooler's identity is contextual (the
+// enclosing MultiPooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
+// never points at "the leader", so there is no leader_id here.
+//
+// It is carried in two places:
+//   - the writable leader's own MultiPooler topology record (routing_state field,
+//     set only when PRIMARY), so multigateway can bootstrap write routing from
+//     etcd at discovery time without relying on MultiPooler.type as a hint; and
+//   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
+//     always populated, where role == PRIMARY is the writable signal.
+message RoutingState {
+  // role is the writability routing role. role == PRIMARY is the writable signal.
+  RoutingRole role = 1;
+
+  // rule qualifies the role, compared lexicographically over
+  // (coordinator_term, leader_subterm). For PRIMARY it is the committed,
+  // non-revoked rule naming this pooler (write authority; the gateway ranks
+  // competing PRIMARYs by it during the brief overlapping-failover window). For
+  // REPLICA it is the highest rule this pooler has known (advisory) — for a
+  // self-demoting stale primary, its last-known leadership rule.
+  RuleNumber rule = 2;
 }
 
 // ReplicationPrimary advertises the primary this pooler believes it should be
@@ -501,6 +528,16 @@ message ReplicationPrimary {
   // from the most recent SetPrimary/Promote; treat as "what this pooler currently
   // believes," not as the canonical primary for the cluster.
   PoolerAddress primary = 2;
+
+  // Whether the primary in this record is safe to pg_rewind from: it has
+  // completed a checkpoint on its current timeline, so its control file no
+  // longer advertises a stale checkpoint timeline. A diverged follower that
+  // rewinds before this is true copies the stale timeline into its own
+  // minRecoveryPoint and FATALs on startup. When the record's primary is this
+  // pooler itself, the value is computed live (checkpointed timeline == running
+  // timeline); for a follower it is the value most recently relayed via
+  // SetPrimary about the leader it follows.
+  bool rewind_ready = 3;
 }
 
 // TermRevocation records that this pooler has revoked participation in all terms
@@ -664,6 +701,14 @@ message AvailabilityStatus {
   // member signaling INELIGIBLE is a candidate for removal/replacement; a
   // non-member signaling INELIGIBLE should be skipped when growing the cohort.
   CohortEligibilityStatus cohort_eligibility_status = 2;
+
+  // suspected_divergence is true when the pooler suspects its local WAL may have
+  // diverged from the cluster's chosen history and a pg_rewind may be needed to
+  // rejoin replication as a standby. This is a best-effort, in-memory signal that's
+  // usually set when a former primary learns an failover happened. A pooler with
+  // suspected divergence may be slower to endorse a new rule proposal because it
+  // needs to stop, run pg_rewind, and restart.
+  bool suspected_divergence = 3;
 }
 
 // CohortEligibilitySignal describes a pooler's self-reported willingness to

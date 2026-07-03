@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -772,6 +773,207 @@ func TestExtendedQueryProtocol_SetConfigBoundParam(t *testing.T) {
 				}
 
 				require.NoError(t, conn.CloseStatement(ctx, stmtName))
+			})
+		})
+	}
+}
+
+// TestExtendedQueryProtocol_CommentOnlyStatement verifies that an empty or
+// comment-only prepared statement Parses, Describes, Binds, and Executes
+// cleanly through the gateway — returning ParameterDescription(0)/NoData and
+// EmptyQueryResponse — instead of being rejected with MTD04 "parse failed".
+// Reproduces the Realtime tenant-migration failure, where a comment-only
+// migration statement broke the extended-protocol path.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway to confirm
+// the proxy's wire behavior matches native PostgreSQL exactly.
+func TestExtendedQueryProtocol_CommentOnlyStatement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	queries := []struct {
+		name  string
+		query string
+	}{
+		{"empty string", ""},
+		{"comment only", "-- Commented to have oriole compatibility\n-- ALTER TABLE realtime.messages SET UNLOGGED;\n"},
+	}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			for _, q := range queries {
+				t.Run(q.name, func(t *testing.T) {
+					conn := connectLowLevelToPort(t, ctx, target.Port)
+					defer conn.Close()
+
+					// Parse must succeed (ParseComplete), not MTD04.
+					require.NoError(t, conn.Parse(ctx, "empty_stmt", q.query, nil),
+						"comment-only/empty Parse must be accepted")
+
+					// Describe('S'): zero parameters, no row fields.
+					desc, err := conn.DescribePrepared(ctx, "empty_stmt")
+					require.NoError(t, err)
+					require.NotNil(t, desc)
+					assert.Empty(t, desc.Parameters, "empty statement has no parameters")
+					assert.Empty(t, desc.Fields, "empty statement has no result fields")
+
+					// Bind + Execute: EmptyQueryResponse, surfaced as an empty result.
+					var results []*sqltypes.Result
+					completed, err := conn.BindAndExecute(ctx, "", "empty_stmt", nil, nil, nil, 0,
+						func(ctx context.Context, result *sqltypes.Result) error {
+							results = append(results, result)
+							return nil
+						})
+					require.NoError(t, err, "Execute of an empty statement must not error")
+					assert.True(t, completed)
+					require.Len(t, results, 1)
+					assert.Empty(t, results[0].Rows, "empty query returns no rows")
+					assert.Empty(t, results[0].CommandTag, "empty query has no command tag")
+
+					require.NoError(t, conn.CloseStatement(ctx, "empty_stmt"))
+
+					// The connection must remain usable for subsequent queries.
+					after, err := conn.Query(ctx, "SELECT 1")
+					require.NoError(t, err)
+					require.NotEmpty(t, after)
+					require.NotEmpty(t, after[0].Rows)
+					assert.Equal(t, "1", string(after[0].Rows[0].Values[0]))
+				})
+			}
+
+			// Binding a parameter to an empty statement that declares none is a
+			// protocol violation (08P01), matching PostgreSQL. Asserted against
+			// both targets to confirm parity.
+			t.Run("bind param mismatch on empty statement", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "empty_mismatch", "-- comment\n", nil))
+
+				_, err := conn.BindAndExecute(ctx, "", "empty_mismatch", [][]byte{[]byte("1")}, []int16{0}, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						return nil
+					})
+				require.Error(t, err, "binding params to a zero-parameter empty statement must be rejected")
+				assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation),
+					"expected 08P01 protocol_violation, got: %v", err)
+			})
+
+			// Describe('P') of an empty portal, both unfolded and folded into
+			// Execute. Asserted against both targets so the gateway's NoData /
+			// EmptyQueryResponse handling is confirmed to match stock PostgreSQL.
+			t.Run("describe and execute empty portal", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "empty_dp", "-- comment\n", nil))
+
+				// Unfolded Bind → Describe('P') → Sync. An empty portal answers
+				// with NoData, so the client surfaces nil Fields. (A RowDescription
+				// would leave Fields non-nil — that is the divergence this guards
+				// against.) PostgreSQL sends no ParameterDescription for a portal.
+				desc, err := conn.BindAndDescribe(ctx, "empty_dp", nil, nil, nil)
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				assert.Nil(t, desc.Fields, "Describe('P') of an empty portal must answer NoData, not RowDescription")
+				assert.Empty(t, desc.Parameters, "portal describe never returns ParameterDescription")
+
+				// Folded Bind → Describe('P') → Execute → Sync. The describe's
+				// NoData and the execute's EmptyQueryResponse collapse to a single
+				// empty result with no fields, no rows, and no command tag.
+				var results []*sqltypes.Result
+				completed, err := conn.BindDescribeAndExecute(ctx, "", "empty_dp", nil, nil, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						results = append(results, result)
+						return nil
+					})
+				require.NoError(t, err)
+				assert.True(t, completed)
+				require.Len(t, results, 1)
+				assert.Nil(t, results[0].Fields)
+				assert.Empty(t, results[0].Rows)
+				assert.Empty(t, results[0].CommandTag)
+			})
+		})
+	}
+}
+
+// TestZeroColumnDescribeExtended is the regression for the zero-column result
+// bug: a row-returning statement with zero result columns must answer Describe
+// with RowDescription (non-nil, empty Fields), NOT NoData. Postgrex/Ecto rely
+// on this; pgx tolerates the wrong sequence, so TestZeroColumnResults misses it.
+func TestZeroColumnDescribeExtended(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	const zeroColQuery = "SELECT FROM generate_series(1, 3)" // 0 columns, 3 rows
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			t.Run("statement describe returns empty RowDescription not NoData", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_s", zeroColQuery, nil))
+
+				desc, err := conn.DescribePrepared(ctx, "zc_s")
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				// The crux: non-nil (RowDescription was sent) but empty (0 columns).
+				// Before the fix the gateway sends NoData -> Fields is nil here.
+				require.NotNil(t, desc.Fields,
+					"zero-column row-returning statement must send RowDescription, not NoData")
+				assert.Empty(t, desc.Fields, "zero-column statement has 0 fields")
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_s"))
+			})
+
+			t.Run("portal describe returns empty RowDescription not NoData", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_p", zeroColQuery, nil))
+
+				desc, err := conn.BindAndDescribe(ctx, "zc_p", nil, nil, nil)
+				require.NoError(t, err)
+				require.NotNil(t, desc)
+				require.NotNil(t, desc.Fields,
+					"zero-column portal must send RowDescription, not NoData")
+				assert.Empty(t, desc.Fields)
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_p"))
+			})
+
+			t.Run("bind+execute streams the rows", func(t *testing.T) {
+				conn := connectLowLevelToPort(t, ctx, target.Port)
+				defer conn.Close()
+
+				require.NoError(t, conn.Parse(ctx, "zc_e", zeroColQuery, nil))
+
+				var rows int
+				_, err := conn.BindAndExecute(ctx, "", "zc_e", nil, nil, nil, 0,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						rows += len(result.Rows)
+						return nil
+					})
+				require.NoError(t, err)
+				assert.Equal(t, 3, rows, "should stream 3 zero-column rows")
+
+				require.NoError(t, conn.CloseStatement(ctx, "zc_e"))
 			})
 		})
 	}

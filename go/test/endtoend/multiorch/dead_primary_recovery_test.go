@@ -136,7 +136,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		currentPrimaryName := currentPrimary.Name
 
 		// Disable postgres restarts to prevent the monitor from auto-restarting postgres
-		// between the kill and when emergencyDemoteLocked sets rewindPending.
+		// between the kill and when demoteToStandbyLocked sets rewindPending.
 		primaryManagerClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
 		require.NoError(t, err)
 		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
@@ -155,7 +155,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Re-enable postgres restarts: by now emergencyDemoteLocked has set rewindPending,
+		// Re-enable postgres restarts: by now demoteToStandbyLocked has set rewindPending,
 		// so the monitor will not restart postgres before stale-primary demotion runs.
 		_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 		require.NoError(t, err)
@@ -301,24 +301,30 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		"all multipoolers should be healthy",
 	)
 
-	// Verify replicas have primary_term = 0 (never been primary)
-	t.Logf("Verifying replicas have primary_term = 0...")
-	for name, inst := range setup.Multipoolers {
-		if name == setup.PrimaryName {
-			continue // Skip primary
+	// After the failovers settle, every pooler — the final primary included —
+	// must agree on who leads the shard.
+	t.Logf("Verifying every pooler's highest known rule names the final primary %s...", finalPrimary.Name)
+	require.Eventually(t, func() bool {
+		for name, inst := range setup.Multipoolers {
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			if err != nil {
+				return false
+			}
+			status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+			client.Close()
+			if err != nil {
+				return false
+			}
+			leaderName := commonconsensus.HighestKnownRule(
+				[]*clustermetadatapb.ConsensusStatus{status.ConsensusStatus},
+			).GetLeaderId().GetName()
+			if leaderName != finalPrimary.Name {
+				t.Logf("Pooler %s names leader %q, want %q; waiting...", name, leaderName, finalPrimary.Name)
+				return false
+			}
 		}
-
-		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		require.NoError(t, err)
-
-		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-		require.NoError(t, err)
-		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
-			assert.Zero(t, commonconsensus.LeaderTerm(status.ConsensusStatus),
-				"Replica %s should have primary_term=0 (never been primary)", name)
-		}
-		client.Close()
-	}
+		return true
+	}, 10*time.Second, 500*time.Millisecond, "every pooler should name the final primary as leader")
 
 	// Verify final primary is functional
 	t.Run("verify final primary is functional", func(t *testing.T) {
@@ -340,10 +346,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
-		var result int
-		err = db.QueryRow("SELECT 1").Scan(&result)
-		require.NoError(t, err, "Should be able to query new primary")
-		assert.Equal(t, 1, result)
+		// Attempt a write to prove the final primary is actually writable. SELECT 1
+		// succeeds on a standby too; a write does not — a node still in recovery
+		// rejects it ("cannot execute ... during recovery"). Roll back so we leave no
+		// state behind and don't block on synchronous-commit acknowledgment.
+		tx, err := db.Begin()
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+		_, err = tx.Exec("CREATE TEMP TABLE final_primary_write_check (id int)")
+		require.NoError(t, err, "final primary should accept writes; a standby would reject this during recovery")
 	})
 
 	// Verify sync replication is configured on the final primary
@@ -360,6 +371,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
 		require.NoError(t, err, "Should be able to query synchronous_standby_names")
 		require.NotEmpty(t, syncStandbyNames, "Final primary should have synchronous_standby_names configured after failovers")
+
+		// Assert the real cohort is configured.
+		for name := range setup.Multipoolers {
+			appName := fmt.Sprintf("%s_%s", setup.CellName, name)
+			assert.Contains(t, syncStandbyNames, appName,
+				"synchronous_standby_names should include cohort member %s", appName)
+		}
 
 		var syncCommit string
 		err = db.QueryRow("SHOW synchronous_commit").Scan(&syncCommit)
@@ -538,6 +556,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst)
 
+		// Snapshot the primary's current LSN before reading, so standbys can
+		// be caught up to the same point before we query them directly.
+		primaryMgrClient, err := shardsetup.NewMultipoolerClient(finalPrimaryInst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		defer primaryMgrClient.Close()
+		primaryStatusResp, err := primaryMgrClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err)
+		primaryLSN := primaryStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+
 		// Connect to primary and get row count and checksum
 		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
 		primaryDB := connectToPostgres(t, primarySocketDir, finalPrimaryInst.Pgctld.PgPort)
@@ -545,7 +572,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		var primaryRowCount int
 		countQuery := "SELECT COUNT(*) FROM " + validatorTableName
-		err := primaryDB.QueryRow(countQuery).Scan(&primaryRowCount)
+		err = primaryDB.QueryRow(countQuery).Scan(&primaryRowCount)
 		require.NoError(t, err, "Should be able to count rows on primary")
 
 		// Get a checksum of all data on primary for consistency verification
@@ -554,11 +581,20 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err = primaryDB.QueryRow(checksumQuery).Scan(&primaryChecksum)
 		require.NoError(t, err, "Should be able to compute checksum on primary")
 
-		// Verify all standbys have identical data
+		// Verify all standbys have identical data. Wait for each standby to
+		// catch up to the LSN we snapshotted above before querying postgres
+		// directly — standbys may still be replaying WAL after a pg_rewind.
 		for name, inst := range setup.Multipoolers {
 			if name == finalPrimaryName {
 				continue // Already checked primary
 			}
+			standbyClient, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			require.NoError(t, err)
+			_, err = standbyClient.Manager.WaitForLSN(utils.WithTimeout(t, 30*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+				TargetLsn: primaryLSN,
+			})
+			standbyClient.Close()
+			require.NoError(t, err, "Standby %s should catch up to primary LSN before consistency check", name)
 			verifyStandbyDataConsistency(t, name, inst, countQuery, checksumQuery, primaryRowCount, primaryChecksum)
 		}
 

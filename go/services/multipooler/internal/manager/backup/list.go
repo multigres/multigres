@@ -160,11 +160,17 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 			continue
 		}
 
-		// Extract final LSN (stop LSN) from backup
-		finalLSN := ""
-		if pgBackup.LSN != nil && pgBackup.LSN.Stop != "" {
-			finalLSN = pgBackup.LSN.Stop
+		// Extract the LSN range (start/stop) from the backup, if reported.
+		startLSN, stopLSN := "", ""
+		if pgBackup.LSN != nil {
+			startLSN = pgBackup.LSN.Start
+			stopLSN = pgBackup.LSN.Stop
 		}
+
+		// PostgreSQL server_version captured at backup time, stored as a
+		// pgbackrest annotation. Empty if the backup predates the annotation
+		// or capture failed.
+		pgVersion := pgBackup.Annotation["pg_version"]
 
 		// Extract backup size if available
 		var backupSizeBytes uint64
@@ -187,7 +193,9 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 			Status:          status,
 			TableGroup:      tableGroup,
 			Shard:           shard,
-			FinalLsn:        finalLSN,
+			StartLsn:        startLSN,
+			StopLsn:         stopLSN,
+			PgVersion:       pgVersion,
 			JobId:           jobID,
 			BackupSizeBytes: backupSizeBytes,
 			Type:            pgBackup.Type,

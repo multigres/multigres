@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -614,28 +615,28 @@ func TestApplyRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestIsInRecovery(t *testing.T) {
+func TestPostgresMode(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupMock    func(*mock.QueryService)
-		expectError  bool
-		expectResult bool
+		name        string
+		setupMock   func(*mock.QueryService)
+		expectError bool
+		expectMode  pgmode.Mode
 	}{
 		{
 			name: "primary server - not in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
-			expectError:  false,
-			expectResult: false,
+			expectError: false,
+			expectMode:  pgmode.Primary,
 		},
 		{
 			name: "standby server - in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
-			expectError:  false,
-			expectResult: true,
+			expectError: false,
+			expectMode:  pgmode.InRecovery,
 		},
 		{
 			name: "query error",
@@ -648,18 +649,18 @@ func TestIsInRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			result, err := pm.isInRecovery(ctx)
+			mode, err := pm.postgresMode(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectResult, result)
+				assert.Equal(t, tt.expectMode, mode)
 			}
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
@@ -700,7 +701,7 @@ func TestGetPrimaryLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -752,7 +753,7 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -896,7 +897,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -971,7 +972,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1330,7 +1331,7 @@ func TestPauseReplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1367,7 +1368,7 @@ func TestPauseReplication(t *testing.T) {
 // min-deadline semantics of context.WithTimeout.
 func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	t.Run("deadline already expired surfaces timeout before polling", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock("default", "0-inf")
+		pm, _ := newTestManagerWithMock(t, "default", "0-inf")
 		// Deadline already in the past: the first retry attempt observes the
 		// expired context and returns the timeout without ever polling, so no
 		// query mock is needed.
@@ -1382,7 +1383,7 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	})
 
 	t.Run("deadline expires while polls keep returning still-streaming", func(t *testing.T) {
-		pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+		pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 		// Persistent (non-consumeOnce) pattern: the function polls repeatedly
 		// (immediately, then with exponential backoff) until the deadline trips.
 		mockQueryService.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult(
@@ -1400,7 +1401,7 @@ func TestWaitForReceiverDisconnect_Timeout(t *testing.T) {
 	})
 
 	t.Run("parent context cancelled surfaces cancellation, not timeout", func(t *testing.T) {
-		pm, _ := newTestManagerWithMock("default", "0-inf")
+		pm, _ := newTestManagerWithMock(t, "default", "0-inf")
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately
 
@@ -1448,7 +1449,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1504,7 +1505,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 
@@ -1631,7 +1632,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock(t, "default", "0-inf")
 
 			tt.setupMock(mockQueryService)
 

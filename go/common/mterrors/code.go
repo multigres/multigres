@@ -29,6 +29,7 @@ const (
 	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
 	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
 	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSNoActiveTransaction     = "25P01" // no_active_sql_transaction
 	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
 	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
 	PgSSAuthFailed              = "28P01" // invalid_password
@@ -39,6 +40,7 @@ const (
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSIdleSessionTimeout      = "57P05" // idle_session_timeout
 	PgSSInternalError           = "XX000" // internal_error
 	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure    = "40001" // serialization_failure
@@ -56,6 +58,14 @@ func NewQueryCanceled() *PgDiagnostic {
 func NewStatementTimeout() *PgDiagnostic {
 	return NewPgError("ERROR", PgSSQueryCanceled,
 		"canceling statement due to statement timeout", "")
+}
+
+// NewIdleSessionTimeout creates a PgDiagnostic for an idle_session_timeout
+// expiry. SQLSTATE 57P05, severity FATAL — matches PostgreSQL's behavior of
+// terminating the client session after emitting the error.
+func NewIdleSessionTimeout() *PgDiagnostic {
+	return NewPgError("FATAL", PgSSIdleSessionTimeout,
+		"terminating connection due to idle-session timeout", "")
 }
 
 // NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
@@ -228,6 +238,16 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 // error. This is the single source of truth for the parse-error SQLSTATE.
 func NewParseError(message string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSyntaxError, message, "")
+}
+
+// NewParseErrorAt is NewParseError with a cursor position. position is the
+// 1-based character offset PostgreSQL reports in the ErrorResponse "P" field so
+// clients (psql, ORMs) can render the caret under the offending token. A
+// position of 0 is omitted from the wire message, matching NewParseError.
+func NewParseErrorAt(message string, position int32) *PgDiagnostic {
+	d := NewParseError(message)
+	d.Position = position
+	return d
 }
 
 // NewPgNotice creates a *PgDiagnostic that will be sent as a NoticeResponse

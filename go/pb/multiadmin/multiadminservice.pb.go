@@ -1675,7 +1675,13 @@ type BackupInfo struct {
 	// multipooler_service_id is the ID of the multipooler that reported the backup
 	MultipoolerServiceId string `protobuf:"bytes,9,opt,name=multipooler_service_id,json=multipoolerServiceId,proto3" json:"multipooler_service_id,omitempty"`
 	// pooler_type is the type of the multipooler (PRIMARY or REPLICA)
-	PoolerType    clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	PoolerType clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	// start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
+	StartLsn string `protobuf:"bytes,11,opt,name=start_lsn,json=startLsn,proto3" json:"start_lsn,omitempty"`
+	// stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
+	StopLsn string `protobuf:"bytes,12,opt,name=stop_lsn,json=stopLsn,proto3" json:"stop_lsn,omitempty"`
+	// pg_version is the full PostgreSQL server_version the backup was taken from (e.g. "16.2")
+	PgVersion     string `protobuf:"bytes,13,opt,name=pg_version,json=pgVersion,proto3" json:"pg_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1778,6 +1784,27 @@ func (x *BackupInfo) GetPoolerType() clustermetadata.PoolerType {
 		return x.PoolerType
 	}
 	return clustermetadata.PoolerType(0)
+}
+
+func (x *BackupInfo) GetStartLsn() string {
+	if x != nil {
+		return x.StartLsn
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetStopLsn() string {
+	if x != nil {
+		return x.StopLsn
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetPgVersion() string {
+	if x != nil {
+		return x.PgVersion
+	}
+	return ""
 }
 
 // GetPoolerStatusRequest requests the status of a specific pooler
@@ -2517,7 +2544,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
-	"raw_output\x18\x02 \x01(\tR\trawOutput\"\x9f\x03\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xf6\x03\n" +
 	"\n" +
 	"BackupInfo\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12\x1a\n" +
@@ -2533,7 +2560,11 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x16multipooler_service_id\x18\t \x01(\tR\x14multipoolerServiceId\x12<\n" +
 	"\vpooler_type\x18\n" +
 	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerType\"J\n" +
+	"poolerType\x12\x1b\n" +
+	"\tstart_lsn\x18\v \x01(\tR\bstartLsn\x12\x19\n" +
+	"\bstop_lsn\x18\f \x01(\tR\astopLsn\x12\x1d\n" +
+	"\n" +
+	"pg_version\x18\r \x01(\tR\tpgVersion\"J\n" +
 	"\x16GetPoolerStatusRequest\x120\n" +
 	"\tpooler_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x9e\x01\n" +
 	"\x17GetPoolerStatusResponse\x126\n" +

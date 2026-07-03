@@ -108,10 +108,12 @@ func ContribModules() []string {
 // multigateway and returns one merged TestResults across all modules.
 //
 // Each module is a separate pg_regress invocation (make -C contrib/<mod>
-// installcheck). As with the core regression suite we pass
-// --use-existing --dbname=postgres because multigateway rejects DROP/CREATE
-// DATABASE. Per-test names are prefixed with the module directory
-// ("citext/citext") so they stay unique in the merged report.
+// installcheck). As with the core regression suite we pass --use-existing
+// because multigateway rejects DROP/CREATE DATABASE. PGXS appends
+// --dbname=$(CONTRIB_TESTDB), so installcheck modules override CONTRIB_TESTDB
+// to postgres to match the single database exposed by the test cluster.
+// Per-test names are prefixed with the module directory ("citext/citext") so
+// they stay unique in the merged report.
 //
 // All modules share the single postgres database (multigateway can't isolate
 // per-DB), so before each module we reset the public schema directly on the
@@ -186,7 +188,9 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 		} else {
 			t.Logf("Running contrib/%s installcheck against multigateway...", mod)
 			cmd = executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
-				"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
+				"EXTRA_REGRESS_OPTS=--use-existing",
+				"CONTRIB_TESTDB=postgres",
+				"ISOLATION_TESTDB=postgres").WithProcessGroup()
 		}
 
 		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
@@ -289,7 +293,8 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	// testdata/pg<major>/external/<LocalTestDir> (pg_jsonschema: a faithful SQL
 	// translation of its pgrx #[pg_test] corpus). It replaces the checkout's
 	// fixtures entirely; the checkout is still what got built and installed.
-	if ext.LocalTestDir != "" {
+	usingLocalTestDir := ext.LocalTestDir != ""
+	if usingLocalTestDir {
 		testDir = filepath.Join(filepath.Dir(PatchesDir()), "external", ext.LocalTestDir)
 	}
 
@@ -348,6 +353,19 @@ func (pb *PostgresBuilder) runExternalRegress(t *testing.T, ctx context.Context,
 	}
 
 	outputDir := cloneDir
+	if usingLocalTestDir {
+		// Keep generated pg_regress inputs/results out of the checkout for in-repo
+		// replacement suites. Some extensions (pg_net) ship sql/<name>.sql in the
+		// clone root; using that root as --outputdir can make pg_regress execute the
+		// upstream extension install script instead of the local compatibility test.
+		outputDir = filepath.Join(pb.BuildDir, "external-regress-output", ext.Name)
+		if err := os.RemoveAll(outputDir); err != nil {
+			return nil, fmt.Errorf("external/%s: remove pg_regress output dir: %w", ext.Name, err)
+		}
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			return nil, fmt.Errorf("external/%s: create pg_regress output dir: %w", ext.Name, err)
+		}
+	}
 
 	t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
 	pgRegress := filepath.Join(pb.BuildDir, "src", "test", "regress", "pg_regress")
