@@ -90,13 +90,6 @@ type ShardAnalysis struct {
 	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable
 	// but Postgres may not yet be ready (e.g. still starting up).
 	LeaderPostgresReady bool
-
-	// LeaderHasResigned is true when the topology leader has voluntarily requested
-	// replacement via the REQUESTING_DEMOTION signal (set during Recruit's
-	// primary-demotion path or graceful shutdown of a leader). LeaderResignedAnalyzer
-	// keys off this to trigger immediate failover, separately from the LeaderIsDead
-	// reachability-based path.
-	LeaderHasResigned bool
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the leader's

@@ -26,7 +26,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// LeaderIsDeadAnalyzer detects when a leader exists in the shard but is unhealthy/unreachable.
+// LeaderNeedsReplacementAnalyzer detects when a leader exists in the shard but is unhealthy/unreachable.
 // It operates at the shard level: if any initialized follower observes the leader as dead,
 // one shard-scoped problem is emitted.
 //
@@ -46,19 +46,19 @@ import (
 //     be served) or the pooler is up but writes are blocked (e.g. a read-only disk).
 //     Suppress only when the leader is reachable and the read-only/no-write state appears
 //     intentional; otherwise this warrants failover.
-type LeaderIsDeadAnalyzer struct {
+type LeaderNeedsReplacementAnalyzer struct {
 	factory *RecoveryActionFactory
 }
 
-func (a *LeaderIsDeadAnalyzer) Name() types.CheckName {
-	return "LeaderIsDead"
+func (a *LeaderNeedsReplacementAnalyzer) Name() types.CheckName {
+	return "LeaderNeedsReplacement"
 }
 
-func (a *LeaderIsDeadAnalyzer) ProblemCode() types.ProblemCode {
+func (a *LeaderNeedsReplacementAnalyzer) ProblemCode() types.ProblemCode {
 	return types.ProblemLeaderIsDead
 }
 
-func (a *LeaderIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
+func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
@@ -160,6 +160,13 @@ func leaderObservedLive(sa *ShardAnalysis) bool {
 	return observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderLivenessFreshness)
 }
 
+// leaderHasResigned reports whether the leader has voluntarily signalled it
+// should be replaced — cohort-eligibility INELIGIBLE or a term-matched
+// REQUESTING_DEMOTION — read from its self-reported AvailabilityStatus.
+func leaderHasResigned(sa *ShardAnalysis) bool {
+	return sa.Leader != nil && types.LeaderNeedsReplacement(sa.Leader.Health())
+}
+
 // leaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
 func leaderPostgresRunning(sa *ShardAnalysis) bool {
@@ -198,7 +205,7 @@ func hasInitializedReplica(sa *ShardAnalysis) bool {
 	return false
 }
 
-func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
+func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -208,15 +215,33 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		return nil, nil
 	}
 
+	// A resigned leader (voluntary INELIGIBLE / REQUESTING_DEMOTION) needs
+	// replacement immediately, independent of liveness or follower streaming —
+	// emit and stop before the liveness-suppression logic below. Distinct problem
+	// code so dashboards can tell a voluntary demotion from a detected failure.
+	if leaderHasResigned(sa) {
+		return []types.Problem{{
+			Code:           types.ProblemLeaderResigned,
+			CheckName:      a.Name(),
+			PoolerID:       sa.HighestShardRule.GetLeaderId(),
+			ShardKey:       sa.ShardKey,
+			Description:    fmt.Sprintf("Leader for shard %s has requested demotion", sa.ShardKey),
+			Priority:       types.PriorityEmergency,
+			Scope:          types.ScopeShard,
+			DetectedAt:     time.Now(),
+			RecoveryAction: a.factory.NewAppointLeaderAction(),
+		}}, nil
+	}
+
 	// Q1 liveness: do we hold a recent, valid observation of the leader? This is
 	// judged here (not read from a pre-baked generator verdict) and is
 	// freshness-aware via leaderObservedLive, so a brief health-stream
 	// interruption does not by itself read as a dead leader.
 	leaderLive := leaderObservedLive(sa)
 
-	// Leader is recently observed, serving as a postgres primary, and has not
-	// resigned — no problem.
-	if leaderLive && sa.LeaderPostgresReady && !sa.LeaderHasResigned {
+	// Leader is recently observed and serving as a postgres primary — no problem.
+	// (Resignation was already handled above.)
+	if leaderLive && sa.LeaderPostgresReady {
 		return nil, nil
 	}
 
@@ -330,7 +355,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 	// Leader is dead — emit one shard-level problem.
 	return []types.Problem{{
 		Code:           types.ProblemLeaderIsDead,
-		CheckName:      "LeaderIsDead",
+		CheckName:      a.Name(),
 		PoolerID:       sa.HighestShardRule.GetLeaderId(),
 		ShardKey:       sa.ShardKey,
 		Description:    fmt.Sprintf("Leader for shard %s is dead/unreachable", sa.ShardKey),

@@ -292,18 +292,15 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	sa.Leader = topologyPrimary
 	if topologyPrimary != nil {
 		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
-		// LeaderHasResigned: AvailabilityStatus and ConsensusTerm are populated from
-		// StatusResponse on every health stream snapshot, so LeaderNeedsReplacement
-		// correctly detects REQUESTING_DEMOTION signals without a separate RPC.
-		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary.Health())
 		// LeaderReachable is the leader-led-change gate (Q3), used by the cohort
 		// and replication-repair analyzers: the leader's pooler check is valid,
-		// its postgres is serving, and it has not resigned. Liveness for failover
-		// *detection* (Q1) and the postgres-running / promoting / last-ready-time
-		// signals are judged inside LeaderIsDeadAnalyzer from the leader rider, not
-		// pre-baked here.
+		// its postgres is serving, and it has not resigned (voluntary
+		// REQUESTING_DEMOTION / INELIGIBLE from its AvailabilityStatus). Liveness
+		// for failover *detection* (Q1), resignation, and the postgres-running /
+		// promoting / last-ready-time signals are judged inside
+		// LeaderNeedsReplacementAnalyzer from the leader rider, not pre-baked here.
 		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
 			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
-			!sa.LeaderHasResigned
+			!types.LeaderNeedsReplacement(topologyPrimary.Health())
 	}
 }

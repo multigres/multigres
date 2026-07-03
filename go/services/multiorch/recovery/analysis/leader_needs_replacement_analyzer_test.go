@@ -34,7 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
+func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// Set up factory for tests
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -50,7 +50,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	cfg := config.NewTestConfig()
 	factory := NewRecoveryActionFactory(cfg, poolerStore, rpcClient, ts, coord, slog.Default())
 
-	analyzer := &LeaderIsDeadAnalyzer{factory: factory}
+	analyzer := &LeaderNeedsReplacementAnalyzer{factory: factory}
 
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "leader-1"}
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
@@ -104,7 +104,7 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 
 	// setLeaderPGRunning / setLeaderLastReady / setLeaderPromoting drive the
 	// leader's postgres state on its rider, replacing the removed shard-level
-	// verdict fields (now derived inside LeaderIsDeadAnalyzer).
+	// verdict fields (now derived inside LeaderNeedsReplacementAnalyzer).
 	setLeaderPGRunning := func(sa *ShardAnalysis, running bool) {
 		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.PostgresRunning = running })
 	}
@@ -114,6 +114,19 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 	setLeaderPromoting := func(sa *ShardAnalysis) {
 		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.Status.PostgresStatus = multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+		})
+	}
+
+	// setLeaderResigned marks the leader as voluntarily wanting replacement via its
+	// AvailabilityStatus (cohort-eligibility INELIGIBLE), which LeaderNeedsReplacement
+	// treats as a resignation.
+	setLeaderResigned := func(sa *ShardAnalysis) {
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+				},
+			}
 		})
 	}
 
@@ -219,8 +232,39 @@ func TestLeaderIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
+	t.Run("resigned leader takes precedence over liveness", func(t *testing.T) {
+		// A resigned leader emits ProblemLeaderResigned regardless of liveness —
+		// even a dead leader is reported as resigned (voluntary), and immediately,
+		// without the follower-streaming suppression the dead path applies.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderResigned(sa)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+		require.Equal(t, analyzer.Name(), problems[0].CheckName)
+		require.Equal(t, types.ScopeShard, problems[0].Scope)
+		require.Equal(t, leaderID, problems[0].PoolerID)
+	})
+
+	t.Run("resigned leader reported even when otherwise live and connected", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			sa.LeaderPostgresReady = true
+			connectReplica(sa)
+			setLeaderResigned(sa)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+	})
+
 	t.Run("analyzer name is correct", func(t *testing.T) {
-		require.Equal(t, types.CheckName("LeaderIsDead"), analyzer.Name())
+		require.Equal(t, types.CheckName("LeaderNeedsReplacement"), analyzer.Name())
 	})
 
 	t.Run("ignores when leader pooler down but replicas connected (postgres still running, recent timestamp)", func(t *testing.T) {
