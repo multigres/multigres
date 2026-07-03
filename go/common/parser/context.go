@@ -675,6 +675,12 @@ func (ctx *ParseContext) SetLastToken(token *Token) {
 // (PostgreSQL emits these with their own errmsg + parser_errposition) are kept
 // verbatim and only carry the position.
 func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
+	return ctx.AddSyntaxErrorHint(message, "")
+}
+
+// AddSyntaxErrorHint is AddSyntaxError with a PostgreSQL HINT attached, for
+// grammar actions that mirror ereport(errmsg(...), errhint(...)) pairs.
+func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 	// The lexer signals end of input either as a nil token or as an EOF-typed
 	// token with empty text; treat both as EOF so the message matches
 	// PostgreSQL's "at end of input" rather than reporting an empty token.
@@ -695,7 +701,7 @@ func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
 		}
 	}
 
-	return ctx.AddError(message, location)
+	return ctx.AddErrorWithHint(message, location, hint)
 }
 
 // AddWarning adds a parsing warning to the context

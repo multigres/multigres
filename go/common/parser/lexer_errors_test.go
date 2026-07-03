@@ -753,3 +753,18 @@ func TestErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestDropOperatorMissingArgumentHint pins the PostgreSQL errmsg/errhint split
+// for `drop operator === (int4)`: the message is "missing argument" and the
+// "Use NONE ..." text rides in the HINT field, matching PostgreSQL's gram.y
+// ereport rather than surfacing the hint as the error message.
+func TestDropOperatorMissingArgumentHint(t *testing.T) {
+	_, err := ParseSQL("drop operator === (int4);")
+	require.Error(t, err)
+
+	var se *ParseSyntaxError
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, "missing argument", se.Message)
+	assert.Equal(t, "Use NONE to denote the missing argument of a unary operator.", se.Hint)
+	assert.Positive(t, se.CursorPosition, "the error position must be carried for the P field")
+}

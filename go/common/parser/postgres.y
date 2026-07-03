@@ -9428,7 +9428,13 @@ operator_with_argtypes:
 oper_argtypes:
 		'(' Typename ')'
 			{
-				yylex.Error("Use NONE to denote the missing argument of a unary operator.")
+				// Mirror PostgreSQL: errmsg("missing argument") with
+				// errhint("Use NONE ..."), not the hint as the message.
+				if l, ok := yylex.(interface{ ErrorWithHint(string, string) }); ok {
+					l.ErrorWithHint("missing argument", "Use NONE to denote the missing argument of a unary operator.")
+				} else {
+					yylex.Error("missing argument")
+				}
 				return 1
 			}
 		| '(' Typename ',' Typename ')'
