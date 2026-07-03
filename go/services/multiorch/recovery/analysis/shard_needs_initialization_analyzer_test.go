@@ -64,7 +64,6 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("fires when quorum of initialized poolers present with no cohort or primary", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
 			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
 		}
@@ -80,7 +79,6 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when not enough initialized poolers for quorum", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            1, // need 2
 			BootstrapDurabilityPolicy: policy,
 			Analyses:                  []*store.Pooler{initialized("pooler-1")},
 		}
@@ -100,7 +98,6 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		})
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
 			Analyses:                  []*store.Pooler{initialized("pooler-1"), withCohort},
 		}
@@ -122,7 +119,6 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		})
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
 			Analyses:                  []*store.Pooler{withCohortAndPrimary, initialized("pooler-2")},
 		}
@@ -134,7 +130,6 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when bootstrap durability policy is unknown", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: nil,
 			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
 		}

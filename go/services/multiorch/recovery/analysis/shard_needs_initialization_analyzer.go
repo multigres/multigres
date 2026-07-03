@@ -72,7 +72,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bootstrap durability policy: %w", err)
 	}
-	initializedIDs := make([]*clustermetadatapb.ID, 0, sa.NumInitialized)
+	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Analyses))
 	for _, pa := range sa.Analyses {
 		if pa.Health().IsLastCheckValid && pa.IsInitialized() {
 			initializedIDs = append(initializedIDs, poolerID(pa))

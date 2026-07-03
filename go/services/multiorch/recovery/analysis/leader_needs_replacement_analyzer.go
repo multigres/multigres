@@ -167,6 +167,26 @@ func leaderHasResigned(sa *ShardAnalysis) bool {
 	return sa.Leader != nil && types.LeaderNeedsReplacement(sa.Leader.Health())
 }
 
+// leaderPostgresReady reports the leader's last-snapshot pg_isready result.
+func leaderPostgresReady(sa *ShardAnalysis) bool {
+	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresReady()
+}
+
+// leaderServing reports whether the leader is a healthy, currently-serving
+// primary suitable to drive a leader-led change (cohort reconcile, replica
+// re-pointing): a recent observation (within the policy's leader-change
+// freshness), postgres accepting connections, and not resigned. This is the Q3
+// gate — not latency-sensitive, so requiring freshness merely defers a
+// non-urgent change when our view of the leader is stale.
+func leaderServing(sa *ShardAnalysis) bool {
+	if sa.Leader == nil {
+		return false
+	}
+	return observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderChangeFreshness) &&
+		leaderPostgresReady(sa) &&
+		!leaderHasResigned(sa)
+}
+
 // leaderPostgresRunning reports whether the leader's last snapshot shows its
 // postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
 func leaderPostgresRunning(sa *ShardAnalysis) bool {
@@ -241,7 +261,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 
 	// Leader is recently observed and serving as a postgres primary — no problem.
 	// (Resignation was already handled above.)
-	if leaderLive && sa.LeaderPostgresReady {
+	if leaderLive && leaderPostgresReady(sa) {
 		return nil, nil
 	}
 
@@ -315,7 +335,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 		// it reports.
 		threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 		lastReadyTime := leaderLastPostgresReadyTime(sa)
-		primaryPostgresUnresponsive := !sa.LeaderPostgresReady &&
+		primaryPostgresUnresponsive := !leaderPostgresReady(sa) &&
 			(lastReadyTime.IsZero() || time.Since(lastReadyTime) > threshold)
 
 		// Case 2: postgres process is alive but possibly unresponsive (pg_isready
@@ -325,7 +345,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 			a.factory.Logger().Warn("leader postgres reachable and responsive, replicas connected, suppressing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
-				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_ready", leaderPostgresReady(sa),
 				"last_postgres_ready_time", lastReadyTime,
 				"threshold", threshold)
 			return nil, nil
@@ -334,7 +354,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 			a.factory.Logger().Warn("leader postgres process alive but unresponsive beyond threshold, allowing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
-				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_ready", leaderPostgresReady(sa),
 				"last_postgres_ready_time", lastReadyTime,
 				"threshold", threshold)
 		}
@@ -346,7 +366,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 			a.factory.Logger().Warn("leader pooler reachable but postgres process is dead, replicas still connected (stale connections)",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
-				"leader_postgres_ready", sa.LeaderPostgresReady,
+				"leader_postgres_ready", leaderPostgresReady(sa),
 				"leader_postgres_running", leaderPGRunning,
 			)
 		}

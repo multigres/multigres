@@ -24,12 +24,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
-
-// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
-const DefaultReplicaLagThreshold = 10 * time.Second
 
 // replicationHeartbeatStalenessMultiplier is applied to wal_receiver_status_interval
 // to compute the heartbeat staleness threshold. The replica sends a status message
@@ -269,13 +265,6 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
 	}
 
-	// Count reachable, initialized poolers for bootstrap analysis.
-	for _, pa := range sa.Analyses {
-		if pa.Health().IsLastCheckValid && pa.IsInitialized() {
-			sa.NumInitialized++
-		}
-	}
-
 	// The shard's single leader is named by the highest known consensus rule
 	// across all poolers — consensus is the source of truth, never the PoolerType
 	// label. HighestShardRule.GetLeaderId() is the leader; GetCohortMembers() is its
@@ -288,19 +277,10 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	}
 	sa.HighestShardRule = commonconsensus.HighestKnownRule(statuses)
 
-	topologyPrimary := poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
-	sa.Leader = topologyPrimary
-	if topologyPrimary != nil {
-		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
-		// LeaderReachable is the leader-led-change gate (Q3), used by the cohort
-		// and replication-repair analyzers: the leader's pooler check is valid,
-		// its postgres is serving, and it has not resigned (voluntary
-		// REQUESTING_DEMOTION / INELIGIBLE from its AvailabilityStatus). Liveness
-		// for failover *detection* (Q1), resignation, and the postgres-running /
-		// promoting / last-ready-time signals are judged inside
-		// LeaderNeedsReplacementAnalyzer from the leader rider, not pre-baked here.
-		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
-			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
-			!types.LeaderNeedsReplacement(topologyPrimary.Health())
-	}
+	// Leader is the rider the highest consensus rule names as leader (may be nil
+	// if we have no health for it). All leader judgments — liveness/failover (Q1),
+	// resignation, and the leader-serving gate for leader-led changes (Q3) — are
+	// derived from this rider inside the analyzers (leaderServing, leaderObservedLive,
+	// …), not pre-baked here.
+	sa.Leader = poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
 }

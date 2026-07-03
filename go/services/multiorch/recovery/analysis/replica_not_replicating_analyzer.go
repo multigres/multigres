@@ -71,7 +71,7 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 	// leader's rule + address), leader reachability no longer matters here — an
 	// unreachable-but-known leader is still the official term leader worth telling
 	// replicas about, and only knowing where to point them matters.
-	if sa.Leader == nil || sa.Leader.Health().GetMultiPooler().GetHostname() == "" || !sa.LeaderReachable {
+	if !leaderServing(sa) || sa.Leader.Health().GetMultiPooler().GetHostname() == "" {
 		return nil, nil
 	}
 

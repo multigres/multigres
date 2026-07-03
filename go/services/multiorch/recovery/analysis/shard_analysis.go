@@ -58,9 +58,8 @@ type ShardAnalysis struct {
 	// HighestShardRule is the highest known consensus rule across all poolers in
 	// the shard (commonconsensus.HighestKnownRule), or nil if no leader is known.
 	// It is the single source of leader identity: GetLeaderId() names the shard
-	// leader and GetCohortMembers() is its recorded synchronous cohort. Reachability
-	// of that leader is captured separately by the LeaderReachable/LeaderPooler*
-	// fields below.
+	// leader and GetCohortMembers() is its recorded synchronous cohort. Whether that leader is
+	// currently serving is judged by leaderServing() from the rider, not stored here.
 	HighestShardRule *clustermetadatapb.ShardRule
 
 	// Leader is the health of the pooler that HighestShardRule names as leader, or
@@ -71,25 +70,9 @@ type ShardAnalysis struct {
 	// is still the official term leader.
 	Leader *store.Pooler
 
-	// NumInitialized is the count of reachable, initialized poolers in this shard.
-	// Pre-computed by the generator for use in analyzers.
-	NumInitialized int
-
 	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
 	// May be nil if not yet configured or not available.
 	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
-
-	// Shard-level aggregates computed once by the generator.
-
-	// LeaderReachable is true if the topology leader's pooler is reachable AND
-	// its Postgres is running. False when there is no known leader. Used by the
-	// cohort and replication-repair analyzers as the leader-led-change gate (Q3).
-	LeaderReachable bool
-
-	// LeaderPostgresReady is true if the topology leader's Postgres is accepting connections
-	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable
-	// but Postgres may not yet be ready (e.g. still starting up).
-	LeaderPostgresReady bool
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the leader's
@@ -156,7 +139,7 @@ func compareLeaderTimeline(a, b *store.Pooler) int {
 
 // analyzeAllPoolers runs fn against each pooler analysis in sa, collecting all problems.
 // Both the shard analysis and the per-pooler analysis are passed so callbacks can
-// access shard-level fields (e.g. LeaderReachable) alongside pooler-specific state.
+// access shard-level context alongside pooler-specific state.
 // Errors are accumulated — the first error encountered is returned alongside any problems collected.
 func analyzeAllPoolers(sa *ShardAnalysis, fn func(*ShardAnalysis, *store.Pooler) (*types.Problem, error)) ([]types.Problem, error) {
 	var problems []types.Problem

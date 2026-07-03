@@ -18,8 +18,10 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -56,7 +58,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// precondition the analyzer needs (it knows where to point the replica).
 	leaderHealth := func() *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{Id: primaryID, Hostname: "primary.example.com"},
+			MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.New(time.Now()),
+			Status:           &multipoolermanagerdatapb.Status{PostgresReady: true},
 		}, nil)
 	}
 
@@ -82,10 +87,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects replica with no primary_conninfo", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			Leader:          leaderHealth(),
-			LeaderReachable: true,
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", false)},
+			ShardKey: shardKey,
+			Leader:   leaderHealth(),
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "", false)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -99,10 +103,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects replica with replication stopped", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			Leader:          leaderHealth(),
-			LeaderReachable: true,
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", true)},
+			ShardKey: shardKey,
+			Leader:   leaderHealth(),
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -115,10 +118,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// we don't know where to point the replica. Waiting one cycle is cheap.
 	t.Run("skips when no usable primary is known", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			Leader:          nil,
-			LeaderReachable: true,
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
+			ShardKey: shardKey,
+			Leader:   nil,
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -127,9 +129,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			LeaderReachable: true,
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", false)},
+			ShardKey: shardKey,
+			Leader:   leaderHealth(),
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "primary.example.com", false)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -161,9 +163,8 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores replica when primary is unreachable", func(t *testing.T) {
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			LeaderReachable: false, // Primary unreachable — PrimaryIsDead handles this
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
+			ShardKey: shardKey,
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -178,9 +179,8 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		nilFactoryAnalyzer := &ReplicaNotReplicatingAnalyzer{factory: nil}
 		sa := &ShardAnalysis{
-			ShardKey:        shardKey,
-			LeaderReachable: true,
-			Analyses:        []*store.Pooler{pooler(replicaID, false, true, "", true)},
+			ShardKey: shardKey,
+			Analyses: []*store.Pooler{pooler(replicaID, false, true, "", true)},
 		}
 
 		problems, err := nilFactoryAnalyzer.Analyze(sa)

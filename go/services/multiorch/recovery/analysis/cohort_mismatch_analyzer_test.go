@@ -18,9 +18,11 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -71,15 +73,22 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		})
 	}
 
-	leaderPA := newRider(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey},
-		IsLastCheckValid: true,
-		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
-		Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
-	})
+	// leaderRider builds a fresh, currently-serving leader: recent snapshot,
+	// postgres ready, names itself leader. leaderServing(sa) reads this rider, so
+	// subtests that want an unusable leader mutate sa.Leader (see below).
+	leaderRider := func() *store.Pooler {
+		return newRider(&multiorchdatapb.PoolerHealthState{
+			MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey},
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+			ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
+			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true, PostgresReady: true},
+		})
+	}
 
 	healthyShard := func(standbys []*clustermetadatapb.ID, replicas ...*store.Pooler) *ShardAnalysis {
-		analyses := append([]*store.Pooler{leaderPA}, replicas...)
+		leader := leaderRider()
+		analyses := append([]*store.Pooler{leader}, replicas...)
 		return &ShardAnalysis{
 			ShardKey: shardKey,
 			HighestShardRule: &clustermetadatapb.ShardRule{
@@ -87,9 +96,10 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 				LeaderId:      primaryID,
 				CohortMembers: standbys,
 			},
-			LeaderReachable:     true,
-			LeaderPostgresReady: true,
-			Analyses:            analyses,
+			Now:      time.Now(),
+			Policy:   DefaultAvailabilityPolicy(),
+			Leader:   leader,
+			Analyses: analyses,
 		}
 	}
 
@@ -163,7 +173,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("does not fire when leader is unreachable", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
-		sa.LeaderReachable = false
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.LastSeen = nil }) // stale observation → not serving
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		assert.Empty(t, problems)
@@ -171,7 +181,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("does not fire when leader postgres is not ready", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
-		sa.LeaderPostgresReady = false
+		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.PostgresReady = false })
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		assert.Empty(t, problems)
@@ -250,7 +260,8 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		tombstones []*clustermetadatapb.ID,
 		analyses ...*store.Pooler,
 	) *ShardAnalysis {
-		full := append([]*store.Pooler{leaderPA}, analyses...)
+		leader := leaderRider()
+		full := append([]*store.Pooler{leader}, analyses...)
 		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
 		for _, id := range tombstones {
 			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
@@ -263,10 +274,11 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 				CohortMembers:    cohortIDs,
 				DurabilityPolicy: policy,
 			},
-			LeaderReachable:     true,
-			LeaderPostgresReady: true,
-			Analyses:            full,
-			TombstoneIDs:        tombSet,
+			Now:          time.Now(),
+			Policy:       DefaultAvailabilityPolicy(),
+			Leader:       leader,
+			Analyses:     full,
+			TombstoneIDs: tombSet,
 		}
 	}
 

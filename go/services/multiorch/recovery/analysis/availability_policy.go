@@ -47,6 +47,14 @@ type AvailabilityPolicy struct {
 	// must NOT keep suppressing failover, so an age beyond this drops the
 	// follower from the connected set.
 	FollowerStreamFreshness time.Duration
+
+	// LeaderChangeFreshness bounds how stale the leader's snapshot may be before
+	// it stops counting as a serving primary suitable to drive a leader-led
+	// change (cohort reconcile, replica re-pointing). These decisions are not
+	// latency-sensitive (Q3): being conservative here merely defers a non-urgent
+	// change, so it is a separate, independently tunable knob from the
+	// failover-detection thresholds above.
+	LeaderChangeFreshness time.Duration
 }
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
@@ -58,5 +66,6 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 	return AvailabilityPolicy{
 		LeaderLivenessFreshness: 15 * time.Second,
 		FollowerStreamFreshness: 15 * time.Second,
+		LeaderChangeFreshness:   15 * time.Second,
 	}
 }
