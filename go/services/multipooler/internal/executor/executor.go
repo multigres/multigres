@@ -1519,13 +1519,6 @@ func (e *Executor) CopyFinalize(
 		// only if no other reasons remain. A connection-level failure (broken
 		// socket) still falls through to Release(ReleaseError).
 		//
-		// Preserve any NoticeResponse diagnostics that arrived before the
-		// ErrorResponse (for example row-level trigger RAISE NOTICE output just
-		// before a failing COPY row). The gRPC handler carries these on the ERROR
-		// response and the gateway emits them before the final ErrorResponse,
-		// matching PostgreSQL's backend order.
-		noticeResult := &sqltypes.Result{Notices: notices}
-
 		// We deliberately do NOT wrap the PG error with "COPY operation
 		// failed:". The gateway round-trips a structured PgDiagnostic over the
 		// bidi stream's error_diagnostic field and re-emits a verbatim
@@ -1535,15 +1528,19 @@ func (e *Executor) CopyFinalize(
 		// TestErrorFormat_CopyFromStdinContext in
 		// go/test/endtoend/queryserving, which compares ERROR / CONTEXT output
 		// against upstream PostgreSQL.
+		//
+		// Notices that PG delivered before the ErrorResponse ride back on a
+		// notices-only Result so the gateway can emit NOTICE before ERROR.
+		errResult := &sqltypes.Result{Notices: notices}
 		if !mterrors.IsConnectionError(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
-				return noticeResult, nil, err
+				return errResult, nil, err
 			}
-			return noticeResult, e.buildReservedState(reservedConn), err
+			return errResult, e.buildReservedState(reservedConn), err
 		}
 		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, nil, err
+		return errResult, nil, err
 	}
 
 	e.logger.DebugContext(ctx, "COPY DONE successful",

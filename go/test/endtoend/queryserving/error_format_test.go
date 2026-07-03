@@ -490,6 +490,60 @@ func TestErrorFormat_CopyFromStdinContext(t *testing.T) {
 				t.Logf("COPY not-null error: Code=%s Message=%s Detail=%q Where=%q",
 					pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Where)
 			})
+
+			// The copy2 regression scenario: a CHECK constraint function RAISEs
+			// a NOTICE while evaluating the failing row, so PostgreSQL delivers
+			// NOTICE then ERROR. The notice must be forwarded ahead of the
+			// error, not dropped with the failed COPY.
+			t.Run("pre_error_notice", func(t *testing.T) {
+				cfg, err := pgconn.ParseConfig(connStr)
+				require.NoError(t, err)
+				var notices []string
+				cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+					notices = append(notices, n.Message)
+				}
+				nconn, err := pgconn.ConnectConfig(ctx, cfg)
+				require.NoError(t, err)
+				defer nconn.Close(context.Background())
+
+				tableName := fmt.Sprintf("copy_ctx_notice_%d", time.Now().UnixNano())
+				fnName := tableName + "_fn"
+				for _, ddl := range []string{
+					fmt.Sprintf("CREATE TABLE %s (f1 int)", tableName),
+					fmt.Sprintf(`CREATE FUNCTION %s(int) RETURNS bool LANGUAGE plpgsql IMMUTABLE AS
+						$f$ BEGIN RAISE NOTICE 'input = %%', $1; RETURN $1 > 0; END $f$`, fnName),
+					fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s_check CHECK (%s(f1))", tableName, tableName, fnName),
+				} {
+					_, err := nconn.Exec(ctx, ddl).ReadAll()
+					require.NoError(t, err, "setup statement failed: %s", ddl)
+				}
+				defer func() {
+					_, _ = nconn.Exec(context.Background(),
+						"DROP TABLE IF EXISTS "+tableName).ReadAll()
+					_, _ = nconn.Exec(context.Background(),
+						"DROP FUNCTION IF EXISTS "+fnName+"(int)").ReadAll()
+				}()
+
+				notices = notices[:0] // only capture notices from the COPY itself
+				_, err = nconn.CopyFrom(ctx, strings.NewReader("0\n"),
+					fmt.Sprintf("COPY %s FROM STDIN", tableName))
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 23514 = check_violation, with the COPY context intact.
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "23514", pgErr.Code, "SQLSTATE should be 23514 for check violation")
+				assert.Contains(t, pgErr.Where, "COPY")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+
+				// The NOTICE raised on the failing row must arrive before the error.
+				require.Len(t, notices, 1, "the NOTICE raised before the COPY error must be forwarded")
+				assert.Equal(t, "input = 0", notices[0])
+				t.Logf("COPY pre-error notice: %q, then Code=%s Where=%q", notices[0], pgErr.Code, pgErr.Where)
+			})
 		})
 	}
 }
