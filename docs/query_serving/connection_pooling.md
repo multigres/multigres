@@ -892,8 +892,8 @@ backend.
 
 ### Operational hazard: a broken login trigger
 
-In stock PostgreSQL a login trigger that raises an error locks users out *at
-login*, and the error tells them why. Under multigres the failure moves: the
+In stock PostgreSQL a login trigger that raises an error locks users out _at
+login_, and the error tells them why. Under multigres the failure moves: the
 **pooler's backend creation** fails instead. The symptom is pool exhaustion
 or connection-acquisition errors at the gateway, with the trigger's actual
 error only in the multipooler logs — clients never see the trigger error
