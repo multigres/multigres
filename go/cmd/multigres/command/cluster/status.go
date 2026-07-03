@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -221,11 +222,19 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Resolve etcd address and connectivity for the Topology line.
 	etcdAddr := ""
 	etcdConnected := false
-	if localCfg, err := admin.GetLocalConfig(cmd); err == nil && localCfg.Etcd.Port > 0 {
+	configPath, err := cmd.Flags().GetStringSlice("config-path")
+	if err != nil {
+		return fmt.Errorf("failed to get config-path flag: %w", err)
+	}
+
+	if localCfg, err := admin.GetLocalConfig(configPath); err == nil && localCfg.Etcd.Port > 0 {
 		etcdAddr = fmt.Sprintf("localhost:%d", localCfg.Etcd.Port)
-		if conn, err := net.DialTimeout("tcp", etcdAddr, 2*time.Second); err == nil {
-			conn.Close()
-			etcdConnected = true
+		metricsURL := fmt.Sprintf("http://localhost:%d/readyz", localCfg.Etcd.Port+2)
+		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil); err == nil {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				resp.Body.Close()
+				etcdConnected = resp.StatusCode == http.StatusOK
+			}
 		}
 	}
 

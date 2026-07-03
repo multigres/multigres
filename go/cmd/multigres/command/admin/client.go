@@ -99,8 +99,7 @@ func getServerFromConfig(configPaths []string) (string, error) {
 
 // GetLocalConfig parses multigres.yaml and returns the typed local provisioner config.
 // Returns an error if the provisioner is not "local".
-func GetLocalConfig(cmd *cobra.Command) (*local.LocalProvisionerConfig, error) {
-	configPaths, _ := cmd.Flags().GetStringSlice("config-path")
+func GetLocalConfig(configPaths []string) (*local.LocalProvisionerConfig, error) {
 	return parseLocalConfig(configPaths)
 }
 
