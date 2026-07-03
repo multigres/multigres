@@ -99,7 +99,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
 	assert.Equal(t, "host1", p1.Health().MultiPooler.Hostname)
-	assert.False(t, p1.Health().IsUpToDate, "new pooler should not be marked up-to-date")
+	assert.False(t, p1.Health().IsLastCheckValid, "new pooler should not be marked checked")
 
 	// OnLive must have run for each discovered pooler — the cache rider's
 	// Stream handle (installed by the OnLive hook via HealthStream.spawnStream)
@@ -185,7 +185,6 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 
 	// Simulate a health-check populating some state
 	existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-		h.IsUpToDate = true
 		h.IsLastCheckValid = true
 	})
 	store.SeedCache(t, poolerStore, existing)
@@ -207,7 +206,6 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	// Health-check state should be preserved
 	updated, exists := poolerStore.GetRider(pid)
 	require.True(t, exists)
-	assert.True(t, updated.Health().IsUpToDate, "IsUpToDate should be preserved")
 	assert.True(t, updated.Health().IsLastCheckValid, "IsLastCheckValid should be preserved")
 
 	// An update to an existing pooler must NOT re-fire OnLive — that would

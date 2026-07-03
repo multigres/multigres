@@ -37,20 +37,12 @@ message PoolerHealthState {
   clustermetadata.MultiPooler multi_pooler = 1;
 
   // Computed fields (cached by multiorch)
-  bool is_up_to_date = 2;
   bool is_last_check_valid = 3;
 
   // Timestamps for staleness detection
   google.protobuf.Timestamp last_check_attempted = 4;
   google.protobuf.Timestamp last_check_successful = 5;
   google.protobuf.Timestamp last_seen = 6;
-
-  // Field numbers 7–13 were individual mirrored Status fields;
-  // replaced by the embedded status field below (field 22).
-  reserved 7, 8, 9, 10, 11, 12, 13;
-  reserved "pooler_type", "primary_status", "replication_status",
-           "is_postgres_ready", "is_initialized", "has_data_directory",
-           "cohort_members", "is_postgres_running";
 
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   clustermetadata.ConsensusStatus consensus_status = 14;
@@ -79,4 +71,11 @@ message PoolerHealthState {
 
   // Monotonic counter of health snapshots received on the current or past streams.
   int64 stream_snapshots_received = 23;
+
+  // When the pooler reported it captured the most recent snapshot, on the
+  // pooler's own clock (copied verbatim from ManagerHealthSnapshot.captured_at).
+  // Distinct from last_seen/last_check_successful, which are stamped with the
+  // orchestrator's clock on receipt. Comparing this against an orchestrator
+  // timestamp must account for clock skew between the hosts.
+  google.protobuf.Timestamp pooler_captured_at = 24;
 }

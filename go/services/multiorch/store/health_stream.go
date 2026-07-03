@@ -409,7 +409,6 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.LastCheckSuccessful = now
 			h.LastSeen = now
-			h.IsUpToDate = true
 			h.IsLastCheckValid = true
 			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 			if snapshot.Status.AvailabilityStatus != nil {
@@ -428,6 +427,10 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 			// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 			// left at its previous value so callers can reason about "last known good" time.
 			h.StreamSnapshotsReceived++
+			// Record the pooler's own capture time (pooler clock) alongside the
+			// orchestrator-stamped LastSeen (orch clock) so consumers can reason about
+			// observation age without conflating the two clocks.
+			h.PoolerCapturedAt = snapshot.CapturedAt
 		})
 		return existing
 	}
