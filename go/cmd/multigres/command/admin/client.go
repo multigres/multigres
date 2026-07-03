@@ -90,7 +90,22 @@ func GetServerAddress(cmd *cobra.Command) (string, error) {
 
 // getServerFromConfig extracts the multiadmin server address from config
 func getServerFromConfig(configPaths []string) (string, error) {
-	// Find the config file
+	localConfig, err := parseLocalConfig(configPaths)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("localhost:%d", localConfig.Multiadmin.GrpcPort), nil
+}
+
+// GetLocalConfig parses multigres.yaml and returns the typed local provisioner config.
+// Returns an error if the provisioner is not "local".
+func GetLocalConfig(cmd *cobra.Command) (*local.LocalProvisionerConfig, error) {
+	configPaths, _ := cmd.Flags().GetStringSlice("config-path")
+	return parseLocalConfig(configPaths)
+}
+
+// parseLocalConfig reads multigres.yaml from the given paths and returns the typed local config.
+func parseLocalConfig(configPaths []string) (*local.LocalProvisionerConfig, error) {
 	var configFile string
 	for _, path := range configPaths {
 		candidate := filepath.Join(path, "multigres.yaml")
@@ -99,43 +114,34 @@ func getServerFromConfig(configPaths []string) (string, error) {
 			break
 		}
 	}
-
 	if configFile == "" {
-		return "", errors.New("multigres.yaml not found in any of the provided paths")
+		return nil, errors.New("multigres.yaml not found in any of the provided paths")
 	}
 
-	// Read the config file directly
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		return "", fmt.Errorf("failed to read config file %s: %w", configFile, err)
+		return nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
 	}
 
-	// Parse the config structure
-	var config struct {
+	var raw struct {
 		Provisioner       string         `yaml:"provisioner"`
 		ProvisionerConfig map[string]any `yaml:"provisioner-config"`
 	}
-
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("failed to unmarshal config: %w", err)
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+	if raw.Provisioner != "local" {
+		return nil, fmt.Errorf("unsupported provisioner: %s", raw.Provisioner)
 	}
 
-	// Extract multiadmin config for local provisioner
-	if config.Provisioner == "local" {
-		// Convert the map to YAML and then to typed config
-		yamlData, err := yaml.Marshal(config.ProvisionerConfig)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal provisioner config: %w", err)
-		}
-
-		var localConfig local.LocalProvisionerConfig
-		if err := yaml.Unmarshal(yamlData, &localConfig); err != nil {
-			return "", fmt.Errorf("failed to unmarshal local provisioner config: %w", err)
-		}
-
-		// Build admin server address from config
-		return fmt.Sprintf("localhost:%d", localConfig.Multiadmin.GrpcPort), nil
+	yamlData, err := yaml.Marshal(raw.ProvisionerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal provisioner config: %w", err)
 	}
 
-	return "", fmt.Errorf("unsupported provisioner: %s", config.Provisioner)
+	var localConfig local.LocalProvisionerConfig
+	if err := yaml.Unmarshal(yamlData, &localConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal local provisioner config: %w", err)
+	}
+	return &localConfig, nil
 }
