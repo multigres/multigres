@@ -44,8 +44,8 @@ func (c *testComponent) OnStateChange(_ context.Context, state servingstate.Stat
 		return c.err
 	}
 	// Record the derived PoolerType so existing assertions keep reading lastType.
-	c.lastType = poolerTypeForLeader(state.RoutingRole.Writable())
-	c.lastRole = state.RoutingRole
+	c.lastType = typeForState(nil, state.Routing.ToProto())
+	c.lastRole = state.Routing.Role
 	c.lastStatus = state.ServingStatus
 	return nil
 }
@@ -78,18 +78,17 @@ func newTestMultiPooler(poolerType clustermetadatapb.PoolerType, status clusterm
 		Type:          poolerType,
 		ServingStatus: status,
 	}
-	// Keep the Type ⇔ SelfLeadership invariant so the record validates: a
-	// PRIMARY names itself; any other type carries no self-leadership.
+	// A PRIMARY record carries a PRIMARY routing_state (the record derives Type
+	// from it); any other type carries none.
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-		mp.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: testPoolerID}
+		mp.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 	}
 	return mp
 }
 
-// primaryObs is the leadership observation a PRIMARY test record must carry to
-// satisfy the Type ⇔ SelfLeadership invariant.
-func primaryObs() *clustermetadatapb.LeaderObservation {
-	return &clustermetadatapb.LeaderObservation{LeaderId: testPoolerID}
+// primaryObs is the routing_state a writable PRIMARY test record carries.
+func primaryObs() *clustermetadatapb.RoutingState {
+	return &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 }
 
 // newTestRecord returns a poolerRecord seeded with a proto carrying the given
@@ -558,7 +557,7 @@ func TestStateManager_Recalc(t *testing.T) {
 	}))
 	require.Equal(t, servingstate.RoutingRolePrimary, comp.lastRole)
 	require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
-	require.NotNil(t, r.SelfLeadership())
+	require.NotNil(t, r.RoutingState())
 	callsAfterMutate := comp.callCount
 
 	// A revocation arrives: this pooler's term is revoked, so it is no longer the
@@ -572,8 +571,8 @@ func TestStateManager_Recalc(t *testing.T) {
 	assert.Equal(t, servingstate.RoutingRoleReplica, comp.lastRole,
 		"revoked leader routes as REPLICA")
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
-	assert.Nil(t, r.SelfLeadership(),
-		"revoked leader must clear its self-leadership observation immediately")
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, r.RoutingState().GetRole(),
+		"revoked leader must route as REPLICA immediately (publishing drops it from etcd)")
 }
 
 // TestStateManager_Recalc_NoChangeIsNoOp verifies Recalc does not re-fan when the
@@ -703,7 +702,7 @@ func TestDeriveRoutingRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, deriveRoutingRole(tt.pgMode, tt.cs))
+			assert.Equal(t, tt.want, deriveRoutingState(tt.pgMode, tt.cs).Role)
 		})
 	}
 }

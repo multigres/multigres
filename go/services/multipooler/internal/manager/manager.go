@@ -1670,8 +1670,7 @@ func (pm *MultiPoolerManager) StartTopoRegistration(alarm func(string)) {
 // can publish over our shutdown state regardless of locking.
 func (pm *MultiPoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
-		s.Type = clustermetadatapb.PoolerType_UNKNOWN
-		s.SelfLeadership = nil
+		s.RoutingState = nil
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 		s.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{
 			Status:  clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,

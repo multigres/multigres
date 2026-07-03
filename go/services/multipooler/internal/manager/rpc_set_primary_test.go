@@ -367,8 +367,8 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// leader — the gateway learns the new primary from that primary's own health
 	// stream, not from this demoted node.
 	healthState := pm.healthStreamer.getState()
-	assert.Nil(t, healthState.LeaderObservation,
-		"a demoted pooler must not advertise a leader observation")
+	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
+		"a demoted pooler must not advertise itself as the routing primary")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is

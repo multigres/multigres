@@ -113,7 +113,7 @@ func TestPrimaryPosition(t *testing.T) {
 			}
 			// A PRIMARY record must name itself as leader (the record invariant).
 			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
-				multipooler.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: serviceID}
+				multipooler.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
@@ -188,7 +188,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
@@ -347,7 +347,7 @@ func TestReplicationStatus(t *testing.T) {
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -528,7 +528,7 @@ func TestReplicationStatus(t *testing.T) {
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -613,7 +613,7 @@ func TestReplicationStatus(t *testing.T) {
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
@@ -778,7 +778,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,

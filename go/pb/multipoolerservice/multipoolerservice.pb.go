@@ -2177,9 +2177,13 @@ type StreamPoolerHealthResponse struct {
 	PoolerId *clustermetadata.ID `protobuf:"bytes,2,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
 	// serving_status is the current serving state of the pooler.
 	ServingStatus clustermetadata.PoolerServingStatus `protobuf:"varint,3,opt,name=serving_status,json=servingStatus,proto3,enum=clustermetadata.PoolerServingStatus" json:"serving_status,omitempty"`
-	// leader_observation contains this pooler's view of who the consensus leader is.
-	// Used by clients to identify the true leader when multiple poolers exist.
-	LeaderObservation *clustermetadata.LeaderObservation `protobuf:"bytes,4,opt,name=leader_observation,json=leaderObservation,proto3" json:"leader_observation,omitempty"`
+	// routing_state is this pooler's self-reported routing/HA role plus the rule
+	// that qualifies it. It is always populated: role == PRIMARY means this pooler
+	// is the writable leader (the signal clients gate write traffic on, replacing
+	// the former separate leader_observation + writable fields), role == REPLICA
+	// means it is not. Clients route writes to the PRIMARY and buffer when there
+	// is none. This is a routing/writability signal, not a consensus signal.
+	RoutingState *clustermetadata.RoutingState `protobuf:"bytes,4,opt,name=routing_state,json=routingState,proto3" json:"routing_state,omitempty"`
 	// recommended_staleness_timeout is the duration clients should use
 	// to detect a stale/dead health stream. If no message is received within
 	// this duration, clients should mark the pooler as unhealthy.
@@ -2235,9 +2239,9 @@ func (x *StreamPoolerHealthResponse) GetServingStatus() clustermetadata.PoolerSe
 	return clustermetadata.PoolerServingStatus(0)
 }
 
-func (x *StreamPoolerHealthResponse) GetLeaderObservation() *clustermetadata.LeaderObservation {
+func (x *StreamPoolerHealthResponse) GetRoutingState() *clustermetadata.RoutingState {
 	if x != nil {
-		return x.LeaderObservation
+		return x.RoutingState
 	}
 	return nil
 }
@@ -2491,11 +2495,11 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"#\n" +
 	"!ReleaseReservedConnectionResponse\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xfb\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xec\x02\n" +
 	"\x1aStreamPoolerHealthResponse\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
-	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12Q\n" +
-	"\x12leader_observation\x18\x04 \x01(\v2\".clustermetadata.LeaderObservationR\x11leaderObservation\x12]\n" +
+	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12B\n" +
+	"\rrouting_state\x18\x04 \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
 	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"_\n" +
 	"\x1aStreamNotificationsRequest\x12%\n" +
@@ -2598,7 +2602,7 @@ var file_multipoolerservice_proto_goTypes = []any{
 	(*query.UserAuth)(nil),                    // 45: query.UserAuth
 	(*clustermetadata.ID)(nil),                // 46: clustermetadata.ID
 	(clustermetadata.PoolerServingStatus)(0),  // 47: clustermetadata.PoolerServingStatus
-	(*clustermetadata.LeaderObservation)(nil), // 48: clustermetadata.LeaderObservation
+	(*clustermetadata.RoutingState)(nil),      // 48: clustermetadata.RoutingState
 	(*durationpb.Duration)(nil),               // 49: google.protobuf.Duration
 	(*query.PgNotification)(nil),              // 50: query.PgNotification
 }
@@ -2664,7 +2668,7 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	36, // 58: multipoolerservice.ReleaseReservedConnectionRequest.options:type_name -> query.ExecuteOptions
 	46, // 59: multipoolerservice.StreamPoolerHealthResponse.pooler_id:type_name -> clustermetadata.ID
 	47, // 60: multipoolerservice.StreamPoolerHealthResponse.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	48, // 61: multipoolerservice.StreamPoolerHealthResponse.leader_observation:type_name -> clustermetadata.LeaderObservation
+	48, // 61: multipoolerservice.StreamPoolerHealthResponse.routing_state:type_name -> clustermetadata.RoutingState
 	49, // 62: multipoolerservice.StreamPoolerHealthResponse.recommended_staleness_timeout:type_name -> google.protobuf.Duration
 	34, // 63: multipoolerservice.StreamNotificationsRequest.target:type_name -> query.Target
 	50, // 64: multipoolerservice.StreamNotificationsResponse.notification:type_name -> query.PgNotification
