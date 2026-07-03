@@ -1495,11 +1495,13 @@ func (c *Conn) handleClose() error {
 
 // maybeDispatchDrain is the extended-query error-drain gate. When
 // c.discardingUntilSync is set it routes the current inbound message
-// without dispatching to its normal handler — Sync/Query clear the
-// flag and signal the caller to fall through, Flush flushes buffered
-// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
-// their bodies drained off the wire, and Terminate falls through to
-// the normal teardown.
+// without dispatching to its normal handler — Sync is the only drain
+// boundary and clears the flag, signaling the caller to fall through
+// so handleSync emits ReadyForQuery; Flush flushes buffered bytes
+// without writing a reply; Terminate falls through to the normal
+// teardown; and every other message type (Parse, Bind, Describe,
+// Execute, Close, Query, and anything else) gets its body drained off
+// the wire.
 //
 // Returns (handled=true, err) when the message was absorbed here and
 // the caller should return immediately; (handled=false, nil) when the
@@ -1514,10 +1516,11 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 		return false, nil
 	}
 	switch msgType {
-	case protocol.MsgSync, protocol.MsgQuery:
-		// Flush boundaries — clear the flag and signal the caller to
-		// fall through so handleSync emits ReadyForQuery (or
-		// handleQuery runs a fresh simple-query exchange).
+	case protocol.MsgSync:
+		// Sync is the ONLY drain boundary. Per the PostgreSQL protocol, after an
+		// extended-query error the backend "reads and discards messages until a Sync
+		// is reached, then issues ReadyForQuery". Clear the flag and fall through so
+		// handleSync emits ReadyForQuery.
 		c.discardingUntilSync = false
 		return false, nil
 	case protocol.MsgTerminate:
@@ -1531,11 +1534,17 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 			return true, fmt.Errorf("failed to read Flush message length: %w", err)
 		}
 		return true, c.flush()
-	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
-		protocol.MsgExecute, protocol.MsgClose:
+	default:
+		// Discard until Sync. The PostgreSQL protocol discards ALL messages, not an
+		// enumerated subset — e.g. a simple Query ('Q') pipelined after an
+		// extended-query error (Postgrex mode: :savepoint's "RELEASE SAVEPOINT
+		// postgrex_query") must be skipped like any other message; executing it
+		// would emit extra frames between ErrorResponse and the Sync's
+		// ReadyForQuery, desyncing strict clients. drainExtendedQueryMessage is
+		// generic per-message framing, so this covers Parse/Bind/Describe/Execute/
+		// Close/Query and any other message type uniformly.
 		return true, c.drainExtendedQueryMessage()
 	}
-	return false, nil
 }
 
 // drainExtendedQueryMessage reads and discards a single extended-query

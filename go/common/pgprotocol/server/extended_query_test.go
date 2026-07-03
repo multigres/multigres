@@ -1298,6 +1298,65 @@ func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 			"(notably CloseComplete) breaks strict clients like Postgrex/JDBC")
 }
 
+// TestExtendedQueryErrorDiscardsSimpleQueryUntilSync verifies that a simple Query
+// ('Q') pipelined after an extended-query error is DISCARDED until Sync — matching
+// PostgreSQL, which "reads and discards messages until a Sync is reached". Executing it
+// (e.g. Postgrex mode: :savepoint's "RELEASE SAVEPOINT postgrex_query") emits extra
+// frames between ErrorResponse and the Sync's ReadyForQuery, desyncing strict clients.
+func TestExtendedQueryErrorDiscardsSimpleQueryUntilSync(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	queryInvoked := false
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+		queryFunc: func(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			queryInvoked = true
+			return nil
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Parse 'P' — parseFunc makes this fail → enters drain mode.
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2)) // empty stmt name + empty query + 0 param types
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Simple Query 'Q' pipelined BEFORE Sync — must be discarded, not executed.
+	q := "RELEASE SAVEPOINT postgrex_query"
+	readBuf.WriteByte(protocol.MsgQuery)
+	writeTestInt32(&readBuf, int32(4+len(q)+1))
+	writeTestString(&readBuf, q)
+
+	// Sync 'S' — the only drain boundary.
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 3 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	assert.False(t, queryInvoked,
+		"a simple Query pipelined after an extended-query error must be discarded, not executed")
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"after ErrorResponse the gateway must discard the pipelined simple Query and emit "+
+			"only ReadyForQuery — any frame between Error and RFQ breaks strict clients "+
+			"(Postgrex mode: :savepoint)")
+}
+
 // TestDeferredDescribeErrorDiscardsTriggeringMessage covers a subtle
 // second path into drain mode: handleDescribe('P') defers; the next
 // inbound message (here, Bind) calls handleMessage → resolveDeferredPortalDescribe
