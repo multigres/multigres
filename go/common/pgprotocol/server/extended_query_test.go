@@ -776,7 +776,7 @@ func TestDescribePortalThenFlush(t *testing.T) {
 		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
-func TestUnsupportedFunctionCallDrainsMessageBody(t *testing.T) {
+func TestUnsupportedFunctionCallRejectsCleanly(t *testing.T) {
 	var readBuf bytes.Buffer
 	var writeBuf bytes.Buffer
 	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
@@ -793,10 +793,20 @@ func TestUnsupportedFunctionCallDrainsMessageBody(t *testing.T) {
 	writeTestInt32(&readBuf, int32(4+len(body)))
 	readBuf.Write(body)
 
+	conn.startWriterBuffering()
 	err := conn.handleMessage(protocol.MsgFunctionCall)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported message type: F")
+	require.NoError(t, err, "fast-path rejection must keep the session alive")
+	require.NoError(t, conn.endWriterBuffering())
 	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must be drained before rejection")
+
+	// The client sees ErrorResponse(0A000 feature_not_supported) followed by
+	// ReadyForQuery — a clean cycle, not a connection teardown.
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
+	assert.Contains(t, string(respBody), "fast-path function call protocol is not supported")
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType)
 }
 
 func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
@@ -806,10 +816,15 @@ func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
 
 	writeTestInt32(&readBuf, 4)
 
+	conn.startWriterBuffering()
 	err := conn.handleMessage(protocol.MsgFunctionCall)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported message type: F")
+	require.NoError(t, err)
+	require.NoError(t, conn.endWriterBuffering())
 	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must consume the length field")
+
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
 }
 
 func TestUnsupportedFunctionCallReportsDrainError(t *testing.T) {
