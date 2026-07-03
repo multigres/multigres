@@ -337,7 +337,7 @@ func newMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.VpidStampEnabled)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, multiPooler.GetShardKey().GetTableGroup(), multiPooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -1431,6 +1431,14 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
 	// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
 	pm.dropUnloggedTablesAfterPromotion(ctx)
+
+	// backend_vpid is an unlogged Multigres sidecar table, so the sweep above drops
+	// it too. Recreate the empty relation before the pooler is marked serving; the
+	// rows are intentionally ephemeral, but lock-wait probes need the relation to
+	// exist whenever backend VPID tracking is enabled.
+	if err := pm.createBackendVpidTable(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to recreate backend_vpid table after promotion", "error", err)
+	}
 
 	return nil
 }

@@ -90,6 +90,29 @@ func TestAddPgInitdbExtraConfFiles(t *testing.T) {
 	}
 }
 
+func TestMultipoolerExtraArgsMutators(t *testing.T) {
+	const vpidFlag = "--backend-vpid-tracking-enabled=true"
+	s := &ShardSetup{
+		Multipoolers: map[string]*MultipoolerInstance{
+			"pooler-1": {Name: "pooler-1", Multipooler: &ProcessInstance{ExtraArgs: []string{"--existing=1"}}},
+			"pooler-2": {Name: "pooler-2", Multipooler: &ProcessInstance{ExtraArgs: []string{"--other=true", vpidFlag}}},
+			"pooler-3": {Name: "pooler-3"}, // nil Multipooler is skipped safely.
+		},
+	}
+
+	s.AddMultipoolerExtraArgs(vpidFlag, "--foo=bar", vpidFlag)
+
+	assert.Equal(t, []string{"--existing=1", vpidFlag, "--foo=bar"}, s.Multipoolers["pooler-1"].Multipooler.ExtraArgs)
+	assert.Equal(t, []string{"--other=true", vpidFlag, "--foo=bar"}, s.Multipoolers["pooler-2"].Multipooler.ExtraArgs)
+	assert.Nil(t, s.Multipoolers["pooler-3"].Multipooler)
+
+	s.RemoveMultipoolerExtraArgs(vpidFlag, "--missing=true")
+
+	assert.Equal(t, []string{"--existing=1", "--foo=bar"}, s.Multipoolers["pooler-1"].Multipooler.ExtraArgs)
+	assert.Equal(t, []string{"--other=true", "--foo=bar"}, s.Multipoolers["pooler-2"].Multipooler.ExtraArgs)
+	assert.Nil(t, s.Multipoolers["pooler-3"].Multipooler)
+}
+
 // TestProcessInstancePgInitdbArgs pins the pgctld arg-construction path
 // that forwards PgInitdbArgs as --pg-initdb-args. Bypasses the actual
 // process spawn (which needs a real pgctld binary on PATH) by reading the

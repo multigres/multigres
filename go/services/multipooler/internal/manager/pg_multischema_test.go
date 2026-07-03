@@ -118,6 +118,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
@@ -152,6 +153,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("CREATE TABLE multigres.current_rule", errors.New("table creation failed"))
 			},
 			expectError:   true,
@@ -163,6 +165,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("INSERT INTO multigres.current_rule", errors.New("insert failed"))
 			},
@@ -175,6 +178,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("CREATE TABLE multigres.rule_history", errors.New("table creation failed"))
@@ -188,6 +192,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
@@ -218,6 +223,28 @@ func TestCreateSidecarSchema(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestCreateBackendVpidTableDDL(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+
+	seen := false
+	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil), func(q string) {
+		seen = true
+		assert.Contains(t, q, "ALTER TABLE multigres.backend_vpid SET")
+		assert.Contains(t, q, "autovacuum_vacuum_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_vacuum_threshold = 100")
+		assert.Contains(t, q, "autovacuum_analyze_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_analyze_threshold = 100")
+		assert.Contains(t, q, "REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC")
+		assert.Contains(t, q, "GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC")
+		assert.NotContains(t, q, "GRANT SELECT, INSERT")
+		assert.NotContains(t, q, "UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC")
+	})
+
+	err := pm.createBackendVpidTable(context.Background())
+	assert.NoError(t, err)
+	assert.True(t, seen, "backend_vpid DDL should run")
 }
 
 func TestInitializeMultischemaData(t *testing.T) {

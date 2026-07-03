@@ -131,10 +131,10 @@ const (
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during not-serving transitions before force-closing reserved connections.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, vpidStampEnabled bool) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager, poolerID, vpidStampEnabled)
+		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled)
 	}
 
 	replMetrics, replMetricsErr := replication.NewMetrics()
@@ -188,6 +188,10 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
 	routingRole := state.Routing.Role
 	servingStatus := state.ServingStatus
+	if s.executor != nil {
+		s.executor.SetBackendVpidTrackingWritable(routingRole.Writable())
+	}
+
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
