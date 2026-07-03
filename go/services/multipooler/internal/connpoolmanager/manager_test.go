@@ -901,6 +901,18 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	assert.Greater(t, setsAfter, setsBefore, "SET should have been called for new settings")
 }
 
+func TestManager_RecordSettingsOnConn_NilConnNoops(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.NotPanics(t, func() {
+		manager.RecordSettingsOnConn(nil, map[string]string{"work_mem": "256MB"})
+	})
+}
+
 func TestManager_RecordSettingsOnConn_OnlyUpdatesConnstate(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
