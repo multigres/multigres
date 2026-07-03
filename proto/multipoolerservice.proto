@@ -58,6 +58,12 @@ service MultiPoolerService {
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
 
+  // StreamReplication tunnels the raw PostgreSQL replication wire protocol as
+  // opaque bytes between the gateway and a pinned replication=database backend.
+  // The pooler does not interpret the replication sub-protocol; bytes flow
+  // verbatim in both directions. Used for logical replication (Realtime).
+  rpc StreamReplication(stream StreamReplicationRequest) returns (stream StreamReplicationResponse);
+
   // ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
   // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
   // Returns the reserved state - if non-empty, the connection is still reserved.
@@ -357,6 +363,57 @@ message CopyBidiExecuteResponse {
   query.PgDiagnostic error_diagnostic = 12;
 }
 
+// ReplicationMode selects which startup parameter the pooler uses when opening
+// the backend replication connection.
+enum ReplicationMode {
+  REPLICATION_MODE_UNSPECIFIED = 0;
+  REPLICATION_MODE_DATABASE = 1;  // replication=database (logical)
+  REPLICATION_MODE_TRUE = 2;      // replication=true (physical) — reserved, not used in v1
+}
+
+message StreamReplicationInit {
+  query.Target target = 1;        // routing destination (PRIMARY)
+  mtrpc.CallerID caller_id = 2;
+  ReplicationMode mode = 3;
+
+  // user and user_auth are the minimum needed to open the dedicated
+  // replication=database backend as the requesting role. user_auth carries the
+  // SCRAM passthrough keys (ClientKey/ServerKey) captured at the gateway during
+  // client auth — the same credentials the query path forwards in
+  // ExecuteOptions.user_auth. The rest of ExecuteOptions (session settings,
+  // MaxRows, reservation) is meaningless to a protocol-blind replication tunnel
+  // and is intentionally omitted.
+  string user = 4;
+  query.UserAuth user_auth = 5;
+}
+
+message StreamReplicationRequest {
+  oneof msg {
+    StreamReplicationInit init = 1;  // MUST be the first message
+    bytes data = 2;                  // opaque client->server bytes
+  }
+  // Reserved for future end-to-end latency measurement; unused in v1.
+  // Carried in the envelope, never inside `data`, to stay protocol-blind.
+  int64 send_unixnano = 3;
+}
+
+message StreamReplicationReady {
+  // Reserved for future fields (e.g. backend identity). Empty in v1.
+}
+
+message StreamReplicationError {
+  query.PgDiagnostic diagnostic = 1;  // structured infrastructure error
+}
+
+message StreamReplicationResponse {
+  oneof msg {
+    StreamReplicationReady ready = 1;  // backend opened, tunnel live
+    bytes data = 2;                    // opaque server->client bytes
+    StreamReplicationError error = 3;  // infrastructure error (NOT a PG ErrorResponse)
+  }
+  int64 send_unixnano = 4;             // reserved, unused in v1
+}
+
 // ReservationReason indicates why a connection needs to be reserved.
 // Values are powers of 2 to allow combining multiple reasons via bitwise OR.
 // A connection can be reserved for multiple reasons simultaneously (e.g., transaction + temp table).
@@ -501,9 +558,13 @@ message StreamPoolerHealthResponse {
   // serving_status is the current serving state of the pooler.
   clustermetadata.PoolerServingStatus serving_status = 3;
 
-  // leader_observation contains this pooler's view of who the consensus leader is.
-  // Used by clients to identify the true leader when multiple poolers exist.
-  clustermetadata.LeaderObservation leader_observation = 4;
+  // routing_state is this pooler's self-reported routing/HA role plus the rule
+  // that qualifies it. It is always populated: role == PRIMARY means this pooler
+  // is the writable leader (the signal clients gate write traffic on, replacing
+  // the former separate leader_observation + writable fields), role == REPLICA
+  // means it is not. Clients route writes to the PRIMARY and buffer when there
+  // is none. This is a routing/writability signal, not a consensus signal.
+  clustermetadata.RoutingState routing_state = 4;
 
   // recommended_staleness_timeout is the duration clients should use
   // to detect a stale/dead health stream. If no message is received within
@@ -513,12 +574,6 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
-
-  // writable reports whether this pooler can accept writes — i.e. postgres is
-  // out of recovery (!pg_is_in_recovery). A consensus leader mid-promotion is
-  // SERVING (can answer reads) but not yet writable, so clients must gate write
-  // traffic on this rather than on pooler_type/serving_status alone.
-  bool writable = 7;
 }
 
 // StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.

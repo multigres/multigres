@@ -75,7 +75,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
@@ -492,6 +492,8 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
+	// Recreate the unlogged backend_vpid sidecar table after the sweep.
+	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
 func TestPromote(t *testing.T) {
@@ -525,6 +527,7 @@ func TestPromote(t *testing.T) {
 		OutgoingRule:           &clustermetadatapb.RuleNumber{},
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
+		RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 		CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 		CoordinatorId: coordinatorA,
 		CreationTime:  ruleCreatedTS,
@@ -672,6 +675,31 @@ func TestPromote(t *testing.T) {
 			expectErrContains: "already accepted term 10 > requested 7",
 		},
 		{
+			// The revocation must revoke ALL terms below the rule being promoted.
+			// Here the node was recruited for term 7 (revocation revokes below 7)
+			// but the proposal would install a rule at term 9, leaving terms [7,9)
+			// non-revoked — so a stale committed rule in that range could be
+			// misread as a live leader. Reject.
+			name:        "RevocationDoesNotCoverRuleTerm",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req: &consensusdatapb.PromoteRequest{
+				Proposal: &consensusdatapb.CoordinatorProposal{
+					TermRevocation: recruitedTerm, // revokes below 7
+					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+					ProposedRule: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 9},
+						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+						CoordinatorId: coordinatorA,
+						CreationTime:  ruleCreatedTS,
+					},
+				},
+			},
+			setupMocks:        func(m *mock.QueryService) {},
+			expectError:       true,
+			expectErrContains: "must revoke all rules below the new term",
+		},
+		{
 			name:        "WrongCoordinator",
 			initialTerm: recruitedTerm,
 			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
@@ -732,9 +760,9 @@ func TestPromote(t *testing.T) {
 				assert.Empty(t, update.GetAcceptedMembers())
 
 				state := pm.healthStreamer.getState()
-				require.NotNil(t, state.LeaderObservation)
-				assert.True(t, proto.Equal(selfID, state.LeaderObservation.LeaderID))
-				assert.Equal(t, int64(7), state.LeaderObservation.LeaderTerm)
+				require.NotNil(t, state.RoutingState)
+				assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, state.RoutingState.GetRole())
+				assert.Equal(t, int64(7), state.RoutingState.GetRule().GetCoordinatorTerm())
 
 				assert.Equal(t, int64(0), pm.consensusMgr.ResignedLeaderAtTerm(), "clearResignedLeaderAtTerm should have cleared the term")
 
@@ -828,6 +856,7 @@ func TestPromote(t *testing.T) {
 						PostgresPort: 5432,
 					},
 					ProposedRule: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 						CoordinatorId: coordinatorA,
 						CreationTime:  ruleCreatedTS,
@@ -926,6 +955,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 			TermRevocation: recruitedTerm,
 			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
 			ProposedRule: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 				CoordinatorId: coordinatorA,
 				CreationTime:  ruleCreatedTS,
@@ -947,13 +977,13 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 	t.Run("drops every unlogged table", func(t *testing.T) {
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
-			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar"})
+			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar", "multigres.backend_vpid"})
 			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
 				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
 			})
 		})
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar", "multigres.backend_vpid"}, dropped)
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
 

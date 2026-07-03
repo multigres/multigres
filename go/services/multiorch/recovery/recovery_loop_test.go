@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -573,7 +575,7 @@ func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 func (m *mockPrimaryDeadAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if a.NamesSelfAsLeader && !a.LastCheckValid {
+		if a.SelfConsensusRole == commonconsensus.ConsensusRoleLeader && !a.LastCheckValid {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemLeaderIsDead,
 				CheckName:      m.Name(),
@@ -610,7 +612,7 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		if a.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && !a.WalReplayNotPaused {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
@@ -1387,7 +1389,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+			if a.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "NormalPriorityAnalyzer",
@@ -1409,7 +1411,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	emergencyAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+			if a.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "EmergencyPriorityAnalyzer",
@@ -1431,7 +1433,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highAnalyzer := &customAnalyzer{
 		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+			if a.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && !a.WalReplayNotPaused {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "HighPriorityAnalyzer",
@@ -1548,7 +1550,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	analyzeFunc := func(a *analysis.PoolerAnalysis) *types.Problem {
 		// Detect replica with paused WAL replay
-		if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		if a.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && !a.WalReplayNotPaused {
 			return &types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      "TracingTestAnalyzer",

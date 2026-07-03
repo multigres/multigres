@@ -1,0 +1,2 @@
+# Generated code — collapse in PR diffs and exclude from language stats.
+web/multiadmin/lib/api/generated/** linguist-generated=true

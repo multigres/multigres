@@ -83,6 +83,13 @@ func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
 	return psi.astStruct
 }
 
+// IsEmpty reports whether this prepared statement was created from an empty or
+// comment-only query string (zero parsed statements). An empty statement has a
+// nil AST; Execute answers it with EmptyQueryResponse, matching PostgreSQL.
+func (psi *PreparedStatementInfo) IsEmpty() bool {
+	return psi.astStruct == nil
+}
+
 // NewPreparedStatementInfo parses the query in the prepared statement and stores it along with the
 // prepared statement information for future use.
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {
@@ -98,8 +105,20 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 		}
 		return nil, mterrors.NewParseError(err.Error())
 	}
-	if len(asts) != 1 {
-		return nil, errors.New("more than 1 query in prepare statement")
+	switch {
+	case len(asts) == 0:
+		// Empty or comment-only query: PostgreSQL accepts this and answers a
+		// subsequent Execute with EmptyQueryResponse. Represent it as a prepared
+		// statement with a nil AST (the empty-statement sentinel). The gateway
+		// short-circuits empty statements before they reach the planner.
+		return &PreparedStatementInfo{
+			PreparedStatement: ps,
+			astStruct:         nil,
+		}, nil
+	case len(asts) > 1:
+		// PostgreSQL: a Parse message "cannot insert multiple commands into a
+		// prepared statement" (SQLSTATE 42601).
+		return nil, mterrors.NewParseError("cannot insert multiple commands into a prepared statement")
 	}
 	return &PreparedStatementInfo{
 		PreparedStatement: ps,

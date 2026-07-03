@@ -722,7 +722,15 @@ type StatementDescription struct {
 	Parameters []*ParameterDescription `protobuf:"bytes,1,rep,name=parameters,proto3" json:"parameters,omitempty"`
 	// fields describes the result columns
 	// Nil if the statement doesn't return rows.
-	Fields        []*Field `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	Fields []*Field `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	// has_fields distinguishes "no result set" (false, fields is nil — the
+	// backend answered Describe with NoData, e.g. a DML statement) from a
+	// row-returning statement with zero result columns (true, fields is a
+	// non-nil empty slice — the backend answered with RowDescription carrying 0
+	// fields, e.g. `SELECT FROM t`). protobuf serializes both an empty and a nil
+	// `repeated fields` identically, so this flag carries the distinction across
+	// the wire. Mirror of QueryResult.has_fields.
+	HasFields     bool `protobuf:"varint,3,opt,name=has_fields,json=hasFields,proto3" json:"has_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -769,6 +777,13 @@ func (x *StatementDescription) GetFields() []*Field {
 		return x.Fields
 	}
 	return nil
+}
+
+func (x *StatementDescription) GetHasFields() bool {
+	if x != nil {
+		return x.HasFields
+	}
+	return false
 }
 
 // ParameterDescription describes a parameter in a prepared statement.
@@ -1575,12 +1590,14 @@ const file_query_proto_rawDesc = "" +
 	"\x0ePgNotification\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\achannel\x18\x02 \x01(\tR\achannel\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\tR\apayload\"y\n" +
+	"\apayload\x18\x03 \x01(\tR\apayload\"\x98\x01\n" +
 	"\x14StatementDescription\x12;\n" +
 	"\n" +
 	"parameters\x18\x01 \x03(\v2\x1b.query.ParameterDescriptionR\n" +
 	"parameters\x12$\n" +
-	"\x06fields\x18\x02 \x03(\v2\f.query.FieldR\x06fields\":\n" +
+	"\x06fields\x18\x02 \x03(\v2\f.query.FieldR\x06fields\x12\x1d\n" +
+	"\n" +
+	"has_fields\x18\x03 \x01(\bR\thasFields\":\n" +
 	"\x14ParameterDescription\x12\"\n" +
 	"\rdata_type_oid\x18\x01 \x01(\rR\vdataTypeOid\"a\n" +
 	"\x06Target\x126\n" +

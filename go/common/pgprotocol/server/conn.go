@@ -703,16 +703,38 @@ func (c *Conn) serve() error {
 		}
 	}
 
-	// Main command loop.
+	// Main command loop. Startup already sent ReadyForQuery, so the first
+	// frontend message is the start of a new command cycle. For extended query
+	// protocol, only Sync completes that cycle and returns to ReadyForQuery;
+	// Parse/Bind/Execute/Flush/etc. remain within the same cycle.
+	waitingForCommand := true
 	for {
 		// Check if connection is closed.
 		if c.closed.Load() {
 			return nil
 		}
 
-		// Read the message type (1 byte).
-		msgType, err := c.ReadMessageType()
+		// Read the message type (1 byte). If the handler manages
+		// idle_session_timeout, arm a read deadline only while waiting for the
+		// first client message of a new command cycle in an idle transaction state.
+		// Clear it as soon as a byte arrives so message-body reads and query
+		// execution are not accidentally governed by the idle-session clock.
+		idleDeadlineArmed, err := c.armIdleSessionTimeout(waitingForCommand)
 		if err != nil {
+			c.logger.Error("failed to arm idle_session_timeout", "error", err)
+			return err
+		}
+		msgType, err := c.ReadMessageType()
+		if err == nil && idleDeadlineArmed {
+			if clearErr := c.conn.SetReadDeadline(time.Time{}); clearErr != nil {
+				c.logger.Error("failed to clear idle_session_timeout read deadline", "error", clearErr)
+				return clearErr
+			}
+		}
+		if err != nil {
+			if idleDeadlineArmed && isNetTimeout(err) {
+				return c.handleIdleSessionTimeout()
+			}
 			// EOF or connection error - close gracefully.
 			if errors.Is(err, io.EOF) {
 				c.logger.Debug("client closed connection")
@@ -721,6 +743,7 @@ func (c *Conn) serve() error {
 			c.logger.Error("error reading message type", "error", err)
 			return err
 		}
+		waitingForCommand = false
 
 		// Open a buffering window if one isn't already attached. Per-
 		// handler bodies no longer manage this themselves; they just
@@ -764,8 +787,57 @@ func (c *Conn) serve() error {
 				c.logger.Error("flush at batch boundary failed", "type", string(msgType), "error", err)
 				return err
 			}
+			waitingForCommand = true
 		}
 	}
+}
+
+// armIdleSessionTimeout applies the effective idle_session_timeout as a read
+// deadline while the server is waiting for the first client message of a new
+// command cycle. PostgreSQL's idle_session_timeout is armed around
+// ReadyForQuery/ReadCommand, not between every extended-protocol message, and it
+// applies only when the session is idle outside a transaction.
+// Returns true when a timeout deadline was armed for the next ReadMessageType.
+func (c *Conn) armIdleSessionTimeout(waitingForCommand bool) (bool, error) {
+	if !waitingForCommand {
+		return false, nil
+	}
+	provider, ok := c.handler.(IdleSessionTimeoutProvider)
+	if !ok {
+		return false, nil
+	}
+	if c.txnStatus != protocol.TxnStatusIdle {
+		return false, nil
+	}
+
+	timeout := provider.IdleSessionTimeout(c)
+	if timeout <= 0 {
+		return false, nil
+	}
+	return true, c.conn.SetReadDeadline(time.Now().Add(timeout))
+}
+
+func isNetTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// handleIdleSessionTimeout sends the PostgreSQL-native FATAL 57P05 error and
+// then lets the connection teardown path close the socket. Write/flush errors
+// are not returned: the timeout already decided to terminate the session, and a
+// concurrent client disconnect should not surface as a noisy handler error.
+func (c *Conn) handleIdleSessionTimeout() error {
+	c.logger.Debug("idle_session_timeout expired; closing connection")
+	_ = c.conn.SetReadDeadline(time.Time{})
+	// Brief grace window: long enough to flush the FATAL to a well-behaved
+	// client, short enough that a wedged client can't keep this goroutine
+	// pinned after the idle-session timeout has already decided to terminate
+	// the session.
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	c.startWriterBuffering()
+	_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewIdleSessionTimeout())
+	_ = c.endWriterBuffering()
+	return nil
 }
 
 // handleMessage processes a single message from the client.
@@ -1210,6 +1282,19 @@ func (c *Conn) handleExecute() error {
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
 	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, includeDescribe, func(ctx context.Context, result *sqltypes.Result) error {
+		// A nil result signals an empty / comment-only query, mirroring the
+		// simple-query path. PostgreSQL answers Execute of an empty-string
+		// portal with EmptyQueryResponse. If a Describe('P') was folded into
+		// this Execute, its answer (NoData for an empty portal) is owed first.
+		if result == nil {
+			if includeDescribe && !sentRowDescription {
+				if err := c.writeMessage(protocol.MsgNoData, nil); err != nil {
+					return fmt.Errorf("writing no data: %w", err)
+				}
+			}
+			return c.writeEmptyQueryResponse()
+		}
+
 		// Send notices immediately (zero-buffering delivery).
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {

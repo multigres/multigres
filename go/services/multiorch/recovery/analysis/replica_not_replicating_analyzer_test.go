@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"testing"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -67,7 +69,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // No primary_conninfo configured
 				WalReplayNotPaused:  true,
@@ -91,7 +93,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				WalReplayNotPaused:  false, // Replication stopped
@@ -114,7 +116,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},
@@ -131,7 +133,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "primary.example.com",
 				WalReplayNotPaused:  true,
@@ -149,7 +151,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            primaryID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   true,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleLeader,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 			}},
@@ -166,7 +168,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       false, // Not initialized
 				PrimaryConnInfoHost: "",
 			}},
@@ -184,7 +186,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},
@@ -207,7 +209,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			Analyses: []*PoolerAnalysis{{
 				PoolerID:            replicaID,
 				ShardKey:            shardKey,
-				NamesSelfAsLeader:   false,
+				SelfConsensusRole:   commonconsensus.ConsensusRoleFollower,
 				IsInitialized:       true,
 				PrimaryConnInfoHost: "",
 			}},

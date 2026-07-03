@@ -42,6 +42,7 @@ const (
 	MultiPoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultiPoolerService/Describe"
 	MultiPoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
 	MultiPoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
+	MultiPoolerService_StreamReplication_FullMethodName         = "/multipoolerservice.MultiPoolerService/StreamReplication"
 	MultiPoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
 	MultiPoolerService_DiscardTempTables_FullMethodName         = "/multipoolerservice.MultiPoolerService/DiscardTempTables"
 	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
@@ -78,6 +79,11 @@ type MultiPoolerServiceClient interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error)
+	// StreamReplication tunnels the raw PostgreSQL replication wire protocol as
+	// opaque bytes between the gateway and a pinned replication=database backend.
+	// The pooler does not interpret the replication sub-protocol; bytes flow
+	// verbatim in both directions. Used for logical replication (Realtime).
+	StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse], error)
 	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
@@ -201,6 +207,19 @@ func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
+func (c *multiPoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[3], MultiPoolerService_StreamReplication_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamReplicationRequest, StreamReplicationResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamReplicationClient = grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse]
+
 func (c *multiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ConcludeTransactionResponse)
@@ -233,7 +252,7 @@ func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context
 
 func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[3], MultiPoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[4], MultiPoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +271,7 @@ type MultiPoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[St
 
 func (c *multiPoolerServiceClient) StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[4], MultiPoolerService_StreamNotifications_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[5], MultiPoolerService_StreamNotifications_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +317,11 @@ type MultiPoolerServiceServer interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error
+	// StreamReplication tunnels the raw PostgreSQL replication wire protocol as
+	// opaque bytes between the gateway and a pinned replication=database backend.
+	// The pooler does not interpret the replication sub-protocol; bytes flow
+	// verbatim in both directions. Used for logical replication (Realtime).
+	StreamReplication(grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]) error
 	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
@@ -357,6 +381,9 @@ func (UnimplementedMultiPoolerServiceServer) GetAuthCredentials(context.Context,
 }
 func (UnimplementedMultiPoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method CopyBidiExecute not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) StreamReplication(grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamReplication not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConcludeTransaction not implemented")
@@ -476,6 +503,13 @@ func _MultiPoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.Se
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_CopyBidiExecuteServer = grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
+
+func _MultiPoolerService_StreamReplication_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultiPoolerServiceServer).StreamReplication(&grpc.GenericServerStream[StreamReplicationRequest, StreamReplicationResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamReplicationServer = grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]
 
 func _MultiPoolerService_ConcludeTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ConcludeTransactionRequest)
@@ -599,6 +633,12 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "CopyBidiExecute",
 			Handler:       _MultiPoolerService_CopyBidiExecute_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamReplication",
+			Handler:       _MultiPoolerService_StreamReplication_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

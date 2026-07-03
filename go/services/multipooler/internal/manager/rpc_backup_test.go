@@ -78,7 +78,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 	// Keep the Type ⇔ SelfLeadership invariant so the record validates: a
 	// PRIMARY names itself; any other type carries no self-leadership.
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-		multipoolerProto.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: multipoolerID}
+		multipoolerProto.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 	}
 
 	// Create a topology store with backup location if provided
@@ -812,7 +812,7 @@ exit 0
 						Database:   "test-database",
 					},
 					// A PRIMARY record must name itself as leader (the record invariant).
-					SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: multipoolerID},
+					RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 				}),
 				state:      ManagerStateReady,
 				actionLock: actionlock.NewActionLock(),

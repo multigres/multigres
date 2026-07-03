@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -139,4 +140,13 @@ type Handler interface {
 // startup state (replication mode, startup parameters) once it is settled.
 type ConnectionEstablishedHandler interface {
 	ConnectionEstablished(conn *Conn)
+}
+
+// IdleSessionTimeoutProvider is an optional interface a Handler may implement
+// to expose the effective idle_session_timeout for a client connection. A zero
+// duration disables the timeout. The protocol layer applies the timeout only
+// while the client-facing session is idle outside a transaction, then emits a
+// PostgreSQL-compatible FATAL 57P05 before closing the connection.
+type IdleSessionTimeoutProvider interface {
+	IdleSessionTimeout(conn *Conn) time.Duration
 }

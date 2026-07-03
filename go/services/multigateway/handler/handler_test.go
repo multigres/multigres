@@ -38,8 +38,10 @@ import (
 
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct {
-	streamExecuteErr error
-	releaseAllCalled bool
+	streamExecuteErr         error
+	releaseAllCalled         bool
+	portalStreamExecuteCalls int
+	describeCalls            int
 }
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
@@ -62,6 +64,7 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 }
 
 func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+	m.portalStreamExecuteCalls++
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
@@ -77,6 +80,7 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 }
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+	m.describeCalls++
 	// Return a simple test description
 	return &query.StatementDescription{
 		Fields: []*query.Field{
@@ -91,6 +95,16 @@ func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state 
 }
 
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
+func TestMultiGatewayHandler_IdleSessionTimeoutProvider(t *testing.T) {
+	h := NewMultiGatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := NewMultiGatewayConnectionState()
+	state.SetIdleSessionTimeout(5 * time.Second)
+	testConn.SetConnectionState(state)
+
+	require.Equal(t, 5*time.Second, h.IdleSessionTimeout(testConn.Conn))
+}
+
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
@@ -224,9 +238,12 @@ func TestPreparedStatementHandling(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
-	// 7. Empty query fails
+	// 7. Empty query is accepted as an empty prepared statement (matches PostgreSQL).
 	err = handler.HandleParse(ctx, conn, "empty", "", nil)
-	require.Error(t, err)
+	require.NoError(t, err)
+	emptyPSI := handler.psc.GetPreparedStatementInfo(conn.ConnectionID(), "empty")
+	require.NotNil(t, emptyPSI)
+	require.True(t, emptyPSI.IsEmpty())
 
 	// 8. Invalid describe type fails
 	_, err = handler.HandleDescribe(ctx, conn, 'X', "name")
@@ -483,6 +500,111 @@ func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
 	require.Error(t, err)
 	// Should stay idle (not in a transaction)
 	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+}
+
+// TestHandleParse_EmptyAndCommentOnlyAccepted verifies that an empty or
+// comment-only query string parses to an empty prepared statement instead of
+// being rejected, matching PostgreSQL.
+func TestHandleParse_EmptyAndCommentOnlyAccepted(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	for _, q := range []string{"", "-- only a comment\n"} {
+		err := h.HandleParse(t.Context(), conn, "", q, nil)
+		require.NoError(t, err, "empty/comment-only Parse should be accepted: %q", q)
+
+		psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), "")
+		require.NotNil(t, psi)
+		require.True(t, psi.IsEmpty())
+	}
+}
+
+// TestHandleBind_EmptyStatementParamCountMismatch verifies that binding the
+// wrong number of parameters to an empty (comment-only) prepared statement is
+// rejected as a protocol violation (08P01), matching PostgreSQL. For an empty
+// statement the gateway authoritatively knows the parameter count (there is no
+// query body in which postgres could infer additional parameters), so the
+// check belongs at the gateway rather than being deferred to the backend.
+func TestHandleBind_EmptyStatementParamCountMismatch(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Empty statement declaring zero parameters.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s0", "-- comment\n", nil))
+
+	// Binding any parameter is a protocol violation.
+	err := h.HandleBind(t.Context(), conn, "p0", "s0", [][]byte{[]byte("1")}, []int16{0}, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+
+	// Binding the correct (zero) count still succeeds.
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p0", "s0", nil, nil, nil))
+
+	// Empty statement that declares parameter types still validates against the
+	// declared count: too few is rejected, the exact count succeeds.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s1", "-- comment\n", []uint32{23}))
+	err = h.HandleBind(t.Context(), conn, "p1", "s1", nil, nil, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p1", "s1", [][]byte{[]byte("1")}, []int16{0}, nil))
+}
+
+// TestHandleDescribe_EmptyStatementAndPortal verifies that describing an empty
+// (comment-only) prepared statement or portal returns an empty description
+// (rendered as ParameterDescription(0)/NoData) without calling the executor.
+func TestHandleDescribe_EmptyStatementAndPortal(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s", "-- comment\n", nil))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p", "s", nil, nil, nil))
+
+	// Describe('S') of an empty statement: zero params, no row fields, no executor call.
+	descS, err := h.HandleDescribe(t.Context(), conn, 'S', "s")
+	require.NoError(t, err)
+	require.NotNil(t, descS)
+	require.Empty(t, descS.Parameters)
+	require.Nil(t, descS.Fields)
+
+	// Describe('P') of an empty portal: no row fields.
+	descP, err := h.HandleDescribe(t.Context(), conn, 'P', "p")
+	require.NoError(t, err)
+	require.NotNil(t, descP)
+	require.Nil(t, descP.Fields)
+
+	require.Zero(t, executor.describeCalls, "executor must not be called for empty describe")
+}
+
+// TestHandleExecute_EmptyPortalShortCircuits verifies that executing an empty
+// (comment-only) prepared statement answers via a nil result without reaching
+// the executor (whose plan path would dereference the nil AST).
+func TestHandleExecute_EmptyPortalShortCircuits(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Parse + Bind a comment-only statement so the portal carries an empty PSI.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s", "-- nothing\n", nil))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p", "s", nil, nil, nil))
+
+	var gotResult *sqltypes.Result
+	gotCalled := false
+	err := h.HandleExecute(t.Context(), conn, "p", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
+		gotCalled = true
+		gotResult = r
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, gotCalled, "callback must run for the empty query")
+	require.Nil(t, gotResult, "empty query signals via nil result")
+	require.Zero(t, executor.portalStreamExecuteCalls, "executor must not be called for an empty portal")
 }
 
 // TestHandleExecute_AbortedTransactionRejects tests that Execute messages

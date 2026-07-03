@@ -56,9 +56,9 @@ func newTestPooler(cell, name, tableGroup, shard string, lifecycle clustermetada
 // record of a real PRIMARY pooler and is how the gateway learns of a leader
 // at discovery time.
 func withSelfLeader(p *clustermetadatapb.MultiPooler, coordinatorTerm int64) *clustermetadatapb.MultiPooler {
-	p.SelfLeadership = &clustermetadatapb.LeaderObservation{
-		LeaderId:         p.Id,
-		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
+	p.RoutingState = &clustermetadatapb.RoutingState{
+		Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+		Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
 	}
 	return p
 }
@@ -164,13 +164,20 @@ func TestCollectCellStatuses_MultipleCellsSortedAlphabetically(t *testing.T) {
 	assert.Equal(t, "active", statuses[0].Poolers[0].Lifecycle)
 }
 
-func TestCollectCellStatuses_LeaderReportsLeader(t *testing.T) {
+// TestCollectCellStatuses_EtcdSelfLeadershipDoesNotImplyLeader verifies that a
+// pooler's topology self_leadership record does NOT make the gateway report it
+// as a leader. Leadership is derived only from live health-stream observations
+// now — the gateway deliberately no longer trusts etcd for leader identity (see
+// the load balancer's move off topology for routing). Since this test's poolers
+// have no reachable health stream, they render as plain followers even though
+// their etcd record names them leader.
+//
+// The positive leader / stale-leader / follower derivation is exercised where
+// live health can be simulated: poolergateway.TestLoadBalancer_LeadershipFor.
+func TestCollectCellStatuses_EtcdSelfLeadershipDoesNotImplyLeader(t *testing.T) {
 	mg, ts := newTestGateway(t, "zone1")
 	ctx := t.Context()
 
-	// The pooler's own self_leadership names itself as leader; the gateway
-	// folds this into the shard summary on OnLive, so leadershipFor will
-	// return "leader" for it.
 	leader := withSelfLeader(
 		newTestPooler("zone1", "leader1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		1,
@@ -180,49 +187,8 @@ func TestCollectCellStatuses_LeaderReportsLeader(t *testing.T) {
 
 	statuses := mg.collectCellStatuses()
 	ps := findPoolerStatus(t, statuses, "zone1", "leader1")
-	assert.Equal(t, "leader", ps.Leadership)
-}
-
-func TestCollectCellStatuses_StaleLeader(t *testing.T) {
-	mg, ts := newTestGateway(t, "zone1")
-	ctx := t.Context()
-
-	// Two poolers in the same shard. `oldLeader` has self_leadership at term 1.
-	// `newLeader` has self_leadership at term 2 — its higher rule number wins
-	// when the shard summary is built. From the gateway's view:
-	//   - newLeader is the consensus leader (reported as "leader"),
-	//   - oldLeader still believes itself the leader (its own self_leadership
-	//     names itself) but consensus has moved on — reported as "stale-leader".
-	oldLeader := withSelfLeader(
-		newTestPooler("zone1", "old", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
-		1,
-	)
-	newLeader := withSelfLeader(
-		newTestPooler("zone1", "new", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
-		2,
-	)
-	require.NoError(t, ts.CreateMultiPooler(ctx, oldLeader))
-	require.NoError(t, ts.CreateMultiPooler(ctx, newLeader))
-	waitForPoolerCount(t, mg, 2)
-
-	// Wait for both to be reflected in the shard summary; the LB merges each
-	// self_leadership observation on OnLive synchronously, so by the time
-	// PoolerCount=2 the summary is up to date.
-	require.Eventually(t, func() bool {
-		statuses := mg.collectCellStatuses()
-		var newRole, oldRole string
-		for _, cs := range statuses {
-			for _, p := range cs.Poolers {
-				if p.Name == "new" {
-					newRole = p.Leadership
-				}
-				if p.Name == "old" {
-					oldRole = p.Leadership
-				}
-			}
-		}
-		return newRole == "leader" && oldRole == "stale-leader"
-	}, 2*time.Second, 5*time.Millisecond, "expected new=leader, old=stale-leader")
+	assert.Equal(t, "follower", ps.Leadership,
+		"etcd self_leadership must not make the gateway report a leader; only live health does")
 }
 
 // TestCollectCellStatuses_TombstoneHasEmptyLeadership verifies that a pooler

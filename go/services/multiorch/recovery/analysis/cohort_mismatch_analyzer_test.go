@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"testing"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -70,7 +72,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	leaderPA := &PoolerAnalysis{
 		PoolerID:          primaryID,
 		ShardKey:          shardKey,
-		NamesSelfAsLeader: true,
+		SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
 		LastCheckValid:    true,
 		IsInitialized:     true,
 	}

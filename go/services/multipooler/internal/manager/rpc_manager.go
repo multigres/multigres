@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
 // broadcastHealth broadcasts the current health state to all subscribers.
@@ -114,13 +115,13 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if isPrimary {
+	if pgMode.OutOfRecovery() {
 		pm.logger.ErrorContext(ctx, "setPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
@@ -336,7 +337,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
 
 	// Try to get detailed status based on PostgreSQL role
-	isPrimary, err := pm.isPrimary(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
 		pm.logger.WarnContext(ctx, "Failed to check PostgreSQL role, returning partial status", "error", err)
@@ -344,8 +345,8 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	}
 
 	// Populate role-specific status
-	if isPrimary {
-		// Acting as primary - get primary status (skip guardrails since we already checked isPrimary)
+	if pgMode.OutOfRecovery() {
+		// Acting as primary - get primary status (skip guardrails since we already checked recovery mode)
 		primaryStatus, err := pm.getPrimaryStatusInternal(ctx)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to get primary status", "error", err)
@@ -355,7 +356,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.PrimaryStatus = primaryStatus
 		return resp, nil
 	}
-	// Acting as standby - get replication status (skip guardrails since we already checked isPrimary)
+	// Acting as standby - get replication status (skip guardrails since we already checked recovery mode)
 	replStatus, err := pm.getStandbyStatusInternal(ctx)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)
@@ -527,6 +528,19 @@ func (pm *MultiPoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		"old_cohort", currentCohort,
 		"new_cohort", updatedStandbyIDs,
 		"expected_outgoing_rule", expectedOutgoingRule)
+
+	// The committed rule changed, so recalc the routing role from the fresh
+	// consensus snapshot. Today this is a no-op: UpdateConsensusRule only amends
+	// the cohort and keeps this pooler the leader (WithLeader above), so the
+	// routing role does not flip. It is here as a guard — if a rule write through
+	// this path ever changes the leader, the routing role and advertised
+	// observation re-derive immediately instead of waiting for the monitor's next
+	// drift tick. Runs after DoUpdateRule returns (outside the rule-store lock)
+	// and under the action lock, so it cannot deadlock. Precedes broadcastHealth
+	// so the pushed snapshot reflects any re-derived state.
+	if err := pm.stateManager.Recalc(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "UpdateConsensusRule: failed to recalc serving state", "error", err)
+	}
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.
@@ -746,8 +760,6 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		return err
 	}
 
-	pm.healthStreamer.UpdateLeaderObservation(nil)
-
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
 	// demote path) must run pg_rewind before trusting local WAL.
@@ -762,7 +774,7 @@ func (pm *MultiPoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// reconciles it to the rule-derived role. Leaving DRAINING for the monitor is
 	// only the fallback for the error paths above that return before this point.
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresPrimary = false
+		s.PostgresMode = pgmode.InRecovery
 		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
 			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 		}
@@ -1004,11 +1016,11 @@ func (pm *MultiPoolerManager) restartAsStandbyLocked(
 	}
 
 	// Sanity check: postgres must come back in recovery mode.
-	inRecovery, err := pm.isInRecovery(ctx)
+	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return false, mterrors.Wrap(err, "verify standby status after restart")
 	}
-	if !inRecovery {
+	if pgMode.OutOfRecovery() {
 		return false, mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 

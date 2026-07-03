@@ -54,7 +54,7 @@ export function MultiOrchTable() {
         orch.id?.cell || "",
         orch.id?.name || "",
         orch.hostname || "",
-        orch.port_map?.grpc?.toString() || "",
+        orch.portMap?.grpc?.toString() || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -140,7 +140,7 @@ export function MultiOrchTable() {
                       {orch.hostname || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {orch.port_map?.grpc || "-"}
+                      {orch.portMap?.grpc || "-"}
                     </TableCell>
                     <TableCell className="pr-6 py-3">
                       <a

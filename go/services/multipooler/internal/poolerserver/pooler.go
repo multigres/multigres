@@ -29,6 +29,8 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -53,12 +55,14 @@ type QueryPoolerServer struct {
 	shard      string
 
 	mu sync.Mutex
-	// isConsensusLeader reports whether this pooler is the consensus-elected
-	// leader (the shard's write target). Set from OnStateChange; replaces the
-	// PoolerType label, which the gateway no longer routes on.
-	isConsensusLeader bool
-	servingStatus     clustermetadatapb.PoolerServingStatus
-	healthProvider    HealthProvider
+	// routingRole is the write-safety role from OnStateChange: PRIMARY iff this
+	// pooler is the writable leader (out of recovery AND the active — committed,
+	// non-revoked, highest-known — consensus leader). Both leader-bound query
+	// modes (WRITABLE and CONSISTENT) gate on it: writes and read-your-writes reads
+	// route to the writable leader, closing the pg_promote()→WAL-commit window.
+	routingRole    servingstate.RoutingRole
+	servingStatus  clustermetadatapb.PoolerServingStatus
+	healthProvider HealthProvider
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
 	pubsubListener *pubsub.Listener
@@ -78,6 +82,10 @@ type QueryPoolerServer struct {
 
 	// drainStats holds drain-observability metrics. Never nil.
 	drainStats *drainStats
+
+	// replMetrics holds replication-tunnel instruments, shared across all
+	// StreamReplication RPCs. Never nil (instruments fall back to noop).
+	replMetrics *replication.Metrics
 }
 
 // drainPhase is the stage of a graceful not-serving transition. The drain runs
@@ -123,10 +131,16 @@ const (
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during not-serving transitions before force-closing reserved connections.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, vpidStampEnabled bool) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager, poolerID, vpidStampEnabled)
+		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled)
+	}
+
+	replMetrics, replMetricsErr := replication.NewMetrics()
+	if replMetricsErr != nil && logger != nil {
+		// Non-fatal: instruments that failed fall back to noop.
+		logger.Warn("failed to initialise some replication metrics", "error", replMetricsErr)
 	}
 
 	return &QueryPoolerServer{
@@ -140,7 +154,14 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		gracePeriod:    gracePeriod,
 		stateChanged:   make(chan struct{}),
 		drainStats:     newDrainStats(),
+		replMetrics:    replMetrics,
 	}
+}
+
+// ReplicationMetrics returns the shared replication-tunnel instruments. Used by
+// the gRPC StreamReplication handler to derive a per-stream recorder.
+func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
+	return s.replMetrics
 }
 
 // OnStateChange transitions the query service to match the new serving state.
@@ -164,15 +185,21 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // any still-running single queries are killed by the postgres demotion that
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
-func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader, _ bool, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
+	routingRole := state.Routing.Role
+	servingStatus := state.ServingStatus
+	if s.executor != nil {
+		s.executor.SetBackendVpidTrackingWritable(routingRole.Writable())
+	}
+
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"leader_from", s.isConsensusLeader, "leader_to", isConsensusLeader,
+		"routing_from", s.routingRole, "routing_to", routingRole,
 		"status_from", s.servingStatus, "status_to", servingStatus)
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.isConsensusLeader = isConsensusLeader
+		s.routingRole = routingRole
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -181,7 +208,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader
 	}
 
 	// not-serving: begin stage 1 of the graceful drain.
-	// The leader role is NOT updated yet — in-flight requests on reserved
+	// The routing role is NOT updated yet — in-flight requests on reserved
 	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
 	s.drainPhase = drainReserved
@@ -228,10 +255,10 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, isConsensusLeader
 		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome)
 	}
 
-	// Complete the transition. The leader role is set here (after drain) so that
+	// Complete the transition. The routing role is set here (after drain) so that
 	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
-	s.isConsensusLeader = isConsensusLeader
+	s.routingRole = routingRole
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -347,15 +374,18 @@ func (s *QueryPoolerServer) checkTargetLocked(target *query.Target, existingRese
 		return nil
 	}
 
-	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-leader means the
-	// gateway thinks this pooler is still the primary, but it was demoted. Return
-	// MTF01 to trigger buffering. Target side uses the Mode enum (#1183); pooler
-	// side uses the consensus-leadership observation, not the topology PoolerType
-	// label (PR 1184 — the gateway derives role from consensus observations).
-	mode := target.GetMode()
-	if (mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT) &&
-		!s.isConsensusLeader {
-		return mterrors.MTF01.New()
+	// A leader-bound request (WRITABLE / CONSISTENT) hitting a non-writable pooler
+	// means the gateway thinks this pooler is still the primary, but it is not the
+	// writable leader (demoted, or not yet done promoting). Return MTF01 to trigger
+	// buffering. Both modes gate on the routing role: writes must not land on an
+	// older consensus timeline, and read-your-writes reads must not be served by a
+	// not-yet-writable (still promoting) or superseded/deposed leader — they buffer
+	// until a writable leader exists rather than returning a stale read.
+	switch target.GetMode() {
+	case query.Mode_MODE_WRITABLE, query.Mode_MODE_CONSISTENT:
+		if s.routingRole != servingstate.RoutingRolePrimary {
+			return mterrors.MTF01.New()
+		}
 	}
 
 	return nil
@@ -369,13 +399,13 @@ func (s *QueryPoolerServer) notifyStateChangedLocked() {
 	s.stateChanged = make(chan struct{})
 }
 
-// AwaitStateChange blocks until the pooler's type and serving status match
-// the given targets, or ctx is cancelled. Used by the health streamer to
+// AwaitStateChange blocks until the pooler's routing role and serving status
+// match the given targets, or ctx is cancelled. Used by the health streamer to
 // ensure the query server is ready before broadcasting the new state.
-func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus) {
+func (s *QueryPoolerServer) AwaitStateChange(ctx context.Context, routingRole servingstate.RoutingRole, servingStatus clustermetadatapb.PoolerServingStatus) {
 	for {
 		s.mu.Lock()
-		if s.isConsensusLeader == isConsensusLeader && s.servingStatus == servingStatus {
+		if s.routingRole == routingRole && s.servingStatus == servingStatus {
 			s.mu.Unlock()
 			return
 		}
@@ -421,15 +451,6 @@ func (s *QueryPoolerServer) IsHealthy() error {
 // Implements PoolerController interface.
 func (s *QueryPoolerServer) RegisterGRPCServices() {
 	s.registerGRPCServices()
-}
-
-// StartServiceForTests is a convenience method for tests to initialize and start the pooler.
-// Following Vitess pattern: "StartService is only used for testing."
-// It sets the serving type to PRIMARY + SERVING.
-func (s *QueryPoolerServer) StartServiceForTests() error {
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
-	defer cancel()
-	return s.OnStateChange(ctx, true /* isConsensusLeader */, true /* postgresPrimary */, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.

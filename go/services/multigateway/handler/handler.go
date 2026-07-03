@@ -330,6 +330,13 @@ func (h *MultiGatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
 	return len(asts) > 0 && ast.IsAllowedInAbortedTransaction(asts[0])
 }
 
+// IdleSessionTimeout exposes the effective idle_session_timeout to the pgwire
+// protocol loop. The loop enforces it only while waiting for the next client
+// message in an idle transaction state.
+func (h *MultiGatewayHandler) IdleSessionTimeout(conn *server.Conn) time.Duration {
+	return h.getConnectionState(conn).GetIdleSessionTimeout()
+}
+
 // getConnectionState retrieves and typecasts the connection state for this handler.
 // Initializes a new state if it doesn't exist.
 func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewayConnectionState {
@@ -351,6 +358,18 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "statement_timeout")
 		}
 		newState.InitStatementTimeout(stDefault)
+
+		idleDefault := time.Duration(0)
+		if v, ok := newState.StartupParams["idle_session_timeout"]; ok {
+			if d, err := ParsePostgresInterval("idle_session_timeout", v); err == nil {
+				idleDefault = d
+			} else {
+				h.logger.Warn("ignoring invalid idle_session_timeout startup parameter, using default",
+					"value", v, "default", idleDefault, "error", err)
+			}
+			delete(newState.StartupParams, "idle_session_timeout")
+		}
+		newState.InitIdleSessionTimeout(idleDefault)
 		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{
@@ -370,11 +389,9 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
-	// Basic validation: query must not be empty.
-	if queryStr == "" {
-		return errors.New("query string cannot be empty")
-	}
-
+	// An empty or comment-only query string parses to zero statements;
+	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
+	// the gateway answers with EmptyQueryResponse — matching PostgreSQL.
 	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
 	return err
 }
@@ -388,6 +405,21 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 	psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), stmtName)
 	if psi == nil {
 		return mterrors.NewInvalidPreparedStatementError(stmtName)
+	}
+
+	// For an empty / comment-only statement the gateway knows the parameter
+	// count authoritatively (there is no query body in which postgres could
+	// infer extra parameters), and the backend never sees the Bind because
+	// Execute is short-circuited. Validate the supplied parameter count here so
+	// a mismatch surfaces the same 08P01 protocol_violation PostgreSQL raises,
+	// rather than silently succeeding. Non-empty statements are validated by the
+	// backend, which may infer parameters beyond those declared at Parse.
+	if psi.IsEmpty() {
+		if declared := len(psi.GetParamTypes()); len(params) != declared {
+			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
+				fmt.Sprintf("bind message supplies %d parameters, but prepared statement %q requires %d",
+					len(params), stmtName, declared), "")
+		}
 	}
 
 	// Get the connection state.
@@ -416,6 +448,18 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		// Record before span creation since we don't have an operation name yet.
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, nil, portalErr)
 		return portalErr
+	}
+
+	// Empty / comment-only prepared statement: answer Execute with
+	// EmptyQueryResponse, mirroring the simple-query path. Short-circuit here so
+	// the nil AST never reaches the planner (resolvePortalPlan/isCacheable would
+	// dereference it). This also bypasses the aborted-transaction gate, matching
+	// PostgreSQL, which returns EmptyQueryResponse for an empty query regardless
+	// of transaction state.
+	if portalInfo.IsEmpty() {
+		err := callback(ctx, nil)
+		h.recordQueryCompletion(ctx, conn, "EMPTY", "extended", 0, 0, time.Since(queryStart), 0, nil, err)
+		return err
 	}
 
 	operationName := "UNKNOWN"
@@ -484,6 +528,10 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 		if stmt == nil {
 			return nil, mterrors.NewInvalidPreparedStatementError(name)
 		}
+		if stmt.IsEmpty() {
+			// Empty statement: ParameterDescription(0) + NoData, no backend call.
+			return &query.StatementDescription{}, nil
+		}
 
 		// Call executor to get description from multipooler
 		return h.executor.Describe(ctx, conn, state, nil, stmt)
@@ -492,6 +540,10 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 		portalInfo := state.GetPortalInfo(name)
 		if portalInfo == nil {
 			return nil, mterrors.NewInvalidPortalError(name)
+		}
+		if portalInfo.IsEmpty() {
+			// Empty portal: NoData, no backend call.
+			return &query.StatementDescription{}, nil
 		}
 
 		// Call executor to get description from multipooler

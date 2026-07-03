@@ -21,10 +21,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // forTestOption configures NewMultiPoolerManagerForTesting.
@@ -174,6 +177,15 @@ func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManag
 func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager {
 	t.Helper()
 	cfg := resolveTestManagerConfig(t, opts...)
+	if cfg.record == nil {
+		// A non-nil record is required to wire the StateManager (below); default to
+		// a REPLICA/DISABLED record for tests that don't supply their own.
+		cfg.record = newRecordFromProto(&clustermetadatapb.MultiPooler{
+			Id:            cfg.serviceID,
+			Type:          clustermetadatapb.PoolerType_REPLICA,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+		})
+	}
 	pm := &MultiPoolerManager{
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
@@ -181,6 +193,40 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 		record:       cfg.record,
 		consensusMgr: cfg.consensusManager(t),
 	}
+	// The remedial-action decision path (determineRoleAction) consults
+	// StateManager.hasDrift, so a non-nil StateManager wired to the same record and
+	// live consensus snapshot the manager uses is required.
+	pm.stateManager = NewStateManager(pm.logger, pm.record, pm.consensusMgr.CachedConsensusStatus)
 	cfg.seedLockedState(t, pm)
+	// Prime the StateManager's last-fanned-out state to reflect what components
+	// last saw: the seeded record's own label and serving status, with the physical
+	// recovery flag assumed aligned with that label (PRIMARY <-> primary). This is
+	// the faithful port of the old determineRemedialAction lastAppliedPrimary input
+	// (which the tables passed as state.isPrimary): a freshly-built manager is NOT
+	// drifted relative to its seed, so drift is registered only when the observed
+	// postgresState / consensus diverges from the seeded label.
+	pm.stateManager.pgMode = pgmode.InRecovery
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		pm.stateManager.pgMode = pgmode.Primary
+	}
+	// Prime lastFannedOut to reflect what components last saw: the seeded record's
+	// LABEL (PRIMARY <-> primary) plus the rule that qualifies that role, chosen
+	// exactly as deriveRoutingState would (committed rule when PRIMARY, highest-
+	// known when REPLICA) so sameFanout — which now compares the rule — sees no
+	// drift at seed time. Drift is registered only when the observed
+	// postgresState / consensus later diverges from this seeded label.
+	cs := pm.consensusMgr.CachedConsensusStatus()
+	baselineRouting := servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		baselineRouting.Role = servingstate.RoutingRolePrimary
+		baselineRouting.Rule = cs.GetCurrentPosition().GetRule().GetRuleNumber()
+	} else {
+		baselineRouting.Rule = commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber()
+	}
+	baseline := servingstate.State{
+		Routing:       baselineRouting,
+		ServingStatus: pm.record.ServingStatus(),
+	}
+	pm.stateManager.lastFannedOut = &baseline
 	return pm
 }

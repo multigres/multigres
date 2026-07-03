@@ -53,9 +53,9 @@ export function MultiGatewaysTable() {
         gateway.id?.cell || "",
         gateway.id?.name || "",
         gateway.hostname || "",
-        gateway.port_map?.grpc?.toString() || "",
-        gateway.port_map?.http?.toString() || "",
-        gateway.port_map?.postgres?.toString() || "",
+        gateway.portMap?.grpc?.toString() || "",
+        gateway.portMap?.http?.toString() || "",
+        gateway.portMap?.postgres?.toString() || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -144,13 +144,13 @@ export function MultiGatewaysTable() {
                       {gateway.hostname || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {gateway.port_map?.grpc || "-"}
+                      {gateway.portMap?.grpc || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {gateway.port_map?.http || "-"}
+                      {gateway.portMap?.http || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {gateway.port_map?.postgres || "-"}
+                      {gateway.portMap?.postgres || "-"}
                     </TableCell>
                     <TableCell className="py-3">
                       {gateway.id ? (

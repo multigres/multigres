@@ -227,7 +227,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	analysis := &PoolerAnalysis{
 		PoolerID:          pooler.Health().MultiPooler.Id,
 		ShardKey:          shardKey,
-		NamesSelfAsLeader: commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()),
+		SelfConsensusRole: commonconsensus.SelfConsensusRole(pooler.Health().GetConsensusStatus()),
 		LastCheckValid:    pooler.Health().IsLastCheckValid,
 		IsInitialized:     pooler.IsInitialized(),
 		HasDataDirectory:  pooler.Health().GetStatus().GetHasDataDirectory(),
@@ -243,8 +243,8 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	analysis.ConsensusStatus = pooler.Health().GetConsensusStatus()
 	analysis.AvailabilityStatus = pooler.Health().GetAvailabilityStatus()
 
-	// If this is a REPLICA, populate replica-specific fields
-	if !analysis.NamesSelfAsLeader {
+	// If this is not the leader, populate replica-specific fields
+	if analysis.SelfConsensusRole != commonconsensus.ConsensusRoleLeader {
 		if rs := pooler.Health().GetStatus().GetReplicationStatus(); rs != nil {
 			analysis.WalReplayNotPaused = !rs.GetIsWalReplayPaused()
 
@@ -301,7 +301,7 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 			continue
 		}
 
-		if commonconsensus.NamesSelfAsLeader(pooler.Health().GetConsensusStatus()) {
+		if commonconsensus.SelfConsensusRole(pooler.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 			continue
 		}
 
@@ -453,7 +453,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
 	for _, pa := range sa.Analyses {
-		if !pa.NamesSelfAsLeader && pa.LastCheckValid && pa.IsInitialized {
+		if pa.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && pa.LastCheckValid && pa.IsInitialized {
 			sa.HasInitializedReplica = true
 			break
 		}

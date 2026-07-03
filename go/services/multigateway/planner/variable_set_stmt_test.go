@@ -53,6 +53,40 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 	assert.True(t, ok, "second primitive should be ApplySessionState (track + emit SET), got %T", seq.Primitives[1])
 }
 
+func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "idle_session_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "58s"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET idle_session_timeout = '58s'", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	_, ok := plan.Primitive.(*engine.GatewaySessionState)
+	assert.True(t, ok, "idle_session_timeout should be handled by the gateway, got %T", plan.Primitive)
+}
+
+func TestPlanVariableSetStmt_SET_IdleSessionTimeoutInvalidErrors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "idle_session_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "not-a-duration"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET idle_session_timeout = 'not-a-duration'", stmt, testConn.Conn)
+	require.Error(t, err)
+	assert.Nil(t, plan)
+}
+
 func TestPlanVariableSetStmt_RESET(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)

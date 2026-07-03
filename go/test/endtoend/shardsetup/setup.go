@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,7 +87,6 @@ type SetupConfig struct {
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
-	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
 	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
@@ -302,19 +302,6 @@ func WithMetricsExport() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMetricsExport = true
-	}
-}
-
-// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
-// the setup. Tags each PostgreSQL backend's application_name with
-// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
-// virtual PID back to its real backend PID via pg_stat_activity. Required by
-// the pgregress isolation harness shim and harmless elsewhere, but kept
-// opt-in so tests that probe application_name as a generic GUC aren't
-// accidentally shadowed.
-func WithVpidStamping() SetupOption {
-	return func(c *SetupConfig) {
-		c.EnableVpidStamping = true
 	}
 }
 
@@ -640,7 +627,6 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
 		inst.Pgctld.PgInitdbArgs = config.PgInitdbArgs
 		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, config.PgInitdbExtraConfFiles...)
-		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -1586,6 +1572,40 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
+	}
+}
+
+// AddMultipoolerExtraArgs appends extra CLI arguments to every multipooler
+// instance. The arguments take effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) AddMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		for _, arg := range args {
+			if !slices.Contains(inst.Multipooler.ExtraArgs, arg) {
+				inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, arg)
+			}
+		}
+	}
+}
+
+// RemoveMultipoolerExtraArgs removes exact CLI arguments from every multipooler
+// instance. The removal takes effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) RemoveMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		filtered := inst.Multipooler.ExtraArgs[:0]
+		for _, existing := range inst.Multipooler.ExtraArgs {
+			if !slices.Contains(args, existing) {
+				filtered = append(filtered, existing)
+			}
+		}
+		inst.Multipooler.ExtraArgs = filtered
 	}
 }
 
