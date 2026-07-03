@@ -165,20 +165,13 @@ func unwrapLikeEscape(expr Node, wrapper string) (pattern string, escape string)
 // opNameOrOperatorSyntax formats an operator Name list, using the bare symbol
 // for a simple operator and OPERATOR(schema.op) syntax when the name is
 // schema-qualified (i.e. has more than one item).
-func opNameOrOperatorSyntax(name *NodeList) (op string, qualified bool) {
+func opNameOrOperatorSyntax(name *NodeList) string {
 	if name == nil || name.Len() == 0 {
-		return "", false
-	}
-	if name.Len() == 1 {
-		if str, ok := name.Items[0].(*String); ok {
-			return str.SVal, false
-		}
-		return name.Items[0].String(), false
+		return ""
 	}
 
-	// Qualified operator - format as OPERATOR(schema.op). The leading parts
-	// are schema identifiers (quote them); the final part is the operator
-	// symbol (emit verbatim).
+	// The leading parts are schema identifiers (quote them); the final part is
+	// the operator symbol (QuoteIdentifierOrOperator emits it verbatim).
 	var parts []string
 	for _, item := range name.Items {
 		if str, ok := item.(*String); ok {
@@ -187,7 +180,13 @@ func opNameOrOperatorSyntax(name *NodeList) (op string, qualified bool) {
 			parts = append(parts, item.String())
 		}
 	}
-	return fmt.Sprintf("OPERATOR(%s)", strings.Join(parts, ".")), true
+
+	// A single, unqualified operator is emitted as the bare symbol; a
+	// schema-qualified operator needs the OPERATOR(schema.op) wrapper.
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return fmt.Sprintf("OPERATOR(%s)", strings.Join(parts, "."))
 }
 
 // SqlString returns the SQL representation of the A_Expr
@@ -201,7 +200,7 @@ func (a *A_Expr) SqlString() string {
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
-			qualifiedOp, _ := opNameOrOperatorSyntax(a.Name)
+			qualifiedOp := opNameOrOperatorSyntax(a.Name)
 
 			// Format the expression with OPERATOR syntax
 			if a.Lexpr != nil && a.Rexpr != nil {
@@ -312,7 +311,7 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			op, _ := opNameOrOperatorSyntax(a.Name)
+			op := opNameOrOperatorSyntax(a.Name)
 			if op == "" {
 				op = "="
 			}
@@ -326,7 +325,7 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			op, _ := opNameOrOperatorSyntax(a.Name)
+			op := opNameOrOperatorSyntax(a.Name)
 			if op == "" {
 				op = "="
 			}
