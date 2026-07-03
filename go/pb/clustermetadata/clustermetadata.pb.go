@@ -47,7 +47,15 @@ const (
 	PoolerType_PRIMARY PoolerType = 1
 	// REPLICA replicates from leader. It is used to read only traffic
 	PoolerType_REPLICA PoolerType = 2
-	// DRAINED is used for poolers that are temporarily removed from serving traffic
+	// DRAINED was used for poolers temporarily removed from serving traffic.
+	//
+	// Deprecated: no longer produced — the multipooler derives Type from
+	// routing_state + lifecycle and never emits DRAINED (draining is now expressed
+	// via serving_status / lifecycle). Marked deprecated to surface any remaining
+	// reader via staticcheck SA1019; slated for removal together with the Type
+	// field once the external multigres-operator stops reading it.
+	//
+	// Deprecated: Marked as deprecated in clustermetadata.proto.
 	PoolerType_DRAINED PoolerType = 3
 )
 
@@ -118,11 +126,30 @@ const (
 	PoolerLifecycleStatus_LIFECYCLE_STOPPING PoolerLifecycleStatus = 3
 	// LIFECYCLE_SHUTDOWN is set after the OnClose chain has run: the pooler
 	// is durably down (not just announcing it via STOPPING). Written from
-	// unregisterFunc alongside Type=DRAINED. The topology entry is left in
-	// place so the orchestrator's 4 h unseen-instance bookkeeping handles
-	// eventual eviction, but the orchestrator's pooler watcher observes
+	// unregisterFunc; the derived Type becomes UNKNOWN. The topology entry is
+	// left in place so the orchestrator's 4 h unseen-instance bookkeeping
+	// handles eventual eviction, but the orchestrator's pooler watcher observes
 	// the transition and stops the per-pooler health stream immediately.
 	PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN PoolerLifecycleStatus = 4
+	// LIFECYCLE_QUARANTINED marks a pooler that is still running but has given
+	// up trying to become a healthy replica: it cannot automatically recover to
+	// a functioning state (e.g. it could not complete a pg_rewind, could not
+	// restore from backup to start postgres, or fell irrecoverably behind on
+	// replication) and should no longer participate in consensus or serve
+	// traffic.
+	//
+	// Only the pooler sets this on itself — poolers continuously republish their
+	// own topology record, so a value written by anyone else would be
+	// overwritten. (A future gRPC call will let the orchestrator ask a pooler to
+	// quarantine itself, e.g. when orch observes it cannot catch up while its
+	// peers replicate fine; the pooler still owns the decision to write it.)
+	//
+	// Unlike SHUTDOWN, the pod is deliberately kept alive for forensics. The
+	// operator/provisioner should treat a QUARANTINED pooler as absent from the
+	// shard's healthy replica count — a shard expecting 4 replicas with one
+	// QUARANTINED is 3 healthy + 1 retained-for-investigation — and provision a
+	// replacement rather than tearing the quarantined pod down.
+	PoolerLifecycleStatus_LIFECYCLE_QUARANTINED PoolerLifecycleStatus = 5
 )
 
 // Enum value maps for PoolerLifecycleStatus.
@@ -133,13 +160,15 @@ var (
 		2: "LIFECYCLE_ACTIVE",
 		3: "LIFECYCLE_STOPPING",
 		4: "LIFECYCLE_SHUTDOWN",
+		5: "LIFECYCLE_QUARANTINED",
 	}
 	PoolerLifecycleStatus_value = map[string]int32{
-		"LIFECYCLE_UNKNOWN":  0,
-		"LIFECYCLE_STARTING": 1,
-		"LIFECYCLE_ACTIVE":   2,
-		"LIFECYCLE_STOPPING": 3,
-		"LIFECYCLE_SHUTDOWN": 4,
+		"LIFECYCLE_UNKNOWN":     0,
+		"LIFECYCLE_STARTING":    1,
+		"LIFECYCLE_ACTIVE":      2,
+		"LIFECYCLE_STOPPING":    3,
+		"LIFECYCLE_SHUTDOWN":    4,
+		"LIFECYCLE_QUARANTINED": 5,
 	}
 )
 
@@ -2705,19 +2734,20 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x19cohort_eligibility_status\x18\x02 \x01(\v2(.clustermetadata.CohortEligibilityStatusR\x17cohortEligibilityStatus\x121\n" +
 	"\x14suspected_divergence\x18\x03 \x01(\bR\x13suspectedDivergence\"[\n" +
 	"\x17CohortEligibilityStatus\x12@\n" +
-	"\x06signal\x18\x01 \x01(\x0e2(.clustermetadata.CohortEligibilitySignalR\x06signal*@\n" +
+	"\x06signal\x18\x01 \x01(\x0e2(.clustermetadata.CohortEligibilitySignalR\x06signal*D\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
-	"\aREPLICA\x10\x02\x12\v\n" +
-	"\aDRAINED\x10\x03*\x8c\x01\n" +
+	"\aREPLICA\x10\x02\x12\x0f\n" +
+	"\aDRAINED\x10\x03\x1a\x02\b\x01*\xa7\x01\n" +
 	"\x15PoolerLifecycleStatus\x12\x15\n" +
 	"\x11LIFECYCLE_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12LIFECYCLE_STARTING\x10\x01\x12\x14\n" +
 	"\x10LIFECYCLE_ACTIVE\x10\x02\x12\x16\n" +
 	"\x12LIFECYCLE_STOPPING\x10\x03\x12\x16\n" +
-	"\x12LIFECYCLE_SHUTDOWN\x10\x04*>\n" +
+	"\x12LIFECYCLE_SHUTDOWN\x10\x04\x12\x19\n" +
+	"\x15LIFECYCLE_QUARANTINED\x10\x05*>\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\f\n" +
 	"\bDISABLED\x10\x01\x12\f\n" +

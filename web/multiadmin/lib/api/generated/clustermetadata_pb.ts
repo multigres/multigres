@@ -49,9 +49,16 @@ export enum PoolerType {
   REPLICA = 2,
 
   /**
-   * DRAINED is used for poolers that are temporarily removed from serving traffic
+   * DRAINED was used for poolers temporarily removed from serving traffic.
    *
-   * @generated from enum value: DRAINED = 3;
+   * Deprecated: no longer produced — the multipooler derives Type from
+   * routing_state + lifecycle and never emits DRAINED (draining is now expressed
+   * via serving_status / lifecycle). Marked deprecated to surface any remaining
+   * reader via staticcheck SA1019; slated for removal together with the Type
+   * field once the external multigres-operator stops reading it.
+   *
+   * @generated from enum value: DRAINED = 3 [deprecated = true];
+   * @deprecated
    */
   DRAINED = 3,
 }
@@ -110,14 +117,38 @@ export enum PoolerLifecycleStatus {
   /**
    * LIFECYCLE_SHUTDOWN is set after the OnClose chain has run: the pooler
    * is durably down (not just announcing it via STOPPING). Written from
-   * unregisterFunc alongside Type=DRAINED. The topology entry is left in
-   * place so the orchestrator's 4 h unseen-instance bookkeeping handles
-   * eventual eviction, but the orchestrator's pooler watcher observes
+   * unregisterFunc; the derived Type becomes UNKNOWN. The topology entry is
+   * left in place so the orchestrator's 4 h unseen-instance bookkeeping
+   * handles eventual eviction, but the orchestrator's pooler watcher observes
    * the transition and stops the per-pooler health stream immediately.
    *
    * @generated from enum value: LIFECYCLE_SHUTDOWN = 4;
    */
   LIFECYCLE_SHUTDOWN = 4,
+
+  /**
+   * LIFECYCLE_QUARANTINED marks a pooler that is still running but has given
+   * up trying to become a healthy replica: it cannot automatically recover to
+   * a functioning state (e.g. it could not complete a pg_rewind, could not
+   * restore from backup to start postgres, or fell irrecoverably behind on
+   * replication) and should no longer participate in consensus or serve
+   * traffic.
+   *
+   * Only the pooler sets this on itself — poolers continuously republish their
+   * own topology record, so a value written by anyone else would be
+   * overwritten. (A future gRPC call will let the orchestrator ask a pooler to
+   * quarantine itself, e.g. when orch observes it cannot catch up while its
+   * peers replicate fine; the pooler still owns the decision to write it.)
+   *
+   * Unlike SHUTDOWN, the pod is deliberately kept alive for forensics. The
+   * operator/provisioner should treat a QUARANTINED pooler as absent from the
+   * shard's healthy replica count — a shard expecting 4 replicas with one
+   * QUARANTINED is 3 healthy + 1 retained-for-investigation — and provision a
+   * replacement rather than tearing the quarantined pod down.
+   *
+   * @generated from enum value: LIFECYCLE_QUARANTINED = 5;
+   */
+  LIFECYCLE_QUARANTINED = 5,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PoolerLifecycleStatus)
 proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleStatus", [
@@ -126,6 +157,7 @@ proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleS
   { no: 2, name: "LIFECYCLE_ACTIVE" },
   { no: 3, name: "LIFECYCLE_STOPPING" },
   { no: 4, name: "LIFECYCLE_SHUTDOWN" },
+  { no: 5, name: "LIFECYCLE_QUARANTINED" },
 ]);
 
 /**

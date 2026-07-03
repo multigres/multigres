@@ -706,6 +706,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 	// so verifyReplicationStarted always failed, eventually routing to DRAINED.
 	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
 	require.NoError(t, err)
+	//nolint:staticcheck // intentionally references the deprecated DRAINED value: this guards that it is never produced.
 	assert.NotEqual(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type,
 		"pooler must not be drained when replication starts successfully after rewind")
 }
