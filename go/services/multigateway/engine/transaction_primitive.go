@@ -86,6 +86,7 @@ func (t *TransactionPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	_ string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -682,7 +683,7 @@ func (t *TransactionPrimitive) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return t.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+	return t.StreamExecute(ctx, exec, conn, state, nil, "", info, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

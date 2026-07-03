@@ -111,6 +111,7 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -215,7 +216,7 @@ func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	return p.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }

@@ -56,7 +56,7 @@ func TestPlanVariableShowStmt_QuotedGatewayManagedName(t *testing.T) {
 
 	var results []*sqltypes.Result
 	require.NotPanics(t, func() {
-		err = prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, engine.PlanExecInfo{},
+		err = prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, "", engine.PlanExecInfo{},
 			func(_ context.Context, r *sqltypes.Result) error {
 				results = append(results, r)
 				return nil

@@ -44,7 +44,7 @@ type recordingPrimitive struct {
 
 func (r *recordingPrimitive) StreamExecute(
 	_ context.Context, _ IExecute, _ *server.Conn,
-	state *handler.MultigatewayConnectionState, _ []*ast.A_Const,
+	state *handler.MultigatewayConnectionState, _ []*ast.A_Const, _ string,
 	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -96,7 +96,7 @@ func TestSequence_StreamExecute_PrevalidatesSilentGatewayManagedTracking(t *test
 	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
-	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, "", PlanExecInfo{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `invalid value for parameter "statement_timeout": "5 seconds"`)
 	assert.Equal(t, 0, route.streamCalls, "Route must not stream a success before tracking validation fails")
@@ -111,7 +111,7 @@ func TestSequence_StreamExecute_AppliesPreparedTrackingAfterRouteSuccess(t *test
 	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
-	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, "", PlanExecInfo{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, route.streamCalls)
 	require.Len(t, route.streamInfos, 1)
@@ -128,7 +128,7 @@ func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *te
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	state := handler.NewMultigatewayConnectionState()
 
-	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, "", PlanExecInfo{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, route.streamCalls)
 	require.Len(t, route.streamInfos, 1)
@@ -150,7 +150,7 @@ func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t 
 	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
-	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, "", PlanExecInfo{}, nil)
 	require.ErrorIs(t, err, routeErr)
 	assert.Equal(t, 1, route.streamCalls)
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout())

@@ -161,7 +161,7 @@ func (s *ApplySessionState) PortalStreamExecute(
 	if s.BindRefs != nil {
 		return s.executeSetWithBinds(ctx, conn, state, portalInfo, callback)
 	}
-	return s.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	return s.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
 }
 
 // setConfigParamResolver is the small protocol-specific layer for resolving
@@ -425,6 +425,7 @@ func (s *ApplySessionState) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {

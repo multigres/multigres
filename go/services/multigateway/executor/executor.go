@@ -113,7 +113,11 @@ func (e *Executor) StreamExecute(
 		Fingerprint:   fingerprint,
 	}
 
-	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
+	// queryStr is the client's original statement text; the Route marked
+	// IsClientStatement sends it verbatim so pg_stat_activity, server logs,
+	// and error cursor positions match what the client wrote (a cached plan's
+	// own SQL is only the normalized cache template).
+	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, queryStr, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query execution failed",
 			"query", queryStr,

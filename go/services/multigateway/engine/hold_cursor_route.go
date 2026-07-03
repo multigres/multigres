@@ -68,6 +68,7 @@ func (h *HoldCursorRoute) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	_ string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -95,7 +96,7 @@ func (h *HoldCursorRoute) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return h.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+	return h.StreamExecute(ctx, exec, conn, state, nil, "", info, callback)
 }
 
 func (h *HoldCursorRoute) GetTableGroup() string { return h.TableGroup }

@@ -45,6 +45,15 @@ type Route struct {
 	// reconstruct the final SQL at execution time. Nil for non-cached plans.
 	NormalizedAST ast.Stmt
 
+	// IsClientStatement marks the Route that runs the client's own statement
+	// (set by the planner on planDefault and set_config Sequences). Such a Route
+	// prefers the per-execution clientSQL —
+	// the exact bytes the client sent — over Query/reconstruction, so
+	// pg_stat_activity, server logs, and error cursor positions match what
+	// the client wrote. Routes whose text is gateway-synthesized (e.g. the
+	// set_config resolve projection) leave this false.
+	IsClientStatement bool
+
 	// ExecuteSQLPreparedStatement, if set, describes a SQL-level EXECUTE
 	// wrapper whose prepared-statement name must be resolved by the multipooler
 	// through pooler-level consolidation before Query runs. Used for wrapped
@@ -81,7 +90,9 @@ func NewRouteWithExecuteSQLPreparedStatement(tableGroup, shard, sql string, ps *
 // It uses the IExecute interface to perform the actual execution, allowing for
 // easy testing and decoupling from concrete execution implementations.
 //
-// If bindVars is non-empty and NormalizedAST is set, the final SQL is
+// A Route marked IsClientStatement sends the per-execution clientSQL — the
+// exact statement text the client wrote — when available. Otherwise, if
+// bindVars is non-empty and NormalizedAST is set, the final SQL is
 // reconstructed by substituting the bind values into the normalized AST.
 // Otherwise, the Route's Query string is sent as-is.
 func (r *Route) StreamExecute(
@@ -90,11 +101,15 @@ func (r *Route) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	clientSQL string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	query := r.Query
-	if len(bindVars) > 0 && r.NormalizedAST != nil {
+	switch {
+	case r.IsClientStatement && clientSQL != "":
+		query = clientSQL
+	case len(bindVars) > 0 && r.NormalizedAST != nil:
 		query = ast.ReconstructSQL(r.NormalizedAST, bindVars)
 	}
 	// Execute the query through the execution interface, forwarding the plan's

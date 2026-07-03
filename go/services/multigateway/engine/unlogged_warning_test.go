@@ -39,7 +39,7 @@ func TestUnloggedWarningEmitsNotice(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []*sqltypes.Result
-			err := tc.warning.StreamExecute(context.Background(), nil, nil, nil, nil, PlanExecInfo{},
+			err := tc.warning.StreamExecute(context.Background(), nil, nil, nil, nil, "", PlanExecInfo{},
 				func(_ context.Context, r *sqltypes.Result) error {
 					got = append(got, r)
 					return nil
