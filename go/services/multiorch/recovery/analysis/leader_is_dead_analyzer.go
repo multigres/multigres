@@ -21,6 +21,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -159,6 +160,44 @@ func leaderObservedLive(sa *ShardAnalysis) bool {
 	return observationFresh(sa.Leader, sa.Now, sa.Policy.LeaderLivenessFreshness)
 }
 
+// leaderPostgresRunning reports whether the leader's last snapshot shows its
+// postgres process alive (may be true even when pg_isready fails, e.g. SIGSTOP).
+func leaderPostgresRunning(sa *ShardAnalysis) bool {
+	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresRunning()
+}
+
+// leaderLastPostgresReadyTime returns when the leader's postgres last reported
+// ready per its snapshots, or the zero time if never observed ready.
+func leaderLastPostgresReadyTime(sa *ShardAnalysis) time.Time {
+	if sa.Leader == nil {
+		return time.Time{}
+	}
+	if ts := sa.Leader.Health().GetLastPostgresReadyTime(); ts != nil {
+		return ts.AsTime()
+	}
+	return time.Time{}
+}
+
+// leaderPromoting reports whether the leader's last snapshot shows pg_promote()
+// in progress (postgres in the PROMOTING state).
+func leaderPromoting(sa *ShardAnalysis) bool {
+	return sa.Leader != nil &&
+		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
+}
+
+// hasInitializedReplica reports whether the shard has at least one non-leader,
+// reachable, initialized pooler — a postgres standby that could witness the
+// leader. Used to avoid false-positive failover when no standby has joined yet.
+func hasInitializedReplica(sa *ShardAnalysis) bool {
+	for _, pa := range sa.Analyses {
+		if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader &&
+			pa.Health().IsLastCheckValid && pa.IsInitialized() {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
@@ -183,21 +222,21 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 
 	// No initialized replica to confirm the leader is dead — skip to avoid false positives
 	// when the shard has no postgres standby that has joined the cluster yet.
-	if !sa.HasInitializedReplica {
+	if !hasInitializedReplica(sa) {
 		return nil, nil
 	}
 
 	// Suppress failover during a known pg_promote() window. The multipooler explicitly
-	// signals promotion is in progress via PromotingPrimaryID. The conditions:
-	//   - PromotingPrimaryID != nil: multipooler has flagged pg_promote() is running
+	// signals promotion is in progress (leader postgres in PROMOTING state). The conditions:
+	//   - leaderPromoting: the leader's snapshot flags pg_promote() is running
 	//   - leaderLive: we hold a recent, valid observation, so the flag is current (not stale)
-	//   - LeaderPostgresRunning: postgres process is still alive
-	// If postgres crashes during promotion, LeaderPostgresRunning=false and we fall through.
-	// If the multipooler crashes or its observation ages out, leaderLive=false and we fall through.
-	if sa.PromotingPrimaryID != nil && leaderLive && sa.LeaderPostgresRunning {
+	//   - leaderPostgresRunning: postgres process is still alive
+	// If postgres crashes during promotion, leaderPostgresRunning is false and we fall through.
+	// If the multipooler crashes or its observation ages out, leaderLive is false and we fall through.
+	if leaderPromoting(sa) && leaderLive && leaderPostgresRunning(sa) {
 		a.factory.Logger().Info("primary promotion in progress, suppressing LeaderIsDead",
 			"shard_key", sa.ShardKey.String(),
-			"promoting_primary", topoclient.ComponentIDString(sa.PromotingPrimaryID))
+			"promoting_primary", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()))
 		return nil, nil
 	}
 
@@ -228,10 +267,11 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 
 	if replicasStreamingFromLeader(sa) {
 		// Reaching here means every replica is actively streaming from the leader's
-		// postgres with fresh WAL heartbeats (isFollowerConnectedToLeader verifies
+		// postgres with fresh WAL heartbeats (followerStreamingFromLeader verifies
 		// LastMsgReceiveTime against the receiver timeout), which is direct proof the
 		// leader's postgres is alive right now. If postgres dies, those heartbeats go
-		// stale, ReplicasConnectedToLeader becomes false, and we fall through to failover.
+		// stale, replicasStreamingFromLeader becomes false, and we fall through to failover.
+		leaderPGRunning := leaderPostgresRunning(sa)
 
 		// Case 1: the leader pooler is unreachable (e.g. its process crashed) while
 		// postgres keeps serving. We cannot observe the leader's postgres directly —
@@ -242,21 +282,21 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 			a.factory.Logger().Warn("leader pooler unreachable but replicas still streaming from its postgres, suppressing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
-				"leader_postgres_running", sa.LeaderPostgresRunning)
+				"leader_postgres_running", leaderPGRunning)
 			return nil, nil
 		}
 
 		// The leader pooler is reachable, so we can trust the direct postgres signal
 		// it reports.
 		threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
-		lastReadyTime := sa.LeaderLastPostgresReadyTime
+		lastReadyTime := leaderLastPostgresReadyTime(sa)
 		primaryPostgresUnresponsive := !sa.LeaderPostgresReady &&
 			(lastReadyTime.IsZero() || time.Since(lastReadyTime) > threshold)
 
 		// Case 2: postgres process is alive but possibly unresponsive (pg_isready
 		// fails while the process exists). Suppress while it responded recently; once
 		// the window closes, allow failover so a wedged postgres cannot block it forever.
-		if sa.LeaderPostgresRunning && !primaryPostgresUnresponsive {
+		if leaderPGRunning && !primaryPostgresUnresponsive {
 			a.factory.Logger().Warn("leader postgres reachable and responsive, replicas connected, suppressing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
@@ -265,7 +305,7 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 				"threshold", threshold)
 			return nil, nil
 		}
-		if sa.LeaderPostgresRunning && primaryPostgresUnresponsive {
+		if leaderPGRunning && primaryPostgresUnresponsive {
 			a.factory.Logger().Warn("leader postgres process alive but unresponsive beyond threshold, allowing failover",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
@@ -277,12 +317,12 @@ func (a *LeaderIsDeadAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, erro
 		// Case 3: pooler is reachable but reports the postgres process is dead.
 		// This happens after SIGKILL: the process is gone but followers still show as
 		// connected (TCP keepalive has not fired yet). Do not suppress.
-		if !sa.LeaderPostgresRunning {
+		if !leaderPGRunning {
 			a.factory.Logger().Warn("leader pooler reachable but postgres process is dead, replicas still connected (stale connections)",
 				"shard_key", sa.ShardKey.String(),
 				"leader_pooler_id", topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId()),
 				"leader_postgres_ready", sa.LeaderPostgresReady,
-				"leader_postgres_running", sa.LeaderPostgresRunning,
+				"leader_postgres_running", leaderPGRunning,
 			)
 		}
 	}

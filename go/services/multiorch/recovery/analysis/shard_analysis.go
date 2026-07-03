@@ -82,28 +82,14 @@ type ShardAnalysis struct {
 	// Shard-level aggregates computed once by the generator.
 
 	// LeaderReachable is true if the topology leader's pooler is reachable AND
-	// its Postgres is running. False when TopologyLeaderID is nil.
+	// its Postgres is running. False when there is no known leader. Used by the
+	// cohort and replication-repair analyzers as the leader-led-change gate (Q3).
 	LeaderReachable bool
-
-	// HasInitializedReplica is true if at least one non-leader, reachable, initialized pooler exists
-	// in the shard. This is a postgres-layer check (is there a standby that has joined the cluster?),
-	// not a consensus-layer check — it does not require the pooler to be a cohort member. Used by
-	// LeaderIsDeadAnalyzer to avoid false positives when no postgres standby can observe the leader.
-	HasInitializedReplica bool
 
 	// LeaderPostgresReady is true if the topology leader's Postgres is accepting connections
 	// (pg_isready succeeds). Distinct from LeaderReachable: the pooler may be reachable
 	// but Postgres may not yet be ready (e.g. still starting up).
 	LeaderPostgresReady bool
-
-	// LeaderPostgresRunning is true if the topology leader's Postgres process exists,
-	// even if it is not accepting connections. False when the process is dead (SIGKILL).
-	LeaderPostgresRunning bool
-
-	// LeaderLastPostgresReadyTime is the last time the topology leader's Postgres
-	// responded healthy (IsPostgresReady was true). Zero if never seen ready.
-	// Used to time-bound failover suppression when followers are still connected.
-	LeaderLastPostgresReadyTime time.Time
 
 	// LeaderHasResigned is true when the topology leader has voluntarily requested
 	// replacement via the REQUESTING_DEMOTION signal (set during Recruit's
@@ -111,13 +97,6 @@ type ShardAnalysis struct {
 	// keys off this to trigger immediate failover, separately from the LeaderIsDead
 	// reachability-based path.
 	LeaderHasResigned bool
-
-	// PromotingPrimaryID is the ID of the topology primary that is currently running
-	// pg_promote() but has not yet transitioned to accepting connections. Nil when no
-	// promotion is in progress.
-	// Used by LeaderIsDeadAnalyzer to suppress spurious failover detection during the
-	// brief window (~5–10s) when the newly promoted node's postgres is not yet ready.
-	PromotingPrimaryID *clustermetadatapb.ID
 }
 
 // IsInStandbyList reports whether the given pooler ID appears in the leader's

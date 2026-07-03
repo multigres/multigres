@@ -24,7 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -293,7 +292,6 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	sa.Leader = topologyPrimary
 	if topologyPrimary != nil {
 		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
-		sa.LeaderPostgresRunning = topologyPrimary.Health().GetStatus().GetPostgresRunning()
 		// LeaderHasResigned: AvailabilityStatus and ConsensusTerm are populated from
 		// StatusResponse on every health stream snapshot, so LeaderNeedsReplacement
 		// correctly detects REQUESTING_DEMOTION signals without a separate RPC.
@@ -301,27 +299,11 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 		// LeaderReachable is the leader-led-change gate (Q3), used by the cohort
 		// and replication-repair analyzers: the leader's pooler check is valid,
 		// its postgres is serving, and it has not resigned. Liveness for failover
-		// *detection* (Q1) is a different, freshness-aware question judged inside
-		// LeaderIsDeadAnalyzer from the leader rider + sa.Now + sa.Policy, not from
-		// this field.
+		// *detection* (Q1) and the postgres-running / promoting / last-ready-time
+		// signals are judged inside LeaderIsDeadAnalyzer from the leader rider, not
+		// pre-baked here.
 		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
 			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
 			!sa.LeaderHasResigned
-		if topologyPrimary.Health().LastPostgresReadyTime != nil {
-			sa.LeaderLastPostgresReadyTime = topologyPrimary.Health().LastPostgresReadyTime.AsTime()
-		}
-
-		// Detect pg_promote transition: multipooler explicitly signals promotion is running.
-		if topologyPrimary.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
-			sa.PromotingPrimaryID = topologyPrimary.Health().MultiPooler.Id
-		}
-	}
-
-	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
-	for _, pa := range sa.Analyses {
-		if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader && pa.Health().IsLastCheckValid && pa.IsInitialized() {
-			sa.HasInitializedReplica = true
-			break
-		}
 	}
 }

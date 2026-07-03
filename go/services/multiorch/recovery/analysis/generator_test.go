@@ -898,8 +898,6 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 
 		assert.True(t, sa.LeaderPostgresReady)
 		assert.True(t, sa.LeaderReachable)
-		assert.WithinDuration(t, respondedAt, sa.LeaderLastPostgresReadyTime, time.Second,
-			"PrimaryLastPostgresReadyTime should be propagated from primary's LastPostgresReadyTime")
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
